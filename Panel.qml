@@ -414,7 +414,31 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
-  // A text-message notification opens its conversation.
+  // Notifications opened to their full text, by id. Memory only: they go
+  // away with the notification.
+  property var expandedNotes: ({})
+  function toggleExpanded(n) {
+    if (!n) return
+    var next = Object.assign({}, expandedNotes)
+    if (next[n.id]) delete next[n.id]
+    else next[n.id] = true
+    expandedNotes = next
+  }
+
+  // A text-message notification opens its conversation; with no thread to
+  // match, the messages view opens searched for who sent it.
+  function openNotificationConversation(n) {
+    if (!n) return
+    var tid = threadForNotification(n)
+    if (tid >= 0) { openMessagesView(tid, true); return }
+    openMessagesView(-1)
+    Qt.callLater(function() { if (messagesView) messagesView.setSearch(Model.notificationTitle(n)) })
+  }
+
+  function isTextNotification(n) {
+    return !!n && (Model.isMessagingApp(n.app) || threadForNotification(n) >= 0)
+  }
+
   function threadForNotification(n) {
     if (!sms || !n) return -1
     var rev = sms.modelRevision
@@ -659,6 +683,7 @@ Panel {
       ]
       return "ok"
     }
+    function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.showDevices, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
@@ -835,6 +860,12 @@ Panel {
         if (t === ".") { root.nudgePosition(10); return }
         if (t === "[" && root.phone) { root.phone.mediaAction("Previous", root.shownPlayerObject); return }
         if (t === "]" && root.phone) { root.phone.mediaAction("Next", root.shownPlayerObject); return }
+        if (t === "e" && root.cursorActive && root.focusSection === "notifications") { root.toggleExpanded(root.notifications[root.notifIndex]); return }
+        if (t === "o" && root.cursorActive && root.focusSection === "notifications") {
+          var tn = root.notifications[root.notifIndex]
+          if (root.isTextNotification(tn)) root.openNotificationConversation(tn)
+          return
+        }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
           root.openReply(root.notifications[root.notifIndex])
       }
@@ -1772,6 +1803,8 @@ Panel {
     property int rowIndex: 0
     readonly property bool replying: root.replyingTo !== "" && root.replyingTo === note.id
     readonly property string body: Model.notificationBody(note)
+    readonly property bool expanded: root.expandedNotes[note.id] === true
+    readonly property bool isText: root.isTextNotification(note)
 
     hasCursor: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex
     foreground: root.foreground
@@ -1782,11 +1815,10 @@ Panel {
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
-      readonly property int thread: root.threadForNotification(row.note)
-      acceptedButtons: thread >= 0 ? Qt.LeftButton : Qt.NoButton
-      cursorShape: thread >= 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
+      acceptedButtons: row.isText ? Qt.LeftButton : Qt.NoButton
+      cursorShape: row.isText ? Qt.PointingHandCursor : Qt.ArrowCursor
       onEntered: { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = row.rowIndex }
-      onClicked: if (thread >= 0) root.openMessagesView(thread, true)
+      onClicked: if (row.isText) root.openNotificationConversation(row.note)
     }
 
     RowLayout {
@@ -1852,7 +1884,9 @@ Panel {
           font.bold: true
           elide: Text.ElideRight
         }
+        // Three lines, and the whole message on a click (or e).
         Text {
+          id: bodyText
           textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: row.body !== ""
@@ -1862,8 +1896,32 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.Wrap
-          maximumLineCount: 3
+          maximumLineCount: row.expanded ? 500 : 3
           elide: Text.ElideRight
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: bodyText.truncated || (row.expanded && bodyText.lineCount > 3)
+            cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: root.toggleExpanded(row.note)
+          }
+        }
+        Text {
+          // Only when there is more than three lines to show or hide.
+          visible: bodyText.truncated || (row.expanded && bodyText.lineCount > 3)
+          textFormat: Text.PlainText
+          text: row.expanded ? "Show less" : "Show all"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          font.underline: moreMouse.containsMouse
+          MouseArea {
+            id: moreMouse
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.toggleExpanded(row.note)
+          }
         }
 
         Flow {
@@ -1924,6 +1982,14 @@ Panel {
         Layout.alignment: Qt.AlignTop
         spacing: Style.space(2)
 
+        PanelActionButton {
+          visible: row.isText
+          iconText: Model.GLYPH.messages
+          tooltipText: "Open the conversation (o)"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          onClicked: root.openNotificationConversation(row.note)
+        }
         PanelActionButton {
           visible: !!row.note.replyId
           iconText: Model.GLYPH.reply

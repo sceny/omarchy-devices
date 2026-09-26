@@ -144,13 +144,15 @@ test("a text-message notification finds its thread by name or number", () => {
   assert.equal(M.threadForNotification({ app: "Messages", title: "Alex" }, threads), 1)
   assert.equal(M.threadForNotification({ app: "Messages", title: "+1 514-555-0123" }, threads), 1)
   assert.equal(M.threadForNotification({ app: "Chat", title: "Alex" }, threads), -1)
+  for (const app of ["Messages", "Samsung Messages", "Google Messages", "QKSMS", "Signal", "SMS"]) assert.equal(M.isMessagingApp(app), true, app)
+  for (const app of ["WhatsApp", "Gmail", "YouTube"]) assert.equal(M.isMessagingApp(app), false, app)
 })
 
 test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.metaLine(M.demoSnapshot(null, "down"), null), "KDE Connect is not running")
   assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired device")
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 3)
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 4)
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
 })
 
