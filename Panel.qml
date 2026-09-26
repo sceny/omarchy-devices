@@ -840,6 +840,7 @@ Panel {
         volume: { reported: root.reportedVolume, wish: root.volumeWish, shown: root.shownVolume },
         shownPlaying: cardRepeater.itemAt(root.shownPlayer) ? cardRepeater.itemAt(root.shownPlayer).playing : null,
         cardsBuilt: root.cardsBuilt,
+        sectionOrder: root.sectionOrder, settingsIndex: root.settingsIndex,
         composing: root.composing, composerFocused: root.composerFocused, replying: root.replyingTo, cursor: root.cursorActive ? root.focusSection + ":" + (root.focusSection === "notifications" ? root.notifIndex : root.actionIndex) : "",
         browsed: root.browsedName
       })

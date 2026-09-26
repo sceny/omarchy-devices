@@ -55,7 +55,7 @@ panel and made for the keyboard.
 ## Make it yours
 
 
-![Settings: the Layout, Shortcuts and Setup sections, Setup folded (demo data)](docs/settings.png)
+![Settings: the sections in their order with their switches, the shortcuts, Setup folded (demo data)](docs/settings.png)
 
 - **Layout:** show, hide and order the sections, and fold any of them to a
   single line that still says what is in it (the track and its cover, the

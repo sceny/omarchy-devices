@@ -118,8 +118,8 @@ function composerHint(text, device, canPing) {
 // order. `section` is the section's key on the main page (fold, cursor).
 var LAYOUT = [
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
-  { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing, while something plays" },
-  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply and dismiss" }
+  { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
 ]
 
 var DEFAULT_SECTIONS = ["actions", "media", "notifications"]
