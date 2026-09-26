@@ -3,6 +3,12 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## Unreleased
+
+- Cellular signal bars beside the network type on the panel's meta line
+  (`󰣸 LTE`); the bars alone when the phone has no type to report, nothing
+  on a device with no cellular network (#11).
+
 ## 0.4.0 — 2026-09-26
 
 The first public release, as `sceny.devices`.

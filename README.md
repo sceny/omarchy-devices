@@ -36,7 +36,8 @@ panel and made for the keyboard.
 
 - **Battery in the bar:** the device's glyph and charge (`󰄜 63%󱐋`), dimmed
   while it is away, urgent when it runs low. Click for the panel,
-  middle-click for messages.
+  middle-click for messages. The panel adds the link (Wi-Fi or Bluetooth)
+  and the cellular signal bars and network type (`󰣸 LTE`).
 - **Notifications** from the device, with inline reply, dismiss and the
   app's own actions.
 - **Now playing:** the device's active media player, with the others a swipe
