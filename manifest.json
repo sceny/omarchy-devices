@@ -24,6 +24,7 @@
       "showPercent": true,
       "lowBatteryPercent": 15,
       "deviceId": "",
+      "showDevices": true,
       "showShortcuts": true,
       "showMedia": true,
       "showNotifications": true,
@@ -32,9 +33,22 @@
         "share",
         "clipboard",
         "messages"
+      ],
+      "sectionOrder": [
+        "devices",
+        "actions",
+        "media",
+        "notifications"
       ]
     },
     "schema": [
+      {
+        "key": "showDevices",
+        "type": "boolean",
+        "label": "Show devices",
+        "defaultValue": true,
+        "description": "Other devices, pairing and requests, when there is a choice to make."
+      },
       {
         "key": "showShortcuts",
         "type": "boolean",
@@ -54,7 +68,28 @@
         "type": "boolean",
         "label": "Show notifications",
         "defaultValue": true,
-        "description": "The phone's notifications, with reply and dismiss."
+        "description": "The phone's notifications, with reply and dismiss. Hidden while there are none."
+      },
+      {
+        "key": "sectionOrder",
+        "type": "array",
+        "label": "Section order",
+        "defaultValue": [
+          "devices",
+          "actions",
+          "media",
+          "notifications"
+        ],
+        "items": {
+          "type": "string",
+          "enum": [
+            "devices",
+            "actions",
+            "media",
+            "notifications"
+          ]
+        },
+        "description": "The order of the sections under the header. Edited from the panel's settings page (gear icon)."
       },
       {
         "key": "shortcuts",
@@ -72,6 +107,7 @@
             "ring",
             "share",
             "clipboard",
+            "text",
             "messages",
             "ping",
             "playPause",

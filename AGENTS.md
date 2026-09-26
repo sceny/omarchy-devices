@@ -115,13 +115,15 @@ Each rule records a fault that was hit or a decision the owner made.
   folded Shortcuts become a row of icons that still work.
   Every section, on the main page and in settings, uses the same
   `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
-- **Sections move without being rebuilt.** Shortcuts, Now playing and
-  Notifications are fixed items placed by `sectionOrder` (`sectionsBox`), so
-  a new order keeps the media cards and a half-typed text. Devices stays
-  first: it says which device the rest is about. `stackBefore`/`stackAfter`
-  are not callable from QML; do not reach for them.
-- **Devices appear only when there is a choice**: a second paired device,
-  one to pair with, or a request. Unpair asks twice.
+- **Sections move without being rebuilt.** Devices, Shortcuts, Now playing
+  and Notifications are fixed items placed by `sectionOrder`
+  (`sectionsBox`), so a new order keeps the media cards and a half-typed
+  text. `stackBefore`/`stackAfter` are not callable from QML; do not reach
+  for them. A separator goes between sections, never under the header.
+- **A section shows when its Layout switch is on and it has something:**
+  Devices only when there is a choice (a second paired device, one to pair
+  with, or a request), Now playing while a player exists, Notifications
+  while there are any (no empty state). Unpair asks twice.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.

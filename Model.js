@@ -114,15 +114,16 @@ function composerHint(text, device, canPing) {
   return canPing ? line + " · Ctrl+Enter pings it instead" : line
 }
 
-// The three sections below the header that the Layout settings switch and
-// order. `section` is the section's key on the main page (fold, cursor).
+// The sections below the header that the Layout settings switch and order.
+// `section` is the section's key on the main page (fold, cursor).
 var LAYOUT = [
+  { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
 ]
 
-var DEFAULT_SECTIONS = ["actions", "media", "notifications"]
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -130,8 +131,9 @@ function layoutBySection(section) {
 }
 
 // The stored section order, cleaned: known sections once each, and any it
-// leaves out after them in their default place. Every section always has a
-// place; whether it shows is its Layout switch.
+// leaves out put back at their default position (an order saved before
+// Devices could move gets Devices first). Every section always has a place;
+// whether it shows is its Layout switch.
 function normalizeSections(value) {
   if (typeof value === "string") {
     try { value = JSON.parse(value) } catch (e) { value = null }
@@ -143,7 +145,8 @@ function normalizeSections(value) {
       if (DEFAULT_SECTIONS.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key)
     }
   }
-  for (var j = 0; j < DEFAULT_SECTIONS.length; j++) if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.push(DEFAULT_SECTIONS[j])
+  for (var j = 0; j < DEFAULT_SECTIONS.length; j++)
+    if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.splice(Math.min(j, out.length), 0, DEFAULT_SECTIONS[j])
   return out
 }
 

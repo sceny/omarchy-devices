@@ -72,16 +72,18 @@ test("send text: a lone web address is a link, anything else is text", () => {
   assert.ok(M.DEFAULT_SHORTCUTS.indexOf("text") < 0, "not in the default row; picked in settings")
 })
 
-test("section order: known sections once, the missing ones after, in their default place", () => {
-  assert.deepEqual(M.normalizeSections(undefined), ["actions", "media", "notifications"])
-  assert.deepEqual(M.normalizeSections(["notifications", "actions"]), ["notifications", "actions", "media"])
-  assert.deepEqual(M.normalizeSections(["media", "bogus", "media"]), ["media", "actions", "notifications"])
-  assert.deepEqual(M.normalizeSections('["notifications"]'), ["notifications", "actions", "media"], "a hand-edited string")
-  assert.deepEqual(M.normalizeSections([]), ["actions", "media", "notifications"], "an empty list is not a choice: sections hide by their switch")
-  const rows = M.settingsRows({ showMedia: false }, [], {}, ["notifications", "media"]).filter(r => r.kind === "layout")
-  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "actions"])
-  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, true]])
-  assert.equal(rows[1].on, false)
+test("section order: known sections once, the missing ones back at their default position", () => {
+  const all = ["devices", "actions", "media", "notifications"]
+  assert.deepEqual(M.normalizeSections(undefined), all)
+  assert.deepEqual(M.normalizeSections([]), all, "an empty list is not a choice: sections hide by their switch")
+  assert.deepEqual(M.normalizeSections(["actions", "media", "notifications"]), all, "an order saved before Devices moved: Devices first")
+  assert.deepEqual(M.normalizeSections(["notifications", "devices", "actions", "media"]), ["notifications", "devices", "actions", "media"])
+  assert.deepEqual(M.normalizeSections(["media", "bogus", "media", "devices"]), ["media", "actions", "devices", "notifications"])
+  assert.deepEqual(M.normalizeSections('["notifications"]'), ["devices", "actions", "media", "notifications"], "a hand-edited string; the rest back at their default position")
+  const rows = M.settingsRows({ showMedia: false }, [], {}, ["notifications", "media", "devices", "actions"]).filter(r => r.kind === "layout")
+  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "devices", "actions"])
+  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, false], [false, true]])
+  assert.deepEqual(rows.map(r => r.on), [true, false, true, true])
 })
 
 test("the glyph and the word follow the device type", () => {
@@ -118,7 +120,7 @@ test("shortcuts: stored order is cleaned, toggled, moved; empty stays empty", ()
 
 test("settings rows: layout switches, chosen shortcuts in order, then the rest", () => {
   const rows = M.settingsRows({ showMedia: false }, ["messages", "ring"], { ring: true, sms: true })
-  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, false, true])
+  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, true, false, true])
   const s = rows.filter(r => r.kind === "shortcut")
   assert.deepEqual(s.slice(0, 2).map(r => r.key), ["messages", "ring"])
   assert.equal(s[0].first, true)
@@ -236,10 +238,10 @@ test("demo devices cover requests, away and available", () => {
 
 test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({}), "Everything shown")
-  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications")
-  assert.equal(M.layoutSummary({ showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
-  assert.equal(M.layoutSummary({}, ["notifications", "actions", "media"]), "Notifications, Shortcuts, Now playing", "a new order is never hidden")
-  assert.equal(M.layoutSummary({ showMedia: false }, ["media", "notifications"]), "Notifications, Shortcuts")
+  assert.equal(M.layoutSummary({ showMedia: false }), "Devices, Shortcuts, Notifications")
+  assert.equal(M.layoutSummary({ showDevices: false, showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
+  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Devices, Shortcuts, Now playing", "a new order is never hidden")
+  assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
   assert.equal(M.setupSummary([]), "Checking…")
