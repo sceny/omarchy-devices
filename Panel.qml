@@ -36,6 +36,7 @@ Panel {
 
   // Layout settings, from this widget's shell.json entry. Written only by the
   // settings page (persistSettings), read everywhere else.
+  readonly property bool showDevices: Model.layoutFlag(setting("showDevices", true))
   readonly property bool showShortcuts: Model.layoutFlag(setting("showShortcuts", true))
   readonly property bool showMedia: Model.layoutFlag(setting("showMedia", true))
   readonly property bool showNotifications: Model.layoutFlag(setting("showNotifications", true))
@@ -176,7 +177,7 @@ Panel {
   }
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
-    { showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
+    { showDevices: showDevices, showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
     shortcutOrder, device ? device.can : null, sectionOrder)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
@@ -250,7 +251,8 @@ Panel {
 
   // Every device KDE Connect knows, for the Devices section.
   readonly property var deviceRows: Model.deviceRows(snapshot, device ? device.id : "")
-  readonly property bool showDevices: Model.showDevicesSection(deviceRows)
+  // Whether the Devices section has anything to offer (a choice or a request).
+  readonly property bool devicesWanted: Model.showDevicesSection(deviceRows)
   property int deviceIndex: 0
   // The device whose Unpair is armed (x once, then x again; or two clicks).
   property string unpairArmed: ""
@@ -259,9 +261,11 @@ Panel {
   // Folded sections, from this widget's settings; folded on the user's click.
   readonly property var collapsed: Model.collapsedState(setting("collapsed", null))
   function isCollapsed(key) { return collapsed[key] === true }
+  // Only folded sections are stored; unfolding drops the key.
   function toggleCollapsed(key) {
     var next = Object.assign({}, collapsed)
-    next[key] = !(next[key] === true)
+    if (next[key] === true) delete next[key]
+    else next[key] = true
     persistSettings({ collapsed: next })
   }
 
@@ -308,31 +312,26 @@ Panel {
   readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
-  // The sections drawn under the header, in the chosen order. Notifications
-  // draws its empty state too, so it counts here even with none.
+  // The sections drawn under the header, in the chosen order: switched on
+  // in Layout and with something in them. Devices shows while the device is
+  // away too (another one may be there to switch to).
   readonly property var drawnSections: {
     var s = []
-    if (!reachable) return s
     for (var i = 0; i < sectionOrder.length; i++) {
       var key = sectionOrder[i]
-      if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
+      if (key === "devices") { if (showDevices && devicesWanted) s.push(key) }
+      else if (!reachable) continue
+      else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
-      else if (key === "notifications" && showNotifications) s.push(key)
+      else if (key === "notifications" && showNotifications && notifications.length > 0) s.push(key)
     }
     return s
   }
-  // A line between sections, never under the header (the devices section,
-  // always first, brings its own).
+  // A line between sections, never under the header.
   function separatedAbove(key) { return drawnSections.indexOf(key) > 0 }
 
   // Where the keyboard cursor can go, top to bottom.
-  readonly property var sections: {
-    var s = []
-    if (showDevices) s.push("devices")
-    for (var i = 0; i < drawnSections.length; i++)
-      if (drawnSections[i] !== "notifications" || notifications.length > 0) s.push(drawnSections[i])
-    return s
-  }
+  readonly property var sections: drawnSections
 
 
   function runAction(key) {
@@ -750,7 +749,7 @@ Panel {
     }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
-    function devices(): string { return JSON.stringify({ shown: root.showDevices, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
+    function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
     function pageState(): string {
       return JSON.stringify({ target: root.targetPage, shown: root.shownPage, running: pageSwap.running,
@@ -1050,95 +1049,12 @@ Panel {
               x: pageHost.slide
               width: parent.width
               spacing: Style.space(12)
-              // ---- Devices: only when there is a choice or a decision ----
-              Column {
-                id: devicesColumn
-                visible: root.showMain && root.showDevices
-                width: parent.width
-                spacing: Style.space(6)
-
-                FoldToggle {
-
-                  foreground: root.foreground
-
-                  fontFamily: root.fontFamily
-
-                  motion: root.motion
-
-                  animate: root.settled
-                  width: parent.width
-                  title: "DEVICES · " + root.deviceRows.length
-                  folded: root.isCollapsed("devices")
-                  summary: Model.devicesSummary(root.deviceRows)
-                  onToggled: root.toggleCollapsed("devices")
-                }
-
-                FoldBody {
-
-                  motion: root.motion
-
-                  animate: root.settled
-                  id: deviceColumn
-                  open: !root.isCollapsed("devices")
-                  spacing: Style.space(4)
-
-                  Repeater {
-                    model: root.deviceRows
-                    DeviceRow {
-                      required property var modelData
-                      required property int index
-                      width: deviceColumn.width
-                      row: modelData
-                      rowIndex: index
-                    }
-                  }
-                }
-
-                PanelSeparator { foreground: root.foreground }
-              }
-
-              // ---- Away, not paired, or KDE Connect down ----
-              Column {
-                id: awayColumn
-                visible: root.showMain && !root.reachable
-                width: parent.width
-                spacing: Style.space(10)
-
-                Text {
-                  textFormat: Text.PlainText
-                  width: parent.width
-                  wrapMode: Text.WordWrap
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  text: {
-                    if (!root.phone || !root.snapshot) return "Looking for your devices…"
-                    if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
-                    if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
-                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
-                  }
-                }
-
-                // What stands in the way, with a fix for what can be fixed here.
-                SetupChecks {
-                  visible: !!root.snapshot
-                  width: parent.width
-                  checks: root.phone ? root.phone.setupChecks : []
-                  busyFixes: root.phone ? root.phone.setupFixing : ({})
-                  showPhoneSteps: !root.device
-                  foreground: root.foreground
-                  urgent: root.urgent
-                  fontFamily: root.fontFamily
-                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
-                }
-              }
-
               // ---- The sections, in the order chosen in settings. They are fixed
               //      items placed by that order, so a new order rebuilds
               //      nothing: the media cards and a half-typed text keep their state ----
               Item {
                 id: sectionsBox
-                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property var items: ({ devices: devicesColumn, actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
                 readonly property real gap: Style.space(12)
                 function topOf(key) {
                   var y = 0
@@ -1157,6 +1073,54 @@ Panel {
                   return h
                 }
                 implicitHeight: height
+
+                // ---- Devices: only when there is a choice or a decision ----
+                Column {
+                  id: devicesColumn
+                  y: sectionsBox.topOf("devices")
+                  visible: root.showMain && root.drawnSections.indexOf("devices") >= 0
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  PanelSeparator { visible: root.separatedAbove("devices"); foreground: root.foreground }
+
+                  FoldToggle {
+
+                    foreground: root.foreground
+
+                    fontFamily: root.fontFamily
+
+                    motion: root.motion
+
+                    animate: root.settled
+                    width: parent.width
+                    title: "DEVICES · " + root.deviceRows.length
+                    folded: root.isCollapsed("devices")
+                    summary: Model.devicesSummary(root.deviceRows)
+                    onToggled: root.toggleCollapsed("devices")
+                  }
+
+                  FoldBody {
+
+                    motion: root.motion
+
+                    animate: root.settled
+                    id: deviceColumn
+                    open: !root.isCollapsed("devices")
+                    spacing: Style.space(4)
+
+                    Repeater {
+                      model: root.deviceRows
+                      DeviceRow {
+                        required property var modelData
+                        required property int index
+                        width: deviceColumn.width
+                        row: modelData
+                        rowIndex: index
+                      }
+                    }
+                  }
+                }
 
                 // ---- Shortcuts: up to four per row, in the order chosen in settings.
                 //      Folded, a row of icons in the header that still work ----
@@ -1528,36 +1492,7 @@ Panel {
                     spacing: Style.space(8)
 
                     Column {
-                      visible: root.notifications.length === 0
-                      width: parent.width
-                      spacing: Style.space(4)
-                      topPadding: Style.space(4)
-                      bottomPadding: Style.space(4)
-
-                      Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: Model.GLYPH.bellOff
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.heading
-                      }
-                      Text {
-                        textFormat: Text.PlainText
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        wrapMode: Text.WordWrap
-                        text: root.can.notifications === false
-                          ? "Notification sync is off for this " + Model.deviceNoun(root.device) + "."
-                          : "Nothing new. If " + Model.deviceLabel(root.device) + " has notifications, allow notification access in its KDE Connect app."
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                      }
-                    }
-
-                    Column {
                       id: notifColumn
-                      visible: root.notifications.length > 0
                       width: parent.width
                       spacing: Style.space(4)
 
@@ -1573,6 +1508,42 @@ Panel {
                       }
                     }
                   }
+                }
+              }
+
+              // ---- Away, not paired, or KDE Connect down ----
+              Column {
+                id: awayColumn
+                visible: root.showMain && !root.reachable
+                width: parent.width
+                spacing: Style.space(10)
+
+                Text {
+                  textFormat: Text.PlainText
+                  width: parent.width
+                  wrapMode: Text.WordWrap
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  text: {
+                    if (!root.phone || !root.snapshot) return "Looking for your devices…"
+                    if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
+                    if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
+                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
+                  }
+                }
+
+                // What stands in the way, with a fix for what can be fixed here.
+                SetupChecks {
+                  visible: !!root.snapshot
+                  width: parent.width
+                  checks: root.phone ? root.phone.setupChecks : []
+                  busyFixes: root.phone ? root.phone.setupFixing : ({})
+                  showPhoneSteps: !root.device
+                  foreground: root.foreground
+                  urgent: root.urgent
+                  fontFamily: root.fontFamily
+                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 }
               }
 
@@ -1600,7 +1571,7 @@ Panel {
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 shortcutsShown: root.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
+                flags: ({ showDevices: root.showDevices, showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
                 order: root.shortcutOrder
                 sectionOrder: root.sectionOrder
                 motion: root.motion

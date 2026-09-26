@@ -5,8 +5,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
-- Order the sections (Shortcuts, Now playing, Notifications) in Layout
-  settings, with the arrows or Shift+K/Shift+J.
+- Order the sections (Devices, Shortcuts, Now playing, Notifications) in
+  Layout settings, with the arrows or Shift+K/Shift+J; Devices has its own
+  switch too.
+- Notifications hides while there are none, instead of an empty state.
 - Shortcuts fold like the other sections; folded, they become a row of
   icons in the header that still work.
 - Send text or a link to the device from the panel: a Send text shortcut
