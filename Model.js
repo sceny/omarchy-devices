@@ -238,7 +238,27 @@ function batteryGlyph(device, lowPercent) {
   return String.fromCodePoint(BATTERY_GLYPHS[step])
 }
 
-// Hero meta line: "󰁹 91% · WI-FI · LTE". The battery leads, as a glyph the
+// Cellular signal as a text-sized glyph: KDE Connect reports 0-4 bars, and
+// the triangle set has an empty one and one to four (checked by rendering).
+// Nothing when the device reports no cellular network or no strength.
+var SIGNAL_GLYPHS = [0xF08FE, 0xF08F4, 0xF08F6, 0xF08F8, 0xF08FA]
+
+function signalGlyph(device) {
+  var s = device && device.network ? Number(device.network.strength) : -1
+  if (!(s >= 0)) return ""
+  return String.fromCodePoint(SIGNAL_GLYPHS[Math.min(4, Math.round(s))])
+}
+
+// The cellular part of the meta line: "󰣸 LTE", or the bars alone when the
+// phone has a signal but no network type to name.
+function networkText(device) {
+  var net = device && device.network ? String(device.network.type || "").trim() : ""
+  // Android says "Unknown" when it has no cellular type; that is not news.
+  if (/^unknown$/i.test(net)) net = ""
+  return [signalGlyph(device), net].filter(function (p) { return p !== "" }).join(" ")
+}
+
+// Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
 // size of the text, since the bolt in it says charging. With no charge known
 // it says "CONNECTED". Away or down, just the status.
 function metaLine(snapshot, device, lowPercent) {
@@ -247,9 +267,8 @@ function metaLine(snapshot, device, lowPercent) {
   var c = batteryCharge(device)
   parts.push(c >= 0 ? batteryGlyph(device, lowPercent) + " " + c + "%" : "Connected")
   if (device.links && device.links.length) parts.push(device.links[0] === "LAN" ? "Wi-Fi" : device.links[0])
-  var net = device.network ? String(device.network.type || "").trim() : ""
-  // Android says "Unknown" when it has no cellular type; that is not news.
-  if (net && !/^unknown$/i.test(net)) parts.push(net)
+  var net = networkText(device)
+  if (net) parts.push(net)
   return parts.join(" · ")
 }
 

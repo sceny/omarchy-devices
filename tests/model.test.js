@@ -47,6 +47,18 @@ test("meta line leads with a text-sized battery glyph and never says charging or
   assert.equal(M.metaLine({ daemon: false, devices: [] }, null), "KDE Connect is not running")
 })
 
+test("cellular signal: 0-4 bars beside the network type, nothing without a network", () => {
+  const bars = n => String.fromCodePoint(M.SIGNAL_GLYPHS[n])
+  assert.equal(M.networkText(device()), bars(3) + " LTE")
+  assert.equal(M.networkText(device({ network: { type: "5G", strength: 0 } })), bars(0) + " 5G", "no service still shows empty bars")
+  assert.equal(M.networkText(device({ network: { type: "Unknown", strength: 1 } })), bars(1), "bars alone when the type is unknown")
+  assert.equal(M.networkText(device({ network: { type: "LTE", strength: -1 } })), "LTE", "no strength reported: the type alone")
+  assert.equal(M.networkText(device({ network: undefined })), "", "a Wi-Fi-only tablet reports no network")
+  assert.equal(M.networkText(device({ network: { type: "LTE", strength: 7 } })), bars(4) + " LTE")
+  assert.match(M.metaLine(snap(device()), device(), 15), new RegExp(" · Wi-Fi · " + bars(3) + " LTE$", "u"))
+  assert.equal(new Set(M.SIGNAL_GLYPHS).size, 5)
+})
+
 test("the glyph and the word follow the device type", () => {
   assert.equal(M.deviceGlyph(device()).codePointAt(0), 0xF011C)
   assert.equal(M.deviceGlyph(device({ type: "tablet" })).codePointAt(0), 0xF04F6)
