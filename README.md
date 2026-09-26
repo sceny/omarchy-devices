@@ -55,11 +55,12 @@ panel and made for the keyboard.
 ## Make it yours
 
 
-![Settings: the Layout, Shortcuts and Setup sections, Setup folded (demo data)](docs/settings.png)
+![Settings: the sections in their order with their switches, the shortcuts, Setup folded (demo data)](docs/settings.png)
 
-- **Layout:** show or hide each section, and fold any of them to a single
-  line that still says what is in it (the track and its cover, the latest
-  notification). Everything you arrange is remembered.
+- **Layout:** show, hide and order the sections, and fold any of them to a
+  single line that still says what is in it (the track and its cover, the
+  latest notification) or still works (folded shortcuts become a row of
+  icons). Everything you arrange is remembered.
 - **Shortcuts:** tick the ones you want and put them in order.
 - **Setup:** checks that KDE Connect is installed, running and let through
   the firewall, with a button to fix what is missing, plus the steps on the
@@ -76,7 +77,7 @@ media carousel, Enter activates (play/pause on the media card), `[`/`]` skip
 track, `r` opens a notification's reply field, `x`
 dismisses it, Enter on Send text opens its field (Enter sends, Ctrl+Enter
 pings, Esc closes), `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
-settings (there: Enter toggles, Shift+K/Shift+J reorder a shortcut). Esc closes
+settings (there: Enter toggles, Shift+K/Shift+J move a section or a shortcut). Esc closes
 settings, then the panel; Tab moves to the neighbouring bar panel.
 
 ## Good to know

@@ -92,7 +92,7 @@ Each rule records a fault that was hit or a decision the owner made.
 - **UI state persists.** What the user arranged is still there after the
   panel closes, the shell restarts or the machine reboots, stored in this
   widget's `shell.json` entry: folded sections, main page and settings (`collapsed`), section
-  visibility and shortcuts, the followed device (`deviceId`), and the
+  visibility and order (`sectionOrder`) and shortcuts, the followed device (`deviceId`), and the
   conversation last open in messages, per device (`lastThread`), and the
   messages unread filter (`unreadOnly`). New UI
   state follows the same path unless it is private: unsent message drafts
@@ -111,9 +111,15 @@ Each rule records a fault that was hit or a decision the owner made.
   Nothing appears in the flow of the panel for a moment and moves the rest.
 - **Sections fold with an animation, never a jump:** content grows or
   shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all
-  at `Model.MOTION`. Folded Now playing keeps the cover and a play button.
+  at `Model.MOTION`. Folded Now playing keeps the cover and a play button;
+  folded Shortcuts become a row of icons that still work.
   Every section, on the main page and in settings, uses the same
   `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
+- **Sections move without being rebuilt.** Shortcuts, Now playing and
+  Notifications are fixed items placed by `sectionOrder` (`sectionsBox`), so
+  a new order keeps the media cards and a half-typed text. Devices stays
+  first: it says which device the rest is about. `stackBefore`/`stackAfter`
+  are not callable from QML; do not reach for them.
 - **Devices appear only when there is a choice**: a second paired device,
   one to pair with, or a request. Unpair asks twice.
 - **Playback notifications are not notifications here**: from an app with a

@@ -5,6 +5,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
+- Order the sections (Shortcuts, Now playing, Notifications) in Layout
+  settings, with the arrows or Shift+K/Shift+J.
+- Shortcuts fold like the other sections; folded, they become a row of
+  icons in the header that still work.
 - Send text or a link to the device from the panel: a Send text shortcut
   opens a field; text lands on the device's clipboard, a link arrives ready
   to open, and Ctrl+Enter sends it as a ping with that message (#10).
