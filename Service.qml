@@ -154,7 +154,7 @@ Item {
 
   function run(verb, args, key) {
     if (!device || !device.reachable) return
-    if (demo) { report("Demo mode: nothing was sent to the phone", false); return }
+    if (demo) { report("Demo mode: nothing was sent to the device", false); return }
     key = key || verb
     if (busy[key]) return
     setBusy(key, true)

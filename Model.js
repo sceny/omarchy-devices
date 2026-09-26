@@ -5,6 +5,7 @@
 
 var GLYPH = {
   phone: "\u{F011C}",        // cellphone
+  devices: "\u{F0FB0}",      // devices: nothing paired, or a type we do not know
   ring: "\u{F0815}",         // cellphone-wireless
   sendFile: "\u{F0A4D}",     // file-upload
   clipboard: "\u{F0192}",    // content-paste
@@ -47,15 +48,39 @@ var GLYPH = {
 // conversation reveal all use these, so nothing moves on its own clock.
 var MOTION = { outMs: 90, inMs: 220 }
 
+// A device's glyph and the word for it, from KDE Connect's device type.
+var DEVICE_KINDS = {
+  phone: { glyph: 0xF011C, noun: "phone" },
+  tablet: { glyph: 0xF04F6, noun: "tablet" },
+  laptop: { glyph: 0xF0322, noun: "laptop" },
+  desktop: { glyph: 0xF0AAB, noun: "computer" },
+  tv: { glyph: 0xF0502, noun: "TV" }
+}
+
+function deviceGlyph(device) {
+  var kind = device ? DEVICE_KINDS[String(device.type || "")] : null
+  return kind ? String.fromCodePoint(kind.glyph) : GLYPH.devices
+}
+
+function deviceNoun(device) {
+  var kind = device ? DEVICE_KINDS[String(device.type || "")] : null
+  return kind ? kind.noun : "device"
+}
+
+// What to call the device in a sentence: its name, else "the device".
+function deviceLabel(device) {
+  return device && device.name ? String(device.name) : "the device"
+}
+
 // Every shortcut the bar row can hold. `needs` names the device capability
 // (snapshot `can`) it depends on; "" means it works without the phone.
 var SHORTCUTS = [
-  { key: "ring", glyph: GLYPH.ring, label: "Ring", hint: "Ring the phone, even on silent", needs: "ring" },
-  { key: "share", glyph: GLYPH.sendFile, label: "Send files", hint: "Pick files to send to the phone", needs: "share" },
-  { key: "clipboard", glyph: GLYPH.clipboard, label: "Clipboard", hint: "Send your clipboard to the phone", needs: "clipboard" },
+  { key: "ring", glyph: GLYPH.ring, label: "Ring", hint: "Ring it, even on silent", needs: "ring" },
+  { key: "share", glyph: GLYPH.sendFile, label: "Send files", hint: "Pick files to send to it", needs: "share" },
+  { key: "clipboard", glyph: GLYPH.clipboard, label: "Clipboard", hint: "Send your clipboard to it", needs: "clipboard" },
   { key: "messages", glyph: GLYPH.messages, label: "Messages", hint: "Open text messages", needs: "sms" },
-  { key: "ping", glyph: GLYPH.wave, label: "Ping", hint: "Pop a notification up on the phone", needs: "ping" },
-  { key: "playPause", glyph: GLYPH.playPause, label: "Play/Pause", hint: "Play or pause what the phone is playing", needs: "media" },
+  { key: "ping", glyph: GLYPH.wave, label: "Ping", hint: "Pop a notification up on it", needs: "ping" },
+  { key: "playPause", glyph: GLYPH.playPause, label: "Play/Pause", hint: "Play or pause what it is playing", needs: "media" },
   { key: "kdeconnect", glyph: GLYPH.phoneCog, label: "KDE Connect", hint: "Open the KDE Connect app", needs: "" }
 ]
 
@@ -64,8 +89,8 @@ var DEFAULT_SHORTCUTS = ["ring", "share", "clipboard", "messages"]
 // The three sections below the header that the Layout settings switch.
 var LAYOUT = [
   { key: "showShortcuts", label: "Shortcuts", hint: "The row of quick action buttons" },
-  { key: "showMedia", label: "Now playing", hint: "What the phone is playing, while something plays" },
-  { key: "showNotifications", label: "Notifications", hint: "The phone's notifications, with reply and dismiss" }
+  { key: "showMedia", label: "Now playing", hint: "What the device is playing, while something plays" },
+  { key: "showNotifications", label: "Notifications", hint: "The device's notifications, with reply and dismiss" }
 ]
 
 function shortcutByKey(key) {
@@ -176,9 +201,10 @@ function lowBattery(device, threshold) {
   return c >= 0 && c <= threshold && !charging(device)
 }
 
-// "󰄜 55%", "󰄜 63%󱐋" while charging, bare "󰄜" when away or unknown.
+// "󰄜 55%", "󰄜 63%󱐋" while charging, bare "󰄜" when away or unknown. The
+// glyph follows the device type: a tablet shows a tablet.
 function barText(device, showPercent) {
-  var text = GLYPH.phone
+  var text = deviceGlyph(device)
   var c = batteryCharge(device)
   if (showPercent && c >= 0) text += " " + c + "%"
   if (charging(device)) text += GLYPH.bolt
@@ -188,7 +214,7 @@ function barText(device, showPercent) {
 function statusWord(snapshot, device) {
   if (!snapshot) return "Starting"
   if (!snapshot.daemon) return "KDE Connect is not running"
-  if (!device) return "No paired phone"
+  if (!device) return "No paired device"
   if (!device.reachable) return "Away"
   return "Connected"
 }
@@ -309,10 +335,12 @@ function demoSnapshot(live, kind) {
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
   var base = pickDevice(live, "")
   var dev = JSON.parse(JSON.stringify(base || {
-    id: "demo", name: "Demo phone", type: "phone", paired: true, reachable: true, links: ["LAN"],
+    id: "demo", name: "Pixel 8", type: "phone", paired: true, reachable: true, links: ["LAN"],
     can: { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true },
     battery: { charge: 55, charging: false }
   }))
+  // A neutral name, so a screenshot of demo mode shows no real device.
+  dev.name = "Pixel 8"
   dev.reachable = kind !== "away"
   dev.network = { type: "5G", strength: 3 }
   dev.notifications = [

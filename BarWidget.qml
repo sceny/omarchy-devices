@@ -68,7 +68,7 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.vertical ? Model.GLYPH.phone : Model.barText(root.device, root.setting("showPercent", true) !== false)
+    text: root.vertical ? Model.deviceGlyph(root.device) : Model.barText(root.device, root.setting("showPercent", true) !== false)
     horizontalMargin: 8.75
     dimmed: !root.reachable
     active: Model.lowBattery(root.device, root.lowPercent)

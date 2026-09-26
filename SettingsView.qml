@@ -106,7 +106,7 @@ Column {
       readonly property int rowIndex: root.firstIndex("kdeconnect")
       text: "KDE Connect settings"
       iconText: Model.GLYPH.phoneCog
-      tooltipText: "Pairing, phone permissions and KDE Connect's own plugins"
+      tooltipText: "Pairing, device permissions and KDE Connect's own plugins"
       foreground: root.foreground
       fontFamily: root.fontFamily
       bordered: true
@@ -239,7 +239,7 @@ Column {
           textFormat: Text.PlainText
           Layout.fillWidth: true
           text: shortcutRow.row.available === false
-            ? "Not offered by this phone right now"
+            ? "Not offered by this device right now"
             : (shortcutRow.row.hint || "")
           color: root.dim
           font.family: root.fontFamily

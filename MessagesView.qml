@@ -235,7 +235,7 @@ Item {
           visible: !!view.sms && !view.sms.ready
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: view.sms && !view.sms.reachable ? "The phone is away. Conversations load when it reconnects." : "Loading conversations…"
+          text: view.sms && !view.sms.reachable ? "The device is away. Conversations load when it reconnects." : "Loading conversations…"
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -406,7 +406,7 @@ Item {
             visible: !!view.sms && view.sms.contactCount === 0
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: "Contact names are not synced from the phone yet, so search matches numbers. Allow contacts in the phone's KDE Connect app to search by name."
+            text: "Contact names are not synced from the device yet, so search matches numbers. Allow contacts in its KDE Connect app to search by name."
             color: view.dim
             font.family: view.fontFamily
             font.pixelSize: Style.font.caption
@@ -548,7 +548,7 @@ Item {
           TextField {
             id: composer
             Layout.fillWidth: true
-            placeholderText: !view.sms || !view.sms.reachable ? "The phone is away"
+            placeholderText: !view.sms || !view.sms.reachable ? "The device is away"
               : (view.newMode && view.recipients.length === 0 ? "Pick who to send to first" : "Text message")
             enabled: !!view.sms && view.sms.reachable
             foreground: view.foreground

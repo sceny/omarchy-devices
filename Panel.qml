@@ -241,6 +241,11 @@ Panel {
   }
 
   function openMessagesView(threadId, typeHere) {
+    // A tablet without a SIM (or a computer) has no text messages.
+    if (device && can.sms !== true) {
+      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false)
+      return
+    }
     replyingTo = ""
     replyFocused = false
     settingsOpen = false
@@ -667,7 +672,7 @@ Panel {
           PanelHero {
             id: hero
             width: parent.width
-            title: root.device ? root.device.name : "Phone"
+            title: root.device ? root.device.name : "Devices"
             meta: root.showSettings ? "Settings"
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -677,7 +682,7 @@ Panel {
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: Model.GLYPH.phone
+                text: Model.deviceGlyph(root.device)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
@@ -735,10 +740,10 @@ Panel {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   text: {
-                    if (!root.phone || !root.snapshot) return "Looking for your phone…"
-                    if (!root.phone.daemon) return "Start it to reach your phone. It normally starts by itself when you log in."
-                    if (!root.device) return "No phone is paired yet. Open KDE Connect on the phone and pair it with this computer."
-                    return root.device.name + " is away. It reconnects by itself when the phone is on your home Wi-Fi with the KDE Connect app running."
+                    if (!root.phone || !root.snapshot) return "Looking for your devices…"
+                    if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
+                    if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
+                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
                   }
                 }
 
@@ -915,7 +920,7 @@ Panel {
 
                   PanelActionButton {
                     iconText: root.shownVolume <= 0.001 ? Model.GLYPH.volumeOff : Model.GLYPH.volume
-                    tooltipText: root.shownVolume <= 0.001 ? "Unmute the phone" : "Mute the phone"
+                    tooltipText: (root.shownVolume <= 0.001 ? "Unmute " : "Mute ") + Model.deviceLabel(root.device)
                     foreground: root.foreground
                     fontFamily: root.fontFamily
                     onClicked: root.toggleMute()
@@ -976,8 +981,8 @@ Panel {
                     horizontalAlignment: Text.AlignHCenter
                     wrapMode: Text.WordWrap
                     text: root.can.notifications === false
-                      ? "Notification sync is off for this phone."
-                      : "Nothing new. If the phone has notifications, allow notification access in its KDE Connect app."
+                      ? "Notification sync is off for this " + Model.deviceNoun(root.device) + "."
+                      : "Nothing new. If " + Model.deviceLabel(root.device) + " has notifications, allow notification access in its KDE Connect app."
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
@@ -1495,7 +1500,7 @@ Panel {
         PanelActionButton {
           visible: row.note.dismissable === true
           iconText: Model.GLYPH.close
-          tooltipText: "Dismiss on the phone"
+          tooltipText: "Dismiss on " + Model.deviceLabel(root.device)
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily

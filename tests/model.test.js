@@ -47,6 +47,18 @@ test("meta line leads with a text-sized battery glyph and never says charging or
   assert.equal(M.metaLine({ daemon: false, devices: [] }, null), "KDE Connect is not running")
 })
 
+test("the glyph and the word follow the device type", () => {
+  assert.equal(M.deviceGlyph(device()).codePointAt(0), 0xF011C)
+  assert.equal(M.deviceGlyph(device({ type: "tablet" })).codePointAt(0), 0xF04F6)
+  assert.equal(M.deviceGlyph(device({ type: "desktop" })).codePointAt(0), 0xF0AAB)
+  assert.equal(M.deviceGlyph(device({ type: "smartwatch" })), M.GLYPH.devices)
+  assert.equal(M.deviceGlyph(null), M.GLYPH.devices)
+  assert.equal(M.barText(device({ type: "tablet" }), true), String.fromCodePoint(0xF04F6) + " 63%")
+  assert.equal(M.deviceNoun(device({ type: "desktop" })), "computer")
+  assert.equal(M.deviceLabel(device()), "Pixel 8")
+  assert.equal(M.deviceLabel(null), "the device")
+})
+
 test("battery glyph follows the level, the bolt and the low mark", () => {
   const g = (c, ch) => M.batteryGlyph(device({ battery: { charge: c, charging: ch } }), 15).codePointAt(0)
   assert.equal(g(100, false), 0xF0079)
@@ -126,9 +138,10 @@ test("a text-message notification finds its thread by name or number", () => {
 
 test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.metaLine(M.demoSnapshot(null, "down"), null), "KDE Connect is not running")
-  assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired phone")
+  assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired device")
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
   assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 3)
+  assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
 })
 
 test("one pace for motion", () => {

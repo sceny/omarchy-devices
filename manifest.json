@@ -101,7 +101,7 @@
         "type": "string",
         "label": "Device ID",
         "defaultValue": "",
-        "description": "Empty follows the first paired phone that is connected. Set an ID from `kdeconnect-cli -l` to pin one."
+        "description": "Empty follows the first paired device that is connected. Set an ID from `kdeconnect-cli -l` to pin one."
       }
     ]
   }
