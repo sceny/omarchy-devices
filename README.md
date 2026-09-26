@@ -9,7 +9,10 @@ like the rest of the shell.
 
 ![The Devices panel: a pairing request, the connected phone, shortcuts and notifications (demo data)](preview.png)
 
+Jump to [Getting started](#getting-started) or [Under the hood](#under-the-hood).
+
 ## Your text messages, right in the panel
+
 
 Not a button that opens another app: a full messaging view, built into the
 panel and made for the keyboard.
@@ -30,6 +33,7 @@ panel and made for the keyboard.
 
 ## Everything else, one click away
 
+
 - **Battery in the bar:** the device's glyph and charge (`󰄜 63%󱐋`), dimmed
   while it is away, urgent when it runs low. Click for the panel,
   middle-click for messages.
@@ -46,6 +50,7 @@ panel and made for the keyboard.
 
 ## Make it yours
 
+
 ![Settings: the Layout, Shortcuts and Setup sections, Setup folded (demo data)](docs/settings.png)
 
 - **Layout:** show or hide each section, and fold any of them to a single
@@ -59,7 +64,34 @@ panel and made for the keyboard.
   when it is closed), everything moves at one pace, and the whole panel works
   from the keyboard.
 
-## Requirements
+## Keyboard
+
+
+`j`/`k` or arrows move between rows, `h`/`l` along the shortcuts or through the
+media carousel, Enter activates (play/pause on the media card), `[`/`]` skip
+track, `r` opens a notification's reply field, `x`
+dismisses it, `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
+settings (there: Enter toggles, Shift+K/Shift+J reorder a shortcut). Esc closes
+settings, then the panel; Tab moves to the neighbouring bar panel.
+
+## Good to know
+
+
+The panel can only show what KDE Connect sends, and its Android app has limits:
+
+- **Ongoing notifications** (navigation, timers, downloads, "USB debugging")
+  never leave the phone: the app drops them on purpose.
+- **Messages cannot be marked read** on the phone. The panel remembers what you
+  opened on the computer instead.
+- **RCS chats** may be missing: KDE Connect reads the phone's SMS/MMS store.
+- **Names** need the contacts permission; until then threads show numbers.
+- **One playback position** is shared by all of a phone's media players, so
+  only the playing card shows a seek bar.
+
+## Getting started
+
+### Requirements
+
 
 - **Omarchy 4** (its shell: Quickshell 0.3).
 - **KDE Connect** on the computer: `sudo pacman -S --needed kdeconnect`.
@@ -69,7 +101,8 @@ panel and made for the keyboard.
   [F-Droid](https://f-droid.org/packages/org.kde.kdeconnect_tp/), on the same
   network as the computer.
 
-## Set up KDE Connect
+### Set up KDE Connect
+
 
 The panel checks this for you: with no device connected it shows what is
 missing (installed, running, the firewall, a paired device) with a button for
@@ -96,7 +129,8 @@ firewall rule ask for your password; nothing changes without a click. By hand:
 
 See the [KDE Connect wiki](https://userbase.kde.org/KDEConnect) for more.
 
-## Install
+### Install
+
 
 ```bash
 omarchy plugin add https://github.com/sceny/omarchy-phone.git --enable
@@ -105,13 +139,15 @@ omarchy plugin add https://github.com/sceny/omarchy-phone.git --enable
 The widget lands in the right side of the bar; move it with
 `omarchy bar move sceny.devices --section right --index <n>`.
 
-## Update
+### Update
+
 
 ```bash
 omarchy plugin update sceny.devices
 ```
 
-## Remove
+### Remove
+
 
 ```bash
 omarchy plugin remove sceny.devices
@@ -122,20 +158,12 @@ its folder are caches: `~/.cache/sceny.devices/` (picture previews and which
 conversations you opened). Delete that folder to clear them. KDE Connect
 itself, its pairing and the firewall rules stay as they are.
 
-## What KDE Connect cannot do
+## Under the hood
 
-The panel can only show what KDE Connect sends, and its Android app has limits:
+For contributors and the curious: how the plugin is built and worked on.
 
-- **Ongoing notifications** (navigation, timers, downloads, "USB debugging")
-  never leave the phone: the app drops them on purpose.
-- **Messages cannot be marked read** on the phone. The panel remembers what you
-  opened on the computer instead.
-- **RCS chats** may be missing: KDE Connect reads the phone's SMS/MMS store.
-- **Names** need the contacts permission; until then threads show numbers.
-- **One playback position** is shared by all of a phone's media players, so
-  only the playing card shows a seek bar.
+### How it works
 
-## How it works
 
 | File | Holds |
 |---|---|
@@ -148,7 +176,8 @@ The panel can only show what KDE Connect sends, and its Android app has limits:
 | `SmsService.qml` | Text messages: runs `kdeconnect-bridge sms`, keeps threads and the open conversation in ListModels, search, what was seen here. |
 | `MessagesView.qml` | The two-pane messages view: thread list, conversation, new message, pictures. |
 
-## How messages work
+### How messages work
+
 
 `kdeconnect-bridge sms <device>` holds one connection to KDE Connect's
 `conversations` D-Bus interface and speaks JSON lines: commands on stdin
@@ -197,7 +226,8 @@ The bridge exists because the shell has no generic D-Bus binding, and every
 shell D-Bus client (`busctl`, `gdbus`) opens a connection per call and cannot
 listen for signals.
 
-## Motion
+### Motion
+
 
 One pace for everything that moves, `Model.MOTION`: things leave in 90 ms and
 arrive in 220 ms, on OutCubic. Changing page (phone, settings, messages)
@@ -207,16 +237,8 @@ container only fades, so resizing it every frame would stutter. The media
 carousel, its dots and height, and a conversation easing in use the same
 beat. `slowMotion 10` over IPC stretches all of it, to catch a frame mid-way.
 
-## Keyboard
+### Working on it
 
-`j`/`k` or arrows move between rows, `h`/`l` along the shortcuts or through the
-media carousel, Enter activates (play/pause on the media card), `[`/`]` skip
-track, `r` opens a notification's reply field, `x`
-dismisses it, `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
-settings (there: Enter toggles, Shift+K/Shift+J reorder a shortcut). Esc closes
-settings, then the panel; Tab moves to the neighbouring bar panel.
-
-## Working on it
 
 ```bash
 node --test tests/*.test.js                            # Model.js
@@ -250,6 +272,16 @@ a chip otherwise. The settings hooks write your real
 to `Panel.qml` is only picked up by `omarchy restart shell` (the shell caches the
 panel component). Load errors land in `journalctl --user -t omarchy-shell`.
 
+### Contributing
+
+`main` is what `omarchy plugin add` and `omarchy plugin update` install, so it
+only moves through pull requests: each change on a short-lived branch, CI
+green, and checked in a running shell before it merges. Releases are tags
+(`vX.Y.Z`) on `main` with an entry in [CHANGELOG.md](CHANGELOG.md) and the
+same version in `manifest.json`. [AGENTS.md](AGENTS.md) holds the rules the
+plugin is built to; read it before changing anything.
+
 ## License
+
 
 [MIT](LICENSE). Not affiliated with KDE or Omarchy.

@@ -130,6 +130,21 @@ Each rule records a fault that was hit or a decision the owner made.
   go through `pkexec` (one password prompt); the firewall rule is limited to
   the local network the default route is on, never opened to everyone.
 
+## Workflow
+
+- **`main` is what users install** (`omarchy plugin add`/`update` take it).
+  It only moves through pull requests: a short-lived branch per change, CI
+  green, and the change checked in a running shell (check the branch out in
+  the installed clone) before merging. Squash-merge, delete the branch.
+- **Releases are tags on `main`** (`vX.Y.Z`), with an entry in
+  `CHANGELOG.md` and the same `version` in `manifest.json`, published as a
+  GitHub release. The marketplace listing moves to a new release only
+  through its *Verify and publish a newer upstream commit* form.
+- **The README has three parts, in this order:** for users (what it does,
+  screenshots, keyboard, what KDE Connect cannot do), getting started
+  (requirements, setup, install, update, remove), under the hood (how it
+  works, development). Nothing technical above getting started.
+
 ## Never
 
 - Send a text, ring a device, or change the device's volume or playback in a
