@@ -288,13 +288,14 @@ panel component). Load errors land in `journalctl --user -t omarchy-shell`.
 
 ### Contributing
 
-`main` is what `omarchy plugin add` and `omarchy plugin update` install, so it
-only moves through pull requests: each change on a short-lived branch, CI
-green, and checked in a running shell before it merges. Releases are tags
-(`vX.Y.Z`) on `main` with an entry in [CHANGELOG.md](CHANGELOG.md) and the
-same version in `manifest.json`, then go to the Omarchy plugin marketplace;
+`main` is what `omarchy plugin add` and `omarchy plugin update` install, and
+it moves only at a release. Changes go into `develop` through pull requests:
+each on a short-lived branch from `develop`, CI green, and checked in a
+running shell before it merges. A release merges `develop` into `main`, is
+tagged (`vX.Y.Z`) with an entry in [CHANGELOG.md](CHANGELOG.md) and the same
+version in `manifest.json`, and then goes to the Omarchy plugin marketplace.
 [AGENTS.md](AGENTS.md) has the steps (*Releasing*) and the rules the plugin
-is built to. Read it before changing anything.
+is built to; read it before changing anything.
 
 ## License
 

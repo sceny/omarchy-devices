@@ -80,9 +80,9 @@ keep it out of the repository and delete it once read.
 
 ## 6. Ship
 
-Branch, pull request, CI green, the change checked in a running shell, then
-squash-merge (AGENTS.md, *Workflow*). **Before merging, check that `main` is
-not frozen:** while a marketplace submission or update is under review,
-merge nothing (AGENTS.md, *Releasing*, step 4). Other machines take `main`
-with `omarchy plugin update sceny.devices`. Releases follow AGENTS.md,
-*Releasing*.
+Branch from `develop`, `gh pr create --base develop`, CI green, the change
+checked in a running shell, squash-merge, then `git switch develop && git
+pull` in the installed clone (AGENTS.md, *Workflow*). A pull request into
+`main` is only a release or an urgent fix, and never while `main` is frozen
+for a marketplace review (AGENTS.md, *Releasing*). Users get `main` with
+`omarchy plugin update sceny.devices` after a release.
