@@ -22,6 +22,8 @@ Column {
   property var flags: ({})
   property var order: []
   property var sectionOrder: []
+  property var barIndicators: []
+  property bool batteryLowOnly: true
   property real motion: 1
   property bool animate: true
   function isFolded(key) { return collapsed[key] === true }
@@ -31,6 +33,7 @@ Column {
   signal activated(int index)
   signal moveRequested(string key, int delta)
   signal sectionMoveRequested(string section, int delta)
+  signal barMoveRequested(string key, int delta)
   signal hovered(int index)
   signal fixRequested(string what)
   signal foldToggled(string key)
@@ -85,6 +88,63 @@ Column {
         }
       }
 
+  }
+
+  Item { width: 1; height: Style.space(6) }
+  PanelSeparator { foreground: root.foreground }
+
+  // ---- Bar: what the pill shows beside the device glyph ----
+  FoldToggle {
+    width: root.width
+    title: "BAR"
+    summary: Model.barSummary(root.barIndicators, root.batteryLowOnly)
+    folded: root.isFolded("bar")
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("bar")
+  }
+
+  FoldBody {
+    open: !root.isFolded("bar")
+    motion: root.motion
+    animate: root.animate
+    spacing: Style.space(6)
+
+      Text {
+        textFormat: Text.PlainText
+        width: root.width
+        wrapMode: Text.WordWrap
+        text: "Ticked ones show beside the device glyph in the bar, in this order. Shift+K and Shift+J move the selected one."
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      Repeater {
+        model: root.rows
+        ShortcutRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "bar"
+          width: root.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+
+      Repeater {
+        model: root.rows
+        LayoutRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "barFlag"
+          width: root.width
+          row: modelData
+          rowIndex: index
+        }
+      }
   }
 
   Item { width: 1; height: Style.space(6) }
@@ -252,6 +312,7 @@ Column {
       }
 
       Row {
+        visible: layoutRow.row.kind === "layout"
         spacing: Style.space(2)
         Layout.alignment: Qt.AlignVCenter
 
@@ -293,7 +354,7 @@ Column {
 
     hasCursor: root.cursorIndex === rowIndex
     foreground: root.foreground
-    opacity: root.shortcutsShown ? 1.0 : 0.55
+    opacity: shortcutRow.row.kind !== "shortcut" || root.shortcutsShown ? 1.0 : 0.55
     implicitHeight: shortcutContent.implicitHeight + Style.space(10)
 
     MouseArea {
@@ -369,7 +430,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: shortcutRow.row.first !== true
           onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: root.moveRequested(shortcutRow.row.key, -1)
+          onClicked: shortcutRow.row.kind === "bar" ? root.barMoveRequested(shortcutRow.row.key, -1) : root.moveRequested(shortcutRow.row.key, -1)
         }
         PanelActionButton {
           iconText: Model.GLYPH.down
@@ -378,7 +439,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: shortcutRow.row.last !== true
           onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: root.moveRequested(shortcutRow.row.key, 1)
+          onClicked: shortcutRow.row.kind === "bar" ? root.barMoveRequested(shortcutRow.row.key, 1) : root.moveRequested(shortcutRow.row.key, 1)
         }
       }
     }

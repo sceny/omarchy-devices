@@ -290,14 +290,18 @@ Item {
     Quickshell.execDetached(["systemctl", "--user", "start", "app-org.kde.kdeconnect.daemon@autostart.service"])
   }
 
-  // Text messages (threads, the open conversation), started on first use.
+  // Text messages (threads, the open conversation), started on first use,
+  // or from the start when the bar counts unread messages.
   readonly property var sms: smsService
+  readonly property bool barCountsMessages: Model.normalizeBarIndicators(settings ? settings.barIndicators : null).indexOf("messages") >= 0
   SmsService {
     id: smsService
     bridge: root.bridge
     deviceId: root.device && root.device.paired ? String(root.device.id) : ""
     // Keeps running in demo (the view shows made-up threads and ignores it).
     reachable: root.reachable
+    // Once started (start() on first use) it stays started.
+    wanted: root.barCountsMessages
   }
 
   Timer {

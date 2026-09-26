@@ -34,9 +34,12 @@ panel and made for the keyboard.
 ## Everything else, one click away
 
 
-- **Battery in the bar:** the device's glyph and charge (`󰄜 63%󱐋`), dimmed
-  while it is away, urgent when it runs low. Click for the panel,
-  middle-click for messages. The panel adds the link (Wi-Fi or Bluetooth)
+- **In the bar, only what you want:** the device's glyph, with a count
+  bubble for new notifications and the battery once it runs low, by default.
+  Add the connection, battery and percent, notification and unread-message
+  counts, or a play mark, in the order you like. Dimmed while the device is
+  away, urgent when it runs low. Click for the panel, middle-click for
+  messages. The panel adds the link (Wi-Fi or Bluetooth)
   and the cellular signal bars and network type (`󰣸 LTE`).
 - **Notifications** from the device, with inline reply, dismiss and the
   app's own actions.
@@ -55,13 +58,16 @@ panel and made for the keyboard.
 ## Make it yours
 
 
-![Settings: the sections in their order with their switches, the shortcuts, Setup folded (demo data)](docs/settings.png)
+![Settings: the sections in their order with their switches, what the bar shows beside the glyph, Shortcuts and Setup folded (demo data)](docs/settings.png)
 
 - **Layout:** show, hide and order the sections (Devices, Shortcuts, Now
   playing, Notifications; empty ones stay out of the way), and fold any of them to a
   single line that still says what is in it (the track and its cover, the
   latest notification) or still works (folded shortcuts become a row of
   icons). Everything you arrange is remembered.
+- **Bar:** tick what the bar shows beside the glyph and put it in order;
+  with *Battery only when low* on, the battery and percent stay out of
+  sight until it runs low.
 - **Shortcuts:** tick the ones you want and put them in order.
 - **Setup:** checks that KDE Connect is installed, running and let through
   the firewall, with a button to fix what is missing, plus the steps on the
@@ -78,7 +84,8 @@ media carousel, Enter activates (play/pause on the media card), `[`/`]` skip
 track, `r` opens a notification's reply field, `x`
 dismisses it, Enter on Send text opens its field (Enter sends, Ctrl+Enter
 pings, Esc closes), `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
-settings (there: Enter toggles, Shift+K/Shift+J move a section or a shortcut). Esc closes
+settings (there: Enter toggles, Shift+K/Shift+J move a section, a bar
+indicator or a shortcut). Esc closes
 settings, then the panel; Tab moves to the neighbouring bar panel.
 
 ## Good to know

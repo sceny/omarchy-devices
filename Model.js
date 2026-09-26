@@ -43,6 +43,9 @@ var GLYPH = {
   alert: "\u{F0026}",
   chevronRight: "\u{F0142}",
   chevronDown: "\u{F0140}",
+  wifi: "\u{F05A9}",
+  wifiOff: "\u{F05AA}",
+  bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
   volumeOff: "\u{F0581}"     // volume-off
 }
@@ -208,9 +211,10 @@ function moveShortcut(order, key, delta) {
 }
 
 // The settings page as one flat list, so keyboard and mouse share a cursor:
-// the layout switches in the sections' order, then the shortcuts (chosen ones
-// in their order, then the rest), then reset and the KDE Connect link.
-function settingsRows(flags, order, can, sections) {
+// the layout switches in the sections' order, the bar indicators (chosen ones
+// in their order, then the rest) and the only-when-low option, the shortcuts
+// (the same way), then reset and the KDE Connect link.
+function settingsRows(flags, order, can, sections, bar, lowOnly) {
   var rows = []
   var sectionOrder = normalizeSections(sections)
   for (var i = 0; i < sectionOrder.length; i++) {
@@ -218,6 +222,19 @@ function settingsRows(flags, order, can, sections) {
     rows.push({ kind: "layout", key: l.key, section: l.section, label: l.label, hint: l.hint, on: layoutFlag(flags[l.key]),
                 first: i === 0, last: i === sectionOrder.length - 1 })
   }
+  var chosen = bar ? normalizeBarIndicators(bar) : DEFAULT_BAR.slice()
+  var others = []
+  for (var b = 0; b < BAR_INDICATORS.length; b++) if (chosen.indexOf(BAR_INDICATORS[b].key) < 0) others.push(BAR_INDICATORS[b].key)
+  var barKeys = chosen.concat(others)
+  for (var n = 0; n < barKeys.length; n++) {
+    var ind = barIndicatorByKey(barKeys[n])
+    var at = chosen.indexOf(ind.key)
+    rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
+                first: at === 0, last: at === chosen.length - 1 })
+  }
+  // A switch, not a place in the pill: it decides when battery and % show.
+  rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
+              hint: "Off, the battery and % always show", on: lowOnly !== false })
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)
@@ -264,12 +281,100 @@ function lowBattery(device, threshold) {
 
 // "󰄜 55%", "󰄜 63%󱐋" while charging, bare "󰄜" when away or unknown. The
 // glyph follows the device type: a tablet shows a tablet.
-function barText(device, showPercent) {
+// ---- The bar pill: the device glyph, then the indicators chosen, in order ----
+
+// What the pill can show beside the glyph. "bubble" is not text: a count
+// drawn on the glyph itself (BarWidget), so it costs no width.
+var BAR_INDICATORS = [
+  { key: "connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
+  { key: "battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
+  { key: "percent", glyph: "%", label: "Battery %", hint: "The charge as a number" },
+  { key: "notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
+  { key: "messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
+  { key: "playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
+  { key: "bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
+]
+
+function barIndicatorByKey(key) {
+  for (var i = 0; i < BAR_INDICATORS.length; i++) if (BAR_INDICATORS[i].key === key) return BAR_INDICATORS[i]
+  return null
+}
+
+// The owner's default: the battery (only when low: batteryLowOnly, on by
+// default) and the notification bubble, so a healthy phone with nothing new
+// is the glyph alone.
+var DEFAULT_BAR = ["battery", "bubble"]
+
+// The stored choice, cleaned like the shortcuts: known keys once each, and
+// an empty list is a real choice (the glyph alone).
+function normalizeBarIndicators(value) {
+  if (typeof value === "string") {
+    try { value = JSON.parse(value) } catch (e) { value = null }
+  }
+  if (!value || typeof value === "string" || typeof value.length !== "number") return DEFAULT_BAR.slice()
+  var out = []
+  for (var i = 0; i < value.length; i++) {
+    var key = String(value[i])
+    if (barIndicatorByKey(key) && out.indexOf(key) < 0) out.push(key)
+  }
+  return out
+}
+
+// The pill's text. `state` carries what is not in the device snapshot:
+// { lowPercent, lowOnly (battery and % only when low), notifications,
+// messages, playing }. Away, only the glyph and a crossed-out connection: a
+// charge or a count from a device that is not there would be stale. The bolt
+// follows the percent only when the battery glyph (which has its own) is not
+// shown.
+function barText(device, indicators, state) {
+  var st = state || {}
   var text = deviceGlyph(device)
+  var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
-  if (showPercent && c >= 0) text += " " + c + "%"
-  if (charging(device)) text += GLYPH.bolt
-  return text
+  var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
+  var showBattery = c >= 0 && (!st.lowOnly || low)
+  var parts = []
+  for (var i = 0; i < indicators.length; i++) {
+    var key = indicators[i]
+    if (key === "connection") {
+      if (!device) continue
+      if (!reachable) parts.push(GLYPH.wifiOff)
+      else parts.push(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
+      continue
+    }
+    if (!reachable) continue
+    if (key === "battery" && showBattery) parts.push(batteryGlyph(device, st.lowPercent))
+    else if (key === "percent" && showBattery)
+      parts.push(c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : ""))
+    else if (key === "notifications" && st.notifications > 0) parts.push(GLYPH.bell + " " + st.notifications)
+    else if (key === "messages" && st.messages > 0) parts.push(GLYPH.messages + " " + st.messages)
+    else if (key === "playing" && st.playing) parts.push(GLYPH.play)
+  }
+  return parts.length ? text + " " + parts.join(" ") : text
+}
+
+// The number on the glyph, or 0 for none.
+function barBubble(device, indicators, notifications) {
+  if (!device || device.reachable !== true || indicators.indexOf("bubble") < 0) return 0
+  return Math.max(0, notifications || 0)
+}
+
+function toggleBarIndicator(order, key) {
+  var next = order.slice()
+  var at = next.indexOf(key)
+  if (at >= 0) next.splice(at, 1)
+  else if (barIndicatorByKey(key)) next.push(key)
+  return next
+}
+
+function barSummary(indicators, lowOnly) {
+  var labels = []
+  for (var i = 0; i < indicators.length; i++) {
+    var b = barIndicatorByKey(indicators[i])
+    if (b) labels.push(b.label)
+  }
+  var line = labels.length ? labels.join(", ") : "The glyph alone"
+  return lowOnly && (indicators.indexOf("battery") >= 0 || indicators.indexOf("percent") >= 0) ? line + " · battery when low" : line
 }
 
 function statusWord(snapshot, device) {
@@ -336,13 +441,14 @@ function batteryText(device) {
 
 // `nowPlaying` is the playing phone player's line (Service.nowPlaying), since
 // media comes from MPRIS in the shell rather than from the snapshot.
-function tooltip(snapshot, device, nowPlaying) {
+function tooltip(snapshot, device, nowPlaying, unreadMessages) {
   if (!device) return statusWord(snapshot, device)
   var lines = [device.name + " — " + statusWord(snapshot, device)]
   var c = batteryCharge(device)
   if (c >= 0) lines.push("Battery " + c + "%" + (charging(device) ? ", charging" : ""))
   var n = device.notifications ? device.notifications.length : 0
   if (n > 0) lines.push(n + (n === 1 ? " notification" : " notifications"))
+  if (unreadMessages > 0) lines.push(unreadMessages + (unreadMessages === 1 ? " unread message" : " unread messages"))
   if (nowPlaying) lines.push("Playing " + nowPlaying)
   return lines.join("\n")
 }
