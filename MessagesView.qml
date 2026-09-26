@@ -530,17 +530,6 @@ Item {
           }
         }
 
-        Text {
-          Layout.fillWidth: true
-          visible: text !== ""
-          textFormat: Text.PlainText
-          text: view.sms ? view.sms.lastError : ""
-          color: view.urgent
-          font.family: view.fontFamily
-          font.pixelSize: Style.font.caption
-          wrapMode: Text.WordWrap
-        }
-
         RowLayout {
           Layout.fillWidth: true
           spacing: Style.space(6)

@@ -18,6 +18,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge dismiss <device> <notification>
   kdeconnect-bridge reply <device> <replyId> <message>
   kdeconnect-bridge action <device> <notification> <action>
+  kdeconnect-bridge pair|accept|reject|unpair <device>
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -128,7 +129,10 @@ def read_device(conn, device_id):
         "type": d.get("type", ""),
         "reachable": bool(d.get("isReachable", False)),
         "paired": bool(d.get("isPaired", False)),
-        "pairRequested": bool(d.get("isPairRequestedByPeer", False)),
+        "pairRequested": bool(d.get("isPairRequested", False)),
+        "pairRequestedByPeer": bool(d.get("isPairRequestedByPeer", False)),
+        # Shown while pairing, so both screens can be compared.
+        "verificationKey": d.get("verificationKey", "") if (d.get("isPairRequested") or d.get("isPairRequestedByPeer")) else "",
         "links": list(d.get("activeProviderNames", []) or []),
         "addresses": list(d.get("reachableAddresses", []) or []),
         "can": {
@@ -145,7 +149,8 @@ def read_device(conn, device_id):
         "notifications": [],
     }
 
-    if not dev["reachable"]:
+    # Away, or not paired: nothing more can be read from it.
+    if not dev["reachable"] or not dev["paired"]:
         return dev
 
     if has("battery"):
@@ -177,8 +182,10 @@ def snapshot(conn):
     try:
         if not daemon_running(conn):
             return {"daemon": False, "devices": []}
+        # Every device the daemon knows: paired ones, and unpaired ones in reach
+        # (to pair with, or asking to pair).
         ids = call(conn, ROOT, IFACE + ".daemon", "devices",
-                   (False, True), "(bb)")[0]
+                   (False, False), "(bb)")[0]
     except GLib.Error as error:
         return {"daemon": False, "devices": [], "error": error.message}
     devices = []
@@ -266,6 +273,16 @@ def act(argv):
         if verb == "ring":
             call(conn, dpath + "/findmyphone", IFACE + ".device.findmyphone", "ring")
             return say("Ringing %s" % device_name(conn, device_id))
+
+        if verb in ("pair", "accept", "reject", "unpair"):
+            method = {"pair": "requestPairing", "accept": "acceptPairing",
+                      "reject": "cancelPairing", "unpair": "unpair"}[verb]
+            call(conn, dpath, IFACE + ".device", method)
+            name = device_name(conn, device_id)
+            return say({"pair": "Asked %s to pair; accept on it" % name,
+                        "accept": "Paired with %s" % name,
+                        "reject": "Pairing with %s cancelled" % name,
+                        "unpair": "Unpaired %s" % name}[verb])
 
         if verb == "ping":
             call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")

@@ -75,8 +75,24 @@ Each rule records a fault that was hit or a decision the owner made.
 - **The battery is a detail, not the headline.** Bar pill: glyph and percent.
   Panel: the header icon is the device; the battery is a text-sized glyph
   leading the meta line. The bolt already says charging; do not add the word.
-- **Settings are written only by the settings page**, into this widget's
-  `shell.json` entry (`updateEntryInline`), on the user's action.
+- **Settings are written only by the panel**, into this widget's
+  `shell.json` entry (`updateEntryInline`), on the user's action (settings
+  page, folding a section, choosing a device).
+- **Never edit `shell.json` by hand while the shell runs.** Each monitor has
+  its own panel holding its own copy of the settings; a hand edit leaves one
+  stale, and the next toggle starts from the wrong state. Go through the
+  plugin (IPC `fold`, the settings hooks) and read the file back.
+- **Results never push the layout.** A click's outcome is a toast floating
+  over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
+  Nothing appears in the flow of the panel for a moment and moves the rest.
+- **Sections fold with an animation, never a jump:** content grows or
+  shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all
+  at `Model.MOTION`. Folded Now playing keeps the cover and a play button.
+- **Devices appear only when there is a choice**: a second paired device,
+  one to pair with, or a request. Unpair asks twice.
+- **Playback notifications are not notifications here**: from an app with a
+  media player now, naming its track or not dismissable. The media card
+  already shows them; the phone keeps them out of its list too.
 - **Look at the render before saying done.** A measurement is not the layout
   fitting. Use `slowMotion 10` to catch a transition mid-way.
 - **After every shell restart, confirm the panel answers over IPC.** A QML

@@ -100,6 +100,16 @@ test("notifications: silent empties and media-session duplicates are hidden", ()
   assert.deepEqual(shown.map(n => n.title), ["Alex"])
 })
 
+test("a playback notification is hidden even when it names an older track", () => {
+  const players = [{ app: "Podcasts", title: "Ep 2" }]
+  const d = device({ notifications: [
+    { app: "Podcasts", title: "Ep 1", text: "", dismissable: false },
+    { app: "Podcasts", title: "New episode out", text: "Ep 3", dismissable: true },
+    { app: "Chat", title: "Alex", text: "hi", dismissable: false }
+  ] })
+  assert.deepEqual(M.visibleNotifications(d, players).map(n => n.title), ["New episode out", "Alex"])
+})
+
 test("media: player app from identity, phone players only, track line, times", () => {
   assert.equal(M.playerApp("Podcasts - Pixel 8", "Pixel 8"), "Podcasts")
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), true)
@@ -146,4 +156,41 @@ test("demo snapshots cover every state the panel draws", () => {
 
 test("one pace for motion", () => {
   assert.deepEqual(M.MOTION, { outMs: 90, inMs: 220 })
+})
+
+
+test("devices: rows ranked by what needs doing, section only when there is a choice", () => {
+  const one = snap(device({ id: "a" }))
+  assert.equal(M.showDevicesSection(M.deviceRows(one, "a")), false, "one device: no section")
+  const rows = M.deviceRows(snap(
+    device({ id: "a", name: "Pixel 8" }),
+    device({ id: "b", name: "Tab", type: "tablet", reachable: false }),
+    { id: "c", name: "Laptop", type: "laptop", paired: false, reachable: true },
+    { id: "d", name: "New", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "ABCD" }
+  ), "a")
+  assert.deepEqual(rows.map(r => r.id), ["d", "a", "b", "c"])
+  assert.equal(rows[0].incoming, true)
+  assert.equal(rows[0].key, "ABCD")
+  assert.equal(rows[1].current, true)
+  assert.match(rows[1].status, /^Connected · Wi-Fi · 63%$/)
+  assert.equal(rows[2].status, "Away")
+  assert.equal(rows[3].status, "Available to pair")
+  assert.equal(M.showDevicesSection(rows), true)
+  assert.equal(M.devicesSummary(rows), "New wants to pair")
+  assert.equal(M.devicesSummary(rows.slice(1)), "Pixel 8 · Connected · Wi-Fi · 63%")
+})
+
+test("collapsed sections: one-line summaries and a safe folded state", () => {
+  assert.equal(M.mediaSummary("Ep 2", "Ep 2", "Podcasts"), "Ep 2 · Podcasts")
+  assert.equal(M.mediaSummary("Song", "Band", "Music"), "Song · Band · Music")
+  assert.equal(M.notificationsSummary([]), "Nothing new")
+  assert.equal(M.notificationsSummary([{ title: "Alex", text: "See you\n at six" }]), "Alex: See you at six")
+  assert.deepEqual(M.collapsedState({ media: true }), { media: true })
+  assert.deepEqual(M.collapsedState("media"), {})
+  assert.deepEqual(M.collapsedState(null), {})
+})
+
+test("demo devices cover requests, away and available", () => {
+  const rows = M.deviceRows(M.demoSnapshot(null, "devices"), "demo")
+  assert.deepEqual(rows.map(r => r.status.split(" ·")[0]), ["Wants to pair", "Connected", "Away", "Available to pair"])
 })

@@ -18,9 +18,16 @@ text-message view, all in one panel that matches the rest of the shell.
   with unread marks and search, the conversation with pictures and history
   that loads as you scroll, reply, and new messages with a recipient search.
   A text-message notification opens its conversation.
+- **Devices:** with more than one device (or one asking to pair), a section
+  to switch between them, pair, accept or reject a request with its
+  verification key, and unpair. Hidden while there is only one.
+- **Sections fold:** Devices, Now playing and Notifications collapse to one
+  line (the track with its cover and a play button; the latest notification),
+  and remember it.
 - **Settings** (the gear): switch each section on or off and pick the
-  shortcuts. Everything moves at one pace, and the whole panel works from the
-  keyboard.
+  shortcuts. Results ("Clipboard sent") appear as a toast over the panel, or
+  in Omarchy's on-screen display when the panel is closed. Everything moves
+  at one pace, and the whole panel works from the keyboard.
 
 ## Requirements
 

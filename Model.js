@@ -38,6 +38,8 @@ var GLYPH = {
   file: "\u{F021F}",         // file-image
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
+  chevronRight: "\u{F0142}",
+  chevronDown: "\u{F0140}",
   volume: "\u{F057E}",       // volume-high
   volumeOff: "\u{F0581}"     // volume-off
 }
@@ -332,6 +334,14 @@ function notificationTitle(n) {
 // the other states the panel has to draw.
 function demoSnapshot(live, kind) {
   if (kind === "down") return { daemon: false, demo: true, devices: [] }
+  if (kind === "devices") {
+    var withOthers = demoSnapshot(live, "")
+    withOthers.devices.push(
+      { id: "demo-tab", name: "Galaxy Tab", type: "tablet", paired: true, reachable: false, links: [], can: {}, notifications: [] },
+      { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: false, reachable: true, links: ["LAN"], can: {}, notifications: [] },
+      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+    return withOthers
+  }
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
   var base = pickDevice(live, "")
   var dev = JSON.parse(JSON.stringify(base || {
@@ -371,13 +381,21 @@ function visibleNotifications(device, media) {
   return out
 }
 
+// A playback notification comes from an app that has a media player right
+// now, and either names its track or cannot be dismissed (it lives as long as
+// the session). Matching the title alone let a stale one through: the
+// notification still named the previous episode after the player moved on.
+// An ordinary notification from the same app ("new upload") is dismissable,
+// so it still shows.
 function isMediaNotification(n, players) {
   var app = String(n.app || "").trim().toLowerCase()
+  if (!app) return false
   var title = String(n.title || "").trim()
-  if (!app || !title) return false
   for (var i = 0; i < players.length; i++) {
     var p = players[i]
-    if (String(p.app || "").trim().toLowerCase() === app && String(p.title || "").trim() === title) return true
+    if (String(p.app || "").trim().toLowerCase() !== app) continue
+    if (title !== "" && String(p.title || "").trim() === title) return true
+    if (n.dismissable === false) return true
   }
   return false
 }
@@ -473,4 +491,86 @@ function threadForNotification(n, threads) {
     if (key.length >= 5 && String(t.addressKeys || "").indexOf(key) >= 0) return t.tid
   }
   return -1
+}
+
+
+// ---- Devices ----
+
+// Every device KDE Connect knows, as rows for the Devices section: what it
+// is, where it stands, and what can be done with it. Anything that needs a
+// decision (a device asking to pair) comes first, then the one followed,
+// then the rest by how usable they are.
+function deviceRows(snapshot, currentId) {
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  var rows = []
+  for (var i = 0; i < list.length; i++) {
+    var d = list[i]
+    if (!d) continue
+    var incoming = d.pairRequestedByPeer === true
+    var outgoing = d.pairRequested === true && !d.paired
+    var status
+    if (incoming) status = "Wants to pair"
+    else if (outgoing) status = "Waiting for it to accept"
+    else if (!d.paired) status = "Available to pair"
+    else if (d.reachable) status = "Connected" + (d.links && d.links.length ? " · " + (d.links[0] === "LAN" ? "Wi-Fi" : d.links[0]) : "")
+    else status = "Away"
+    var charge = batteryCharge(d)
+    rows.push({
+      id: d.id, name: d.name || "Unnamed device", type: d.type || "", glyph: deviceGlyph(d),
+      status: status + (charge >= 0 ? " · " + charge + "%" : ""),
+      current: !!currentId && d.id === currentId,
+      paired: d.paired === true, reachable: d.reachable === true,
+      incoming: incoming, outgoing: outgoing, key: d.verificationKey || ""
+    })
+  }
+  function rank(r) {
+    if (r.incoming) return 0
+    if (r.current) return 1
+    if (r.paired && r.reachable) return 2
+    if (r.paired) return 3
+    if (r.outgoing) return 4
+    return 5
+  }
+  rows.sort(function(a, b) { return rank(a) - rank(b) || a.name.localeCompare(b.name) })
+  return rows
+}
+
+// The section earns its place only when there is something to choose or
+// decide: a second paired device, one to pair with, or a request.
+function showDevicesSection(rows) {
+  var paired = 0
+  for (var i = 0; i < rows.length; i++) {
+    if (!rows[i].paired || rows[i].incoming) return true
+    paired++
+  }
+  return paired > 1
+}
+
+// ---- Collapsed sections: the one line shown in place of the content ----
+
+function devicesSummary(rows) {
+  var n = 0
+  for (var i = 0; i < rows.length; i++) if (rows[i].incoming) n++
+  if (n > 0) return n === 1 ? rows[0].name + " wants to pair" : n + " devices want to pair"
+  for (var j = 0; j < rows.length; j++) if (rows[j].current) return rows[j].name + " · " + rows[j].status
+  return rows.length + " devices"
+}
+
+function mediaSummary(title, artist, app) {
+  var line = trackLine(title, artist)
+  return line && app ? line + " · " + app : (line || app || "")
+}
+
+function notificationsSummary(list) {
+  if (!list || list.length === 0) return "Nothing new"
+  var n = list[0]
+  var who = notificationTitle(n)
+  var body = notificationBody(n)
+  return (body ? who + ": " + body : who).replace(/\s+/g, " ")
+}
+
+// Which sections are folded, from the widget's settings; a stored non-object
+// (hand edits) means none.
+function collapsedState(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : ({})
 }

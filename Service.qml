@@ -146,10 +146,17 @@ Item {
     busy = next
   }
 
+  // Panels open right now (one per monitor can be); kept by the panels.
+  property int openPanels: 0
+
   function report(text, failed) {
     actionStatus = text
     actionFailed = failed
     statusTimer.restart()
+    // Nobody is looking at a panel: say it with Omarchy's on-screen display.
+    // The OSD takes any glyph as its icon: the device's own, or an alert.
+    if (text !== "" && openPanels === 0)
+      Quickshell.execDetached(["omarchy-osd", "-i", failed ? "\u{F0026}" : Model.deviceGlyph(device), "-m", text, "-d", failed ? "3000" : "1800"])
   }
 
   function run(verb, args, key) {
@@ -164,6 +171,20 @@ Item {
     })
     proc.running = true
   }
+
+  // Pairing acts on any device the daemon knows, not only the one followed.
+  function runOn(deviceId, verb) {
+    if (demo) { report("Demo mode: nothing was sent to the device", false); return }
+    var key = verb + ":" + deviceId
+    if (!deviceId || busy[key]) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, verb, deviceId] })
+    proc.running = true
+  }
+  function pairWith(id) { runOn(id, "pair") }
+  function acceptPairing(id) { runOn(id, "accept") }
+  function rejectPairing(id) { runOn(id, "reject") }
+  function unpair(id) { runOn(id, "unpair") }
 
   function ring() { run("ring") }
   function ping() { run("ping") }
