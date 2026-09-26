@@ -163,14 +163,25 @@ Keep them; change one only with the owner.
   Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
   request that the change is not checked in a running shell, and leave the
   merge until someone checks it there.
-- **Before merging anything into `main`, check the freeze:**
+- **Check the freeze before merging anything into `main`**, and whenever
+  you look at the open issues. It takes two steps:
+  each open `marketplace-review` issue here points to a marketplace issue,
+  and the marketplace issue says whether its review is still open:
 
   ```bash
-  gh search issues --repo omacom/omarchy-plugin-marketplace --state open '"github.com/sceny/omarchy-devices"'
+  gh issue list --label marketplace-review --state open --json number,body \
+    --jq '.[] | "\(.number) \(.body | capture("omacom/omarchy-plugin-marketplace#(?<n>[0-9]+)").n)"' |
+  while read -r ours theirs; do
+    echo "#$ours -> omacom/omarchy-plugin-marketplace#$theirs $(gh issue view "$theirs" \
+      --repo omacom/omarchy-plugin-marketplace --json state -q .state)"
+  done
   ```
 
-  An open issue there is a marketplace review in progress: `main` is frozen
-  (*Releasing*, step 5).
+  - `OPEN`: a review is in progress and `main` is frozen.
+  - `CLOSED`: the two are out of sync; sync them now. Read the marketplace
+    issue's last report (published, or what to fix), comment the outcome
+    on our issue, and close it.
+  - No output: nothing is under review.
 - **Develop in a clone with `develop` checked out**, and update it with
   `git pull`: `omarchy plugin update` reads `main` and does not bring
   `develop` changes.
@@ -248,21 +259,30 @@ Keep them; change one only with the owner.
      gh issue create --repo omacom/omarchy-plugin-marketplace --title "[Verify]: Devices" --body-file /tmp/devices-verify.md
      ```
 
-   Then watch the issue: both bot reports (validation, security baseline)
-   name the commit, and a maintainer applies `approved-and-verified`.
-5. **Freeze `main` from submission until the listing is published** (the
-   check is in *Workflow*). The
-   marketplace checks, reviews and publishes one exact commit, and refuses
-   to publish when `main` moved after its checks. Merge nothing into `main`
-   meanwhile; work keeps landing on `develop`. The freeze ends when the
-   maintainer has applied `approved-and-verified` and the publication
-   report on the issue says the listing is published.
+   Then open the tracking issue here, labelled `marketplace-review`, with
+   the marketplace issue and the commit under review in its body:
+
+   ```bash
+   gh issue create --label marketplace-review \
+     --title "Marketplace review: omacom/omarchy-plugin-marketplace#<n> (vX.Y.Z)" \
+     --body "Marketplace: omacom/omarchy-plugin-marketplace#<n>
+   Commit under review: $(git rev-parse origin/main)"
+   ```
+
+   Status notes (bot reports matched, the maintainer's requests) go on that
+   issue as comments, never into commits.
+5. **Freeze `main` while the marketplace issue is open** (the check is in
+   *Workflow*). The marketplace checks, reviews and publishes one exact
+   commit, and refuses to publish when `main` moved after its checks. Merge
+   nothing into `main` meanwhile; work keeps landing on `develop`. The
+   freeze ends when the marketplace closes its issue; the freeze check then
+   finds the two out of sync and syncs them (*Workflow*).
 6. **If `main` moves during the freeze anyway:** edit the submission issue
    (every edit makes the bots check the current head of `main`; the
    submission form has no commit field), wait until both bot reports
-   (validation and security baseline) name the new commit, and tell the
+   (validation and security baseline) name the new commit, tell the
    maintainer in a comment which commit is ready and whether the reported
-   capabilities changed.
+   capabilities changed, and put the new commit on the tracking issue.
 
 ## Never
 
