@@ -84,6 +84,25 @@ Panel {
     pageSwap.restart()
   }
 
+  // The card (the panel's box) follows the page's size with an animation.
+  // KeyboardPanel is a full-screen layer surface and the card an item inside
+  // it, so this costs no window resize. Snapping it at the swap was the jump
+  // seen mid-transition on the way to and from messages (the width) and back
+  // from settings (the height). Only page changes animate it: a fold already
+  // animates the height itself, and a second animation on top would lag.
+  readonly property real targetCardWidth: panel.fittedContentWidth(showMessages ? Style.space(880) : Style.space(400))
+  readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(1000))
+  property real cardWidth: targetCardWidth
+  property real cardHeight: targetCardHeight
+  Behavior on cardWidth {
+    enabled: pageSwap.running
+    NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+  }
+  Behavior on cardHeight {
+    enabled: pageSwap.running
+    NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+  }
+
   SequentialAnimation {
     id: pageSwap
     readonly property real travel: Style.space(28)
@@ -115,7 +134,29 @@ Panel {
 
   // The service sends results to Omarchy's on-screen display while no panel
   // is open (the file chooser closes it, for one).
-  onOpenedChanged: if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
+  onOpenedChanged: {
+    if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
+    settled = false
+    if (opened) settleTimer.restart()
+  }
+
+  // Size animations (folds, the carousel, the cover) run for the user's own
+  // changes only. A hidden page has no height, so while a page appears (or
+  // the panel opens) every section would otherwise grow from nothing: that
+  // made the way back from settings and messages stutter.
+  property bool settled: false
+  Timer {
+    id: settleTimer
+    interval: Model.MOTION.inMs * root.motion + 40
+    onTriggered: root.settled = root.opened && !pageSwap.running
+  }
+  Connections {
+    target: pageSwap
+    function onRunningChanged() {
+      root.settled = false
+      if (!pageSwap.running) settleTimer.restart()
+    }
+  }
   Component.onDestruction: if (opened && phone) phone.openPanels = Math.max(0, phone.openPanels - 1)
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
@@ -669,8 +710,8 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: keyCatcher
-    contentWidth: panel.fittedContentWidth(root.showMessages ? Style.space(880) : Style.space(400))
-    contentHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(1000))
+    contentWidth: root.cardWidth
+    contentHeight: root.cardHeight
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -806,7 +847,9 @@ Panel {
 
         Column {
           id: column
-          width: panelFlick.width
+          // Laid out at the card's final width while the card itself is still
+          // animating, so the page never re-flows during a page change.
+          width: panelFlick.width + (root.targetCardWidth - root.cardWidth)
           spacing: Style.space(12)
 
           PanelHero {
@@ -1014,7 +1057,7 @@ Panel {
                           height: Style.space(6)
                           radius: height / 2
                           color: index === root.shownPlayer ? root.foreground : root.dim
-                          Behavior on width { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                          Behavior on width { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
 
                           MouseArea {
                             anchors.fill: parent
@@ -1051,14 +1094,14 @@ Panel {
                     readonly property var shownCard: cardRepeater.count > root.shownPlayer ? cardRepeater.itemAt(root.shownPlayer) : null
                     height: shownCard ? shownCard.implicitHeight : 0
                     clip: true
-                    Behavior on height { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                    Behavior on height { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
 
                     Row {
                       id: cardStrip
                       spacing: Style.space(16)
                       x: -root.shownPlayer * (carouselBox.width + spacing) + root.swipeOffset
                       Behavior on x {
-                        enabled: !root.swiping
+                        enabled: !root.swiping && root.settled
                         NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
                       }
 
@@ -1275,7 +1318,7 @@ Panel {
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
-        Behavior on rotation { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on rotation { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
       }
       PanelSectionHeader {
         Layout.rightMargin: Style.space(10)
@@ -1298,9 +1341,9 @@ Panel {
         asynchronous: true
         clip: true
         opacity: shown ? 1 : 0
-        Behavior on Layout.preferredWidth { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-        Behavior on Layout.rightMargin { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-        Behavior on opacity { NumberAnimation { duration: (foldThumb.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on Layout.preferredWidth { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on Layout.rightMargin { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (foldThumb.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
       }
 
       // Always laid out, so the header never reflows; it only fades.
@@ -1314,7 +1357,7 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall
         elide: Text.ElideRight
-        Behavior on opacity { NumberAnimation { duration: (fold.folded ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (fold.folded ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
       }
     }
   }
@@ -1334,8 +1377,8 @@ Panel {
     clip: true
     opacity: open ? 1 : 0
 
-    Behavior on height { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-    Behavior on opacity { NumberAnimation { duration: (body.open ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+    Behavior on height { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+    Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (body.open ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
 
     Column {
       id: bodyColumn

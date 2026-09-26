@@ -19,6 +19,9 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge reply <device> <replyId> <message>
   kdeconnect-bridge action <device> <notification> <action>
   kdeconnect-bridge pair|accept|reject|unpair <device>
+  kdeconnect-bridge doctor                    setup checks, as JSON
+  kdeconnect-bridge fix install|start|firewall   fix one (install and
+                                              firewall ask for a password)
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -27,7 +30,9 @@ out (closed the file chooser), 2 on failure.
 """
 
 import base64
+import ipaddress
 import json
+import shutil
 import os
 import re
 import subprocess
@@ -350,6 +355,122 @@ def act(argv):
         return say("Missing argument for %s" % verb, EXIT_FAILED)
 
     return say("Unknown command %s" % verb, EXIT_FAILED)
+
+
+# ---- Setup checks ----------------------------------------------------------
+#
+# What stands between the user and a working device: KDE Connect installed
+# and running, the firewall letting it through on the local network, and a
+# device paired. `doctor` reports; `fix` repairs one, only when asked. Root
+# steps go through pkexec (the shell's polkit agent prompts); nothing here
+# runs without the user's click.
+
+KDE_PORTS = "1714:1764"
+DAEMON_UNIT = "app-org.kde.kdeconnect.daemon@autostart.service"
+
+
+def local_network():
+    """The IPv4 network of the default route, e.g. 192.168.1.0/24."""
+    try:
+        route = json.loads(subprocess.run(["ip", "-j", "-4", "route", "show", "default"],
+                                          capture_output=True, text=True, timeout=5).stdout or "[]")
+        dev = route[0]["dev"]
+        addr = json.loads(subprocess.run(["ip", "-j", "-4", "addr", "show", "dev", dev],
+                                         capture_output=True, text=True, timeout=5).stdout or "[]")
+        info = addr[0]["addr_info"][0]
+        return str(ipaddress.ip_interface("%s/%s" % (info["local"], info["prefixlen"])).network)
+    except (OSError, ValueError, KeyError, IndexError, subprocess.TimeoutExpired):
+        return ""
+
+
+def firewall_state():
+    """ufw on or off, and whether KDE Connect's ports are allowed (TCP and
+    UDP). ufw keeps its rules world-readable, so no root is needed to look."""
+    try:
+        enabled = any(line.strip() == "ENABLED=yes" for line in open("/etc/ufw/ufw.conf"))
+    except OSError:
+        return {"present": False, "active": False, "allowed": True}
+    protos = set()
+    try:
+        for line in open("/etc/ufw/user.rules"):
+            if line.startswith("### tuple ###") and " allow " in line and " %s " % KDE_PORTS in line:
+                parts = line.split()
+                if len(parts) > 5:
+                    protos.add(parts[4])
+    except OSError:
+        pass
+    return {"present": True, "active": enabled, "allowed": {"tcp", "udp"} <= protos or "any" in protos}
+
+
+def doctor():
+    checks = []
+    installed = shutil.which("kdeconnect-cli") is not None
+    checks.append({"key": "installed", "ok": installed, "label": "KDE Connect installed",
+                   "detail": "" if installed else "The kdeconnect package is not installed",
+                   "fix": "" if installed else "install", "fixLabel": "Install"})
+    running = False
+    devices = []
+    if installed:
+        try:
+            conn = bus()
+            running = daemon_running(conn)
+            if running:
+                devices = snapshot(conn).get("devices", [])
+        except GLib.Error:
+            running = False
+    checks.append({"key": "running", "ok": running, "label": "KDE Connect running",
+                   "detail": "" if running else "It starts at login; it is not running now",
+                   "fix": "" if running or not installed else "start", "fixLabel": "Start"})
+    fw = firewall_state()
+    lan = local_network()
+    fw_ok = not fw["active"] or fw["allowed"]
+    checks.append({"key": "firewall", "ok": fw_ok,
+                   "label": "Firewall lets devices in",
+                   "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, lan or "the local network"),
+                   "fix": "" if fw_ok else "firewall", "fixLabel": "Allow"})
+    paired = [d for d in devices if d.get("paired")]
+    reachable = [d for d in paired if d.get("reachable")]
+    checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
+                   "detail": "" if paired else "Open KDE Connect on the phone or tablet and pair it with this computer",
+                   "fix": "", "fixLabel": ""})
+    checks.append({"key": "reachable", "ok": len(reachable) > 0, "label": "A paired device is connected",
+                   "detail": "" if reachable or not paired else "Same network as this computer, with the KDE Connect app running",
+                   "fix": "", "fixLabel": ""})
+    return {"checks": checks, "network": lan, "firewall": fw}
+
+
+def fix(what):
+    if what == "install":
+        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "kdeconnect"]
+    elif what == "start":
+        if subprocess.run(["systemctl", "--user", "start", DAEMON_UNIT], timeout=15).returncode == 0:
+            return say("KDE Connect started")
+        daemon = "/usr/lib/kdeconnectd"
+        if os.path.exists(daemon):
+            subprocess.Popen([daemon], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return say("KDE Connect started")
+        return say("Could not start KDE Connect", EXIT_FAILED)
+    elif what == "firewall":
+        lan = local_network()
+        if not lan:
+            return say("Could not tell which network this computer is on", EXIT_FAILED)
+        rules = " && ".join(
+            "/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto)
+            for proto in ("tcp", "udp"))
+        cmd = ["pkexec", "/bin/sh", "-c", rules]
+    else:
+        return say("Unknown fix %s" % what, EXIT_FAILED)
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return say(str(error), EXIT_FAILED)
+    if out.returncode in (126, 127):
+        return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
+    if out.returncode != 0:
+        return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+    return say({"install": "KDE Connect installed", "firewall": "Firewall now allows KDE Connect from %s" % local_network()}[what])
+
 
 
 # ---- Text messages ---------------------------------------------------------
@@ -733,6 +854,11 @@ def main(argv):
         except KeyboardInterrupt:
             pass
         return EXIT_OK
+    if argv[0] == "doctor":
+        print(json.dumps(doctor()))
+        return EXIT_OK
+    if argv[0] == "fix":
+        return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "snapshot":
         print(json.dumps(snapshot(bus()), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK

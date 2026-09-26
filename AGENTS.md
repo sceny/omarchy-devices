@@ -70,8 +70,17 @@ Each rule records a fault that was hit or a decision the owner made.
   steps and reports the step it rounded to; the panel keeps showing the
   user's level while the phone's reports are only its answer to that set.
 - **One pace for all motion: `Model.MOTION`** (90 ms out, 220 ms in, OutCubic).
-  Nothing animates on its own clock. The panel container only fades, so page
-  changes swap content and panel size while nothing is visible.
+  Nothing animates on its own clock. A page change fades and slides the old
+  page out, swaps it at the midpoint, and slides the new one in, while the
+  panel's box (the card) animates to the new size at the same beat. The card
+  is an item inside a full-screen layer surface, so animating it costs no
+  window resize; snapping it was the jump seen mid-transition. The page is
+  laid out at the card's final width from the first frame, so it never
+  re-flows while the card moves.
+- **Size animations are for the user's own changes.** A hidden page has no
+  height, so while a page appears or the panel opens, fold and carousel
+  animations are off (`settled`); otherwise every section grows from nothing
+  as the page slides in.
 - **The battery is a detail, not the headline.** Bar pill: glyph and percent.
   Panel: the header icon is the device; the battery is a text-sized glyph
   leading the meta line. The bolt already says charging; do not add the word.
