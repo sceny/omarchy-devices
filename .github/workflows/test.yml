@@ -1,0 +1,22 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: PyGObject for the bridge
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi
+      - name: Model
+        run: node --test tests/
+      - name: Bridge
+        run: /usr/bin/python3 -m unittest discover -s tests -v
+      - name: Manifest is valid JSON with the expected id
+        run: jq -e '.id == "sceny.devices" and .schemaVersion == 1' manifest.json

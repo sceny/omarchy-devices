@@ -1,0 +1,726 @@
+#!/usr/bin/python3
+"""KDE Connect bridge for the sceny.devices Omarchy shell plugin.
+
+The shell has no generic D-Bus binding, and every shell-callable D-Bus client
+(busctl, gdbus) opens a fresh connection per call. One Python process holding
+one connection is cheaper and can also listen: `watch` prints a JSON snapshot
+of every KDE Connect device on start, again shortly after any signal the
+daemon emits, and every HEARTBEAT_SEC as a backstop. Unchanged snapshots are
+not re-printed, so the shell only wakes when something moved.
+
+  kdeconnect-bridge watch                          snapshot per line, until killed
+  kdeconnect-bridge snapshot                       one snapshot, then exit
+  kdeconnect-bridge ring <device>
+  kdeconnect-bridge ping <device>
+  kdeconnect-bridge clipboard <device>
+  kdeconnect-bridge share <device> [path...]       no paths: open the file chooser
+  kdeconnect-bridge media <device> <PlayPause|Next|Previous>
+  kdeconnect-bridge dismiss <device> <notification>
+  kdeconnect-bridge reply <device> <replyId> <message>
+  kdeconnect-bridge action <device> <notification> <action>
+  kdeconnect-bridge sms <device>                   text messages: JSON commands on
+                                              stdin, JSON events on stdout
+
+Actions print one human line and exit 0 on success, 1 when the user backed
+out (closed the file chooser), 2 on failure.
+"""
+
+import base64
+import json
+import os
+import re
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+BUS_NAME = "org.kde.kdeconnect"
+ROOT = "/modules/kdeconnect"
+IFACE = "org.kde.kdeconnect"
+CALL_TIMEOUT_MS = 2500
+DEBOUNCE_MS = 250
+HEARTBEAT_SEC = 30
+
+EXIT_OK, EXIT_CANCELLED, EXIT_FAILED = 0, 1, 2
+
+
+def bus():
+    return Gio.bus_get_sync(Gio.BusType.SESSION, None)
+
+
+def call(conn, path, iface, method, args=None, sig=None):
+    params = GLib.Variant(sig, args) if sig else None
+    result = conn.call_sync(BUS_NAME, path, iface, method, params, None,
+                            Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+    return result.unpack() if result is not None else ()
+
+
+def props(conn, path, iface):
+    try:
+        return call(conn, path, "org.freedesktop.DBus.Properties", "GetAll",
+                    (iface,), "(s)")[0]
+    except GLib.Error:
+        return None
+
+
+def device_path(device_id):
+    return "%s/devices/%s" % (ROOT, device_id)
+
+
+def daemon_running(conn):
+    owner = conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                           "org.freedesktop.DBus", "NameHasOwner",
+                           GLib.Variant("(s)", (BUS_NAME,)), None,
+                           Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+    return owner.unpack()[0]
+
+
+def read_notifications(conn, dpath):
+    npath = dpath + "/notifications"
+    try:
+        ids = call(conn, npath, IFACE + ".device.notifications",
+                   "activeNotifications")[0]
+    except GLib.Error:
+        return None
+    out = []
+    for nid in ids:
+        p = props(conn, "%s/%s" % (npath, nid),
+                  IFACE + ".device.notifications.notification")
+        if not p:
+            continue
+        icon = p.get("iconPath", "") if p.get("hasIcon") else ""
+        out.append({
+            "id": nid,
+            "key": p.get("internalId", ""),
+            "app": p.get("appName", ""),
+            "title": p.get("title", ""),
+            "text": p.get("text", ""),
+            "ticker": p.get("ticker", ""),
+            "dismissable": bool(p.get("dismissable", False)),
+            "replyId": p.get("replyId", ""),
+            "actions": list(p.get("actions", []) or []),
+            "icon": icon if icon and os.path.exists(icon) else "",
+            "silent": bool(p.get("silent", False)),
+        })
+    # activeNotifications is in arrival order; newest first reads better.
+    out.reverse()
+    return out
+
+
+def read_device(conn, device_id):
+    dpath = device_path(device_id)
+    d = props(conn, dpath, IFACE + ".device")
+    if d is None:
+        return None
+    plugins = []
+    try:
+        plugins = list(call(conn, dpath, IFACE + ".device", "loadedPlugins")[0])
+    except GLib.Error:
+        pass
+    has = lambda name: ("kdeconnect_" + name) in plugins
+
+    dev = {
+        "id": device_id,
+        "name": d.get("name", ""),
+        "type": d.get("type", ""),
+        "reachable": bool(d.get("isReachable", False)),
+        "paired": bool(d.get("isPaired", False)),
+        "pairRequested": bool(d.get("isPairRequestedByPeer", False)),
+        "links": list(d.get("activeProviderNames", []) or []),
+        "addresses": list(d.get("reachableAddresses", []) or []),
+        "can": {
+            "ring": has("findmyphone"),
+            "clipboard": has("clipboard"),
+            "share": has("share"),
+            "sms": has("sms"),
+            "media": has("mprisremote"),
+            "notifications": has("notifications"),
+            "ping": has("ping"),
+        },
+        "battery": None,
+        "network": None,
+        "notifications": [],
+    }
+
+    if not dev["reachable"]:
+        return dev
+
+    if has("battery"):
+        b = props(conn, dpath + "/battery", IFACE + ".device.battery")
+        if b and b.get("hasBattery"):
+            dev["battery"] = {"charge": int(b.get("charge", -1)),
+                              "charging": bool(b.get("isCharging", False))}
+
+    if has("connectivity_report"):
+        c = props(conn, dpath + "/connectivity_report",
+                  IFACE + ".device.connectivity_report")
+        if c and c.get("cellularNetworkType"):
+            dev["network"] = {"type": c.get("cellularNetworkType", ""),
+                              "strength": int(c.get("cellularNetworkStrength", -1))}
+
+    # Media is not read here: KDE Connect also exports every phone player as
+    # an MPRIS player, which the shell tracks natively (Service.players). The
+    # mprisremote object only ever shows one "current" player, which went
+    # stale when the phone switched apps.
+
+    if has("notifications"):
+        n = read_notifications(conn, dpath)
+        dev["notifications"] = n if n is not None else []
+
+    return dev
+
+
+def snapshot(conn):
+    try:
+        if not daemon_running(conn):
+            return {"daemon": False, "devices": []}
+        ids = call(conn, ROOT, IFACE + ".daemon", "devices",
+                   (False, True), "(bb)")[0]
+    except GLib.Error as error:
+        return {"daemon": False, "devices": [], "error": error.message}
+    devices = []
+    for device_id in ids:
+        try:
+            dev = read_device(conn, device_id)
+        except GLib.Error:
+            dev = None
+        if dev:
+            devices.append(dev)
+    return {"daemon": True, "devices": devices}
+
+
+def watch():
+    conn = bus()
+    loop = GLib.MainLoop()
+    state = {"pending": 0, "last": None}
+
+    def emit():
+        state["pending"] = 0
+        line = json.dumps(snapshot(conn), sort_keys=True, ensure_ascii=False)
+        if line != state["last"]:
+            state["last"] = line
+            try:
+                sys.stdout.write(line + "\n")
+                sys.stdout.flush()
+            except BrokenPipeError:
+                loop.quit()
+        return False
+
+    def schedule(*_args):
+        # Signals come in bursts (a notification posts, then updates, then the
+        # battery refreshes); one snapshot after the burst settles is enough.
+        if state["pending"]:
+            GLib.source_remove(state["pending"])
+        state["pending"] = GLib.timeout_add(DEBOUNCE_MS, emit)
+
+    def heartbeat():
+        schedule()
+        return True
+
+    # Every signal the daemon emits, on any object: device list, reachability,
+    # pairing, battery, notifications, media. Subscribing by well-known name
+    # follows the daemon across restarts.
+    conn.signal_subscribe(BUS_NAME, None, None, None, None,
+                          Gio.DBusSignalFlags.NONE, schedule)
+    conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
+                          "NameOwnerChanged", "/org/freedesktop/DBus",
+                          BUS_NAME, Gio.DBusSignalFlags.NONE, schedule)
+    GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
+    emit()
+    loop.run()
+
+
+def say(message, code=EXIT_OK):
+    print(message, file=sys.stdout if code == EXIT_OK else sys.stderr)
+    return code
+
+
+def device_name(conn, device_id):
+    d = props(conn, device_path(device_id), IFACE + ".device")
+    return (d or {}).get("name", "phone")
+
+
+def pick_files(title):
+    try:
+        out = subprocess.run(["omarchy-file-select", "--title", title, "--multiple"],
+                             capture_output=True, text=True, timeout=660)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, str(error)
+    if out.returncode == 1:
+        return [], ""
+    if out.returncode != 0:
+        return None, (out.stderr or "file chooser failed").strip()
+    return [p for p in out.stdout.splitlines() if p], ""
+
+
+def act(argv):
+    if len(argv) < 2:
+        return say(__doc__.strip(), EXIT_FAILED)
+    verb, device_id, rest = argv[0], argv[1], argv[2:]
+    conn = bus()
+    dpath = device_path(device_id)
+    try:
+        if verb == "ring":
+            call(conn, dpath + "/findmyphone", IFACE + ".device.findmyphone", "ring")
+            return say("Ringing %s" % device_name(conn, device_id))
+
+        if verb == "ping":
+            call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")
+            return say("Pinged %s" % device_name(conn, device_id))
+
+        if verb == "clipboard":
+            call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")
+            return say("Clipboard sent")
+
+        if verb == "share":
+            paths = rest
+            if not paths:
+                paths, error = pick_files("Send to %s" % device_name(conn, device_id))
+                if paths is None:
+                    return say(error, EXIT_FAILED)
+                if not paths:
+                    return say("Nothing sent", EXIT_CANCELLED)
+            missing = [p for p in paths if not os.path.exists(p)]
+            if missing:
+                return say("Not found: %s" % missing[0], EXIT_FAILED)
+            uris = [Gio.File.new_for_path(p).get_uri() for p in paths]
+            call(conn, dpath + "/share", IFACE + ".device.share", "shareUrls",
+                 (uris,), "(as)")
+            if len(paths) == 1:
+                return say("Sending %s" % os.path.basename(paths[0]))
+            return say("Sending %d files" % len(paths))
+
+        if verb == "media":
+            action = rest[0] if rest else "PlayPause"
+            if action not in ("PlayPause", "Play", "Pause", "Next", "Previous", "Stop"):
+                return say("Unknown media action %s" % action, EXIT_FAILED)
+            call(conn, dpath + "/mprisremote", IFACE + ".device.mprisremote",
+                 "sendAction", (action,), "(s)")
+            # The play/pause glyph already shows it worked; no status line.
+            return EXIT_OK
+
+        if verb == "dismiss":
+            call(conn, "%s/notifications/%s" % (dpath, rest[0]),
+                 IFACE + ".device.notifications.notification", "dismiss")
+            return say("Dismissed")
+
+        if verb == "reply":
+            reply_id, message = rest[0], " ".join(rest[1:]).strip()
+            if not message:
+                return say("Empty reply", EXIT_CANCELLED)
+            call(conn, dpath + "/notifications", IFACE + ".device.notifications",
+                 "sendReply", (reply_id, message), "(ss)")
+            return say("Reply sent")
+
+        if verb == "action":
+            nid, action = rest[0], rest[1]
+            p = props(conn, "%s/notifications/%s" % (dpath, nid),
+                      IFACE + ".device.notifications.notification") or {}
+            call(conn, dpath + "/notifications", IFACE + ".device.notifications",
+                 "sendAction", (p.get("internalId", nid), action), "(ss)")
+            return say(action)
+    except GLib.Error as error:
+        message = error.message
+        if "UnknownObject" in message or "No such object" in message:
+            message = "The phone does not offer that right now"
+        elif "ServiceUnknown" in message:
+            message = "KDE Connect is not running"
+        return say(message, EXIT_FAILED)
+    except IndexError:
+        return say("Missing argument for %s" % verb, EXIT_FAILED)
+
+    return say("Unknown command %s" % verb, EXIT_FAILED)
+
+
+# ---- Text messages ---------------------------------------------------------
+#
+# `sms` holds one connection to KDE Connect's conversations interface and
+# speaks JSON lines: commands in on stdin, events out on stdout.
+#
+#   in   {"cmd":"load","thread":T,"start":0,"count":30}   a page of history
+#        {"cmd":"reply","thread":T,"text":"..."}
+#        {"cmd":"send","addresses":["+1..."],"text":"..."}
+#        {"cmd":"attachment","part":P,"id":"..."}         fetch a full file
+#        {"cmd":"refresh"}                                re-read everything
+#   out  {"ev":"threads","threads":[...]}                 the whole list
+#        {"ev":"thread","thread":{...}}                   one thread changed
+#        {"ev":"messages","thread":T,"start":S,"messages":[...],"hasMore":b}
+#        {"ev":"message","message":{...}}                 new or changed
+#        {"ev":"attachment","part":P,"id":"...","path":"..."}
+#        {"ev":"contacts","count":N}
+#        {"ev":"sent"|"error", ...}
+#
+# Messages arrive from the daemon as conversationUpdated/Created signals, both
+# for history we asked for and for live traffic. They all land in one cache;
+# a message newer than its thread's latest, or a known one that changed, is
+# pushed as "message", while older ones wait for their "messages" page.
+
+SMS_IF = IFACE + ".device.conversations"
+LOAD_TIMEOUT_SEC = 12
+# The daemon re-sends history it already holds as a burst of signals and says
+# nothing when done (conversationLoaded only follows a fetch from the phone),
+# so a page is complete once it is full or the burst goes quiet this long.
+LOAD_SETTLE_MS = 800
+SENT_TYPES = (2, 4, 5, 6)          # Android: sent, outbox, failed, queued
+
+
+def cache_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    path = os.path.join(base, "sceny.devices", "sms")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def digits_key(number):
+    digits = re.sub(r"\D", "", number or "")
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def read_contacts(device_id):
+    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
+    Returns ({digits_key: name}, [{"name", "number"}])."""
+    folder = os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
+    names = {}
+    entries = []
+    try:
+        files = os.listdir(folder)
+    except OSError:
+        return names, entries
+    for name in files:
+        try:
+            text = open(os.path.join(folder, name), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        # Unfold continuation lines, then read FN and every TEL.
+        text = re.sub(r"\r?\n[ \t]", "", text)
+        full = ""
+        tels = []
+        for line in text.splitlines():
+            key, _, value = line.partition(":")
+            key = key.upper()
+            if key == "FN" or key.startswith("FN;"):
+                full = value.strip()
+            elif key == "TEL" or key.startswith("TEL;"):
+                tels.append(value.strip())
+        for tel in tels:
+            k = digits_key(tel)
+            if k and full:
+                names.setdefault(k, full)
+                entries.append({"name": full, "number": tel})
+    return names, entries
+
+
+class Sms:
+    def __init__(self, device_id):
+        self.device_id = device_id
+        self.path = device_path(device_id)
+        self.conn = bus()
+        self.loop = GLib.MainLoop()
+        self.cache = {}        # thread -> {uid: message}
+        self.latest = {}       # thread -> newest message (summary source)
+        self.pending = {}      # thread -> [(start, count, timeout_source)]
+        self.loaded = {}       # thread -> messages the daemon holds (conversationLoaded)
+        self.settle = {}       # thread -> quiet-period timer while a page loads
+        self.contacts, self.contact_list = read_contacts(device_id)
+        self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
+        self.thumbs = cache_dir()
+
+    # -- output --
+    def out(self, obj):
+        try:
+            sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
+            sys.stdout.flush()
+        except BrokenPipeError:
+            self.loop.quit()
+
+    def name_for(self, address):
+        return self.contacts.get(digits_key(address), "")
+
+    # -- conversion --
+    def attachment(self, a):
+        part, mime, thumb64, uid = a
+        entry = {"part": part, "mime": mime, "id": uid, "thumb": ""}
+        if thumb64:
+            # KDE Connect's thumbnails are PNG whatever the original was.
+            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", "%s_%s" % (part, uid))[:120]
+            path = os.path.join(self.thumbs, "thumb_%s.png" % safe)
+            if not os.path.exists(path):
+                try:
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(thumb64))
+                except (OSError, ValueError):
+                    path = ""
+            entry["thumb"] = path
+        return entry
+
+    def message(self, v):
+        event, body, addrs, date, mtype, read, tid, uid, sub, atts = v
+        addresses = [a[0] for a in addrs]
+        return {
+            "uid": uid, "thread": tid, "body": body, "date": date,
+            "type": mtype, "sent": mtype in SENT_TYPES, "read": read == 1,
+            "event": event, "addresses": addresses,
+            "attachments": [self.attachment(a) for a in atts],
+        }
+
+    def summary(self, m):
+        addresses = m["addresses"]
+        names = [self.name_for(a) for a in addresses]
+        body = " ".join((m["body"] or "").split())
+        return {
+            "id": m["thread"], "addresses": addresses, "names": names,
+            "date": m["date"], "snippet": body[:200], "sent": m["sent"],
+            "read": m["read"], "attachments": len(m["attachments"]),
+            "group": len(addresses) > 1,
+        }
+
+    # -- D-Bus --
+    def call(self, method, args=None, sig=None, timeout=10000):
+        params = GLib.Variant(sig, args) if sig else None
+        return self.conn.call_sync(BUS_NAME, self.path, SMS_IF, method, params, None,
+                                   Gio.DBusCallFlags.NONE, timeout, None)
+
+    def active(self):
+        av = self.call("activeConversations").get_child_value(0)
+        out = []
+        for i in range(av.n_children()):
+            try:
+                out.append(self.message(av.get_child_value(i).get_variant().unpack()))
+            except (ValueError, TypeError):
+                pass
+        return out
+
+    def emit_threads(self):
+        msgs = self.active()
+        for m in msgs:
+            self.remember(m)
+            cur = self.latest.get(m["thread"])
+            if cur is None or m["date"] >= cur["date"]:
+                self.latest[m["thread"]] = m
+        threads = sorted((self.summary(m) for m in self.latest.values()),
+                         key=lambda t: -t["date"])
+        self.out({"ev": "threads", "threads": threads})
+        self.out({"ev": "contacts", "count": len(self.contacts), "contacts": self.contact_list})
+
+    def remember(self, m):
+        bucket = self.cache.setdefault(m["thread"], {})
+        old = bucket.get(m["uid"])
+        bucket[m["uid"]] = m
+        return old
+
+    def on_signal(self, conn, sender, path, iface, signal, params):
+        if path != self.path:
+            return
+        if signal in ("conversationCreated", "conversationUpdated"):
+            try:
+                m = self.message(params.get_child_value(0).get_variant().unpack())
+            except (ValueError, TypeError):
+                return
+            old = self.remember(m)
+            if m["thread"] in self.pending:
+                self.progress(m["thread"])
+            latest = self.latest.get(m["thread"])
+            newest = latest is None or m["date"] >= latest["date"]
+            if newest:
+                self.latest[m["thread"]] = m
+                self.out({"ev": "thread", "thread": self.summary(m)})
+            # Live traffic, or a known message whose state moved (sending ->
+            # sent, read): push it. History we asked for waits for its page.
+            if (old is None and newest) or (old is not None and old != m):
+                self.out({"ev": "message", "message": m})
+        elif signal == "conversationLoaded":
+            tid, count = params.unpack()
+            self.loaded[tid] = count
+            self.finish_loads(tid, count)
+        elif signal == "conversationRemoved":
+            tid = params.unpack()[0]
+            self.cache.pop(tid, None)
+            self.latest.pop(tid, None)
+            self.out({"ev": "removed", "thread": tid})
+        elif signal == "attachmentReceived":
+            file_path, file_name = params.unpack()
+            self.out({"ev": "attachment", "path": self.named(file_path, file_name), "name": file_name})
+
+    def named(self, path, name):
+        """The daemon saves attachments without an extension, which some
+        viewers refuse. Link it under a name that carries its type."""
+        mime = self.file_mimes.get(name, "")
+        ext = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/gif": "gif",
+               "video/3gpp": "3gp", "video/mp4": "mp4", "audio/amr": "amr", "audio/mpeg": "mp3"}.get(
+            mime, mime.split("/")[-1] if "/" in mime else "")
+        if not ext or path.lower().endswith("." + ext):
+            return path
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:120]
+        link = os.path.join(self.thumbs, "%s.%s" % (safe, ext))
+        try:
+            if os.path.islink(link) or os.path.exists(link):
+                os.remove(link)
+            os.symlink(path, link)
+            return link
+        except OSError:
+            return path
+
+    def page(self, tid, start, count):
+        ordered = sorted(self.cache.get(tid, {}).values(), key=lambda m: -m["date"])
+        return ordered[start:start + count], len(ordered)
+
+    def answer(self, tid, start, want):
+        msgs, have = self.page(tid, start, want)
+        known = self.loaded.get(tid)
+        self.out({"ev": "messages", "thread": tid, "start": start, "messages": msgs,
+                  "hasMore": len(msgs) == want or (known is not None and known > start + len(msgs))})
+
+    def finish_loads(self, tid, count=None):
+        source = self.settle.pop(tid, None)
+        if source:
+            GLib.source_remove(source)
+        for start, want, timeout in self.pending.pop(tid, []):
+            GLib.source_remove(timeout)
+            self.answer(tid, start, want)
+
+    def progress(self, tid):
+        """A message for a thread with a page on the way: answer pages that are
+        now full, and restart the quiet-period timer for the rest."""
+        have = len(self.cache.get(tid, {}))
+        still = []
+        for start, want, timeout in self.pending.get(tid, []):
+            if have >= start + want:
+                GLib.source_remove(timeout)
+                self.answer(tid, start, want)
+            else:
+                still.append((start, want, timeout))
+        if not still:
+            self.pending.pop(tid, None)
+            source = self.settle.pop(tid, None)
+            if source:
+                GLib.source_remove(source)
+            return
+        self.pending[tid] = still
+        source = self.settle.pop(tid, None)
+        if source:
+            GLib.source_remove(source)
+
+        def quiet():
+            self.settle.pop(tid, None)
+            self.finish_loads(tid)
+            return False
+        self.settle[tid] = GLib.timeout_add(LOAD_SETTLE_MS, quiet)
+
+    def load(self, tid, start, count):
+        # Already held: answer now. The daemon sends no conversationLoaded for
+        # a range it already has, so waiting would only run into the timeout.
+        msgs, have = self.page(tid, start, count)
+        known = self.loaded.get(tid)
+        if len(msgs) == count or (known is not None and have >= known):
+            self.out({"ev": "messages", "thread": tid, "start": start, "messages": msgs,
+                      "hasMore": have > start + count or (known is not None and known > have)
+                                 or (known is None and len(msgs) == count)})
+            if len(msgs) == count:
+                # Still ask, so anything newer on the phone comes in as signals.
+                try:
+                    self.call("requestConversation", (tid, start, start + count), "(xii)")
+                except GLib.Error:
+                    pass
+            return
+
+        def timed_out():
+            waiting = self.pending.get(tid, [])
+            self.pending[tid] = [w for w in waiting if w[2] != source_holder[0]]
+            if not self.pending[tid]:
+                self.pending.pop(tid, None)
+            msgs, have = self.page(tid, start, count)
+            self.out({"ev": "messages", "thread": tid, "start": start, "messages": msgs,
+                      "hasMore": False, "timedOut": True})
+            return False
+        source_holder = [0]
+        source_holder[0] = GLib.timeout_add_seconds(LOAD_TIMEOUT_SEC, timed_out)
+        self.pending.setdefault(tid, []).append((start, count, source_holder[0]))
+        try:
+            self.call("requestConversation", (tid, start, start + count), "(xii)")
+        except GLib.Error as error:
+            self.out({"ev": "error", "cmd": "load", "thread": tid, "message": error.message})
+
+    def command(self, cmd):
+        verb = cmd.get("cmd")
+        try:
+            if verb == "load":
+                self.load(int(cmd["thread"]), int(cmd.get("start", 0)), int(cmd.get("count", 30)))
+            elif verb == "reply":
+                text = str(cmd.get("text", "")).strip()
+                if text:
+                    self.call("replyToConversation", (int(cmd["thread"]), text, []), "(xsav)")
+                    self.out({"ev": "sent", "thread": int(cmd["thread"])})
+            elif verb == "send":
+                text = str(cmd.get("text", "")).strip()
+                addrs = [GLib.Variant("(s)", (str(a),)) for a in cmd.get("addresses", []) if str(a).strip()]
+                if text and addrs:
+                    self.call("sendWithoutConversation", (addrs, text, []), "(avsav)")
+                    self.out({"ev": "sent", "addresses": cmd.get("addresses", [])})
+            elif verb == "attachment":
+                if cmd.get("mime"):
+                    self.file_mimes[str(cmd["id"])] = str(cmd["mime"])
+                self.call("requestAttachmentFile", (int(cmd["part"]), str(cmd["id"])), "(xs)")
+            elif verb == "refresh":
+                self.contacts, self.contact_list = read_contacts(self.device_id)
+                self.emit_threads()
+                self.call("requestAllConversationThreads")
+        except (GLib.Error, KeyError, ValueError, TypeError) as error:
+            message = error.message if isinstance(error, GLib.Error) else str(error)
+            self.out({"ev": "error", "cmd": verb, "message": message})
+
+    def on_stdin(self, fd, condition):
+        if condition & (GLib.IO_HUP | GLib.IO_ERR):
+            self.loop.quit()
+            return False
+        line = sys.stdin.readline()
+        if not line:
+            self.loop.quit()
+            return False
+        try:
+            self.command(json.loads(line))
+        except json.JSONDecodeError:
+            self.out({"ev": "error", "message": "unreadable command"})
+        return True
+
+    def run(self):
+        self.conn.signal_subscribe(BUS_NAME, SMS_IF, None, self.path, None,
+                                   Gio.DBusSignalFlags.NONE, self.on_signal)
+        GLib.io_add_watch(sys.stdin.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_stdin)
+        try:
+            self.emit_threads()
+            # Ask the phone for anything the daemon has not seen yet; updates
+            # come back as signals.
+            self.call("requestAllConversationThreads")
+        except GLib.Error as error:
+            self.out({"ev": "error", "cmd": "start", "message": error.message})
+        self.loop.run()
+
+
+def main(argv):
+    if not argv:
+        return say(__doc__.strip(), EXIT_FAILED)
+    if argv[0] == "watch":
+        try:
+            watch()
+        except KeyboardInterrupt:
+            pass
+        return EXIT_OK
+    if argv[0] == "sms":
+        if len(argv) < 2:
+            return say("sms needs a device id", EXIT_FAILED)
+        try:
+            Sms(argv[1]).run()
+        except KeyboardInterrupt:
+            pass
+        return EXIT_OK
+    if argv[0] == "snapshot":
+        print(json.dumps(snapshot(bus()), indent=2, sort_keys=True, ensure_ascii=False))
+        return EXIT_OK
+    return act(argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

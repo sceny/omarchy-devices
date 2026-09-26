@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "id": "sceny.devices",
+  "name": "Devices",
+  "version": "0.3.0",
+  "author": "sceny",
+  "license": "MIT",
+  "description": "Your phones and tablets in the Omarchy bar through KDE Connect: battery, shortcuts, a media carousel with seek and volume, notifications with reply and dismiss, and a full text-message view.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Devices",
+    "description": "Your phone or tablet in the bar through KDE Connect: battery at a glance; click for shortcuts, media, notifications and messages.",
+    "category": "Network",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showPercent": true,
+      "lowBatteryPercent": 15,
+      "deviceId": "",
+      "showShortcuts": true,
+      "showMedia": true,
+      "showNotifications": true,
+      "shortcuts": [
+        "ring",
+        "share",
+        "clipboard",
+        "messages"
+      ]
+    },
+    "schema": [
+      {
+        "key": "showShortcuts",
+        "type": "boolean",
+        "label": "Show shortcuts",
+        "defaultValue": true,
+        "description": "The row of quick action buttons under the header."
+      },
+      {
+        "key": "showMedia",
+        "type": "boolean",
+        "label": "Show now playing",
+        "defaultValue": true,
+        "description": "What the phone is playing, while something plays."
+      },
+      {
+        "key": "showNotifications",
+        "type": "boolean",
+        "label": "Show notifications",
+        "defaultValue": true,
+        "description": "The phone's notifications, with reply and dismiss."
+      },
+      {
+        "key": "shortcuts",
+        "type": "array",
+        "label": "Shortcuts",
+        "defaultValue": [
+          "ring",
+          "share",
+          "clipboard",
+          "messages"
+        ],
+        "items": {
+          "type": "string",
+          "enum": [
+            "ring",
+            "share",
+            "clipboard",
+            "messages",
+            "ping",
+            "playPause",
+            "kdeconnect"
+          ]
+        },
+        "description": "Which shortcut buttons show, in order. Edited from the panel's settings page (gear icon)."
+      },
+      {
+        "key": "showPercent",
+        "type": "boolean",
+        "label": "Show battery percentage",
+        "defaultValue": true,
+        "description": "Off shows the phone glyph alone."
+      },
+      {
+        "key": "lowBatteryPercent",
+        "type": "integer",
+        "label": "Low battery warning (%)",
+        "defaultValue": 15,
+        "minimum": 0,
+        "maximum": 50,
+        "description": "At or below this, and not charging, the bar pill turns urgent. 0 turns the warning off."
+      },
+      {
+        "key": "deviceId",
+        "type": "string",
+        "label": "Device ID",
+        "defaultValue": "",
+        "description": "Empty follows the first paired phone that is connected. Set an ID from `kdeconnect-cli -l` to pin one."
+      }
+    ]
+  }
+}

@@ -1,0 +1,93 @@
+# Devices: an Omarchy plugin
+
+Read this before changing, testing or diagnosing anything here. Two skills carry
+the procedures:
+
+- `.claude/skills/develop-panel/`: how to change it and see the change working.
+- `.claude/skills/diagnose-panel/`: something looks wrong in the bar or panel, and why.
+
+## What this is
+
+A plugin for the Omarchy shell (Quickshell/QML), id `sceny.devices`: a bar
+widget and a panel over the phones and tablets paired with
+[KDE Connect](https://kdeconnect.kde.org/). Battery in the bar; in the panel,
+shortcuts, the device's media players, its notifications, and a full
+text-message view. The README is the user-facing description.
+
+## The boundary: KDE Connect is the source of truth
+
+The plugin holds no device state of its own. Everything comes from the KDE
+Connect daemon over D-Bus, through `bin/kdeconnect-bridge`, or from the MPRIS
+players KDE Connect exports (media). The only files the plugin writes outside
+its folder are caches under `~/.cache/sceny.devices/`.
+
+- **A feature KDE Connect does not offer is not faked.** Ongoing notifications
+  never leave the phone; messages cannot be marked read on the phone; RCS is
+  not in the SMS store. Say so in the UI or the README instead.
+- **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
+  D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
+  connection per call and cannot listen. One Python process (PyGObject) holds
+  one connection and listens.
+
+## Files
+
+| File | Holds |
+|---|---|
+| `bin/kdeconnect-bridge` | `watch` (device snapshots, event-driven), one-shot action verbs, and `sms` (JSON lines on stdin/stdout) |
+| `Service.qml` | the watcher, the action runner, MPRIS players, and `SmsService` |
+| `SmsService.qml` | text messages: threads and the open conversation as ListModels, search, what was seen here |
+| `Model.js` | pure functions from data to what is drawn; no QML, checked with `node` |
+| `BarWidget.qml` | the bar pill |
+| `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
+| `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
+| `manifest.json` | id, entry points, settings and their defaults |
+
+## Rules: what the owner decided, so nobody undoes it
+
+Each rule records a fault that was hit or a decision the owner made.
+
+- **Never send a text message while testing.** A test reply goes to a real
+  person. Check the send path up to the D-Bus argument types, and leave the
+  first real send to the owner.
+- **Nothing scripted focuses a text field.** IPC `openThread`, `newMessage`
+  and the like never focus the composer: keystrokes meant for another window
+  would land in a text, and Enter would send it. Only the user's own click or
+  Enter on a thread does.
+- **No real personal data in the repository.** No phone numbers, device ids,
+  message text or contact names in code, comments, docs, tests or commit
+  messages. Examples use 555 numbers; screenshots come from `demo` mode.
+- **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
+  object shows one "current" player that went stale when the phone switched
+  apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
+- **The media card shows the active player only**, like the phone; the others
+  are a carousel away (arrows, dots, swipe, drag, `h`/`l`). It opens on the
+  active player (playing, else last played) every time.
+- **Nothing blinks on a seek.** A seek makes the phone report Paused then
+  Playing within about 100 ms. Never rebuild or re-sort the player list on
+  play state, never hide the seek bar or flip the play button on a pause
+  shorter than the grace (1.5 s for the button, 4 s for the seek bar).
+- **The volume slider stays where it was left.** The phone has coarse volume
+  steps and reports the step it rounded to; the panel keeps showing the
+  user's level while the phone's reports are only its answer to that set.
+- **One pace for all motion: `Model.MOTION`** (90 ms out, 220 ms in, OutCubic).
+  Nothing animates on its own clock. The panel container only fades, so page
+  changes swap content and panel size while nothing is visible.
+- **The battery is a detail, not the headline.** Bar pill: glyph and percent.
+  Panel: the header icon is the device; the battery is a text-sized glyph
+  leading the meta line. The bolt already says charging; do not add the word.
+- **Settings are written only by the settings page**, into this widget's
+  `shell.json` entry (`updateEntryInline`), on the user's action.
+- **Look at the render before saying done.** A measurement is not the layout
+  fitting. Use `slowMotion 10` to catch a transition mid-way.
+- **After every shell restart, confirm the panel answers over IPC.** A QML
+  error takes the whole widget off the bar, and it can be logged after a
+  quick log check has already passed (`Keys.onPageUpPressed` does not exist
+  and did exactly that).
+
+## Never
+
+- Send a text, ring a device, or change the device's volume or playback in a
+  test without the owner's go.
+- Leave a test's side effect behind: opening an unread thread marks it seen in
+  `~/.cache/sceny.devices/sms-seen-<device>.json`; undo it.
+- Commit anything read from a real device.
