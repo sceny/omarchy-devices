@@ -41,6 +41,11 @@ text-message view, all in one panel that matches the rest of the shell.
 
 ## Set up KDE Connect
 
+The panel checks this for you: with no device connected it shows what is
+missing (installed, running, the firewall, a paired device) with a button for
+what it can fix, and the same checks sit in its settings. Installing and the
+firewall rule ask for your password; nothing changes without a click. By hand:
+
 1. Install it and log out and back in (or run
    `systemctl --user start app-org.kde.kdeconnect.daemon@autostart.service`).
    Omarchy starts it at every login from there on.

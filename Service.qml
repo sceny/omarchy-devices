@@ -172,6 +172,52 @@ Item {
     proc.running = true
   }
 
+  // ---- Setup checks (kdeconnect-bridge doctor) ----
+  // Run while a panel shows them (nothing connected, or the settings page),
+  // and again after every fix.
+  property var setupChecks: []
+  property int setupWanted: 0          // panels showing the checks right now
+  property var setupFixing: ({})
+
+  function runDoctor() {
+    if (doctorProc.running) return
+    doctorProc.running = true
+  }
+
+  function fixSetup(what) {
+    if (!what || setupFixing[what]) return
+    var next = Object.assign({}, setupFixing)
+    next[what] = true
+    setupFixing = next
+    var proc = actionComponent.createObject(root, { key: "fix:" + what, command: [bridge, "fix", what] })
+    proc.exited.connect(function() {
+      var done = Object.assign({}, root.setupFixing)
+      delete done[what]
+      root.setupFixing = done
+      Qt.callLater(root.runDoctor)
+    })
+    proc.running = true
+  }
+
+  Process {
+    id: doctorProc
+    command: [root.bridge, "doctor"]
+    stdout: StdioCollector {
+      id: doctorOut
+      onStreamFinished: {
+        try { root.setupChecks = JSON.parse(text).checks || [] } catch (e) {}
+      }
+    }
+  }
+
+  Timer {
+    interval: 10000
+    repeat: true
+    running: root.setupWanted > 0
+    triggeredOnStart: true
+    onTriggered: root.runDoctor()
+  }
+
   // Pairing acts on any device the daemon knows, not only the one followed.
   function runOn(deviceId, verb) {
     if (demo) { report("Demo mode: nothing was sent to the device", false); return }

@@ -91,7 +91,8 @@ Panel {
   // from settings (the height). Only page changes animate it: a fold already
   // animates the height itself, and a second animation on top would lag.
   readonly property real targetCardWidth: panel.fittedContentWidth(showMessages ? Style.space(880) : Style.space(400))
-  readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight, Style.space(1000))
+  // No cap of our own: KeyboardPanel already clamps to what fits on screen.
+  readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight)
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
@@ -132,6 +133,16 @@ Panel {
     : (sms && sms.lastError !== "" ? sms.lastError : "")
   readonly property bool toastFailed: phone && phone.actionStatus !== "" ? phone.actionFailed : (sms && sms.lastError !== "")
 
+  // The setup checks run while a panel shows them: nothing connected, or
+  // the settings page open.
+  readonly property bool wantsSetup: opened && ((showMain && !reachable) || showSettings)
+  property bool countedSetup: false
+  onWantsSetupChanged: {
+    if (!phone || wantsSetup === countedSetup) return
+    phone.setupWanted = Math.max(0, phone.setupWanted + (wantsSetup ? 1 : -1))
+    countedSetup = wantsSetup
+  }
+
   // The service sends results to Omarchy's on-screen display while no panel
   // is open (the file chooser closes it, for one).
   onOpenedChanged: {
@@ -157,7 +168,10 @@ Panel {
       if (!pageSwap.running) settleTimer.restart()
     }
   }
-  Component.onDestruction: if (opened && phone) phone.openPanels = Math.max(0, phone.openPanels - 1)
+  Component.onDestruction: {
+    if (opened && phone) phone.openPanels = Math.max(0, phone.openPanels - 1)
+    if (countedSetup && phone) phone.setupWanted = Math.max(0, phone.setupWanted - 1)
+  }
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
     { showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
@@ -614,6 +628,18 @@ Panel {
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
+    // Sample failing checks, to look at the fix buttons (replaced by the next
+    // real check within 10 s).
+    function demoSetup(): string {
+      if (!root.phone) return "no service"
+      root.phone.setupChecks = [
+        { key: "installed", ok: true, label: "KDE Connect installed", detail: "", fix: "", fixLabel: "" },
+        { key: "running", ok: false, label: "KDE Connect running", detail: "It starts at login; it is not running now", fix: "start", fixLabel: "Start" },
+        { key: "firewall", ok: false, label: "Firewall lets devices in", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
+        { key: "paired", ok: false, label: "A device is paired", detail: "Open KDE Connect on the phone or tablet and pair it with this computer", fix: "", fixLabel: "" }
+      ]
+      return "ok"
+    }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.showDevices, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
@@ -954,18 +980,17 @@ Panel {
                   }
                 }
 
-                Button {
+                // What stands in the way, with a fix for what can be fixed here.
+                SetupChecks {
                   visible: !!root.snapshot
-                  text: root.phone && !root.phone.daemon ? "Start KDE Connect" : "Open KDE Connect"
-                  iconText: root.phone && !root.phone.daemon ? Model.GLYPH.phone : Model.GLYPH.settings
+                  width: parent.width
+                  checks: root.phone ? root.phone.setupChecks : []
+                  busyFixes: root.phone ? root.phone.setupFixing : ({})
+                  showPhoneSteps: !root.device
                   foreground: root.foreground
+                  urgent: root.urgent
                   fontFamily: root.fontFamily
-                  bordered: true
-                  onClicked: {
-                    if (!root.phone) return
-                    if (!root.phone.daemon) root.phone.startDaemon()
-                    else { root.phone.openKdeConnect(); root.close() }
-                  }
+                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 }
               }
 
@@ -1267,6 +1292,9 @@ Panel {
                 rows: root.settingsRows
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 shortcutsShown: root.showShortcuts
+                setupChecks: root.phone ? root.phone.setupChecks : []
+                setupFixing: root.phone ? root.phone.setupFixing : ({})
+                onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }

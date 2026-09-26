@@ -15,12 +15,15 @@ Column {
   property var rows: []
   property int cursorIndex: -1
   property bool shortcutsShown: true
+  property var setupChecks: []
+  property var setupFixing: ({})
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
   signal activated(int index)
   signal moveRequested(string key, int delta)
   signal hovered(int index)
+  signal fixRequested(string what)
 
   readonly property color dim: Qt.darker(foreground, 1.55)
 
@@ -82,6 +85,27 @@ Column {
       row: modelData
       rowIndex: index
     }
+  }
+
+  Item { width: 1; height: Style.space(6) }
+  PanelSeparator { foreground: root.foreground }
+
+  // ---- Setup ----
+  PanelSectionHeader {
+    text: "SETUP"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+
+  SetupChecks {
+    width: root.width
+    checks: root.setupChecks
+    busyFixes: root.setupFixing
+    showPhoneSteps: true
+    foreground: root.foreground
+    urgent: Color.urgent
+    fontFamily: root.fontFamily
+    onFixRequested: function(what) { root.fixRequested(what) }
   }
 
   Item { width: 1; height: Style.space(2) }

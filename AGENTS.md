@@ -40,6 +40,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
+| `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
 | `manifest.json` | id, entry points, settings and their defaults |
 
 ## Rules: what the owner decided, so nobody undoes it
@@ -118,6 +119,10 @@ Each rule records a fault that was hit or a decision the owner made.
   error takes the whole widget off the bar, and it can be logged after a
   quick log check has already passed (`Keys.onPageUpPressed` does not exist
   and did exactly that).
+
+- **Fixes change the system only on a click.** `fix install` and `fix firewall`
+  go through `pkexec` (one password prompt); the firewall rule is limited to
+  the local network the default route is on, never opened to everyone.
 
 ## Never
 

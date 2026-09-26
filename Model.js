@@ -38,6 +38,8 @@ var GLYPH = {
   file: "\u{F021F}",         // file-image
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
+  check: "\u{F012C}",
+  alert: "\u{F0026}",
   chevronRight: "\u{F0142}",
   chevronDown: "\u{F0140}",
   volume: "\u{F057E}",       // volume-high
