@@ -127,7 +127,19 @@ Column {
         ShortcutRow {
           required property var modelData
           required property int index
-          visible: modelData.kind === "bar" || modelData.kind === "barFlag"
+          visible: modelData.kind === "bar"
+          width: root.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+
+      Repeater {
+        model: root.rows
+        LayoutRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "barFlag"
           width: root.width
           row: modelData
           rowIndex: index
@@ -300,6 +312,7 @@ Column {
       }
 
       Row {
+        visible: layoutRow.row.kind === "layout"
         spacing: Style.space(2)
         Layout.alignment: Qt.AlignVCenter
 
@@ -406,7 +419,7 @@ Column {
       }
 
       Row {
-        visible: shortcutRow.row.on === true && shortcutRow.row.fixed !== true
+        visible: shortcutRow.row.on === true
         spacing: Style.space(2)
         Layout.alignment: Qt.AlignVCenter
 

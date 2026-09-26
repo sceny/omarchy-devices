@@ -232,9 +232,9 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
                 first: at === 0, last: at === chosen.length - 1 })
   }
-  // A checkbox like the indicators, but not a place in the pill: no order.
-  rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low", glyph: String.fromCodePoint(0xF0083),
-              hint: "Unticked, the battery and % always show", on: lowOnly !== false, fixed: true })
+  // A switch, not a place in the pill: it decides when battery and % show.
+  rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
+              hint: "Off, the battery and % always show", on: lowOnly !== false })
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)

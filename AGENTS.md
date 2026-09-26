@@ -88,9 +88,9 @@ Each rule records a fault that was hit or a decision the owner made.
   as the page slides in.
 - **The battery is a detail, not the headline.** Bar pill: the device glyph
   and the indicators the user picks, in order (`barIndicators`); the owner's
-  default is the battery with *Battery only when low* ticked
-  (`batteryLowOnly`: unticked, battery and % always show) and the
-  notification bubble, so a healthy phone with nothing new is the glyph
+  default is the battery with the *Battery only when low* switch on
+  (`batteryLowOnly`: off, battery and % always show) and the notification
+  bubble, so a healthy phone with nothing new is the glyph
   alone. Counts and the bubble hide at 0; away, nothing stale shows. Panel:
   the header icon is the device; the battery is a text-sized glyph leading
   the meta line. The bolt already says charging; do not add the word.

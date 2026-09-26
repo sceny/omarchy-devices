@@ -58,7 +58,7 @@ panel and made for the keyboard.
 ## Make it yours
 
 
-![Settings: the sections in their order with their switches, the shortcuts, Setup folded (demo data)](docs/settings.png)
+![Settings: the sections in their order with their switches, what the bar shows beside the glyph, Shortcuts and Setup folded (demo data)](docs/settings.png)
 
 - **Layout:** show, hide and order the sections (Devices, Shortcuts, Now
   playing, Notifications; empty ones stay out of the way), and fold any of them to a
@@ -66,7 +66,7 @@ panel and made for the keyboard.
   latest notification) or still works (folded shortcuts become a row of
   icons). Everything you arrange is remembered.
 - **Bar:** tick what the bar shows beside the glyph and put it in order;
-  with *Battery only when low* ticked, the battery and percent stay out of
+  with *Battery only when low* on, the battery and percent stay out of
   sight until it runs low.
 - **Shortcuts:** tick the ones you want and put them in order.
 - **Setup:** checks that KDE Connect is installed, running and let through
