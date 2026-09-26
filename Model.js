@@ -603,3 +603,51 @@ function setupSummary(checks) {
   for (var i = 0; i < list.length; i++) if (!list[i].ok) bad++
   return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
 }
+
+// ---- Demo messages: made-up conversations for screenshots and checks ----
+// Fictional names and 555 numbers only; demo mode never sends anything. The
+// clock is today at 18:40, so a screenshot reads like an evening at any hour.
+
+function demoNow() {
+  var d = new Date()
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 40).getTime()
+}
+
+function demoThreads(nowMs) {
+  var now = nowMs === undefined ? demoNow() : nowMs
+  var min = 60000, hour = 60 * min, day = 24 * hour
+  function t(id, names, addresses, ago, snippet, sent, read, group) {
+    return { id: id, names: names, addresses: addresses, date: now - ago, snippet: snippet,
+             sent: !!sent, read: read !== false, attachments: 0, group: !!group }
+  }
+  return [
+    t(9001, ["Alex Rivera"], ["+15145550123"], 4 * min, "Perfect, see you at six! Bring the board game 🎲", false, false),
+    t(9002, ["Book club", "Priya", "Sam"], ["+15145550140", "+15145550141", "+15145550142"], 50 * min, "Priya: Chapter 7 was wild, no spoilers please", false, false, true),
+    t(9003, [""], ["55555"], 2 * hour, "Your verification code is 482 913. It expires in 10 minutes.", false, true),
+    t(9004, ["Sam Chen"], ["+15145550142"], 1 * day, "Sounds good, thanks!", true),
+    t(9005, ["Dr. Moreau's office"], ["+15145550177"], 3 * day, "Reminder: your appointment is on Tuesday at 9:30.", false, true),
+    t(9006, ["Jordan"], ["+15145550188"], 9 * day, "Picture", false, true)
+  ]
+}
+
+// The conversation shown for thread 9001, oldest first. `picture` is a local
+// image for the picture message (MMS); without one it shows as a chip.
+function demoConversation(nowMs, picture) {
+  var now = nowMs === undefined ? demoNow() : nowMs
+  var min = 60000, hour = 60 * min
+  function m(uid, ago, body, sent, attachments) {
+    return { uid: uid, thread: 9001, body: body, date: now - ago, type: sent ? 2 : 1, sent: !!sent,
+             read: true, event: 1, addresses: ["+15145550123"], attachments: attachments || [] }
+  }
+  return [
+    m(1, 26 * hour, "Are you still up for games night this weekend?"),
+    m(2, 25 * hour, "Yes! Saturday works best for me", true),
+    m(3, 25 * hour - 5 * min, "Great. Mine, around six?"),
+    m(4, 20 * min, "Just left work, picking up snacks on the way", true),
+    m(41, 16 * min, "Look what just parked outside 😮", false,
+      [{ part: 1, mime: "image/jpeg", id: "demo-picture", thumb: picture || "" }]),
+    m(5, 12 * min, "Do we have enough chairs? Priya is bringing two friends"),
+    m(6, 8 * min, "I'll grab the folding ones from the car", true),
+    m(7, 4 * min, "Perfect, see you at six! Bring the board game 🎲")
+  ]
+}

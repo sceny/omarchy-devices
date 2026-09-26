@@ -57,7 +57,10 @@ Each rule records a fault that was hit or a decision the owner made.
   Enter on a thread does.
 - **No real personal data in the repository.** No phone numbers, device ids,
   message text or contact names in code, comments, docs, tests or commit
-  messages. Examples use 555 numbers; screenshots come from `demo` mode.
+  messages. Examples use 555 numbers; screenshots (`preview.png`, `docs/`)
+  come from `demo` mode, which fakes notifications and conversations and
+  names the device Pixel 8. The demo picture message reads a local file
+  (`~/.cache/sceny.devices/demo/picture.jpg`) that is not in the repository.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player that went stale when the phone switched
   apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.

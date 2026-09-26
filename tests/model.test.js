@@ -205,3 +205,17 @@ test("folded settings sections say what is in them", () => {
   assert.equal(M.setupSummary([{ ok: true }, { ok: true }]), "All good")
   assert.equal(M.setupSummary([{ ok: false }, { ok: true }, { ok: false }]), "2 things to fix")
 })
+
+test("demo messages are made up: fictional names, 555 numbers, one open conversation", () => {
+  const now = new Date(2026, 8, 26, 18, 0).getTime()
+  const threads = M.demoThreads(now)
+  assert.equal(threads.length, 6)
+  for (const t of threads) for (const a of t.addresses) assert.match(a, /555/)
+  assert.equal(threads.filter(t => !t.read && !t.sent).length, 2)
+  const convo = M.demoConversation(now)
+  assert.ok(convo.every(m => m.thread === 9001))
+  assert.deepEqual(convo.map(m => m.date), [...convo.map(m => m.date)].sort((a, b) => a - b), "oldest first")
+  const mms = M.demoConversation(now, "/tmp/pic.jpg").find(m => m.attachments.length)
+  assert.equal(mms.attachments[0].thumb, "/tmp/pic.jpg")
+  assert.equal(M.demoConversation(now).find(m => m.attachments.length).attachments[0].thumb, "", "no picture: a chip")
+})

@@ -795,12 +795,14 @@ Item {
               Item {
                 id: file
                 required property var modelData
-                readonly property bool picture: String(modelData.mime).indexOf("image/") === 0 && modelData.thumb !== ""
+                // A missing preview falls back to the chip instead of an empty box.
+                readonly property bool picture: String(modelData.mime).indexOf("image/") === 0 && modelData.thumb !== "" && preview.status !== Image.Error
                 readonly property bool fetching: !!view.sms && view.sms.isFetching(modelData.id)
                 width: picture ? Style.space(140) : fileChip.implicitWidth
                 height: picture ? Style.space(140) : fileChip.implicitHeight
 
                 Image {
+                  id: preview
                   anchors.fill: parent
                   visible: file.picture
                   source: file.picture ? "file://" + file.modelData.thumb : ""

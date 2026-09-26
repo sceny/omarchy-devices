@@ -1,35 +1,63 @@
 # Devices for Omarchy
 
+**Your phone, on your desktop.** Read and answer your texts, catch every
+notification, control what is playing and send files without picking up your
+phone. Devices brings the phones and tablets you pair with
+[KDE Connect](https://kdeconnect.kde.org/) into the [Omarchy](https://omarchy.org)
+bar: the Linux answer to Windows Phone Link, in one panel that looks and moves
+like the rest of the shell.
+
 ![The Devices panel: a pairing request, the connected phone, shortcuts and notifications (demo data)](preview.png)
 
-Your Android phone in the [Omarchy](https://omarchy.org) bar, through
-[KDE Connect](https://kdeconnect.kde.org/): the Linux answer to Windows Phone
-Link. Battery at a glance, the phone's notifications with reply and dismiss,
-what it is playing with seek and volume, quick actions, and a full
-text-message view, all in one panel that matches the rest of the shell.
+## Your text messages, right in the panel
 
-- **Bar:** a phone glyph with the battery (`󰄜 63%󱐋`, a bolt while charging).
-  Dimmed while the phone is away, urgent when the battery runs low. Click for
-  the panel, middle-click for messages.
-- **Panel:** the phone's name, battery and connection; a grid of shortcuts you
-  choose and order (Ring, Send files, Clipboard, Messages, Ping, Play/Pause,
-  KDE Connect); the active media player as a card, with the phone's other
-  players a swipe away, a seek bar and the phone's volume; and the phone's
-  notifications, with inline reply, dismiss and the app's own actions.
-- **Messages:** the phone's text messages in a two-pane view: conversations
-  with unread marks and search, the conversation with pictures and history
-  that loads as you scroll, reply, and new messages with a recipient search.
-  A text-message notification opens its conversation.
-- **Devices:** with more than one device (or one asking to pair), a section
-  to switch between them, pair, accept or reject a request with its
-  verification key, and unpair. Hidden while there is only one.
-- **Sections fold:** Devices, Now playing and Notifications collapse to one
-  line (the track with its cover and a play button; the latest notification),
-  and remember it.
-- **Settings** (the gear): switch each section on or off and pick the
-  shortcuts. Results ("Clipboard sent") appear as a toast over the panel, or
-  in Omarchy's on-screen display when the panel is closed. Everything moves
-  at one pace, and the whole panel works from the keyboard.
+Not a button that opens another app: a full messaging view, built into the
+panel and made for the keyboard.
+
+![Messages: conversations on the left with unread marks and search, a conversation with a picture message on the right (demo data)](docs/messages.png)
+
+- **Every conversation**, newest first, with unread marks, a one-click
+  unread filter, and search across names, numbers and what was said.
+- **The whole history**, loading as you scroll up, with day headers and
+  picture messages (MMS) that open full size.
+- **Reply and start new messages** without leaving the keyboard, with a
+  recipient search over your contacts and past conversations.
+- **From notification to reply in one click:** a text-message notification
+  opens its conversation.
+- **Fast by hand:** `j`/`k` to move, `/` to search, `u` for unread, `n` for a
+  new message, Enter to reply. It even remembers the conversation you left
+  open and keeps unsent drafts while you switch.
+
+## Everything else, one click away
+
+- **Battery in the bar:** the device's glyph and charge (`󰄜 63%󱐋`), dimmed
+  while it is away, urgent when it runs low. Click for the panel,
+  middle-click for messages.
+- **Notifications** from the device, with inline reply, dismiss and the
+  app's own actions.
+- **Now playing:** the device's active media player, with the others a swipe
+  away, a seek bar and its volume.
+- **Shortcuts** you choose and order: Ring, Send files, Clipboard, Messages,
+  Ping, Play/Pause, KDE Connect.
+- **Several devices:** switch between them, pair, and accept or reject a
+  pairing request with its verification key, right in the panel.
+- **Phones, tablets and computers**, each with its own glyph; features follow
+  what the device offers.
+
+## Make it yours
+
+![Settings: the Layout, Shortcuts and Setup sections, Setup folded (demo data)](docs/settings.png)
+
+- **Layout:** show or hide each section, and fold any of them to a single
+  line that still says what is in it (the track and its cover, the latest
+  notification). Everything you arrange is remembered.
+- **Shortcuts:** tick the ones you want and put them in order.
+- **Setup:** checks that KDE Connect is installed, running and let through
+  the firewall, with a button to fix what is missing, plus the steps on the
+  phone.
+- Results appear as a toast over the panel (or Omarchy's on-screen display
+  when it is closed), everything moves at one pace, and the whole panel works
+  from the keyboard.
 
 ## Requirements
 
@@ -120,7 +148,7 @@ The panel can only show what KDE Connect sends, and its Android app has limits:
 | `SmsService.qml` | Text messages: runs `kdeconnect-bridge sms`, keeps threads and the open conversation in ListModels, search, what was seen here. |
 | `MessagesView.qml` | The two-pane messages view: thread list, conversation, new message, pictures. |
 
-## Messages
+## How messages work
 
 `kdeconnect-bridge sms <device>` holds one connection to KDE Connect's
 `conversations` D-Bus interface and speaks JSON lines: commands on stdin
@@ -203,7 +231,7 @@ const d = M.pickDevice(snap, ""); console.log(M.barText(d, true), "|", M.metaLin
 
 IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status           # what the panel shows, as JSON
-"${IPC[@]}" demo ""          # sample notifications; also: demo away|down|none
+"${IPC[@]}" demo ""          # sample notifications and conversations; also: demo away|down|none|devices
 "${IPC[@]}" openReply 0      # open the reply field on the first notification
 "${IPC[@]}" live             # back to the real phone
 "${IPC[@]}" settings         # open on the settings page
@@ -212,8 +240,11 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" toggleShortcut ping ; "${IPC[@]}" moveShortcut ping -1 ; "${IPC[@]}" toggleLayout showMedia
 ```
 
-Demo mode never sends anything to the phone, and fakes notifications only
-(media is always the real MPRIS players). The settings hooks write your real
+Demo mode never sends anything to the phone. It fakes notifications and
+conversations (fictional names, 555 numbers, a fixed 18:40 clock); media is
+always the real MPRIS players, so it stays out of demo screenshots. The picture
+message shows `~/.cache/sceny.devices/demo/picture.jpg` when that file exists,
+a chip otherwise. The settings hooks write your real
 `shell.json` entry. Saving `Service.qml`,
 `BarWidget.qml`, `Model.js` or the bridge reloads the plugin by itself; a change
 to `Panel.qml` is only picked up by `omarchy restart shell` (the shell caches the

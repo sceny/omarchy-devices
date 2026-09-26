@@ -269,6 +269,7 @@ Panel {
   Binding { target: root.sms; property: "unreadOnly"; value: root.unreadOnly; when: !!root.sms }
 
   function rememberThread(tid) {
+    if (phone && phone.demo) return
     if (!device || tid === undefined || tid < 0 || lastThreads[device.id] === tid) return
     var next = Object.assign({}, lastThreads)
     next[device.id] = tid

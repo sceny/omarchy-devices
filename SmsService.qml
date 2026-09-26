@@ -131,6 +131,32 @@ Item {
 
   function start() { wanted = true }
 
+  // Demo: made-up conversations (Model.demoThreads) in place of the real
+  // ones, for screenshots. Bridge events are ignored meanwhile and nothing
+  // can be sent; showLive() asks the bridge for the real list again.
+  property bool demo: false
+
+  function showDemo() {
+    demo = true
+    threadModel.clear()
+    var threads = Model.demoThreads()
+    for (var i = 0; i < threads.length; i++) threadModel.append(threadRow(threads[i]))
+    ready = true
+    modelRevision++
+    openThreadId = -1
+    messageModel.clear()
+  }
+
+  function showLive() {
+    if (!demo) return
+    demo = false
+    closeThread()
+    threadModel.clear()
+    ready = false
+    modelRevision++
+    send({ cmd: "refresh" })
+  }
+
   function send(obj) {
     if (!proc.running) return false
     proc.write(JSON.stringify(obj) + "\n")
@@ -225,6 +251,17 @@ Item {
   }
 
   function openThread(tid) {
+    if (demo) {
+      openThreadId = tid
+      messageModel.clear()
+      var convo = tid === 9001 ? Model.demoConversation(undefined, cacheBase + "/demo/picture.jpg") : []
+      for (var d = convo.length - 1; d >= 0; d--) messageModel.append(messageRow(convo[d]))
+      loadedCount = messageModel.count
+      hasMore = false
+      loading = false
+      refreshDays()
+      return
+    }
     start()
     if (tid === openThreadId && messageModel.count > 0) return
     openThreadId = tid
@@ -282,7 +319,7 @@ Item {
 
   function reply(text) {
     var body = String(text || "").trim()
-    if (openThreadId < 0 || body === "") return false
+    if (demo || openThreadId < 0 || body === "") return false
     if (!send({ cmd: "reply", thread: openThreadId, text: body })) return false
     // Show it at once; the phone's own copy replaces it when it arrives.
     messageModel.insert(0, {
@@ -295,6 +332,7 @@ Item {
   }
 
   function sendNew(addresses, text) {
+    if (demo) return false
     var body = String(text || "").trim()
     if (body === "" || !addresses || addresses.length === 0) return false
     if (!send({ cmd: "send", addresses: addresses, text: body })) return false
@@ -345,6 +383,15 @@ Item {
   }
 
   function fetchAttachment(part, id, mime) {
+    // Demo pictures are local files already.
+    if (demo) {
+      for (var i = 0; i < messageModel.count; i++) {
+        var files = JSON.parse(messageModel.get(i).attachments)
+        for (var j = 0; j < files.length; j++)
+          if (files[j].id === id && files[j].thumb) { Quickshell.execDetached(["xdg-open", files[j].thumb]); return }
+      }
+      return
+    }
     var next = Object.assign({}, pendingFiles)
     next[id] = true
     pendingFiles = next
@@ -356,6 +403,7 @@ Item {
   signal attachmentReady(string path)
 
   function handle(ev) {
+    if (demo) return
     if (ev.ev === "threads") {
       threadModel.clear()
       for (var i = 0; i < ev.threads.length; i++) threadModel.append(threadRow(ev.threads[i]))

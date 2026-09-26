@@ -37,11 +37,13 @@ Item {
   function showDemo(kind) {
     demo = true
     snapshot = Model.demoSnapshot(liveSnapshot || snapshot, kind || "")
+    smsService.showDemo()
   }
 
   function showLive() {
     demo = false
     snapshot = liveSnapshot
+    smsService.showLive()
   }
   readonly property var device: Model.pickDevice(snapshot, String(setting("deviceId", "")))
   readonly property bool daemon: !!(snapshot && snapshot.daemon)
@@ -281,7 +283,8 @@ Item {
     id: smsService
     bridge: root.bridge
     deviceId: root.device && root.device.paired ? String(root.device.id) : ""
-    reachable: root.reachable && !root.demo
+    // Keeps running in demo (the view shows made-up threads and ignores it).
+    reachable: root.reachable
   }
 
   Timer {
