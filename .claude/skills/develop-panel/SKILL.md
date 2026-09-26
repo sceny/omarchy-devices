@@ -54,6 +54,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
+"${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```
 

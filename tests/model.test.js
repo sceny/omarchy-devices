@@ -59,6 +59,19 @@ test("cellular signal: 0-4 bars beside the network type, nothing without a netwo
   assert.equal(new Set(M.SIGNAL_GLYPHS).size, 5)
 })
 
+test("send text: a lone web address is a link, anything else is text", () => {
+  assert.equal(M.linkFor(" https://example.com/a?b=1 "), "https://example.com/a?b=1")
+  assert.equal(M.linkFor("www.example.com/x"), "https://www.example.com/x")
+  assert.equal(M.linkFor("see https://example.com"), "", "a sentence with a link is text")
+  assert.equal(M.linkFor("example.com"), "", "no scheme and no www: text")
+  assert.equal(M.linkFor("javascript:alert(1)"), "")
+  assert.equal(M.linkFor(""), "")
+  assert.match(M.composerHint("https://example.com", device(), true), /link; Pixel 8 offers to open it · Ctrl\+Enter pings/)
+  assert.equal(M.composerHint("Door code 5555", device(), false), "Enter puts this on Pixel 8's clipboard")
+  assert.equal(M.shortcutByKey("text").needs, "share")
+  assert.ok(M.DEFAULT_SHORTCUTS.indexOf("text") < 0, "not in the default row; picked in settings")
+})
+
 test("the glyph and the word follow the device type", () => {
   assert.equal(M.deviceGlyph(device()).codePointAt(0), 0xF011C)
   assert.equal(M.deviceGlyph(device({ type: "tablet" })).codePointAt(0), 0xF04F6)

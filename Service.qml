@@ -235,7 +235,20 @@ Item {
   function unpair(id) { runOn(id, "unpair") }
 
   function ring() { run("ring") }
-  function ping() { run("ping") }
+  // A ping, with an optional message the device shows in its notification.
+  function ping(message) {
+    var m = String(message || "").trim()
+    run("ping", m !== "" ? [m] : [], "ping")
+  }
+  // Typed text or a link: a lone web address opens on the device, anything
+  // else lands on its clipboard (Model.linkFor).
+  function sendText(text) {
+    var t = String(text || "")
+    if (t.trim() === "") return
+    var url = Model.linkFor(t)
+    if (url !== "") run("url", [url], "text")
+    else run("text", [t], "text")
+  }
   function sendClipboard() { run("clipboard") }
   function sendFiles() { run("share") }
   // Media controls go to one player: the one given, else the playing one.

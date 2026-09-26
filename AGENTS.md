@@ -132,6 +132,8 @@ Each rule records a fault that was hit or a decision the owner made.
 
 ## Workflow
 
+- **Re-read an issue before starting it**, body and comments
+  (`gh issue view <n> --comments`): the owner edits issues to change scope.
 - **`main` is what users install** (`omarchy plugin add`/`update` take it).
   It only moves through pull requests: a short-lived branch per change, CI
   green, and the change checked in a running shell (check the branch out in

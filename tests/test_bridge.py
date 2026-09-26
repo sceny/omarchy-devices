@@ -1,9 +1,11 @@
 """kdeconnect-bridge checks: `python3 -m unittest discover -s tests`.
 
-Only the pieces that need no D-Bus: contacts from vCards, number keys and the
-naming of fetched attachments. All data is made up.
+Only the pieces that need no D-Bus: contacts from vCards, number keys, the
+naming of fetched attachments, and which D-Bus call each send makes (with the
+bus replaced, so nothing reaches a device). All data is made up.
 """
 
+import contextlib
 import importlib.machinery
 import importlib.util
 import os
@@ -16,6 +18,50 @@ loader = importlib.machinery.SourceFileLoader("kdeconnect_bridge", BRIDGE)
 spec = importlib.util.spec_from_loader("kdeconnect_bridge", loader)
 bridge = importlib.util.module_from_spec(spec)
 loader.exec_module(bridge)
+
+
+class Sends(unittest.TestCase):
+    """Text, links and ping messages: the method and argument types the
+    daemon's interfaces declare (shareText(s), shareUrl(s), sendPing(s))."""
+
+    def setUp(self):
+        self.calls = []
+        self.saved = (bridge.bus, bridge.call, bridge.device_name)
+
+        def fake_call(conn, path, iface, method, args=None, sig=None):
+            if sig:
+                bridge.GLib.Variant(sig, args)   # the types must hold
+            self.calls.append((path.rsplit("/", 1)[-1], iface.rsplit(".", 1)[-1], method, args, sig))
+            return ()
+        bridge.bus = lambda: None
+        bridge.call = fake_call
+        bridge.device_name = lambda conn, device_id: "Pixel 8"
+
+    def tearDown(self):
+        bridge.bus, bridge.call, bridge.device_name = self.saved
+
+    def run_quiet(self, argv):
+        with open(os.devnull, "w") as null:
+            with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
+                return bridge.act(argv)
+
+    def test_text_goes_whole_to_share_text(self):
+        self.assertEqual(self.run_quiet(["text", "d1", "two  spaces\nand a line"]), bridge.EXIT_OK)
+        self.assertEqual(self.calls, [("share", "share", "shareText", ("two  spaces\nand a line",), "(s)")])
+
+    def test_link_goes_to_share_url(self):
+        self.assertEqual(self.run_quiet(["url", "d1", " https://example.com/a?b=1 "]), bridge.EXIT_OK)
+        self.assertEqual(self.calls, [("share", "share", "shareUrl", ("https://example.com/a?b=1",), "(s)")])
+
+    def test_ping_with_and_without_a_message(self):
+        self.run_quiet(["ping", "d1"])
+        self.run_quiet(["ping", "d1", "Leaving now"])
+        self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None),
+                                      ("ping", "ping", "sendPing", ("Leaving now",), "(s)")])
+
+    def test_nothing_to_send_sends_nothing(self):
+        self.assertEqual(self.run_quiet(["text", "d1", "  "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.calls, [])
 
 
 class DigitsKey(unittest.TestCase):

@@ -190,6 +190,12 @@ Panel {
   property string replyingTo: ""
   property bool replyFocused: false
 
+  // The send-text composer under the shortcuts, and whether its field has
+  // focus (the key catcher stands aside). What is typed stays in memory until
+  // it is sent, like a message draft; the composer itself opens closed.
+  property bool composing: false
+  property bool composerFocused: false
+
   // One cursor for keyboard and mouse, as in the stock panels.
   property bool cursorActive: false
   property string focusSection: "actions"
@@ -314,6 +320,7 @@ Panel {
     if (key === "ring") phone.ring()
     else if (key === "share") phone.sendFiles()
     else if (key === "clipboard") phone.sendClipboard()
+    else if (key === "text") toggleComposer()
     else if (key === "ping") phone.ping()
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
@@ -390,6 +397,8 @@ Panel {
     }
     replyingTo = ""
     replyFocused = false
+    composing = false
+    composerFocused = false
     settingsOpen = false
     messagesOpen = true
     if (sms) {
@@ -451,6 +460,8 @@ Panel {
     messagesOpen = false
     replyingTo = ""
     replyFocused = false
+    composing = false
+    composerFocused = false
     settingsOpen = true
     settingsIndex = 0
     if (panelFlick) panelFlick.contentY = 0
@@ -528,6 +539,28 @@ Panel {
   function openReply(n) {
     if (!n || !n.replyId) return
     replyingTo = n.id
+  }
+
+  // Only the user's click or Enter on the Send text tile opens it focused.
+  function toggleComposer() {
+    if (composing) { closeComposer(); return }
+    composing = true
+    Qt.callLater(function() { if (composing) composerField.forceActiveFocus() })
+  }
+
+  function closeComposer() {
+    composing = false
+    composerFocused = false
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function sendComposed(asPing) {
+    var t = composerField.text
+    if (!phone || t.trim() === "") return
+    if (asPing) phone.ping(t)
+    else phone.sendText(t)
+    composerField.text = ""
+    closeComposer()
   }
 
   function closeReply() {
@@ -629,6 +662,8 @@ Panel {
     snapPage()
     replyingTo = ""
     replyFocused = false
+    composing = false
+    composerFocused = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -736,6 +771,12 @@ Panel {
     function live(): string { if (root.phone) root.phone.showLive(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
+    // Scripted: shows the send-text composer with `text` in it, never focused.
+    function compose(text: string): string {
+      root.composing = text !== "-"
+      composerField.text = text === "-" ? "" : text
+      return JSON.stringify({ open: root.composing, focused: root.composerFocused, hint: Model.composerHint(composerField.text, root.device, root.can.ping === true) })
+    }
     function toggleShortcut(key: string): string { root.toggleShortcutKey(key); return "ok" }
     function moveShortcut(key: string, delta: int): string { root.moveShortcutKey(key, delta); return "ok" }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
@@ -768,6 +809,7 @@ Panel {
         volume: { reported: root.reportedVolume, wish: root.volumeWish, shown: root.shownVolume },
         shownPlaying: cardRepeater.itemAt(root.shownPlayer) ? cardRepeater.itemAt(root.shownPlayer).playing : null,
         cardsBuilt: root.cardsBuilt,
+        composing: root.composing, composerFocused: root.composerFocused, replying: root.replyingTo, cursor: root.cursorActive ? root.focusSection + ":" + (root.focusSection === "notifications" ? root.notifIndex : root.actionIndex) : "",
         browsed: root.browsedName
       })
     }
@@ -786,7 +828,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.replyFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
+      blocked: root.replyFocused || root.composerFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
 
       onMoveRequested: function(dx, dy) {
         if (root.messagesOpen) { if (dy !== 0) messagesView.moveCursor(dy); return }
@@ -1073,6 +1115,65 @@ Panel {
                     action: modelData
                     tileIndex: index
                   }
+                }
+              }
+
+              // ---- Send text: typed text or a link, or a ping carrying it ----
+              FoldBody {
+                id: composerBody
+                open: root.composing && actionGrid.visible
+                motion: root.motion
+                animate: root.settled
+                spacing: Style.space(4)
+
+                RowLayout {
+                  width: parent.width
+                  spacing: Style.space(6)
+
+                  TextField {
+                    id: composerField
+                    Layout.fillWidth: true
+                    placeholderText: "Text or a link for " + Model.deviceLabel(root.device)
+                    foreground: root.foreground
+                    font.family: root.fontFamily
+                    onActiveFocusChanged: root.composerFocused = activeFocus
+                    Keys.onEscapePressed: root.closeComposer()
+                    // Enter is taken here, not in onAccepted: TextInput passes
+                    // it on, and the key catcher would run the tile again.
+                    Keys.onPressed: function(event) {
+                      if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
+                      event.accepted = true
+                      var ping = (event.modifiers & Qt.ControlModifier) !== 0
+                      if (!ping || root.can.ping === true) root.sendComposed(ping)
+                    }
+                  }
+                  PanelActionButton {
+                    visible: root.can.ping === true
+                    iconText: Model.GLYPH.wave
+                    tooltipText: "Ping with this message (Ctrl+Enter)"
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    enabled: composerField.text.trim() !== ""
+                    onClicked: root.sendComposed(true)
+                  }
+                  PanelActionButton {
+                    iconText: Model.GLYPH.send
+                    tooltipText: (Model.linkFor(composerField.text) !== "" ? "Send the link, to open there" : "Put it on its clipboard") + " (Enter)"
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    enabled: composerField.text.trim() !== ""
+                    onClicked: root.sendComposed(false)
+                  }
+                }
+
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  wrapMode: Text.WordWrap
+                  text: Model.composerHint(composerField.text, root.device, root.can.ping === true)
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
                 }
               }
 
@@ -1964,6 +2065,13 @@ Panel {
               root.phone.reply(row.note, text)
               text = ""
               root.closeReply()
+            }
+            // Enter is taken here: TextInput passes it on after onAccepted,
+            // and the key catcher would open this reply again.
+            Keys.onPressed: function(event) {
+              if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
+              event.accepted = true
+              accepted()
             }
             Keys.onEscapePressed: { text = ""; root.closeReply() }
           }

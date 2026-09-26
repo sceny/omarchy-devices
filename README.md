@@ -42,8 +42,11 @@ panel and made for the keyboard.
   app's own actions.
 - **Now playing:** the device's active media player, with the others a swipe
   away, a seek bar and its volume.
-- **Shortcuts** you choose and order: Ring, Send files, Clipboard, Messages,
-  Ping, Play/Pause, KDE Connect.
+- **Shortcuts** you choose and order: Ring, Send files, Clipboard, Send
+  text, Messages, Ping, Play/Pause, KDE Connect.
+- **Send text or a link:** type it in the panel. Text lands on the device's
+  clipboard, a link arrives ready to open, and Ctrl+Enter sends it as a ping
+  instead, shown in a notification.
 - **Several devices:** switch between them, pair, and accept or reject a
   pairing request with its verification key, right in the panel.
 - **Phones, tablets and computers**, each with its own glyph; features follow
@@ -71,7 +74,8 @@ panel and made for the keyboard.
 `j`/`k` or arrows move between rows, `h`/`l` along the shortcuts or through the
 media carousel, Enter activates (play/pause on the media card), `[`/`]` skip
 track, `r` opens a notification's reply field, `x`
-dismisses it, `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
+dismisses it, Enter on Send text opens its field (Enter sends, Ctrl+Enter
+pings, Esc closes), `-`/`=` change the phone's volume, `,`/`.` seek 10 s, `s` opens
 settings (there: Enter toggles, Shift+K/Shift+J reorder a shortcut). Esc closes
 settings, then the panel; Tab moves to the neighbouring bar panel.
 
@@ -168,7 +172,7 @@ For contributors and the curious: how the plugin is built and worked on.
 
 | File | Holds |
 |---|---|
-| `bin/kdeconnect-bridge` | Python over D-Bus (Gio). `watch` prints a JSON snapshot on start, after every KDE Connect signal (debounced 250 ms) and every 30 s, skipping unchanged ones. The action verbs (`ring`, `ping`, `clipboard`, `share`, `media`, `dismiss`, `reply`, `action`) run one call and print one line. |
+| `bin/kdeconnect-bridge` | Python over D-Bus (Gio). `watch` prints a JSON snapshot on start, after every KDE Connect signal (debounced 250 ms) and every 30 s, skipping unchanged ones. The action verbs (`ring`, `ping`, `clipboard`, `share`, `text`, `url`, `media`, `dismiss`, `reply`, `action`) run one call and print one line. |
 | `Service.qml` | One watcher for the whole shell, the action runner and its status line; the phone's media players (`Quickshell.Services.Mpris`, filtered to the ones KDE Connect exports for this phone). Restarts the watcher with backoff if it dies. |
 | `Model.js` | Pure functions from a snapshot to what is drawn. No QML, testable with `node`. |
 | `BarWidget.qml` | The bar pill. |
