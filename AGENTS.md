@@ -147,18 +147,104 @@ Each rule records a fault that was hit or a decision the owner made.
 
 - **Re-read an issue before starting it**, body and comments
   (`gh issue view <n> --comments`): the owner edits issues to change scope.
-- **`main` is what users install** (`omarchy plugin add`/`update` take it).
-  It only moves through pull requests: a short-lived branch per change, CI
-  green, and the change checked in a running shell (check the branch out in
-  the installed clone) before merging. Squash-merge, delete the branch.
-- **Releases are tags on `main`** (`vX.Y.Z`), with an entry in
-  `CHANGELOG.md` and the same `version` in `manifest.json`, published as a
-  GitHub release. The marketplace listing moves to a new release only
-  through its *Verify and publish a newer upstream commit* form.
+- **Two branches.** `main` is what users get: `omarchy plugin add` and
+  `omarchy plugin update` install the latest commit of the default branch,
+  and the marketplace lists one commit of `main`. `main` moves only at a
+  release (*Releasing*); a commit on `main` between releases ships
+  unreviewed code to anyone who installs or updates, and shows the listing
+  as *Update unverified*. `develop` is where work lands. Keep `main` the
+  GitHub default branch.
+- **Every change goes into `develop` through a pull request:** a
+  short-lived branch from `develop`, `gh pr create --base develop`, CI
+  green, the change checked in a running shell (check the branch out in the
+  installed clone), squash-merge, delete the branch.
+- **Develop in a clone with `develop` checked out**, and update it with
+  `git pull`: `omarchy plugin update` reads `main` and does not bring
+  `develop` changes.
+- **An urgent fix for users** is a branch from `main` with a pull request
+  into `main`, only while `main` is not frozen (*Releasing*, step 5);
+  afterwards merge `main` into `develop`.
 - **The README has three parts, in this order:** for users (what it does,
   screenshots, keyboard, what KDE Connect cannot do), getting started
   (requirements, setup, install, update, remove), under the hood (how it
   works, development). Nothing technical above getting started.
+
+## Releasing
+
+1. **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
+   `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the
+   entries by area (Bar, Panel, Messages, Fixed), and add an *Upgrading*
+   group when a setting or a default changes. Set `"version": "X.Y.Z"` in
+   `manifest.json`. Pull request into `develop`, CI green, squash-merge.
+2. **Merge `develop` into `main`** through a pull request titled
+   *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
+   merged with a merge commit, never squashed, so both branches keep one
+   history. Then bring `develop` level with `main`:
+
+   ```bash
+   git fetch origin && git switch develop && git merge --ff-only origin/main && git push
+   ```
+
+3. **Tag the merge commit and publish the release**, its notes taken from
+   that CHANGELOG section:
+
+   ```bash
+   git tag -a vX.Y.Z -m "Devices X.Y.Z" origin/main && git push origin vX.Y.Z
+   gh release create vX.Y.Z --title "Devices X.Y.Z" --notes-file notes.md --verify-tag --latest
+   ```
+
+4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`),
+   by hand, not from CI: every update needs a maintainer's approval anyway,
+   and the request carries the owner's acknowledgment. Show the owner the
+   exact title and body and file it only on their explicit approval.
+   - Not listed yet: the plugin submission issue form (the marketplace's
+     `SUBMISSION.md`).
+   - Listed: the *Verify and publish a newer upstream commit* form, with the
+     full SHA of the current head of `main`:
+
+     ```bash
+     cat > /tmp/devices-verify.md <<EOF
+     ### Verification action
+
+     Verify and publish a newer upstream commit
+
+     ### Plugin ID
+
+     sceny.devices
+
+     ### Repository URL
+
+     https://github.com/sceny/omarchy-devices
+
+     ### Target commit
+
+     $(git rev-parse origin/main)
+
+     ### Verification acknowledgment
+
+     - [x] I understand that only the exact target commit can become a verified marketplace snapshot and that verification is not a security audit.
+
+     ### Standard installation acknowledgment
+
+     - [ ] I confirm that this listed root plugin supports the standard Omarchy installation path and does not require manual setup.
+     EOF
+     gh issue create --repo omacom/omarchy-plugin-marketplace --title "[Verify]: Devices" --body-file /tmp/devices-verify.md
+     ```
+
+   Then watch the issue: both bot reports (validation, security baseline)
+   name the commit, and a maintainer applies `approved-and-verified`.
+5. **Freeze `main` from submission until the listing is published.** The
+   marketplace checks, reviews and publishes one exact commit, and refuses
+   to publish when `main` moved after its checks. Merge nothing into `main`
+   meanwhile; work keeps landing on `develop`. The freeze ends when the
+   maintainer has applied `approved-and-verified` and the publication
+   report on the issue says the listing is published.
+6. **If `main` moves during the freeze anyway:** edit the submission issue
+   (every edit makes the bots check the current head of `main`; the
+   submission form has no commit field), wait until both bot reports
+   (validation and security baseline) name the new commit, and tell the
+   maintainer in a comment which commit is ready and whether the reported
+   capabilities changed.
 
 ## Never
 

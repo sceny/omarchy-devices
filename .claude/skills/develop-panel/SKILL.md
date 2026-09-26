@@ -78,6 +78,11 @@ takes keyboard focus: not while the owner is typing, and never on a locked
 screen. A screenshot of a real device shows real messages and notifications:
 keep it out of the repository and delete it once read.
 
-## 6. Publish
+## 6. Ship
 
-Commit, push. Other machines take it with `omarchy plugin update sceny.devices`.
+Branch from `develop`, `gh pr create --base develop`, CI green, the change
+checked in a running shell, squash-merge, then `git switch develop && git
+pull` in the installed clone (AGENTS.md, *Workflow*). A pull request into
+`main` is only a release or an urgent fix, and never while `main` is frozen
+for a marketplace review (AGENTS.md, *Releasing*). Users get `main` with
+`omarchy plugin update sceny.devices` after a release.
