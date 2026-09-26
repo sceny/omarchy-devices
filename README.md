@@ -292,8 +292,9 @@ panel component). Load errors land in `journalctl --user -t omarchy-shell`.
 only moves through pull requests: each change on a short-lived branch, CI
 green, and checked in a running shell before it merges. Releases are tags
 (`vX.Y.Z`) on `main` with an entry in [CHANGELOG.md](CHANGELOG.md) and the
-same version in `manifest.json`. [AGENTS.md](AGENTS.md) holds the rules the
-plugin is built to; read it before changing anything.
+same version in `manifest.json`, then go to the Omarchy plugin marketplace;
+[AGENTS.md](AGENTS.md) has the steps (*Releasing*) and the rules the plugin
+is built to. Read it before changing anything.
 
 ## License
 

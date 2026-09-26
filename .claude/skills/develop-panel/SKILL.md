@@ -78,6 +78,11 @@ takes keyboard focus: not while the owner is typing, and never on a locked
 screen. A screenshot of a real device shows real messages and notifications:
 keep it out of the repository and delete it once read.
 
-## 6. Publish
+## 6. Ship
 
-Commit, push. Other machines take it with `omarchy plugin update sceny.devices`.
+Branch, pull request, CI green, the change checked in a running shell, then
+squash-merge (AGENTS.md, *Workflow*). **Before merging, check that `main` is
+not frozen:** while a marketplace submission or update is under review,
+merge nothing (AGENTS.md, *Releasing*, step 4). Other machines take `main`
+with `omarchy plugin update sceny.devices`. Releases follow AGENTS.md,
+*Releasing*.

@@ -151,14 +151,46 @@ Each rule records a fault that was hit or a decision the owner made.
   It only moves through pull requests: a short-lived branch per change, CI
   green, and the change checked in a running shell (check the branch out in
   the installed clone) before merging. Squash-merge, delete the branch.
-- **Releases are tags on `main`** (`vX.Y.Z`), with an entry in
-  `CHANGELOG.md` and the same `version` in `manifest.json`, published as a
-  GitHub release. The marketplace listing moves to a new release only
-  through its *Verify and publish a newer upstream commit* form.
+- **Releases and the marketplace follow *Releasing* below**, including the
+  freeze on `main` while the marketplace reviews a commit.
 - **The README has three parts, in this order:** for users (what it does,
   screenshots, keyboard, what KDE Connect cannot do), getting started
   (requirements, setup, install, update, remove), under the hood (how it
   works, development). Nothing technical above getting started.
+
+## Releasing
+
+1. **Prepare on a branch** (`release-X.Y.Z`): rename `## Unreleased` in
+   `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the entries by area
+   (Bar, Panel, Messages, Fixed), and add an *Upgrading* group when a
+   setting or a default changes. Set `"version": "X.Y.Z"` in
+   `manifest.json`. Pull request, CI green, squash-merge.
+2. **Tag the merge commit and publish the release**, its notes taken from
+   that CHANGELOG section:
+
+   ```bash
+   git switch main && git pull --ff-only
+   git tag -a vX.Y.Z -m "Devices X.Y.Z" && git push origin vX.Y.Z
+   gh release create vX.Y.Z --title "Devices X.Y.Z" --notes-file notes.md --verify-tag --latest
+   ```
+
+3. **Submit it to the marketplace** (`omacom/omarchy-plugin-marketplace`):
+   - Not listed yet: the plugin submission issue form. Show the owner the
+     exact issue body and file it only on their explicit approval.
+   - Listed: the *Verify and publish a newer upstream commit* form, with the
+     full SHA of the release commit.
+4. **Freeze `main` from submission until the listing is published.** The
+   marketplace checks, reviews and publishes one commit; a merge to `main`
+   in between makes the checks stale and the maintainer withdraws the
+   approval. Meanwhile keep every change on its branch and pull request,
+   unmerged. The freeze ends when the maintainer has applied
+   `approved-and-verified` and the publication report on the issue says the
+   listing is published.
+5. **If `main` moves during the freeze anyway:** edit the submission issue
+   (every edit makes the bots check the current `main`; the form has no
+   commit field), wait until both bot reports (validation and security
+   baseline) name the new commit, and tell the maintainer in a comment which
+   commit is ready and whether the reported capabilities changed.
 
 ## Never
 
