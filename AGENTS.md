@@ -46,7 +46,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 ## Rules: what the owner decided, so nobody undoes it
 
-Each rule records a fault that was hit or a decision the owner made.
+Each rule is a decision the owner made or guards against a known fault.
+Keep them; change one only with the owner.
 
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
@@ -62,8 +63,8 @@ Each rule records a fault that was hit or a decision the owner made.
   names the device Pixel 8. The demo picture message reads a local file
   (`~/.cache/sceny.devices/demo/picture.jpg`) that is not in the repository.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
-  object shows one "current" player that went stale when the phone switched
-  apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
+  object shows one "current" player, which goes stale when the phone
+  switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
 - **The media card shows the active player only**, like the phone; the others
   are a carousel away (arrows, dots, swipe, drag, `h`/`l`). It opens on the
   active player (playing, else last played) every time.
@@ -79,7 +80,7 @@ Each rule records a fault that was hit or a decision the owner made.
   page out, swaps it at the midpoint, and slides the new one in, while the
   panel's box (the card) animates to the new size at the same beat. The card
   is an item inside a full-screen layer surface, so animating it costs no
-  window resize; snapping it was the jump seen mid-transition. The page is
+  window resize; snapping it jumps mid-transition. The page is
   laid out at the card's final width from the first frame, so it never
   re-flows while the card moves.
 - **Size animations are for the user's own changes.** A hidden page has no
@@ -136,8 +137,8 @@ Each rule records a fault that was hit or a decision the owner made.
   fitting. Use `slowMotion 10` to catch a transition mid-way.
 - **After every shell restart, confirm the panel answers over IPC.** A QML
   error takes the whole widget off the bar, and it can be logged after a
-  quick log check has already passed (`Keys.onPageUpPressed` does not exist
-  and did exactly that).
+  quick log check has already passed (an attached handler that does not
+  exist, such as `Keys.onPageUpPressed`, does exactly that).
 
 - **Fixes change the system only on a click.** `fix install` and `fix firewall`
   go through `pkexec` (one password prompt); the firewall rule is limited to
@@ -158,12 +159,28 @@ Each rule records a fault that was hit or a decision the owner made.
   short-lived branch from `develop`, `gh pr create --base develop`, CI
   green, the change checked in a running shell (check the branch out in the
   installed clone), squash-merge, delete the branch.
+- **Without a running Omarchy shell** (a cloud session, a machine without
+  Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
+  request that the change is not checked in a running shell, and leave the
+  merge until someone checks it there.
+- **Before merging anything into `main`, check the freeze:**
+
+  ```bash
+  gh search issues --repo omacom/omarchy-plugin-marketplace --state open '"github.com/sceny/omarchy-devices"'
+  ```
+
+  An open issue there is a marketplace review in progress: `main` is frozen
+  (*Releasing*, step 5).
 - **Develop in a clone with `develop` checked out**, and update it with
   `git pull`: `omarchy plugin update` reads `main` and does not bring
   `develop` changes.
 - **An urgent fix for users** is a branch from `main` with a pull request
   into `main`, only while `main` is not frozen (*Releasing*, step 5);
   afterwards merge `main` into `develop`.
+- **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
+  and the README's process notes give steps, conditions and rules in the
+  present tense; the reason for a rule is a present-tense consequence. How
+  something came about goes in commit messages and `CHANGELOG.md`.
 - **The README has three parts, in this order:** for users (what it does,
   screenshots, keyboard, what KDE Connect cannot do), getting started
   (requirements, setup, install, update, remove), under the hood (how it
@@ -233,7 +250,8 @@ Each rule records a fault that was hit or a decision the owner made.
 
    Then watch the issue: both bot reports (validation, security baseline)
    name the commit, and a maintainer applies `approved-and-verified`.
-5. **Freeze `main` from submission until the listing is published.** The
+5. **Freeze `main` from submission until the listing is published** (the
+   check is in *Workflow*). The
    marketplace checks, reviews and publishes one exact commit, and refuses
    to publish when `main` moved after its checks. Merge nothing into `main`
    meanwhile; work keeps landing on `develop`. The freeze ends when the
