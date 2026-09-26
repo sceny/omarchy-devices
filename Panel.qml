@@ -353,6 +353,24 @@ Panel {
 
   function resetShortcuts() { persistSettings({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
 
+  // A settings row under a folded section is not there to land on.
+  function settingsRowShown(i) {
+    var row = settingsRows[i]
+    if (!row) return false
+    if (row.kind === "layout") return !isCollapsed("layout")
+    if (row.kind === "shortcut") return !isCollapsed("shortcuts")
+    return true
+  }
+  function nextSettingsRow(from, dy) {
+    var i = from
+    for (var step = 0; step < settingsRows.length; step++) {
+      i += dy
+      if (i < 0 || i >= settingsRows.length) return from
+      if (settingsRowShown(i)) return i
+    }
+    return from
+  }
+
   function activateSetting(index) {
     var row = settingsRows[index]
     if (!row) return
@@ -748,7 +766,7 @@ Panel {
         if (root.messagesOpen) { if (dy !== 0) messagesView.moveCursor(dy); return }
         if (root.settingsOpen) {
           if (!root.cursorActive) { root.cursorActive = true; return }
-          if (dy !== 0) root.settingsIndex = Math.max(0, Math.min(root.settingsRows.length - 1, root.settingsIndex + dy))
+          if (dy !== 0) root.settingsIndex = root.nextSettingsRow(root.settingsIndex, dy)
           return
         }
         if (!root.cursorActive) { root.cursorActive = true; root.ensureCursor(); return }
@@ -932,6 +950,14 @@ Panel {
                 spacing: Style.space(6)
 
                 FoldToggle {
+
+                  foreground: root.foreground
+
+                  fontFamily: root.fontFamily
+
+                  motion: root.motion
+
+                  animate: root.settled
                   width: parent.width
                   title: "DEVICES · " + root.deviceRows.length
                   folded: root.isCollapsed("devices")
@@ -940,6 +966,10 @@ Panel {
                 }
 
                 FoldBody {
+
+                  motion: root.motion
+
+                  animate: root.settled
                   id: deviceColumn
                   open: !root.isCollapsed("devices")
                   spacing: Style.space(4)
@@ -1029,6 +1059,14 @@ Panel {
                   spacing: Style.space(4)
 
                   FoldToggle {
+
+                    foreground: root.foreground
+
+                    fontFamily: root.fontFamily
+
+                    motion: root.motion
+
+                    animate: root.settled
                     Layout.fillWidth: true
                     title: "NOW PLAYING"
                     folded: root.isCollapsed("media")
@@ -1109,6 +1147,10 @@ Panel {
                 }
 
                 FoldBody {
+
+                  motion: root.motion
+
+                  animate: root.settled
                   open: !root.isCollapsed("media")
                   spacing: Style.space(8)
 
@@ -1210,6 +1252,14 @@ Panel {
                 PanelSeparator { foreground: root.foreground }
 
                 FoldToggle {
+
+                  foreground: root.foreground
+
+                  fontFamily: root.fontFamily
+
+                  motion: root.motion
+
+                  animate: root.settled
                   width: parent.width
                   title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
                   folded: root.isCollapsed("notifications")
@@ -1218,6 +1268,10 @@ Panel {
                 }
 
                 FoldBody {
+
+                  motion: root.motion
+
+                  animate: root.settled
                   open: !root.isCollapsed("notifications")
                   spacing: Style.space(8)
 
@@ -1292,6 +1346,12 @@ Panel {
                 rows: root.settingsRows
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 shortcutsShown: root.showShortcuts
+                collapsed: root.collapsed
+                flags: ({ showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
+                order: root.shortcutOrder
+                motion: root.motion
+                animate: root.settled
+                onFoldToggled: function(key) { root.toggleCollapsed(key) }
                 setupChecks: root.phone ? root.phone.setupChecks : []
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
@@ -1310,110 +1370,6 @@ Panel {
 
   // A section header that folds: chevron, title, and in place of the
   // content, one line saying what is in it.
-  component FoldToggle: Item {
-    id: fold
-    property string title: ""
-    property string summary: ""
-    // A small picture beside the summary while folded (the media cover).
-    property string thumb: ""
-    property bool folded: false
-    signal toggled()
-
-    implicitHeight: foldRow.implicitHeight
-    implicitWidth: foldRow.implicitWidth
-
-    MouseArea {
-      anchors.fill: parent
-      cursorShape: Qt.PointingHandCursor
-      onClicked: fold.toggled()
-    }
-
-    // Explicit margins rather than one spacing: the cover's gap exists only
-    // while the cover shows, so an open section has no phantom space, and the
-    // cover sits a little apart from the title and the track on either side.
-    RowLayout {
-      id: foldRow
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      spacing: 0
-
-      Text {
-        Layout.rightMargin: Style.space(6)
-        Layout.alignment: Qt.AlignVCenter
-        text: Model.GLYPH.chevronRight
-        rotation: fold.folded ? 0 : 90
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.caption
-        Behavior on rotation { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-      }
-      PanelSectionHeader {
-        Layout.rightMargin: Style.space(10)
-        Layout.alignment: Qt.AlignVCenter
-        text: fold.title
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-      }
-      Image {
-        id: foldThumb
-        readonly property bool shown: fold.folded && fold.thumb !== "" && status !== Image.Error
-        Layout.preferredWidth: shown ? Style.space(18) : 0
-        Layout.preferredHeight: Style.space(18)
-        Layout.rightMargin: shown ? Style.space(8) : 0
-        Layout.alignment: Qt.AlignVCenter
-        source: fold.thumb
-        sourceSize.width: 36
-        sourceSize.height: 36
-        fillMode: Image.PreserveAspectCrop
-        asynchronous: true
-        clip: true
-        opacity: shown ? 1 : 0
-        Behavior on Layout.preferredWidth { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-        Behavior on Layout.rightMargin { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-        Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (foldThumb.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
-      }
-
-      // Always laid out, so the header never reflows; it only fades.
-      Text {
-        Layout.fillWidth: true
-        Layout.alignment: Qt.AlignVCenter
-        textFormat: Text.PlainText
-        text: fold.summary
-        color: root.foreground
-        opacity: fold.folded ? 0.85 : 0
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
-        elide: Text.ElideRight
-        Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (fold.folded ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
-      }
-    }
-  }
-
-  // The content of a folding section: it grows and shrinks to its height,
-  // clipped, fading at the shared pace, instead of popping in and out.
-  component FoldBody: Item {
-    id: body
-    property bool open: true
-    property alias spacing: bodyColumn.spacing
-    default property alias content: bodyColumn.data
-
-    width: parent ? parent.width : 0
-    height: open ? bodyColumn.implicitHeight : 0
-    implicitHeight: height
-    visible: height > 0.5
-    clip: true
-    opacity: open ? 1 : 0
-
-    Behavior on height { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-    Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (body.open ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
-
-    Column {
-      id: bodyColumn
-      width: parent.width
-    }
-  }
-
   component DeviceRow: CursorSurface {
     id: drow
     property var row: ({})

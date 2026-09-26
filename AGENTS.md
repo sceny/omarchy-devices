@@ -41,6 +41,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
+| `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `manifest.json` | id, entry points, settings and their defaults |
 
 ## Rules: what the owner decided, so nobody undoes it
@@ -87,7 +88,7 @@ Each rule records a fault that was hit or a decision the owner made.
   leading the meta line. The bolt already says charging; do not add the word.
 - **UI state persists.** What the user arranged is still there after the
   panel closes, the shell restarts or the machine reboots, stored in this
-  widget's `shell.json` entry: folded sections (`collapsed`), section
+  widget's `shell.json` entry: folded sections, main page and settings (`collapsed`), section
   visibility and shortcuts, the followed device (`deviceId`), and the
   conversation last open in messages, per device (`lastThread`), and the
   messages unread filter (`unreadOnly`). New UI
@@ -108,6 +109,8 @@ Each rule records a fault that was hit or a decision the owner made.
 - **Sections fold with an animation, never a jump:** content grows or
   shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all
   at `Model.MOTION`. Folded Now playing keeps the cover and a play button.
+  Every section, on the main page and in settings, uses the same
+  `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
 - **Devices appear only when there is a choice**: a second paired device,
   one to pair with, or a request. Unpair asks twice.
 - **Playback notifications are not notifications here**: from an app with a

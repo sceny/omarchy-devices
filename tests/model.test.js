@@ -194,3 +194,14 @@ test("demo devices cover requests, away and available", () => {
   const rows = M.deviceRows(M.demoSnapshot(null, "devices"), "demo")
   assert.deepEqual(rows.map(r => r.status.split(" ·")[0]), ["Wants to pair", "Connected", "Away", "Available to pair"])
 })
+
+test("folded settings sections say what is in them", () => {
+  assert.equal(M.layoutSummary({}), "Everything shown")
+  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications")
+  assert.equal(M.layoutSummary({ showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
+  assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
+  assert.equal(M.shortcutsSummary([]), "None")
+  assert.equal(M.setupSummary([]), "Checking…")
+  assert.equal(M.setupSummary([{ ok: true }, { ok: true }]), "All good")
+  assert.equal(M.setupSummary([{ ok: false }, { ok: true }, { ok: false }]), "2 things to fix")
+})

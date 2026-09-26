@@ -17,6 +17,13 @@ Column {
   property bool shortcutsShown: true
   property var setupChecks: []
   property var setupFixing: ({})
+  // Folding, like the main page's sections, and remembered the same way.
+  property var collapsed: ({})
+  property var flags: ({})
+  property var order: []
+  property real motion: 1
+  property bool animate: true
+  function isFolded(key) { return collapsed[key] === true }
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
@@ -24,6 +31,7 @@ Column {
   signal moveRequested(string key, int delta)
   signal hovered(int index)
   signal fixRequested(string what)
+  signal foldToggled(string key)
 
   readonly property color dim: Qt.darker(foreground, 1.55)
 
@@ -35,77 +43,118 @@ Column {
   spacing: Style.space(6)
 
   // ---- Layout ----
-  PanelSectionHeader {
-    text: "LAYOUT"
+  FoldToggle {
+    width: root.width
+    title: "LAYOUT"
+    summary: Model.layoutSummary(root.flags)
+    folded: root.isFolded("layout")
     foreground: root.foreground
     fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("layout")
   }
 
-  Repeater {
-    model: root.rows
-    LayoutRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "layout"
-      width: root.width
-      row: modelData
-      rowIndex: index
-    }
+  FoldBody {
+    open: !root.isFolded("layout")
+    motion: root.motion
+    animate: root.animate
+    spacing: Style.space(6)
+
+      Repeater {
+        model: root.rows
+        LayoutRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "layout"
+          width: root.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+
   }
 
   Item { width: 1; height: Style.space(6) }
   PanelSeparator { foreground: root.foreground }
 
   // ---- Shortcuts ----
-  PanelSectionHeader {
-    text: "SHORTCUTS"
+  FoldToggle {
+    width: root.width
+    title: "SHORTCUTS"
+    summary: Model.shortcutsSummary(root.order)
+    folded: root.isFolded("shortcuts")
     foreground: root.foreground
     fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("shortcuts")
   }
 
-  Text {
-    textFormat: Text.PlainText
-    width: root.width
-    wrapMode: Text.WordWrap
-    text: root.shortcutsShown
-      ? "Ticked ones show under the header, four per row, in this order. Shift+K and Shift+J move the selected one."
-      : "The shortcuts row is off in Layout. What you pick here shows once it is on again."
-    color: root.dim
-    font.family: root.fontFamily
-    font.pixelSize: Style.font.caption
-  }
+  FoldBody {
+    open: !root.isFolded("shortcuts")
+    motion: root.motion
+    animate: root.animate
+    spacing: Style.space(6)
 
-  Repeater {
-    model: root.rows
-    ShortcutRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "shortcut"
-      width: root.width
-      row: modelData
-      rowIndex: index
-    }
+      Text {
+        textFormat: Text.PlainText
+        width: root.width
+        wrapMode: Text.WordWrap
+        text: root.shortcutsShown
+          ? "Ticked ones show under the header, four per row, in this order. Shift+K and Shift+J move the selected one."
+          : "The shortcuts row is off in Layout. What you pick here shows once it is on again."
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+
+      Repeater {
+        model: root.rows
+        ShortcutRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "shortcut"
+          width: root.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+
   }
 
   Item { width: 1; height: Style.space(6) }
   PanelSeparator { foreground: root.foreground }
 
   // ---- Setup ----
-  PanelSectionHeader {
-    text: "SETUP"
+  FoldToggle {
+    width: root.width
+    title: "SETUP"
+    summary: Model.setupSummary(root.setupChecks)
+    folded: root.isFolded("setup")
     foreground: root.foreground
     fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("setup")
   }
 
-  SetupChecks {
-    width: root.width
-    checks: root.setupChecks
-    busyFixes: root.setupFixing
-    showPhoneSteps: true
-    foreground: root.foreground
-    urgent: Color.urgent
-    fontFamily: root.fontFamily
-    onFixRequested: function(what) { root.fixRequested(what) }
+  FoldBody {
+    open: !root.isFolded("setup")
+    motion: root.motion
+    animate: root.animate
+    spacing: Style.space(6)
+
+      SetupChecks {
+        width: root.width
+        checks: root.setupChecks
+        busyFixes: root.setupFixing
+        showPhoneSteps: true
+        foreground: root.foreground
+        urgent: Color.urgent
+        fontFamily: root.fontFamily
+        onFixRequested: function(what) { root.fixRequested(what) }
+      }
   }
 
   Item { width: 1; height: Style.space(2) }

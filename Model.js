@@ -576,3 +576,30 @@ function notificationsSummary(list) {
 function collapsedState(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : ({})
 }
+
+// ---- Folded settings sections: the one line in place of the content ----
+
+function layoutSummary(flags) {
+  var on = []
+  for (var i = 0; i < LAYOUT.length; i++) if (layoutFlag(flags[LAYOUT[i].key])) on.push(LAYOUT[i].label)
+  if (on.length === LAYOUT.length) return "Everything shown"
+  if (on.length === 0) return "Everything hidden"
+  return on.join(", ")
+}
+
+function shortcutsSummary(order) {
+  var labels = []
+  for (var i = 0; i < order.length; i++) {
+    var s = shortcutByKey(order[i])
+    if (s) labels.push(s.label)
+  }
+  return labels.length ? labels.join(", ") : "None"
+}
+
+function setupSummary(checks) {
+  var list = checks || []
+  if (list.length === 0) return "Checking…"
+  var bad = 0
+  for (var i = 0; i < list.length; i++) if (!list[i].ok) bad++
+  return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
+}
