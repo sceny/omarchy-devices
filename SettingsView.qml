@@ -21,6 +21,7 @@ Column {
   property var collapsed: ({})
   property var flags: ({})
   property var order: []
+  property var sectionOrder: []
   property real motion: 1
   property bool animate: true
   function isFolded(key) { return collapsed[key] === true }
@@ -29,6 +30,7 @@ Column {
 
   signal activated(int index)
   signal moveRequested(string key, int delta)
+  signal sectionMoveRequested(string section, int delta)
   signal hovered(int index)
   signal fixRequested(string what)
   signal foldToggled(string key)
@@ -46,7 +48,7 @@ Column {
   FoldToggle {
     width: root.width
     title: "LAYOUT"
-    summary: Model.layoutSummary(root.flags)
+    summary: Model.layoutSummary(root.flags, root.sectionOrder)
     folded: root.isFolded("layout")
     foreground: root.foreground
     fontFamily: root.fontFamily
@@ -60,6 +62,16 @@ Column {
     motion: root.motion
     animate: root.animate
     spacing: Style.space(6)
+
+      Text {
+        textFormat: Text.PlainText
+        width: root.width
+        wrapMode: Text.WordWrap
+        text: "The sections under the header, in this order. Shift+K and Shift+J move the selected one."
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
 
       Repeater {
         model: root.rows
@@ -236,6 +248,30 @@ Column {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+      }
+
+      Row {
+        spacing: Style.space(2)
+        Layout.alignment: Qt.AlignVCenter
+
+        PanelActionButton {
+          iconText: Model.GLYPH.up
+          tooltipText: "Move up"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          enabled: layoutRow.row.first !== true
+          onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
+          onClicked: root.sectionMoveRequested(layoutRow.row.section, -1)
+        }
+        PanelActionButton {
+          iconText: Model.GLYPH.down
+          tooltipText: "Move down"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          enabled: layoutRow.row.last !== true
+          onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
+          onClicked: root.sectionMoveRequested(layoutRow.row.section, 1)
         }
       }
 

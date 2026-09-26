@@ -40,6 +40,8 @@ Panel {
   readonly property bool showMedia: Model.layoutFlag(setting("showMedia", true))
   readonly property bool showNotifications: Model.layoutFlag(setting("showNotifications", true))
   readonly property var shortcutOrder: Model.normalizeShortcuts(setting("shortcuts", null))
+  // The order of the sections under the header (Layout settings).
+  readonly property var sectionOrder: Model.normalizeSections(setting("sectionOrder", null))
 
   property bool settingsOpen: false
   // Text messages: a two-pane view in place of the phone view, in a wider panel.
@@ -175,7 +177,7 @@ Panel {
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
     { showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
-    shortcutOrder, device ? device.can : null)
+    shortcutOrder, device ? device.can : null, sectionOrder)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -306,14 +308,32 @@ Panel {
   readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
+  // The sections drawn under the header, in the chosen order. Notifications
+  // draws its empty state too, so it counts here even with none.
+  readonly property var drawnSections: {
+    var s = []
+    if (!reachable) return s
+    for (var i = 0; i < sectionOrder.length; i++) {
+      var key = sectionOrder[i]
+      if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
+      else if (key === "media" && showMedia && players.length > 0) s.push(key)
+      else if (key === "notifications" && showNotifications) s.push(key)
+    }
+    return s
+  }
+  // A line between sections, never under the header (the devices section,
+  // always first, brings its own).
+  function separatedAbove(key) { return drawnSections.indexOf(key) > 0 }
+
+  // Where the keyboard cursor can go, top to bottom.
   readonly property var sections: {
     var s = []
     if (showDevices) s.push("devices")
-    if (reachable && showShortcuts && actions.length > 0) s.push("actions")
-    if (reachable && showMedia && players.length > 0) s.push("media")
-    if (reachable && showNotifications && notifications.length > 0) s.push("notifications")
+    for (var i = 0; i < drawnSections.length; i++)
+      if (drawnSections[i] !== "notifications" || notifications.length > 0) s.push(drawnSections[i])
     return s
   }
+
 
   function runAction(key) {
     if (!phone) return
@@ -356,6 +376,15 @@ Panel {
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
         if (settingsRows[i].kind === "shortcut" && settingsRows[i].key === key) { settingsIndex = i; return }
+    })
+  }
+
+  function moveSectionKey(section, delta) {
+    persistSettings({ sectionOrder: Model.moveShortcut(sectionOrder, section, delta) })
+    // Keep the cursor on the row that moved.
+    Qt.callLater(function() {
+      for (var i = 0; i < settingsRows.length; i++)
+        if (settingsRows[i].kind === "layout" && settingsRows[i].section === section) { settingsIndex = i; return }
     })
   }
 
@@ -585,8 +614,9 @@ Panel {
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
       return
     }
-    // The shortcuts are a grid: j/k walk its rows before leaving it.
-    if (focusSection === "actions") {
+    // The shortcuts are a grid: j/k walk its rows before leaving it. Folded,
+    // they are one row of icons in the header.
+    if (focusSection === "actions" && !isCollapsed("actions")) {
       var below = actionIndex + dy * actionColumns
       if (below >= 0 && below < actions.length) { actionIndex = below; return }
       if (dy > 0 && Math.floor(actionIndex / actionColumns) < Math.floor((actions.length - 1) / actionColumns)) {
@@ -779,6 +809,7 @@ Panel {
     }
     function toggleShortcut(key: string): string { root.toggleShortcutKey(key); return "ok" }
     function moveShortcut(key: string, delta: int): string { root.moveShortcutKey(key, delta); return "ok" }
+    function moveSection(key: string, delta: int): string { root.moveSectionKey(key, delta); return JSON.stringify(root.sectionOrder) }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
     // What the panel is showing, so a check can assert on the picture.
     function status(): string {
@@ -889,10 +920,12 @@ Panel {
           var row = root.settingsRows[root.settingsIndex]
           if (root.cursorActive && row && row.kind === "shortcut" && row.on && (t === "K" || t === "J"))
             root.moveShortcutKey(row.key, t === "K" ? -1 : 1)
+          else if (root.cursorActive && row && row.kind === "layout" && (t === "K" || t === "J"))
+            root.moveSectionKey(row.section, t === "K" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
-        if (t === "c" && root.cursorActive && (root.focusSection === "devices" || root.focusSection === "media" || root.focusSection === "notifications")) {
+        if (t === "c" && root.cursorActive && root.focusSection !== "") {
           root.toggleCollapsed(root.focusSection)
           return
         }
@@ -1065,6 +1098,7 @@ Panel {
 
               // ---- Away, not paired, or KDE Connect down ----
               Column {
+                id: awayColumn
                 visible: root.showMain && !root.reachable
                 width: parent.width
                 spacing: Style.space(10)
@@ -1098,98 +1132,375 @@ Panel {
                 }
               }
 
-              // ---- Shortcuts: up to four per row, in the order chosen in settings ----
-              Grid {
-                id: actionGrid
-                visible: root.showMain && root.reachable && root.showShortcuts && root.actions.length > 0
-                width: parent.width
-                columns: root.actionColumns
-                spacing: Style.space(8)
-
-                Repeater {
-                  model: root.actions
-                  ActionTile {
-                    required property var modelData
-                    required property int index
-                    width: (actionGrid.width - actionGrid.spacing * (root.actionColumns - 1)) / root.actionColumns
-                    action: modelData
-                    tileIndex: index
+              // ---- The sections, in the order chosen in settings. They are fixed
+              //      items placed by that order, so a new order rebuilds
+              //      nothing: the media cards and a half-typed text keep their state ----
+              Item {
+                id: sectionsBox
+                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property real gap: Style.space(12)
+                function topOf(key) {
+                  var y = 0
+                  for (var i = 0; i < root.drawnSections.length; i++) {
+                    var k = root.drawnSections[i]
+                    if (k === key) return y
+                    y += items[k].height + gap
                   }
+                  return 0
                 }
-              }
+                visible: root.showMain && root.drawnSections.length > 0
+                width: parent.width
+                height: {
+                  var h = 0
+                  for (var i = 0; i < root.drawnSections.length; i++) h += items[root.drawnSections[i]].height + (i > 0 ? gap : 0)
+                  return h
+                }
+                implicitHeight: height
 
-              // ---- Send text: typed text or a link, or a ping carrying it ----
-              FoldBody {
-                id: composerBody
-                open: root.composing && actionGrid.visible
-                motion: root.motion
-                animate: root.settled
-                spacing: Style.space(4)
-
-                RowLayout {
+                // ---- Shortcuts: up to four per row, in the order chosen in settings.
+                //      Folded, a row of icons in the header that still work ----
+                Column {
+                  id: actionsColumn
+                  y: sectionsBox.topOf("actions")
+                  visible: root.showMain && root.drawnSections.indexOf("actions") >= 0
                   width: parent.width
-                  spacing: Style.space(6)
+                  spacing: Style.space(8)
 
-                  TextField {
-                    id: composerField
-                    Layout.fillWidth: true
-                    placeholderText: "Text or a link for " + Model.deviceLabel(root.device)
-                    foreground: root.foreground
-                    font.family: root.fontFamily
-                    onActiveFocusChanged: root.composerFocused = activeFocus
-                    Keys.onEscapePressed: root.closeComposer()
-                    // Enter is taken here, not in onAccepted: TextInput passes
-                    // it on, and the key catcher would run the tile again.
-                    Keys.onPressed: function(event) {
-                      if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
-                      event.accepted = true
-                      var ping = (event.modifiers & Qt.ControlModifier) !== 0
-                      if (!ping || root.can.ping === true) root.sendComposed(ping)
+                  PanelSeparator { visible: root.separatedAbove("actions"); foreground: root.foreground }
+
+                  RowLayout {
+                    width: parent.width
+                    spacing: Style.space(4)
+
+                    FoldToggle {
+                      Layout.fillWidth: true
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      motion: root.motion
+                      animate: root.settled
+                      title: "SHORTCUTS"
+                      folded: root.isCollapsed("actions")
+                      onToggled: root.toggleCollapsed("actions")
+                    }
+
+                    Row {
+                      visible: root.isCollapsed("actions")
+                      Layout.alignment: Qt.AlignVCenter
+                      spacing: Style.space(2)
+
+                      Repeater {
+                        model: root.actions
+                        PanelActionButton {
+                          required property var modelData
+                          required property int index
+                          iconText: modelData.glyph
+                          tooltipText: modelData.label
+                          size: Style.space(22)
+                          foreground: root.foreground
+                          fontFamily: root.fontFamily
+                          enabled: modelData.enabled === true
+                          hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
+                          onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index } }
+                          onClicked: root.runAction(modelData.key)
+                        }
+                      }
                     }
                   }
-                  PanelActionButton {
-                    visible: root.can.ping === true
-                    iconText: Model.GLYPH.wave
-                    tooltipText: "Ping with this message (Ctrl+Enter)"
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    enabled: composerField.text.trim() !== ""
-                    onClicked: root.sendComposed(true)
+
+                  FoldBody {
+                    motion: root.motion
+                    animate: root.settled
+                    open: !root.isCollapsed("actions")
+
+                    Grid {
+                      id: actionGrid
+                      width: parent.width
+                      columns: root.actionColumns
+                      spacing: Style.space(8)
+
+                      Repeater {
+                        model: root.actions
+                        ActionTile {
+                          required property var modelData
+                          required property int index
+                          width: (actionGrid.width - actionGrid.spacing * (root.actionColumns - 1)) / root.actionColumns
+                          action: modelData
+                          tileIndex: index
+                        }
+                      }
+                    }
                   }
-                  PanelActionButton {
-                    iconText: Model.GLYPH.send
-                    tooltipText: (Model.linkFor(composerField.text) !== "" ? "Send the link, to open there" : "Put it on its clipboard") + " (Enter)"
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    enabled: composerField.text.trim() !== ""
-                    onClicked: root.sendComposed(false)
+
+                  // ---- Send text: typed text or a link, or a ping carrying it.
+                  //      Outside the fold, so the folded icon opens it too ----
+                  FoldBody {
+                    id: composerBody
+                    open: root.composing
+                    motion: root.motion
+                    animate: root.settled
+                    spacing: Style.space(4)
+
+                    RowLayout {
+                      width: parent.width
+                      spacing: Style.space(6)
+
+                      TextField {
+                        id: composerField
+                        Layout.fillWidth: true
+                        placeholderText: "Text or a link for " + Model.deviceLabel(root.device)
+                        foreground: root.foreground
+                        font.family: root.fontFamily
+                        onActiveFocusChanged: root.composerFocused = activeFocus
+                        Keys.onEscapePressed: root.closeComposer()
+                        // Enter is taken here, not in onAccepted: TextInput passes
+                        // it on, and the key catcher would run the tile again.
+                        Keys.onPressed: function(event) {
+                          if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return
+                          event.accepted = true
+                          var ping = (event.modifiers & Qt.ControlModifier) !== 0
+                          if (!ping || root.can.ping === true) root.sendComposed(ping)
+                        }
+                      }
+                      PanelActionButton {
+                        visible: root.can.ping === true
+                        iconText: Model.GLYPH.wave
+                        tooltipText: "Ping with this message (Ctrl+Enter)"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        enabled: composerField.text.trim() !== ""
+                        onClicked: root.sendComposed(true)
+                      }
+                      PanelActionButton {
+                        iconText: Model.GLYPH.send
+                        tooltipText: (Model.linkFor(composerField.text) !== "" ? "Send the link, to open there" : "Put it on its clipboard") + " (Enter)"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        enabled: composerField.text.trim() !== ""
+                        onClicked: root.sendComposed(false)
+                      }
+                    }
+
+                    Text {
+                      width: parent.width
+                      textFormat: Text.PlainText
+                      wrapMode: Text.WordWrap
+                      text: Model.composerHint(composerField.text, root.device, root.can.ping === true)
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
                   }
                 }
 
-                Text {
+                // ---- What the phone is playing: the active player's card; the rest
+                //      are a carousel away (arrows, dots, sideways swipe, drag, h/l) ----
+                Column {
+                  id: mediaColumn
+                  y: sectionsBox.topOf("media")
+                  visible: root.showMain && root.drawnSections.indexOf("media") >= 0
                   width: parent.width
-                  textFormat: Text.PlainText
-                  wrapMode: Text.WordWrap
-                  text: Model.composerHint(composerField.text, root.device, root.can.ping === true)
-                  color: root.dim
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
+                  spacing: Style.space(8)
+
+                  PanelSeparator { visible: root.separatedAbove("media"); foreground: root.foreground }
+
+                  RowLayout {
+                    width: parent.width
+                    spacing: Style.space(4)
+
+                    FoldToggle {
+
+                      foreground: root.foreground
+
+                      fontFamily: root.fontFamily
+
+                      motion: root.motion
+
+                      animate: root.settled
+                      Layout.fillWidth: true
+                      title: "NOW PLAYING"
+                      folded: root.isCollapsed("media")
+                      summary: root.shownPlayerObject
+                        ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist,
+                            Model.playerApp(root.shownPlayerObject.identity, root.device ? root.device.name : ""))
+                        : ""
+                      thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl ? root.shownPlayerObject.trackArtUrl : ""
+                      onToggled: root.toggleCollapsed("media")
+                    }
+
+                    // Folded, the line keeps a play/pause for the shown player.
+                    PanelActionButton {
+                      visible: root.isCollapsed("media") && !!root.shownPlayerObject
+                      Layout.alignment: Qt.AlignVCenter
+                      iconText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? Model.GLYPH.pause : Model.GLYPH.play
+                      tooltipText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? "Pause" : "Play"
+                      size: Style.space(22)
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      onClicked: if (root.phone) root.phone.mediaAction("PlayPause", root.shownPlayerObject)
+                    }
+
+                    Row {
+                      visible: root.players.length > 1 && !root.isCollapsed("media")
+                      spacing: Style.space(4)
+                      Layout.alignment: Qt.AlignVCenter
+
+                      PanelActionButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconText: Model.GLYPH.left
+                        tooltipText: "Previous player"
+                        size: Style.space(20)
+                        fontSize: Style.font.body
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        enabled: root.shownPlayer > 0
+                        onClicked: root.showPlayer(root.shownPlayer - 1)
+                      }
+
+                      Row {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Style.space(5)
+
+                        Repeater {
+                          model: root.players.length
+                          Rectangle {
+                            required property int index
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: index === root.shownPlayer ? Style.space(14) : Style.space(6)
+                            height: Style.space(6)
+                            radius: height / 2
+                            color: index === root.shownPlayer ? root.foreground : root.dim
+                            Behavior on width { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+
+                            MouseArea {
+                              anchors.fill: parent
+                              anchors.margins: -Style.space(4)
+                              cursorShape: Qt.PointingHandCursor
+                              onClicked: root.showPlayer(parent.index)
+                            }
+                          }
+                        }
+                      }
+
+                      PanelActionButton {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconText: Model.GLYPH.right
+                        tooltipText: "Next player"
+                        size: Style.space(20)
+                        fontSize: Style.font.body
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        enabled: root.shownPlayer < root.players.length - 1
+                        onClicked: root.showPlayer(root.shownPlayer + 1)
+                      }
+                    }
+                  }
+
+                  FoldBody {
+
+                    motion: root.motion
+
+                    animate: root.settled
+                    open: !root.isCollapsed("media")
+                    spacing: Style.space(8)
+
+                    // One card wide; the strip of all cards slides behind it.
+                    Item {
+                      id: carouselBox
+                      width: parent.width
+                      readonly property var shownCard: cardRepeater.count > root.shownPlayer ? cardRepeater.itemAt(root.shownPlayer) : null
+                      height: shownCard ? shownCard.implicitHeight : 0
+                      clip: true
+                      Behavior on height { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+
+                      Row {
+                        id: cardStrip
+                        spacing: Style.space(16)
+                        x: -root.shownPlayer * (carouselBox.width + spacing) + root.swipeOffset
+                        Behavior on x {
+                          enabled: !root.swiping && root.settled
+                          NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                        }
+
+                        Repeater {
+                          id: cardRepeater
+                          model: root.players
+                          MediaCard {
+                            required property var modelData
+                            required property int index
+                            width: carouselBox.width
+                            player: modelData
+                            cardIndex: index
+                          }
+                        }
+                      }
+
+                      // A sideways two-finger swipe (horizontal wheel) pages the
+                      // carousel. Vertical wheel is refused so it still scrolls the panel.
+                      MouseArea {
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        property real pending: 0
+                        onWheel: function(wheel) {
+                          var dx = wheel.angleDelta.x
+                          if (Math.abs(dx) <= Math.abs(wheel.angleDelta.y) || root.players.length < 2) { wheel.accepted = false; return }
+                          wheel.accepted = true
+                          if (swipeCooldown.running) return
+                          pending += dx
+                          if (Math.abs(pending) >= 90) {
+                            root.showPlayer(root.shownPlayer + (pending < 0 ? 1 : -1))
+                            pending = 0
+                            swipeCooldown.restart()
+                          }
+                        }
+                        Timer { id: swipeCooldown; interval: 450 }
+                      }
+                    }
+
+                    // The phone has one media volume, whichever app is playing.
+                    RowLayout {
+                      visible: !!root.volumePlayer
+                      width: parent.width
+                      spacing: Style.space(8)
+
+                      PanelActionButton {
+                        iconText: root.shownVolume <= 0.001 ? Model.GLYPH.volumeOff : Model.GLYPH.volume
+                        tooltipText: (root.shownVolume <= 0.001 ? "Unmute " : "Mute ") + Model.deviceLabel(root.device)
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onClicked: root.toggleMute()
+                      }
+                      PanelSlider {
+                        id: volumeSlider
+                        Layout.fillWidth: true
+                        bar: root.bar
+                        minimum: 0
+                        maximum: 1
+                        step: 0.05
+                        value: root.shownVolume
+                        onReleased: function(v) { root.setVolumeWish(v) }
+                      }
+                      Text {
+                        textFormat: Text.PlainText
+                        Layout.preferredWidth: Style.space(34)
+                        horizontalAlignment: Text.AlignRight
+                        text: Math.round((volumeSlider.dragging ? volumeSlider.liveValue : volumeSlider.value) * 100) + "%"
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                    }
+                  }
                 }
-              }
 
-              // ---- What the phone is playing: the active player's card; the rest
-              //      are a carousel away (arrows, dots, sideways swipe, drag, h/l) ----
-              Column {
-                id: mediaColumn
-                visible: root.showMain && root.reachable && root.showMedia && root.players.length > 0
-                width: parent.width
-                spacing: Style.space(8)
-
-                PanelSeparator { foreground: root.foreground }
-
-                RowLayout {
+                // ---- The phone's notifications ----
+                Column {
+                  id: notificationsColumn
+                  y: sectionsBox.topOf("notifications")
+                  visible: root.showMain && root.drawnSections.indexOf("notifications") >= 0
                   width: parent.width
-                  spacing: Style.space(4)
+                  spacing: Style.space(8)
+
+                  PanelSeparator { visible: root.separatedAbove("notifications"); foreground: root.foreground }
 
                   FoldToggle {
 
@@ -1200,256 +1511,64 @@ Panel {
                     motion: root.motion
 
                     animate: root.settled
-                    Layout.fillWidth: true
-                    title: "NOW PLAYING"
-                    folded: root.isCollapsed("media")
-                    summary: root.shownPlayerObject
-                      ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist,
-                          Model.playerApp(root.shownPlayerObject.identity, root.device ? root.device.name : ""))
-                      : ""
-                    thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl ? root.shownPlayerObject.trackArtUrl : ""
-                    onToggled: root.toggleCollapsed("media")
-                  }
-
-                  // Folded, the line keeps a play/pause for the shown player.
-                  PanelActionButton {
-                    visible: root.isCollapsed("media") && !!root.shownPlayerObject
-                    Layout.alignment: Qt.AlignVCenter
-                    iconText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? Model.GLYPH.pause : Model.GLYPH.play
-                    tooltipText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? "Pause" : "Play"
-                    size: Style.space(22)
-                    foreground: root.foreground
-                    fontFamily: root.fontFamily
-                    onClicked: if (root.phone) root.phone.mediaAction("PlayPause", root.shownPlayerObject)
-                  }
-
-                  Row {
-                    visible: root.players.length > 1 && !root.isCollapsed("media")
-                    spacing: Style.space(4)
-                    Layout.alignment: Qt.AlignVCenter
-
-                    PanelActionButton {
-                      anchors.verticalCenter: parent.verticalCenter
-                      iconText: Model.GLYPH.left
-                      tooltipText: "Previous player"
-                      size: Style.space(20)
-                      fontSize: Style.font.body
-                      foreground: root.foreground
-                      fontFamily: root.fontFamily
-                      enabled: root.shownPlayer > 0
-                      onClicked: root.showPlayer(root.shownPlayer - 1)
-                    }
-
-                    Row {
-                      anchors.verticalCenter: parent.verticalCenter
-                      spacing: Style.space(5)
-
-                      Repeater {
-                        model: root.players.length
-                        Rectangle {
-                          required property int index
-                          anchors.verticalCenter: parent.verticalCenter
-                          width: index === root.shownPlayer ? Style.space(14) : Style.space(6)
-                          height: Style.space(6)
-                          radius: height / 2
-                          color: index === root.shownPlayer ? root.foreground : root.dim
-                          Behavior on width { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-
-                          MouseArea {
-                            anchors.fill: parent
-                            anchors.margins: -Style.space(4)
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.showPlayer(parent.index)
-                          }
-                        }
-                      }
-                    }
-
-                    PanelActionButton {
-                      anchors.verticalCenter: parent.verticalCenter
-                      iconText: Model.GLYPH.right
-                      tooltipText: "Next player"
-                      size: Style.space(20)
-                      fontSize: Style.font.body
-                      foreground: root.foreground
-                      fontFamily: root.fontFamily
-                      enabled: root.shownPlayer < root.players.length - 1
-                      onClicked: root.showPlayer(root.shownPlayer + 1)
-                    }
-                  }
-                }
-
-                FoldBody {
-
-                  motion: root.motion
-
-                  animate: root.settled
-                  open: !root.isCollapsed("media")
-                  spacing: Style.space(8)
-
-                  // One card wide; the strip of all cards slides behind it.
-                  Item {
-                    id: carouselBox
                     width: parent.width
-                    readonly property var shownCard: cardRepeater.count > root.shownPlayer ? cardRepeater.itemAt(root.shownPlayer) : null
-                    height: shownCard ? shownCard.implicitHeight : 0
-                    clip: true
-                    Behavior on height { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-
-                    Row {
-                      id: cardStrip
-                      spacing: Style.space(16)
-                      x: -root.shownPlayer * (carouselBox.width + spacing) + root.swipeOffset
-                      Behavior on x {
-                        enabled: !root.swiping && root.settled
-                        NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
-                      }
-
-                      Repeater {
-                        id: cardRepeater
-                        model: root.players
-                        MediaCard {
-                          required property var modelData
-                          required property int index
-                          width: carouselBox.width
-                          player: modelData
-                          cardIndex: index
-                        }
-                      }
-                    }
-
-                    // A sideways two-finger swipe (horizontal wheel) pages the
-                    // carousel. Vertical wheel is refused so it still scrolls the panel.
-                    MouseArea {
-                      anchors.fill: parent
-                      acceptedButtons: Qt.NoButton
-                      property real pending: 0
-                      onWheel: function(wheel) {
-                        var dx = wheel.angleDelta.x
-                        if (Math.abs(dx) <= Math.abs(wheel.angleDelta.y) || root.players.length < 2) { wheel.accepted = false; return }
-                        wheel.accepted = true
-                        if (swipeCooldown.running) return
-                        pending += dx
-                        if (Math.abs(pending) >= 90) {
-                          root.showPlayer(root.shownPlayer + (pending < 0 ? 1 : -1))
-                          pending = 0
-                          swipeCooldown.restart()
-                        }
-                      }
-                      Timer { id: swipeCooldown; interval: 450 }
-                    }
+                    title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
+                    folded: root.isCollapsed("notifications")
+                    summary: Model.notificationsSummary(root.notifications)
+                    onToggled: root.toggleCollapsed("notifications")
                   }
 
-                  // The phone has one media volume, whichever app is playing.
-                  RowLayout {
-                    visible: !!root.volumePlayer
-                    width: parent.width
+                  FoldBody {
+
+                    motion: root.motion
+
+                    animate: root.settled
+                    open: !root.isCollapsed("notifications")
                     spacing: Style.space(8)
 
-                    PanelActionButton {
-                      iconText: root.shownVolume <= 0.001 ? Model.GLYPH.volumeOff : Model.GLYPH.volume
-                      tooltipText: (root.shownVolume <= 0.001 ? "Unmute " : "Mute ") + Model.deviceLabel(root.device)
-                      foreground: root.foreground
-                      fontFamily: root.fontFamily
-                      onClicked: root.toggleMute()
-                    }
-                    PanelSlider {
-                      id: volumeSlider
-                      Layout.fillWidth: true
-                      bar: root.bar
-                      minimum: 0
-                      maximum: 1
-                      step: 0.05
-                      value: root.shownVolume
-                      onReleased: function(v) { root.setVolumeWish(v) }
-                    }
-                    Text {
-                      textFormat: Text.PlainText
-                      Layout.preferredWidth: Style.space(34)
-                      horizontalAlignment: Text.AlignRight
-                      text: Math.round((volumeSlider.dragging ? volumeSlider.liveValue : volumeSlider.value) * 100) + "%"
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                    }
-                  }
-                }
-              }
-
-              // ---- The phone's notifications ----
-              Column {
-                visible: root.showMain && root.reachable && root.showNotifications
-                width: parent.width
-                spacing: Style.space(8)
-
-                PanelSeparator { foreground: root.foreground }
-
-                FoldToggle {
-
-                  foreground: root.foreground
-
-                  fontFamily: root.fontFamily
-
-                  motion: root.motion
-
-                  animate: root.settled
-                  width: parent.width
-                  title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
-                  folded: root.isCollapsed("notifications")
-                  summary: Model.notificationsSummary(root.notifications)
-                  onToggled: root.toggleCollapsed("notifications")
-                }
-
-                FoldBody {
-
-                  motion: root.motion
-
-                  animate: root.settled
-                  open: !root.isCollapsed("notifications")
-                  spacing: Style.space(8)
-
-                  Column {
-                    visible: root.notifications.length === 0
-                    width: parent.width
-                    spacing: Style.space(4)
-                    topPadding: Style.space(4)
-                    bottomPadding: Style.space(4)
-
-                    Text {
-                      anchors.horizontalCenter: parent.horizontalCenter
-                      text: Model.GLYPH.bellOff
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.heading
-                    }
-                    Text {
-                      textFormat: Text.PlainText
+                    Column {
+                      visible: root.notifications.length === 0
                       width: parent.width
-                      horizontalAlignment: Text.AlignHCenter
-                      wrapMode: Text.WordWrap
-                      text: root.can.notifications === false
-                        ? "Notification sync is off for this " + Model.deviceNoun(root.device) + "."
-                        : "Nothing new. If " + Model.deviceLabel(root.device) + " has notifications, allow notification access in its KDE Connect app."
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
+                      spacing: Style.space(4)
+                      topPadding: Style.space(4)
+                      bottomPadding: Style.space(4)
+
+                      Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: Model.GLYPH.bellOff
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.heading
+                      }
+                      Text {
+                        textFormat: Text.PlainText
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        text: root.can.notifications === false
+                          ? "Notification sync is off for this " + Model.deviceNoun(root.device) + "."
+                          : "Nothing new. If " + Model.deviceLabel(root.device) + " has notifications, allow notification access in its KDE Connect app."
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
                     }
-                  }
 
-                  Column {
-                    id: notifColumn
-                    visible: root.notifications.length > 0
-                    width: parent.width
-                    spacing: Style.space(4)
+                    Column {
+                      id: notifColumn
+                      visible: root.notifications.length > 0
+                      width: parent.width
+                      spacing: Style.space(4)
 
-                    Repeater {
-                      model: root.notifications
-                      NotificationRow {
-                        required property var modelData
-                        required property int index
-                        width: notifColumn.width
-                        note: modelData
-                        rowIndex: index
+                      Repeater {
+                        model: root.notifications
+                        NotificationRow {
+                          required property var modelData
+                          required property int index
+                          width: notifColumn.width
+                          note: modelData
+                          rowIndex: index
+                        }
                       }
                     }
                   }
@@ -1482,6 +1601,7 @@ Panel {
                 collapsed: root.collapsed
                 flags: ({ showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
                 order: root.shortcutOrder
+                sectionOrder: root.sectionOrder
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
@@ -1492,6 +1612,7 @@ Panel {
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }
                 onMoveRequested: function(key, delta) { root.moveShortcutKey(key, delta) }
+                onSectionMoveRequested: function(section, delta) { root.moveSectionKey(section, delta) }
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
             }

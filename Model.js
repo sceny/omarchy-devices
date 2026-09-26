@@ -114,12 +114,38 @@ function composerHint(text, device, canPing) {
   return canPing ? line + " · Ctrl+Enter pings it instead" : line
 }
 
-// The three sections below the header that the Layout settings switch.
+// The three sections below the header that the Layout settings switch and
+// order. `section` is the section's key on the main page (fold, cursor).
 var LAYOUT = [
-  { key: "showShortcuts", label: "Shortcuts", hint: "The row of quick action buttons" },
-  { key: "showMedia", label: "Now playing", hint: "What the device is playing, while something plays" },
-  { key: "showNotifications", label: "Notifications", hint: "The device's notifications, with reply and dismiss" }
+  { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
+  { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing, while something plays" },
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply and dismiss" }
 ]
+
+var DEFAULT_SECTIONS = ["actions", "media", "notifications"]
+
+function layoutBySection(section) {
+  for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
+  return null
+}
+
+// The stored section order, cleaned: known sections once each, and any it
+// leaves out after them in their default place. Every section always has a
+// place; whether it shows is its Layout switch.
+function normalizeSections(value) {
+  if (typeof value === "string") {
+    try { value = JSON.parse(value) } catch (e) { value = null }
+  }
+  var out = []
+  if (value && typeof value !== "string" && typeof value.length === "number") {
+    for (var i = 0; i < value.length; i++) {
+      var key = String(value[i])
+      if (DEFAULT_SECTIONS.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key)
+    }
+  }
+  for (var j = 0; j < DEFAULT_SECTIONS.length; j++) if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.push(DEFAULT_SECTIONS[j])
+  return out
+}
 
 function shortcutByKey(key) {
   for (var i = 0; i < SHORTCUTS.length; i++) if (SHORTCUTS[i].key === key) return SHORTCUTS[i]
@@ -179,12 +205,16 @@ function moveShortcut(order, key, delta) {
 }
 
 // The settings page as one flat list, so keyboard and mouse share a cursor:
-// the layout switches, then the shortcuts (chosen ones in their order, then
-// the rest), then reset and the KDE Connect link.
-function settingsRows(flags, order, can) {
+// the layout switches in the sections' order, then the shortcuts (chosen ones
+// in their order, then the rest), then reset and the KDE Connect link.
+function settingsRows(flags, order, can, sections) {
   var rows = []
-  for (var i = 0; i < LAYOUT.length; i++)
-    rows.push({ kind: "layout", key: LAYOUT[i].key, label: LAYOUT[i].label, hint: LAYOUT[i].hint, on: layoutFlag(flags[LAYOUT[i].key]) })
+  var sectionOrder = normalizeSections(sections)
+  for (var i = 0; i < sectionOrder.length; i++) {
+    var l = layoutBySection(sectionOrder[i])
+    rows.push({ kind: "layout", key: l.key, section: l.section, label: l.label, hint: l.hint, on: layoutFlag(flags[l.key]),
+                first: i === 0, last: i === sectionOrder.length - 1 })
+  }
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)
@@ -623,11 +653,17 @@ function collapsedState(value) {
 
 // ---- Folded settings sections: the one line in place of the content ----
 
-function layoutSummary(flags) {
+// Folded Layout: what shows, in its order; "Everything shown" only when
+// that is also the default order, so a new order is never hidden.
+function layoutSummary(flags, sections) {
+  var sectionOrder = normalizeSections(sections)
   var on = []
-  for (var i = 0; i < LAYOUT.length; i++) if (layoutFlag(flags[LAYOUT[i].key])) on.push(LAYOUT[i].label)
-  if (on.length === LAYOUT.length) return "Everything shown"
+  for (var i = 0; i < sectionOrder.length; i++) {
+    var l = layoutBySection(sectionOrder[i])
+    if (layoutFlag(flags[l.key])) on.push(l.label)
+  }
   if (on.length === 0) return "Everything hidden"
+  if (on.length === LAYOUT.length && sectionOrder.join() === DEFAULT_SECTIONS.join()) return "Everything shown"
   return on.join(", ")
 }
 

@@ -72,6 +72,18 @@ test("send text: a lone web address is a link, anything else is text", () => {
   assert.ok(M.DEFAULT_SHORTCUTS.indexOf("text") < 0, "not in the default row; picked in settings")
 })
 
+test("section order: known sections once, the missing ones after, in their default place", () => {
+  assert.deepEqual(M.normalizeSections(undefined), ["actions", "media", "notifications"])
+  assert.deepEqual(M.normalizeSections(["notifications", "actions"]), ["notifications", "actions", "media"])
+  assert.deepEqual(M.normalizeSections(["media", "bogus", "media"]), ["media", "actions", "notifications"])
+  assert.deepEqual(M.normalizeSections('["notifications"]'), ["notifications", "actions", "media"], "a hand-edited string")
+  assert.deepEqual(M.normalizeSections([]), ["actions", "media", "notifications"], "an empty list is not a choice: sections hide by their switch")
+  const rows = M.settingsRows({ showMedia: false }, [], {}, ["notifications", "media"]).filter(r => r.kind === "layout")
+  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "actions"])
+  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, true]])
+  assert.equal(rows[1].on, false)
+})
+
 test("the glyph and the word follow the device type", () => {
   assert.equal(M.deviceGlyph(device()).codePointAt(0), 0xF011C)
   assert.equal(M.deviceGlyph(device({ type: "tablet" })).codePointAt(0), 0xF04F6)
@@ -226,6 +238,8 @@ test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({}), "Everything shown")
   assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications")
   assert.equal(M.layoutSummary({ showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
+  assert.equal(M.layoutSummary({}, ["notifications", "actions", "media"]), "Notifications, Shortcuts, Now playing", "a new order is never hidden")
+  assert.equal(M.layoutSummary({ showMedia: false }, ["media", "notifications"]), "Notifications, Shortcuts")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
   assert.equal(M.setupSummary([]), "Checking…")
