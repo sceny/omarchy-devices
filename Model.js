@@ -9,6 +9,7 @@ var GLYPH = {
   ring: "\u{F0815}",         // cellphone-wireless
   sendFile: "\u{F0A4D}",     // file-upload
   clipboard: "\u{F0192}",    // content-paste
+  text: "\u{F060E}",         // form-textbox
   messages: "\u{F0369}",     // message-text
   settings: "\u{F0493}",     // cog
   bolt: "\u{F140B}",         // lightning-bolt
@@ -82,6 +83,7 @@ var SHORTCUTS = [
   { key: "ring", glyph: GLYPH.ring, label: "Ring", hint: "Ring it, even on silent", needs: "ring" },
   { key: "share", glyph: GLYPH.sendFile, label: "Send files", hint: "Pick files to send to it", needs: "share" },
   { key: "clipboard", glyph: GLYPH.clipboard, label: "Clipboard", hint: "Send your clipboard to it", needs: "clipboard" },
+  { key: "text", glyph: GLYPH.text, label: "Send text", hint: "Type text or a link to send to it", needs: "share" },
   { key: "messages", glyph: GLYPH.messages, label: "Messages", hint: "Open text messages", needs: "sms" },
   { key: "ping", glyph: GLYPH.wave, label: "Ping", hint: "Pop a notification up on it", needs: "ping" },
   { key: "playPause", glyph: GLYPH.playPause, label: "Play/Pause", hint: "Play or pause what it is playing", needs: "media" },
@@ -89,6 +91,28 @@ var SHORTCUTS = [
 ]
 
 var DEFAULT_SHORTCUTS = ["ring", "share", "clipboard", "messages"]
+
+// The send-text composer: a lone web address goes as a link, which opens on
+// the device; anything else as text, which KDE Connect puts on the device's
+// clipboard. A bare "www." address gets its https:// so the phone can open it.
+function linkFor(text) {
+  var t = String(text || "").trim()
+  if (/^https?:\/\/\S+$/i.test(t)) return t
+  if (/^www\.[^\s.]+\.\S+$/i.test(t)) return "https://" + t
+  return ""
+}
+
+// The line under the composer: what Enter will do with what is typed, and
+// Ctrl+Enter when the device takes pings. On Android a link arrives as a
+// notification to tap, so "offers to open it", not "opens it".
+function composerHint(text, device, canPing) {
+  var name = deviceLabel(device)
+  var t = String(text || "").trim()
+  var line = t === "" ? "Text lands on " + name + "'s clipboard; a link arrives ready to open"
+    : linkFor(t) !== "" ? "Enter sends this link; " + name + " offers to open it"
+    : "Enter puts this on " + name + "'s clipboard"
+  return canPing ? line + " · Ctrl+Enter pings it instead" : line
+}
 
 // The three sections below the header that the Layout settings switch.
 var LAYOUT = [

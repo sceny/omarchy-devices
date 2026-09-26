@@ -11,9 +11,11 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge watch                          snapshot per line, until killed
   kdeconnect-bridge snapshot                       one snapshot, then exit
   kdeconnect-bridge ring <device>
-  kdeconnect-bridge ping <device>
+  kdeconnect-bridge ping <device> [message]       a message shows in the notification
   kdeconnect-bridge clipboard <device>
   kdeconnect-bridge share <device> [path...]       no paths: open the file chooser
+  kdeconnect-bridge text <device> <text>           lands on the device's clipboard
+  kdeconnect-bridge url <device> <url>             opens on the device
   kdeconnect-bridge media <device> <PlayPause|Next|Previous>
   kdeconnect-bridge dismiss <device> <notification>
   kdeconnect-bridge reply <device> <replyId> <message>
@@ -290,8 +292,26 @@ def act(argv):
                         "unpair": "Unpaired %s" % name}[verb])
 
         if verb == "ping":
-            call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")
+            # sendPing is overloaded: no argument, or a message to show.
+            message = " ".join(rest).strip()
+            if message:
+                call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing",
+                     (message,), "(s)")
+            else:
+                call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")
             return say("Pinged %s" % device_name(conn, device_id))
+
+        if verb in ("text", "url"):
+            value = " ".join(rest)
+            if not value.strip():
+                return say("Nothing to send", EXIT_CANCELLED)
+            if verb == "url":
+                call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
+                     (value.strip(),), "(s)")
+                return say("Link sent to %s" % device_name(conn, device_id))
+            call(conn, dpath + "/share", IFACE + ".device.share", "shareText",
+                 (value,), "(s)")
+            return say("Text sent to %s" % device_name(conn, device_id))
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")

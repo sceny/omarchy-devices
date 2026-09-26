@@ -5,6 +5,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
+- Send text or a link to the device from the panel: a Send text shortcut
+  opens a field; text lands on the device's clipboard, a link arrives ready
+  to open, and Ctrl+Enter sends it as a ping with that message (#10).
+- Fixed: sending a notification reply with Enter opened the reply field
+  again.
 - Cellular signal bars beside the network type on the panel's meta line
   (`󰣸 LTE`); the bars alone when the phone has no type to report, nothing
   on a device with no cellular network (#11).
