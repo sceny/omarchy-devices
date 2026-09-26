@@ -3,27 +3,36 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
-## Unreleased
+## 0.5.0 — 2026-09-26
 
-- Choose what the bar shows beside the device glyph, in order: connection,
-  battery, percent, notification and unread-message counts, now playing,
-  and a notification count bubble on the glyph. The default is the bubble
-  and the battery only when low, so a healthy phone with nothing new is the
-  glyph alone. The old `showPercent` setting is gone (#3).
+### Bar
+- Choose what the bar shows beside the device glyph, in order: connection
+  (Wi-Fi, Bluetooth, crossed out while away), battery, battery %,
+  notification and unread-message counts, now playing, and a notification
+  count bubble on the glyph (#3).
+- The new default is the bubble and the battery only when low: a healthy
+  device with nothing new is the glyph alone.
+
+### Panel
 - Order the sections (Devices, Shortcuts, Now playing, Notifications) in
-  Layout settings, with the arrows or Shift+K/Shift+J; Devices has its own
-  switch too.
-- Notifications hides while there are none, instead of an empty state.
+  Layout settings, with the arrows or Shift+K/Shift+J; each has its own
+  switch.
 - Shortcuts fold like the other sections; folded, they become a row of
   icons in the header that still work.
-- Send text or a link to the device from the panel: a Send text shortcut
-  opens a field; text lands on the device's clipboard, a link arrives ready
-  to open, and Ctrl+Enter sends it as a ping with that message (#10).
-- Fixed: sending a notification reply with Enter opened the reply field
-  again.
-- Cellular signal bars beside the network type on the panel's meta line
-  (`󰣸 LTE`); the bars alone when the phone has no type to report, nothing
-  on a device with no cellular network (#11).
+- Notifications hides while there are none.
+- Send text or a link to the device: a Send text shortcut opens a field;
+  text lands on the device's clipboard, a link arrives ready to open, and
+  Ctrl+Enter sends it as a ping with that message (#10).
+- Cellular signal bars beside the network type on the meta line
+  (`󰣸 LTE`) (#11).
+
+### Fixed
+- Sending a notification reply with Enter opened the reply field again.
+
+### Upgrading
+- The `showPercent` setting is gone: the bar follows the Bar settings
+  (`barIndicators`, `batteryLowOnly`). For the old pill (`󰄜 63%`), tick only
+  Battery % there and turn *Battery only when low* off.
 
 ## 0.4.0 — 2026-09-26
 
