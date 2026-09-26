@@ -27,10 +27,11 @@ paste real numbers, names or message text into a test; use 555 numbers.
 
 ## 3. Get the change into the shell
 
-- `Service.qml`, `SmsService.qml`, `BarWidget.qml` and the bridge reload by
-  themselves when saved ("Local plugin changed, reloading").
-- **Anything the panel loads (`Panel.qml`, `SettingsView.qml`,
-  `MessagesView.qml`, `Model.js`) is cached by the shell:** only
+- `Service.qml`, `SmsService.qml` and the bridge reload by themselves when
+  saved ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
+  line but the pill keeps drawing the old code: restart.
+- **Anything the panel or the pill loads (`Panel.qml`, `SettingsView.qml`,
+  `MessagesView.qml`, `BarWidget.qml`, `Model.js`) is cached by the shell:** only
   `omarchy restart shell` picks it up. New IPC functions answer "Function not
   found" until then. A restart blinks the whole bar, so batch changes.
 - **After every restart, confirm the panel answers:**
@@ -55,6 +56,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
 "${IPC[@]}" fold actions ; "${IPC[@]}" moveSection media -1    # fold a section; move one in the order
+"${IPC[@]}" toggleBar <key> ; "${IPC[@]}" moveBar <key> -1      # bar indicators; toggleBar batteryLowOnly
 "${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```

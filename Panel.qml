@@ -41,6 +41,9 @@ Panel {
   readonly property bool showMedia: Model.layoutFlag(setting("showMedia", true))
   readonly property bool showNotifications: Model.layoutFlag(setting("showNotifications", true))
   readonly property var shortcutOrder: Model.normalizeShortcuts(setting("shortcuts", null))
+  // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
+  readonly property var barIndicators: Model.normalizeBarIndicators(setting("barIndicators", null))
+  readonly property bool batteryLowOnly: Model.layoutFlag(setting("batteryLowOnly", true))
   // The order of the sections under the header (Layout settings).
   readonly property var sectionOrder: Model.normalizeSections(setting("sectionOrder", null))
 
@@ -178,7 +181,7 @@ Panel {
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
     { showDevices: showDevices, showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
-    shortcutOrder, device ? device.can : null, sectionOrder)
+    shortcutOrder, device ? device.can : null, sectionOrder, barIndicators, batteryLowOnly)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -387,6 +390,15 @@ Panel {
     })
   }
 
+  function moveBarIndicator(key, delta) {
+    persistSettings({ barIndicators: Model.moveShortcut(barIndicators, key, delta) })
+    // Keep the cursor on the row that moved.
+    Qt.callLater(function() {
+      for (var i = 0; i < settingsRows.length; i++)
+        if (settingsRows[i].kind === "bar" && settingsRows[i].key === key) { settingsIndex = i; return }
+    })
+  }
+
   function resetShortcuts() { persistSettings({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
 
   // A settings row under a folded section is not there to land on.
@@ -395,6 +407,7 @@ Panel {
     if (!row) return false
     if (row.kind === "layout") return !isCollapsed("layout")
     if (row.kind === "shortcut") return !isCollapsed("shortcuts")
+    if (row.kind === "bar" || row.kind === "barFlag") return !isCollapsed("bar")
     return true
   }
   function nextSettingsRow(from, dy) {
@@ -413,6 +426,8 @@ Panel {
     settingsIndex = index
     if (row.kind === "layout") toggleLayout(row.key)
     else if (row.kind === "shortcut") toggleShortcutKey(row.key)
+    else if (row.kind === "bar") persistSettings({ barIndicators: Model.toggleBarIndicator(barIndicators, row.key) })
+    else if (row.kind === "barFlag") persistSettings({ batteryLowOnly: !batteryLowOnly })
     else if (row.kind === "reset") resetShortcuts()
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
@@ -809,6 +824,12 @@ Panel {
     function toggleShortcut(key: string): string { root.toggleShortcutKey(key); return "ok" }
     function moveShortcut(key: string, delta: int): string { root.moveShortcutKey(key, delta); return "ok" }
     function moveSection(key: string, delta: int): string { root.moveSectionKey(key, delta); return JSON.stringify(root.sectionOrder) }
+    function toggleBar(key: string): string {
+      if (key === "batteryLowOnly") root.persistSettings({ batteryLowOnly: !root.batteryLowOnly })
+      else root.persistSettings({ barIndicators: Model.toggleBarIndicator(root.barIndicators, key) })
+      return JSON.stringify({ indicators: root.barIndicators, lowOnly: root.batteryLowOnly })
+    }
+    function moveBar(key: string, delta: int): string { root.moveBarIndicator(key, delta); return JSON.stringify(root.barIndicators) }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
     // What the panel is showing, so a check can assert on the picture.
     function status(): string {
@@ -817,7 +838,10 @@ Panel {
         daemon: root.phone ? root.phone.daemon : false,
         device: root.device ? root.device.name : null,
         reachable: root.reachable,
-        bar: Model.barText(root.device, true),
+        bar: Model.barText(root.device, root.barIndicators, { lowPercent: root.lowPercent, lowOnly: root.batteryLowOnly,
+          notifications: root.notifications.length, messages: root.sms ? root.sms.unreadCount : 0,
+          playing: !!root.phone && root.phone.nowPlaying !== "" }),
+        bubble: Model.barBubble(root.device, root.barIndicators, root.notifications.length),
         meta: Model.metaLine(root.snapshot, root.device),
         battery: Model.batteryText(root.device),
         players: root.players.map(function(p) {
@@ -922,6 +946,8 @@ Panel {
             root.moveShortcutKey(row.key, t === "K" ? -1 : 1)
           else if (root.cursorActive && row && row.kind === "layout" && (t === "K" || t === "J"))
             root.moveSectionKey(row.section, t === "K" ? -1 : 1)
+          else if (root.cursorActive && row && row.kind === "bar" && row.on && (t === "K" || t === "J"))
+            root.moveBarIndicator(row.key, t === "K" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
@@ -1574,6 +1600,8 @@ Panel {
                 flags: ({ showDevices: root.showDevices, showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
                 order: root.shortcutOrder
                 sectionOrder: root.sectionOrder
+                barIndicators: root.barIndicators
+                batteryLowOnly: root.batteryLowOnly
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
@@ -1585,6 +1613,7 @@ Panel {
                 onActivated: function(index) { root.activateSetting(index) }
                 onMoveRequested: function(key, delta) { root.moveShortcutKey(key, delta) }
                 onSectionMoveRequested: function(section, delta) { root.moveSectionKey(section, delta) }
+                onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
             }

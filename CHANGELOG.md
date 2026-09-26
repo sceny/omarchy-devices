@@ -5,6 +5,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
+- Choose what the bar shows beside the device glyph, in order: connection,
+  battery, percent, notification and unread-message counts, now playing,
+  and a notification count bubble on the glyph. The default is the bubble
+  and the battery only when low, so a healthy phone with nothing new is the
+  glyph alone. The old `showPercent` setting is gone (#3).
 - Order the sections (Devices, Shortcuts, Now playing, Notifications) in
   Layout settings, with the arrows or Shift+K/Shift+J; Devices has its own
   switch too.

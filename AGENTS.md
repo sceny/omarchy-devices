@@ -86,13 +86,18 @@ Each rule records a fault that was hit or a decision the owner made.
   height, so while a page appears or the panel opens, fold and carousel
   animations are off (`settled`); otherwise every section grows from nothing
   as the page slides in.
-- **The battery is a detail, not the headline.** Bar pill: glyph and percent.
-  Panel: the header icon is the device; the battery is a text-sized glyph
-  leading the meta line. The bolt already says charging; do not add the word.
+- **The battery is a detail, not the headline.** Bar pill: the device glyph
+  and the indicators the user picks, in order (`barIndicators`); the owner's
+  default is the battery with *Battery only when low* ticked
+  (`batteryLowOnly`: unticked, battery and % always show) and the
+  notification bubble, so a healthy phone with nothing new is the glyph
+  alone. Counts and the bubble hide at 0; away, nothing stale shows. Panel:
+  the header icon is the device; the battery is a text-sized glyph leading
+  the meta line. The bolt already says charging; do not add the word.
 - **UI state persists.** What the user arranged is still there after the
   panel closes, the shell restarts or the machine reboots, stored in this
   widget's `shell.json` entry: folded sections, main page and settings (`collapsed`), section
-  visibility and order (`sectionOrder`) and shortcuts, the followed device (`deviceId`), and the
+  visibility and order (`sectionOrder`), shortcuts, bar indicators, the followed device (`deviceId`), and the
   conversation last open in messages, per device (`lastThread`), and the
   messages unread filter (`unreadOnly`). New UI
   state follows the same path unless it is private: unsent message drafts

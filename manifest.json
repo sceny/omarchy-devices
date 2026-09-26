@@ -21,7 +21,11 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "showPercent": true,
+      "barIndicators": [
+        "battery",
+        "bubble"
+      ],
+      "batteryLowOnly": true,
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
@@ -117,11 +121,33 @@
         "description": "Which shortcut buttons show, in order. Edited from the panel's settings page (gear icon)."
       },
       {
-        "key": "showPercent",
+        "key": "barIndicators",
+        "type": "array",
+        "label": "Bar indicators",
+        "defaultValue": [
+          "battery",
+          "bubble"
+        ],
+        "items": {
+          "type": "string",
+          "enum": [
+            "connection",
+            "battery",
+            "percent",
+            "notifications",
+            "messages",
+            "playing",
+            "bubble"
+          ]
+        },
+        "description": "What the bar pill shows beside the device glyph, in order. Edited from the panel's settings page (gear icon)."
+      },
+      {
+        "key": "batteryLowOnly",
         "type": "boolean",
-        "label": "Show battery percentage",
+        "label": "Battery only when low",
         "defaultValue": true,
-        "description": "Off shows the phone glyph alone."
+        "description": "The battery and its percent stay out of the bar until the charge is low. Off, they always show."
       },
       {
         "key": "lowBatteryPercent",

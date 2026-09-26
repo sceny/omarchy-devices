@@ -26,11 +26,41 @@ test("picks the configured device, else the first reachable, else the first pair
   assert.equal(M.pickDevice(null, ""), null)
 })
 
-test("bar text: glyph, percent, bolt while charging; bare glyph when away", () => {
-  assert.equal(M.barText(device(), true), M.GLYPH.phone + " 63%")
-  assert.equal(M.barText(device({ battery: { charge: 63, charging: true } }), true), M.GLYPH.phone + " 63%" + M.GLYPH.bolt)
-  assert.equal(M.barText(device(), false), M.GLYPH.phone)
-  assert.equal(M.barText(device({ reachable: false }), true), M.GLYPH.phone)
+test("bar text: the glyph, then the chosen indicators in order; away, the glyph alone", () => {
+  const P = M.GLYPH.phone, bars = ["percent"]
+  assert.equal(M.barText(device(), bars), P + " 63%")
+  assert.equal(M.barText(device({ battery: { charge: 63, charging: true } }), bars), P + " 63%" + M.GLYPH.bolt)
+  assert.equal(M.barText(device(), []), P)
+  assert.equal(M.barText(device({ reachable: false }), bars), P)
+  const all = ["connection", "battery", "percent", "notifications", "messages", "playing", "bubble"]
+  const st = { lowPercent: 15, notifications: 3, messages: 2, playing: true }
+  assert.equal(M.barText(device(), all, st),
+    [P, M.GLYPH.wifi, M.batteryGlyph(device(), 15), "63%", M.GLYPH.bell + " 3", M.GLYPH.messages + " 2", M.GLYPH.play].join(" "))
+  assert.equal(M.barText(device({ battery: { charge: 63, charging: true } }), ["battery", "percent"], st),
+    [P, M.batteryGlyph(device({ battery: { charge: 63, charging: true } }), 15), "63%"].join(" "), "one bolt: the battery glyph has it")
+  assert.equal(M.barText(device(), ["messages", "notifications"], { notifications: 0, messages: 0 }), P, "counts hide at 0")
+  assert.equal(M.barText(device({ links: ["Bluetooth"] }), ["connection"]), P + " " + M.GLYPH.bluetooth)
+  assert.equal(M.barText(device({ reachable: false }), all, st), P + " " + M.GLYPH.wifiOff, "away: a crossed-out link, nothing stale")
+})
+
+test("bar: battery only when low; the default; the bubble", () => {
+  const P = M.GLYPH.phone
+  const low = device({ battery: { charge: 9, charging: false } })
+  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: true, lowPercent: 15 }), P)
+  assert.equal(M.barText(low, ["percent"], { lowOnly: true, lowPercent: 15 }), P + " 9%")
+  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: false, lowPercent: 15 }), P + " " + M.batteryGlyph(device(), 15) + " 63%", "unticked: always shown")
+  assert.deepEqual(M.normalizeBarIndicators(undefined), ["battery", "bubble"], "the default: battery when low, the bubble")
+  assert.deepEqual(M.normalizeBarIndicators("not json"), ["battery", "bubble"])
+  assert.deepEqual(M.normalizeBarIndicators([]), [], "an empty choice stays empty")
+  assert.equal(M.barText(device(), M.DEFAULT_BAR, { lowOnly: true, lowPercent: 15 }), P, "default, healthy: the glyph alone")
+  assert.equal(M.barText(low, M.DEFAULT_BAR, { lowOnly: true, lowPercent: 15 }), P + " " + String.fromCodePoint(0xF0083), "default, low: the battery-alert glyph")
+  assert.deepEqual(M.normalizeBarIndicators(["playing", "bogus", "playing", "battery"]), ["playing", "battery"])
+  assert.equal(M.barBubble(device(), ["bubble"], 4), 4)
+  assert.equal(M.barBubble(device(), ["bubble"], 0), 0)
+  assert.equal(M.barBubble(device(), ["percent"], 4), 0, "not chosen")
+  assert.equal(M.barBubble(device({ reachable: false }), ["bubble"], 4), 0)
+  assert.equal(M.barSummary(["percent", "bubble"], true), "Battery %, Notification bubble · battery when low")
+  assert.equal(M.barSummary([], false), "The glyph alone")
 })
 
 test("low battery only when not charging", () => {
@@ -86,13 +116,26 @@ test("section order: known sections once, the missing ones back at their default
   assert.deepEqual(rows.map(r => r.on), [true, false, true, true])
 })
 
+test("settings rows: bar indicators chosen first in order, the rest after, then the low-only switch", () => {
+  const rows = M.settingsRows({}, [], {}, null, ["bubble", "percent"], false)
+  const bar = rows.filter(r => r.kind === "bar")
+  assert.deepEqual(bar.map(r => r.key).slice(0, 3), ["bubble", "percent", "connection"])
+  assert.deepEqual(bar.slice(0, 3).map(r => [r.on, r.first, r.last]), [[true, true, false], [true, false, true], [false, false, false]])
+  const flag = rows.find(r => r.kind === "barFlag")
+  assert.equal(flag.on, false)
+  assert.ok(rows.indexOf(flag) > rows.indexOf(bar[bar.length - 1]) && rows.indexOf(flag) < rows.findIndex(r => r.kind === "shortcut"))
+  assert.deepEqual(M.toggleBarIndicator(["battery"], "playing"), ["battery", "playing"])
+  assert.deepEqual(M.toggleBarIndicator(["battery", "playing"], "battery"), ["playing"])
+  assert.deepEqual(M.toggleBarIndicator([], "bogus"), [])
+})
+
 test("the glyph and the word follow the device type", () => {
   assert.equal(M.deviceGlyph(device()).codePointAt(0), 0xF011C)
   assert.equal(M.deviceGlyph(device({ type: "tablet" })).codePointAt(0), 0xF04F6)
   assert.equal(M.deviceGlyph(device({ type: "desktop" })).codePointAt(0), 0xF0AAB)
   assert.equal(M.deviceGlyph(device({ type: "smartwatch" })), M.GLYPH.devices)
   assert.equal(M.deviceGlyph(null), M.GLYPH.devices)
-  assert.equal(M.barText(device({ type: "tablet" }), true), String.fromCodePoint(0xF04F6) + " 63%")
+  assert.equal(M.barText(device({ type: "tablet" }), ["percent"]), String.fromCodePoint(0xF04F6) + " 63%")
   assert.equal(M.deviceNoun(device({ type: "desktop" })), "computer")
   assert.equal(M.deviceLabel(device()), "Pixel 8")
   assert.equal(M.deviceLabel(null), "the device")
