@@ -79,10 +79,15 @@ Item {
     modelRevision++
   }
 
-  // ---- search ----
+  // ---- search and the unread filter ----
   property string query: ""
+  // Only threads with something unread (set by the panel, remembered there).
+  // The open thread stays listed after it counts as read, until another opens.
+  property bool unreadOnly: false
+  onUnreadOnlyChanged: applyQuery()
   ListModel { id: filteredModel }
-  readonly property var shownThreads: query.trim() !== "" ? filteredModel : threadModel
+  readonly property bool filtering: query.trim() !== "" || unreadOnly
+  readonly property var shownThreads: filtering ? filteredModel : threadModel
 
   function setQuery(q) {
     query = q
@@ -92,9 +97,10 @@ Item {
   function applyQuery() {
     filteredModel.clear()
     var terms = query.trim().toLowerCase().split(/\s+/).filter(function(t) { return t !== "" })
-    if (terms.length === 0) return
+    if (terms.length === 0 && !unreadOnly) return
     for (var i = 0; i < threadModel.count && filteredModel.count < 200; i++) {
       var r = threadModel.get(i)
+      if (unreadOnly && !r.unread && r.tid !== openThreadId) continue
       var hit = true
       for (var t = 0; t < terms.length && hit; t++) hit = r.search.indexOf(terms[t]) >= 0
       if (hit) filteredModel.append({
@@ -107,8 +113,8 @@ Item {
 
   // Keep a filtered list current as threads change, without redoing it on
   // every single signal.
-  Timer { id: requery; interval: 300; onTriggered: if (sms.query.trim() !== "") sms.applyQuery() }
-  onModelRevisionChanged: if (query.trim() !== "") requery.restart()
+  Timer { id: requery; interval: 300; onTriggered: if (sms.filtering) sms.applyQuery() }
+  onModelRevisionChanged: if (filtering) requery.restart()
 
   signal sentOk()
   // A new message's thread showed up (sendNew): the view opens it.

@@ -75,6 +75,16 @@ Each rule records a fault that was hit or a decision the owner made.
 - **The battery is a detail, not the headline.** Bar pill: glyph and percent.
   Panel: the header icon is the device; the battery is a text-sized glyph
   leading the meta line. The bolt already says charging; do not add the word.
+- **UI state persists.** What the user arranged is still there after the
+  panel closes, the shell restarts or the machine reboots, stored in this
+  widget's `shell.json` entry: folded sections (`collapsed`), section
+  visibility and shortcuts, the followed device (`deviceId`), and the
+  conversation last open in messages, per device (`lastThread`), and the
+  messages unread filter (`unreadOnly`). New UI
+  state follows the same path unless it is private: unsent message drafts
+  stay in memory (they are message text) and read state lives in the cache.
+  Deliberately fresh on every open: the panel opens on its main page, the
+  media carousel on the active player, search empty, nothing focused.
 - **Settings are written only by the panel**, into this widget's
   `shell.json` entry (`updateEntryInline`), on the user's action (settings
   page, folding a section, choosing a device).

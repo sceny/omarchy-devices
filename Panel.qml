@@ -202,6 +202,24 @@ Panel {
     persistSettings({ collapsed: next })
   }
 
+  // The conversation last open in messages, per device, so the messages
+  // view comes back to it (UI state persists: see AGENTS.md).
+  readonly property var lastThreads: {
+    var v = setting("lastThread", null)
+    return v && typeof v === "object" && !Array.isArray(v) ? v : ({})
+  }
+  // Messages: unread only, remembered like the rest of the UI state.
+  readonly property bool unreadOnly: setting("unreadOnly", false) === true
+  function toggleUnreadOnly() { persistSettings({ unreadOnly: !unreadOnly }) }
+  Binding { target: root.sms; property: "unreadOnly"; value: root.unreadOnly; when: !!root.sms }
+
+  function rememberThread(tid) {
+    if (!device || tid === undefined || tid < 0 || lastThreads[device.id] === tid) return
+    var next = Object.assign({}, lastThreads)
+    next[device.id] = tid
+    persistSettings({ lastThread: next })
+  }
+
   function selectDevice(id) {
     if (!id || (device && device.id === id)) return
     persistSettings({ deviceId: id })
@@ -303,6 +321,11 @@ Panel {
     if (sms) {
       sms.start()
       if (threadId !== undefined && threadId >= 0) sms.openThread(threadId)
+      else if (device && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
+        // Back to the conversation left open; the composer stays unfocused.
+        var last = lastThreads[device.id]
+        Qt.callLater(function() { if (messagesView) messagesView.openThread(last, false) })
+      }
     }
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() {
@@ -548,6 +571,8 @@ Panel {
       return root.targetPage
     }
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
+    function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
+    function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.showDevices, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
@@ -701,6 +726,7 @@ Panel {
           if (t === "i") messagesView.focusComposer()
           else if (t === "n") messagesView.startNew(true)
           else if (t === "/") messagesView.focusSearch()
+          else if (t === "u") root.toggleUnreadOnly()
           else if (t === "g") messagesView.cursorTo(0)
           else if (t === "G") messagesView.cursorTo(1e9)
           return
@@ -1184,6 +1210,8 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 sms: root.sms
                 bar: root.bar
+                onThreadOpened: function(tid) { root.rememberThread(tid) }
+                onUnreadToggled: root.toggleUnreadOnly()
                 foreground: root.foreground
                 urgent: root.urgent
                 fontFamily: root.fontFamily

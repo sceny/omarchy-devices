@@ -23,6 +23,24 @@ Item {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color faint: Qt.darker(foreground, 2.2)
 
+  // A thread was opened (by the user or restored): the panel remembers it.
+  signal threadOpened(var tid)
+  // The unread chip was clicked; the panel keeps the choice.
+  signal unreadToggled()
+
+  // Unsent text per conversation, kept while switching threads. Memory only:
+  // it is message text, so it never goes to disk.
+  property var drafts: ({})
+  property var draftThread: -1
+
+  function stashDraft() {
+    if (draftThread === undefined || draftThread < 0) return
+    var next = Object.assign({}, drafts)
+    if (composer.text.trim() !== "") next[draftThread] = composer.text
+    else delete next[draftThread]
+    drafts = next
+  }
+
   property int threadCursor: 0
   property bool cursorActive: false
   // Any text field here holding the keyboard: the panel's key catcher stands
@@ -134,8 +152,12 @@ Item {
   // another window could land in a text and Enter would send it.
   function openThread(tid, typeHere) {
     if (!sms) return
+    stashDraft()
     newMode = false
     sms.openThread(tid)
+    draftThread = tid
+    composer.text = drafts[tid] || ""
+    threadOpened(tid)
     var at = sms.indexOfThread(tid)
     if (shown && shown !== sms.threads) {
       for (var j = 0; j < shown.count; j++) if (shown.get(j).tid === tid) { at = j; break }
@@ -192,11 +214,23 @@ Item {
           Layout.fillWidth: true
           PanelSectionHeader {
             Layout.fillWidth: true
-            text: view.sms && view.sms.unreadCount > 0
-              ? "CONVERSATIONS · " + view.sms.unreadCount + " UNREAD"
-              : "CONVERSATIONS"
+            text: "CONVERSATIONS"
             foreground: view.foreground
             fontFamily: view.fontFamily
+          }
+          // The unread count is the filter: click (or u) for unread only.
+          Button {
+            visible: !!view.sms && (view.sms.unreadCount > 0 || view.sms.unreadOnly)
+            text: (view.sms ? view.sms.unreadCount : 0) + " unread"
+            tooltipText: view.sms && view.sms.unreadOnly ? "Show all conversations (u)" : "Show unread only (u)"
+            selected: !!view.sms && view.sms.unreadOnly
+            bordered: true
+            foreground: view.foreground
+            fontFamily: view.fontFamily
+            fontSize: Style.font.caption
+            verticalPadding: Style.space(2)
+            horizontalPadding: Style.space(8)
+            onClicked: view.unreadToggled()
           }
           PanelActionButton {
             iconText: Model.GLYPH.newMessage
@@ -222,9 +256,9 @@ Item {
 
         Text {
           Layout.fillWidth: true
-          visible: !!view.sms && view.sms.query.trim() !== "" && !!view.shown && view.shown.count === 0
+          visible: !!view.sms && view.sms.filtering && !!view.shown && view.shown.count === 0
           textFormat: Text.PlainText
-          text: "No conversation matches."
+          text: view.sms && view.sms.unreadOnly && view.sms.query.trim() === "" ? "Nothing unread." : "No conversation matches."
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall
@@ -260,7 +294,7 @@ Item {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "j/k move · Enter open · / search · n new · i reply · PgUp/PgDn scroll · Esc back"
+          text: "j/k move · Enter open · / search · u unread · n new · i reply · PgUp/PgDn scroll · Esc back"
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption
@@ -568,7 +602,12 @@ Item {
       if (sms.sendNew(numbers, composer.text)) { composer.text = ""; sendingNew = true }
       return
     }
-    if (sms.reply(composer.text)) composer.text = ""
+    if (sms.reply(composer.text)) {
+      composer.text = ""
+      var next = Object.assign({}, drafts)
+      delete next[sms.openThreadId]
+      drafts = next
+    }
   }
 
   component ThreadRow: CursorSurface {
