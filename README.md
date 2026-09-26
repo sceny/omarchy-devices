@@ -1,5 +1,7 @@
 # Devices for Omarchy
 
+![The Devices panel: a pairing request, the connected phone, shortcuts and notifications (demo data)](preview.png)
+
 Your Android phone in the [Omarchy](https://omarchy.org) bar, through
 [KDE Connect](https://kdeconnect.kde.org/): the Linux answer to Windows Phone
 Link. Battery at a glance, the phone's notifications with reply and dismiss,
