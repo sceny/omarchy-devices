@@ -15,7 +15,7 @@ jobs:
       - name: PyGObject for the bridge
         run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi
       - name: Model
-        run: node --test tests/
+        run: node --test tests/*.test.js
       - name: Bridge
         run: /usr/bin/python3 -m unittest discover -s tests -v
       - name: Manifest is valid JSON with the expected id

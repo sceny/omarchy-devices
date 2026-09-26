@@ -1,4 +1,4 @@
-// Model.js checks: `node --test tests/`. Model.js is a QML JS library
+// Model.js checks: `node --test tests/*.test.js`. Model.js is a QML JS library
 // (.pragma library), so it is loaded as source with the pragma stripped.
 // All data here is made up; never paste anything read from a real device.
 const test = require("node:test")

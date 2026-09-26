@@ -17,7 +17,7 @@ folder can be the working clone itself.
 Pure logic lives in `Model.js` and in the bridge. Test both:
 
 ```bash
-node --test tests/                       # Model.js
+node --test tests/*.test.js                       # Model.js
 python3 -m unittest discover -s tests    # kdeconnect-bridge helpers
 bin/kdeconnect-bridge snapshot           # what the plugin sees, as JSON
 ```

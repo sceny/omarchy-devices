@@ -177,7 +177,7 @@ settings, then the panel; Tab moves to the neighbouring bar panel.
 ## Working on it
 
 ```bash
-node --test tests/                            # Model.js
+node --test tests/*.test.js                            # Model.js
 python3 -m unittest discover -s tests         # the bridge's pure pieces
 bin/kdeconnect-bridge snapshot                     # what the plugin sees, as JSON
 
