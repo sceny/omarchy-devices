@@ -27,6 +27,10 @@ paste real numbers, names or message text into a test; use 555 numbers.
 
 ## 3. Get the change into the shell
 
+Steps 3 to 5 need a running Omarchy shell. Without one (a cloud session),
+follow AGENTS.md, *Workflow*: the pull request says the change is not
+checked live, and the merge waits for someone who checks it.
+
 - `Service.qml`, `SmsService.qml` and the bridge reload by themselves when
   saved ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
   line but the pill keeps drawing the old code: restart.
@@ -64,6 +68,18 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 None of these focus a text field, by design (AGENTS.md). Opening an unread
 thread marks it seen: undo that in
 `~/.cache/sceny.devices/sms-seen-<device>.json` after a test.
+
+**A save reloads the plugin.** Saving any file in the plugin folder, even a
+`.md`, drops the IPC target for a moment (`Target not found`). Wait about
+2 s after a save before scripted IPC, and check each call's answer before a
+later step that undoes it: an undo after a failed call makes the change
+instead of undoing it.
+
+**Simulated keys go to whatever has keyboard focus.** For keyboard checks
+(`wtype`), open the panel over IPC, and before every key check that
+`status` shows `"opened": true` and the expected `cursor`; stop at the first
+mismatch. Never while the owner is typing. `wtype -M shift -k k` types a
+lowercase k: type `K` for Shift+K.
 
 ## 5. Look at it
 
