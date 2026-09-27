@@ -215,7 +215,8 @@ Item {
     var next = Object.assign({}, seen)
     next[tid] = date
     seen = next
-    saveSeen()
+    // Demo conversations are made up: nothing of theirs goes to disk.
+    if (!demo) saveSeen()
     if (at >= 0) threadModel.setProperty(at, "unread", false)
     modelRevision++
   }
