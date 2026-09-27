@@ -787,6 +787,15 @@ Panel {
       root.markNotificationSeen(n)
       return JSON.stringify({ unread: root.sms ? root.sms.unreadCount : -1 })
     }
+    // Demo only: dismiss a notification as a click on its X would, to look
+    // at the waiting ring. Refused on live data.
+    function pressDismiss(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      root.phone.dismiss(n)
+      return "ok"
+    }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
