@@ -3,6 +3,12 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## Unreleased
+
+- Pressing an action (such as *Mark as read*) or sending a reply on a
+  text-message notification in the panel marks its conversation read in
+  the messages view at once, instead of when the phone reports it.
+
 ## 0.5.0 — 2026-09-26
 
 ### Bar

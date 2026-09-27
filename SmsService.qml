@@ -66,8 +66,13 @@ Item {
     if (seenFile.path !== "") seenFile.setText(JSON.stringify(seen) + "\n")
   }
 
+  // Demo conversations are made up: what is opened in demo mode is kept
+  // apart, starts empty on every showDemo(), and never reaches the file.
+  property var demoSeen: ({})
+  function seenMap() { return demo ? demoSeen : seen }
+
   function isUnread(tid, date, readOnPhone, sentLast) {
-    return !readOnPhone && !sentLast && date > (seen[tid] || 0)
+    return !readOnPhone && !sentLast && date > (seenMap()[tid] || 0)
   }
 
   function recomputeUnread() {
@@ -138,6 +143,7 @@ Item {
 
   function showDemo() {
     demo = true
+    demoSeen = ({})
     threadModel.clear()
     var threads = Model.demoThreads()
     for (var i = 0; i < threads.length; i++) threadModel.append(threadRow(threads[i]))
@@ -211,11 +217,11 @@ Item {
   function markSeen(tid) {
     var at = indexOfThread(tid)
     var date = at >= 0 ? threadModel.get(at).date : Date.now()
-    if ((seen[tid] || 0) >= date) return
-    var next = Object.assign({}, seen)
+    if ((seenMap()[tid] || 0) >= date) return
+    var next = Object.assign({}, seenMap())
     next[tid] = date
-    seen = next
-    saveSeen()
+    if (demo) demoSeen = next
+    else { seen = next; saveSeen() }
     if (at >= 0) threadModel.setProperty(at, "unread", false)
     modelRevision++
   }

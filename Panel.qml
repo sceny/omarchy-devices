@@ -491,6 +491,18 @@ Panel {
     return !!n && (Model.isMessagingApp(n.app) || threadForNotification(n) >= 0)
   }
 
+  // An action pressed or a reply sent on a text-message notification from
+  // the panel means the message was seen here: its conversation stops
+  // counting as unread at once. The phone's own read state follows a moment
+  // later (after its app writes it), or never on a KDE Connect that ignores
+  // read changes to messages it already has. Only SMS apps: another
+  // messenger's sender can share a name with an SMS conversation.
+  function markNotificationSeen(n) {
+    if (!n || !sms || !Model.isMessagingApp(n.app)) return
+    var tid = threadForNotification(n)
+    if (tid >= 0) sms.markSeen(tid)
+  }
+
   function threadForNotification(n) {
     if (!sms || !n) return -1
     var rev = sms.modelRevision
@@ -761,6 +773,17 @@ Panel {
         { key: "paired", ok: false, label: "A device is paired", detail: "Open KDE Connect on the phone or tablet and pair it with this computer", fix: "", fixLabel: "" }
       ]
       return "ok"
+    }
+    // Demo only: press a notification's action as a click would, to check
+    // what follows in the panel. Refused on live data, where it would act on
+    // the phone.
+    function pressAction(index: int, action: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      root.phone.notificationAction(n, action)
+      root.markNotificationSeen(n)
+      return JSON.stringify({ unread: root.sms ? root.sms.unreadCount : -1 })
     }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
@@ -2164,7 +2187,10 @@ Panel {
               bordered: true
               verticalPadding: Style.space(2)
               horizontalPadding: Style.space(8)
-              onClicked: root.phone.notificationAction(row.note, String(modelData))
+              onClicked: {
+                root.phone.notificationAction(row.note, String(modelData))
+                root.markNotificationSeen(row.note)
+              }
             }
           }
         }
@@ -2185,6 +2211,7 @@ Panel {
             onAccepted: {
               if (text.trim() === "") return
               root.phone.reply(row.note, text)
+              root.markNotificationSeen(row.note)
               text = ""
               root.closeReply()
             }
