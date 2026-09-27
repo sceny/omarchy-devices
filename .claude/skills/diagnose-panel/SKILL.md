@@ -116,5 +116,7 @@ side are tracked apart.
 - A paused player the phone has hidden (Android hides one after about
   10 minutes) stays in Now playing: the phone app forwards every open media
   session (#33).
+- A group chat's title carries the app's unread count, "(8 messages)",
+  which the phone hides (#39).
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.
