@@ -174,15 +174,50 @@ Item {
     if (openRow || newMode) composer.forceActiveFocus()
   }
 
-  // Opening a conversation eases its messages in: they rise into place.
-  // The header and the composer stay on the pane's edges and never move;
-  // only their contents change, in place.
-  readonly property string paneKey: (newMode ? "new" : "thread") + ":" + (sms ? sms.openThreadId : -1)
-  onPaneKeyChanged: if (!newMode && sms && sms.openThreadId >= 0) paneReveal.restart()
+  // A conversation's messages ease in when they land: they rise into place
+  // while the skeleton, if one showed, fades. The header and the composer
+  // stay on the pane's edges and never move; only their contents change.
 
-  // The header's who, until the conversation is known and its messages land.
-  readonly property bool headerLoading: !newMode && !!sms && sms.openThreadId >= 0
-    && (!openRow || (sms.loading && messageList.count === 0))
+  // The header's who: its shape only while the conversation is not known
+  // yet (opened before the list arrived). Moving between conversations,
+  // the name crossfades in place: out quickly, swap, in at the shared pace,
+  // so j/k held down just keeps crossfading to wherever it stops.
+  readonly property bool headerLoading: !newMode && !!sms && sms.openThreadId >= 0 && !openRow
+  property var shownRow: null
+  onOpenRowChanged: {
+    if (!openRow || !shownRow || openRow.tid === shownRow.tid) { shownRow = openRow; return }
+    headerSwap.restart()
+  }
+  SequentialAnimation {
+    id: headerSwap
+    NumberAnimation { target: headerWho; property: "opacity"; to: 0; duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic }
+    ScriptAction { script: view.shownRow = view.openRow }
+    NumberAnimation { target: headerWho; property: "opacity"; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  }
+
+  // A skeleton only for a wait worth showing: a load that lands within a
+  // quarter second goes straight to its content, with no flash of shapes.
+  readonly property int skeletonDelayMs: 250
+  readonly property bool conversationWaiting: !newMode && !!sms && sms.openThreadId >= 0 && sms.loading && messageList.count === 0
+  property bool conversationSkeleton: false
+  onConversationWaitingChanged: {
+    conversationSkeleton = false
+    if (conversationWaiting) conversationSkeletonDelay.restart()
+    else {
+      conversationSkeletonDelay.stop()
+      if (messageList.count > 0) paneReveal.restart()
+    }
+  }
+  Timer { id: conversationSkeletonDelay; interval: view.skeletonDelayMs; onTriggered: view.conversationSkeleton = true }
+
+  readonly property bool threadsWaiting: !!sms && !sms.ready && sms.reachable
+  property bool threadsSkeleton: false
+  onThreadsWaitingChanged: {
+    threadsSkeleton = false
+    if (threadsWaiting) threadsSkeletonDelay.restart(); else threadsSkeletonDelay.stop()
+  }
+  Timer { id: threadsSkeletonDelay; interval: view.skeletonDelayMs; onTriggered: view.threadsSkeleton = true }
+  Component.onCompleted: if (threadsWaiting) threadsSkeletonDelay.restart()
 
   property real motion: 1
 
@@ -294,7 +329,9 @@ Item {
         // list, until the first ones land.
         Column {
           Layout.fillWidth: true
-          visible: !!view.sms && !view.sms.ready && view.sms.reachable
+          visible: view.threadsWaiting
+          opacity: view.threadsSkeleton ? 1 : 0
+          Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
           spacing: Style.space(2)
           Repeater {
             model: 6
@@ -555,6 +592,7 @@ Item {
         // Pinned to the top: while the conversation loads it shows the
         // shape of a name and a number, then the text lands in place.
         ColumnLayout {
+          id: headerWho
           Layout.fillWidth: true
           visible: !view.newMode
           spacing: Style.space(1)
@@ -565,7 +603,7 @@ Item {
               id: headerTitle
               width: parent.width
               textFormat: Text.PlainText
-              text: view.openRow ? view.openRow.title : " "
+              text: view.shownRow ? view.shownRow.title : " "
               color: view.foreground
               opacity: view.headerLoading ? 0 : 1
               font.family: view.fontFamily
@@ -585,13 +623,13 @@ Item {
           }
           Item {
             Layout.fillWidth: true
-            visible: view.headerLoading || (!!view.openRow && view.openRow.addresses !== view.openRow.title)
+            visible: view.headerLoading || (!!view.shownRow && view.shownRow.addresses !== view.shownRow.title)
             implicitHeight: headerNumber.implicitHeight
             Text {
               id: headerNumber
               width: parent.width
               textFormat: Text.PlainText
-              text: view.openRow ? view.openRow.addresses : " "
+              text: view.shownRow ? view.shownRow.addresses : " "
               color: view.dim
               opacity: view.headerLoading ? 0 : 1
               font.family: view.fontFamily
@@ -670,7 +708,9 @@ Item {
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             anchors.rightMargin: Style.space(10)
-            visible: !!view.sms && view.sms.loading && messageList.count === 0
+            visible: opacity > 0
+            opacity: view.conversationWaiting && view.conversationSkeleton ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: (view.conversationSkeleton ? Model.MOTION.inMs : Model.MOTION.outMs) * view.motion; easing.type: Easing.OutCubic } }
             spacing: Style.space(6)
             Repeater {
               model: 6
