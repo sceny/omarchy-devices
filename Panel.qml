@@ -2173,16 +2173,17 @@ Panel {
           elide: Text.ElideRight
         }
         // The title; a group chat's unread count sits beside it, dimmed,
-        // and stays in view while a long name shortens.
-        RowLayout {
+        // and stays in view while a long name shortens. The title may use
+        // the whole row but the count's room, so it is cut only when it does
+        // not fit; the count follows the text as drawn (contentWidth), since
+        // a measured width can fall short of a drawn emoji.
+        Item {
           Layout.fillWidth: true
-          spacing: Style.space(6)
+          implicitHeight: noteTitle.implicitHeight
           Text {
+            id: noteTitle
+            width: parent.width - (chatCount.visible ? chatCount.implicitWidth + Style.space(6) : 0)
             textFormat: Text.PlainText
-            Layout.fillWidth: chatCount.text === ""
-            Layout.maximumWidth: implicitWidth
-            Layout.minimumWidth: 0
-            Layout.preferredWidth: implicitWidth
             text: row.titleParts.title
             color: root.foreground
             font.family: root.fontFamily
@@ -2193,14 +2194,14 @@ Panel {
           Text {
             id: chatCount
             visible: text !== ""
+            x: Math.min(noteTitle.contentWidth, noteTitle.width) + Style.space(6)
+            y: noteTitle.baselineOffset - baselineOffset
             textFormat: Text.PlainText
-            Layout.alignment: Qt.AlignBaseline
             text: row.titleParts.count
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
-          Item { Layout.fillWidth: true; visible: chatCount.text !== "" }
         }
         // Three lines, and the whole message on a click (or e).
         Text {
