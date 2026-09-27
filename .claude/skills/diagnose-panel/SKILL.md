@@ -64,7 +64,9 @@ and all of a phone's players share one position.
 
 The panel agrees with KDE Connect, and KDE Connect disagrees with the phone.
 The fault is KDE Connect's, and the plugin does not work around it: the
-owner's KDE Connect specialist fixes it at the source.
+owner's KDE Connect specialist fixes it at the source. A suspected KDE
+Connect fault gets two issues here, so the plugin side and the KDE Connect
+side are tracked apart.
 
 1. **Rule out stale state on the desktop.** Ask the phone again and compare:
    `requestPlayerList` on the device's `mprisremote` object for media, or a
@@ -78,17 +80,27 @@ owner's KDE Connect specialist fixes it at the source.
    find the code that produces what you saw. Note the file and the commit.
 3. **Ask the owner what the phone shows** when the evidence cannot tell
    (a hidden player, a notification only the shade has).
-4. **File the issue here**, labelled `external:kde-connect` and `bug`:
-   what happens, the evidence (the D-Bus calls and what they returned, the
-   source file at its commit), and why the plugin shows it. No real data in
-   it: no app, track, contact or message names from the device.
+4. **File the KDE Connect issue**, labelled `external:kde-connect`: what
+   KDE Connect does, the evidence (the D-Bus calls and what they returned,
+   the source file at its commit), where the fix belongs, and a
+   *KDE Connect work* section. That section lists every KDE bug report,
+   merge request, branch and fork on the KDE Connect side that we create
+   or follow; add each one as it appears. #35 is the model.
+5. **File the plugin issue**, labelled `bug`: what the user sees, why (one
+   line, pointing to the KDE Connect issue), and when it closes (a KDE
+   Connect release with the fix, checked in the panel). Mark it blocked by
+   the KDE Connect issue. #33 is the model.
 
    ```bash
-   gh issue create --label external:kde-connect --label bug \
-     --title "<what the user sees>" --body-file <scratchpad>/issue.md
+   gh issue create --label external:kde-connect --title "KDE Connect: <what it does>" --body-file <scratchpad>/kde.md
+   gh issue create --label bug --title "<what the user sees>" --body-file <scratchpad>/plugin.md
+   gh api -X POST repos/sceny/omarchy-devices/issues/<plugin>/dependencies/blocked_by \
+     -F issue_id="$(gh api repos/sceny/omarchy-devices/issues/<kde> -q .id)"
    ```
 
-5. **Add it to the list below** with its issue number, so the next
+   No real data in either: no app, track, contact or message names from
+   the device.
+6. **Add it to the list below** with the plugin issue's number, so the next
    diagnosis stops here. Change the plugin only when the owner asks for a
    workaround.
 
