@@ -266,13 +266,55 @@ Item {
 
         Text {
           Layout.fillWidth: true
-          visible: !!view.sms && !view.sms.ready
+          visible: !!view.sms && !view.sms.ready && !view.sms.reachable
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: view.sms && !view.sms.reachable ? "The device is away. Conversations load when it reconnects." : "Loading conversations…"
+          text: "The device is away. Conversations load when it reconnects."
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall
+        }
+
+        // The conversations on their way from the phone: the shape of the
+        // list, until the first ones land.
+        Column {
+          Layout.fillWidth: true
+          visible: !!view.sms && !view.sms.ready && view.sms.reachable
+          spacing: Style.space(2)
+          Repeater {
+            model: 6
+            Item {
+              required property int index
+              width: parent.width - Style.space(8)
+              height: Style.space(32) + Style.space(12)
+              Skeleton {
+                id: faceBone
+                x: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(32)
+                height: Style.space(32)
+                radius: width / 2
+                foreground: view.foreground
+                motion: view.motion
+              }
+              Skeleton {
+                x: faceBone.x + faceBone.width + Style.space(10)
+                y: faceBone.y + Style.space(3)
+                width: (parent.width - x - Style.space(8)) * [0.55, 0.4, 0.65, 0.35, 0.5, 0.45][index]
+                height: Style.space(10)
+                foreground: view.foreground
+                motion: view.motion
+              }
+              Skeleton {
+                x: faceBone.x + faceBone.width + Style.space(10)
+                y: faceBone.y + faceBone.height - height - Style.space(3)
+                width: (parent.width - x - Style.space(8)) * [0.85, 0.7, 0.9, 0.6, 0.8, 0.75][index]
+                height: Style.space(8)
+                foreground: view.foreground
+                motion: view.motion
+              }
+            }
+          }
         }
 
         ListView {
@@ -545,17 +587,61 @@ Item {
           onContentYChanged: maybeLoadMore()
           onCountChanged: Qt.callLater(maybeLoadMore)
 
+          // Only once there are messages: a conversation still opening shows
+          // its skeleton instead.
           header: Item {
             width: messageList.width
-            height: view.sms && view.sms.loading ? Style.space(24) : 0
-            Text {
+            height: view.sms && view.sms.loading && messageList.count > 0 ? Style.space(24) : 0
+            Row {
               anchors.centerIn: parent
               visible: parent.height > 0
-              textFormat: Text.PlainText
-              text: "Loading older messages…"
-              color: view.dim
-              font.family: view.fontFamily
-              font.pixelSize: Style.font.caption
+              spacing: Style.space(6)
+              WaitRing {
+                anchors.verticalCenter: parent.verticalCenter
+                running: parent.visible
+                motion: view.motion
+                color: view.dim
+                font.family: view.fontFamily
+                font.pixelSize: Style.font.bodySmall
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: "Loading older messages…"
+                color: view.dim
+                font.family: view.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          // The conversation on its way from the phone: bubbles' shapes,
+          // newest at the bottom like the messages that replace them.
+          Column {
+            parent: messageList
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Style.space(10)
+            visible: !!view.sms && view.sms.loading && messageList.count === 0
+            spacing: Style.space(6)
+            Repeater {
+              model: 6
+              Item {
+                required property int index
+                readonly property bool mine: [false, true, false, false, true, false][index]
+                width: parent.width
+                height: bubbleBone.height
+                Skeleton {
+                  id: bubbleBone
+                  x: parent.mine ? parent.width - width : 0
+                  width: parent.width * [0.5, 0.35, 0.62, 0.3, 0.45, 0.55][parent.index]
+                  height: [Style.space(34), Style.space(34), Style.space(52), Style.space(34), Style.space(52), Style.space(34)][parent.index]
+                  radius: Style.space(10)
+                  foreground: view.foreground
+                  motion: view.motion
+                }
+              }
             }
           }
 
@@ -579,9 +665,13 @@ Item {
             onAccepted: view.sendComposer()
             Keys.onEscapePressed: view.blurComposer()
           }
-          PanelActionButton {
-            iconText: Model.GLYPH.send
-            tooltipText: "Send"
+          // A new conversation waits for its thread to show up; the button
+          // is the ring meanwhile.
+          WaitButton {
+            glyph: Model.GLYPH.send
+            waiting: view.newMode && view.sendingNew
+            motion: view.motion
+            tooltipText: waiting ? "Sending" : "Send"
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: composer.text.trim() !== "" && !!view.sms && view.sms.reachable
@@ -815,13 +905,27 @@ Item {
                   id: fileChip
                   visible: !file.picture
                   spacing: Style.space(6)
-                  Text {
-                    text: String(file.modelData.mime).indexOf("video/") === 0 ? Model.GLYPH.video
-                      : (String(file.modelData.mime).indexOf("audio/") === 0 ? Model.GLYPH.music
-                      : (String(file.modelData.mime).indexOf("image/") === 0 ? Model.GLYPH.picture : Model.GLYPH.file))
-                    color: view.foreground
-                    font.family: view.fontFamily
-                    font.pixelSize: Style.font.heading
+                  Item {
+                    width: chipGlyph.implicitWidth
+                    height: chipGlyph.implicitHeight
+                    Text {
+                      id: chipGlyph
+                      opacity: file.fetching ? 0 : 1
+                      text: String(file.modelData.mime).indexOf("video/") === 0 ? Model.GLYPH.video
+                        : (String(file.modelData.mime).indexOf("audio/") === 0 ? Model.GLYPH.music
+                        : (String(file.modelData.mime).indexOf("image/") === 0 ? Model.GLYPH.picture : Model.GLYPH.file))
+                      color: view.foreground
+                      font.family: view.fontFamily
+                      font.pixelSize: Style.font.heading
+                    }
+                    WaitRing {
+                      anchors.centerIn: parent
+                      running: file.fetching && !file.picture
+                      motion: view.motion
+                      color: view.foreground
+                      font.family: view.fontFamily
+                      font.pixelSize: Style.font.body
+                    }
                   }
                   Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -834,6 +938,14 @@ Item {
                     font.family: view.fontFamily
                     font.pixelSize: Style.font.bodySmall
                   }
+                }
+                WaitRing {
+                  anchors.centerIn: parent
+                  running: file.fetching && file.picture
+                  motion: view.motion
+                  color: view.foreground
+                  font.family: view.fontFamily
+                  font.pixelSize: Style.font.heading
                 }
                 MouseArea {
                   anchors.fill: parent
@@ -864,13 +976,24 @@ Item {
         }
       }
 
-      Text {
+      Row {
         anchors.right: bubble.sent ? parent.right : undefined
-        textFormat: Text.PlainText
-        text: bubble.time + (bubble.failed ? " · Not sent" : (bubble.pending ? " · Sending…" : ""))
-        color: bubble.failed ? view.urgent : view.faint
-        font.family: view.fontFamily
-        font.pixelSize: Style.font.caption
+        spacing: Style.space(4)
+        WaitRing {
+          anchors.verticalCenter: parent.verticalCenter
+          running: bubble.pending && !bubble.failed
+          motion: view.motion
+          color: view.faint
+          font.family: view.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+        Text {
+          textFormat: Text.PlainText
+          text: bubble.time + (bubble.failed ? " · Not sent" : (bubble.pending ? " · Sending…" : ""))
+          color: bubble.failed ? view.urgent : view.faint
+          font.family: view.fontFamily
+          font.pixelSize: Style.font.caption
+        }
       }
     }
   }

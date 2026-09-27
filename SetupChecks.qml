@@ -67,6 +67,8 @@ Column {
         visible: (check.modelData.fix || "") !== ""
         Layout.alignment: Qt.AlignTop
         text: root.busyFixes[check.modelData.fix] ? "Working…" : (check.modelData.fixLabel || "Fix")
+        iconText: root.busyFixes[check.modelData.fix] ? "\u{F0996}" : ""
+        iconSpinning: root.busyFixes[check.modelData.fix] === true
         enabled: !root.busyFixes[check.modelData.fix]
         tooltipText: check.modelData.fix === "install" || check.modelData.fix === "firewall" ? "Asks for your password" : ""
         bordered: true

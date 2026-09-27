@@ -270,6 +270,57 @@ function batteryCharge(device) {
   return isFinite(c) && c >= 0 ? Math.min(100, Math.round(c)) : -1
 }
 
+// ---- Waiting on the device ----
+// A click is done when its effect shows in the snapshot, not when the D-Bus
+// call returns: the phone answers a moment later. `kind` says what to look
+// for; `before` is the notification as it was at the click (JSON), for the
+// kinds that wait for it to change. A device gone from the snapshot ends
+// every wait: there is nothing left to answer.
+function findNotification(device, id) {
+  var list = device && device.notifications ? device.notifications : []
+  for (var i = 0; i < list.length; i++) if (list[i] && String(list[i].id) === String(id)) return list[i]
+  return null
+}
+
+function answered(kind, snapshot, deviceId, noteId, before) {
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  var d = null
+  for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === deviceId) d = list[i]
+  if (!d) return true
+  if (kind === "dismiss") return !findNotification(d, noteId)
+  if (kind === "note") {
+    var n = findNotification(d, noteId)
+    return !n || JSON.stringify(n) !== before
+  }
+  if (kind === "pair") return d.paired === true || d.pairRequested === true
+  if (kind === "accept") return d.paired === true
+  if (kind === "reject") return d.pairRequested !== true && d.pairRequestedByPeer !== true
+  if (kind === "unpair") return d.paired !== true
+  return true
+}
+
+// The snapshot with one notification gone: demo mode's stand-in for the
+// phone answering a dismiss.
+function withoutNotification(snapshot, id) {
+  var copy = JSON.parse(JSON.stringify(snapshot || {}))
+  var list = copy.devices || []
+  for (var i = 0; i < list.length; i++)
+    if (list[i] && list[i].notifications)
+      list[i].notifications = list[i].notifications.filter(function(n) { return String(n.id) !== String(id) })
+  return copy
+}
+
+// How long to wait for the answer, and what to say when it never comes.
+// A notification action or a reply may leave the notification as it was,
+// and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+function waitLimit(kind, deviceName) {
+  var name = String(deviceName || "The device")
+  if (kind === "note") return { ms: 4000, fail: "" }
+  if (kind === "track") return { ms: 3000, fail: "" }
+  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it" }
+  return { ms: 15000, fail: name + " did not answer" }
+}
+
 function charging(device) {
   return !!(device && device.reachable && device.battery && device.battery.charging)
 }
