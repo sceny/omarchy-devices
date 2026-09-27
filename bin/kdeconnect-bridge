@@ -503,9 +503,6 @@ def fix(what):
 #        {"cmd":"send","addresses":["+1..."],"text":"..."}
 #        {"cmd":"attachment","part":P,"id":"..."}         fetch a full file
 #        {"cmd":"refresh"}                                re-read everything
-#        {"cmd":"ask"}                                    ask the phone for every
-#                                                         thread's latest message;
-#                                                         changes come back as signals
 #   out  {"ev":"threads","threads":[...]}                 the whole list
 #        {"ev":"thread","thread":{...}}                   one thread changed
 #        {"ev":"messages","thread":T,"start":S,"messages":[...],"hasMore":b}
@@ -827,8 +824,6 @@ class Sms:
             elif verb == "refresh":
                 self.contacts, self.contact_list = read_contacts(self.device_id)
                 self.emit_threads()
-                self.call("requestAllConversationThreads")
-            elif verb == "ask":
                 self.call("requestAllConversationThreads")
         except (GLib.Error, KeyError, ValueError, TypeError) as error:
             message = error.message if isinstance(error, GLib.Error) else str(error)

@@ -65,8 +65,8 @@ class Sends(unittest.TestCase):
 
 
 class Resync(unittest.TestCase):
-    """The sms bridge asks the phone again on "ask" and when the daemon
-    comes back after a restart (retrying while the device reconnects)."""
+    """The sms bridge asks the phone again when the daemon comes back after
+    a restart, retrying while the device reconnects."""
 
     def make(self):
         sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
@@ -81,11 +81,6 @@ class Resync(unittest.TestCase):
         sms.call = call
         sms.out = lambda obj: None
         return sms
-
-    def test_ask_requests_every_thread(self):
-        sms = self.make()
-        sms.command({"cmd": "ask"})
-        self.assertEqual(sms.calls, ["requestAllConversationThreads"])
 
     def test_daemon_back_triggers_a_request_with_retries(self):
         sms = self.make()
