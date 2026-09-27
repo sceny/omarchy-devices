@@ -574,6 +574,20 @@ function conversationGroups(n) {
   return groups
 }
 
+// A folded chat shows what the phone's folded one does: who sent the last
+// message, and that message alone.
+function latestMessage(n) {
+  var list = n && n.conversation ? n.conversation : []
+  var text = ""
+  for (var i = list.length - 1; i >= 0; i--) {
+    var t = String(list[i] && list[i].text || "").trim()
+    var sender = String(list[i] && list[i].sender || "").trim()
+    if (text === "" && t !== "") text = t
+    if (text !== "" && sender !== "") return { sender: sender, text: text }
+  }
+  return text !== "" ? { sender: "", text: text } : null
+}
+
 function notificationTitle(n) {
   if (!n) return ""
   return String(n.title || n.app || "Notification").trim()

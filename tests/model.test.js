@@ -350,3 +350,10 @@ test("a conversation notification groups messages by sender, like the phone", ()
   ])
   assert.deepEqual(M.conversationGroups({ text: "plain" }), [], "not a conversation")
 })
+
+test("a folded chat shows the latest message and its sender, like the phone", () => {
+  const n = { conversation: [{ sender: "Sam", text: "One" }, { sender: "Maya", text: "Two" }, { sender: "", text: "Three" }] }
+  assert.deepEqual(M.latestMessage(n), { sender: "Maya", text: "Three" })
+  assert.deepEqual(M.latestMessage({ conversation: [{ sender: "", text: "Only" }] }), { sender: "", text: "Only" })
+  assert.equal(M.latestMessage({}), null)
+})

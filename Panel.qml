@@ -2098,7 +2098,9 @@ Panel {
     readonly property var groups: Model.conversationGroups(note)
     readonly property bool isChat: groups.length > 0
     property bool chatTruncated: false
-    readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded)
+    readonly property var latest: Model.latestMessage(note)
+    readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded
+      || (!!latest && latest.text !== groups[groups.length - 1].text))
       : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
 
     hasCursor: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex
@@ -2201,15 +2203,15 @@ Panel {
             onClicked: root.toggleExpanded(row.note)
           }
         }
-        // A chat: the latest sender's messages, and all of it on a click (or
-        // e). Names are bold by font, never by markup: nothing the phone
+        // A chat: like the phone, folded it is the latest message and who
+        // sent it; all of it on a click (or e). Names are bold by font, never by markup: nothing the phone
         // sends is interpreted.
         ColumnLayout {
           Layout.fillWidth: true
           visible: row.isChat
           spacing: Style.space(4)
           Repeater {
-            model: row.expanded ? row.groups : row.groups.slice(-1)
+            model: row.expanded ? row.groups : (row.latest ? [row.latest] : [])
             ColumnLayout {
               id: chatGroup
               required property var modelData
