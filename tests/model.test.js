@@ -234,7 +234,7 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.metaLine(M.demoSnapshot(null, "down"), null), "KDE Connect is not running")
   assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired device")
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 4)
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
 })
 
@@ -335,4 +335,35 @@ test("demo mode drops a notification from its own snapshot only", () => {
   const after = M.withoutNotification(s, "n1")
   assert.deepEqual(after.devices[0].notifications.map(n => n.id), ["n2"])
   assert.equal(s.devices[0].notifications.length, 2, "the original is left alone")
+})
+
+test("a conversation notification groups messages by sender, like the phone", () => {
+  const n = { conversation: [
+    { sender: "", text: "First, from the title's person" },
+    { sender: "Sam", text: "One" }, { sender: "", text: "Two" }, { sender: "Sam", text: "Three" },
+    { sender: "Maya", text: "<b>typed</b>" }, { sender: "Maya", text: "  " }
+  ] }
+  assert.deepEqual(M.conversationGroups(n), [
+    { sender: "", text: "First, from the title's person" },
+    { sender: "Sam", text: "One\nTwo\nThree" },
+    { sender: "Maya", text: "<b>typed</b>" }
+  ])
+  assert.deepEqual(M.conversationGroups({ text: "plain" }), [], "not a conversation")
+})
+
+test("a folded chat shows the latest message and its sender, like the phone", () => {
+  const n = { conversation: [{ sender: "Sam", text: "One" }, { sender: "Maya", text: "Two" }, { sender: "", text: "Three" }] }
+  assert.deepEqual(M.latestMessage(n), { sender: "Maya", text: "Three" })
+  assert.deepEqual(M.latestMessage({ conversation: [{ sender: "", text: "Only" }] }), { sender: "", text: "Only" })
+  assert.equal(M.latestMessage({}), null)
+})
+
+test("a group chat's unread count is taken apart from its name", () => {
+  const chat = (title) => ({ title, conversation: [{ sender: "Sam", text: "Hi" }] })
+  assert.deepEqual(M.chatTitle(chat("Book club (8 messages)")), { title: "Book club", count: "8 messages" })
+  assert.deepEqual(M.chatTitle(chat("Clube do livro (12 mensagens)")), { title: "Clube do livro", count: "12 mensagens" }, "the app's words, any language")
+  assert.deepEqual(M.chatTitle(chat("Book club")), { title: "Book club", count: "" })
+  assert.deepEqual(M.chatTitle(chat("Grade (1) class")), { title: "Grade (1) class", count: "" }, "only a count at the very end")
+  assert.deepEqual(M.chatTitle(chat("Team (B)")), { title: "Team (B)", count: "" }, "brackets without a number are part of the name")
+  assert.deepEqual(M.chatTitle({ title: "Invoice (2 pages)" }), { title: "Invoice (2 pages)", count: "" }, "not a chat: left alone")
 })

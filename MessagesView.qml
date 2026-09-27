@@ -828,6 +828,7 @@ Item {
         color: Style.selectedFillFor(view.foreground, Color.accent)
         Text {
           anchors.centerIn: parent
+          textFormat: Text.PlainText
           text: row.group ? Model.GLYPH.group : row.initial
           color: view.foreground
           font.family: view.fontFamily

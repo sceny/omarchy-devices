@@ -175,3 +175,40 @@ class AttachmentNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Conversations(unittest.TestCase):
+    """A conversation notification's markup from the daemon becomes plain
+    {sender, text} pairs; nothing in it is ever interpreted."""
+
+    def test_senders_and_messages(self):
+        markup = ("Running late<br/><b>~Alex Rivera</b>\nSee you at six<br/>Bring chairs"
+                  "<br/><b>Sam</b>\nOK &amp; thanks \U0001F389")
+        self.assertEqual(bridge.parse_conversation(markup), [
+            {"sender": "", "text": "Running late"},
+            {"sender": "~Alex Rivera", "text": "See you at six"},
+            {"sender": "", "text": "Bring chairs"},
+            {"sender": "Sam", "text": "OK & thanks \U0001F389"},
+        ])
+
+    def test_line_breaks_inside_a_message_stay(self):
+        self.assertEqual(bridge.parse_conversation("<b>Sam</b>\nOne\n\nTwo")[0]["text"], "One\n\nTwo")
+
+    def test_markup_in_a_message_stays_text(self):
+        # The daemon escapes content, so tags someone typed arrive as entities:
+        # they come out as the characters typed, for plain-text display.
+        escaped = "&lt;script&gt;alert(1)&lt;/script&gt; &lt;b&gt;x&lt;/b&gt;&lt;br/&gt; &lt;img src=x onerror=y&gt;"
+        [m] = bridge.parse_conversation("<b>Eve &lt;/b&gt;</b>\n" + escaped)
+        self.assertEqual(m["sender"], "Eve </b>")
+        self.assertEqual(m["text"], "<script>alert(1)</script> <b>x</b><br/> <img src=x onerror=y>")
+
+    def test_an_escaped_marker_does_not_split(self):
+        self.assertEqual(len(bridge.parse_conversation("a &lt;br/&gt; b")), 1)
+
+    def test_anything_else_is_one_message_as_it_came(self):
+        self.assertEqual(bridge.parse_conversation("<b>no close"), [{"sender": "", "text": "<b>no close"}])
+        self.assertEqual(bridge.parse_conversation(""), [])
+
+    def test_plain_text_for_one_string(self):
+        messages = [{"sender": "Sam", "text": "Hi"}, {"sender": "", "text": "Again"}]
+        self.assertEqual(bridge.conversation_text(messages), "Sam: Hi\nAgain")

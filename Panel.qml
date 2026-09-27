@@ -2094,6 +2094,15 @@ Panel {
     readonly property string body: Model.notificationBody(note)
     readonly property bool expanded: root.expandedNotes[note.id] === true
     readonly property bool isText: root.isTextNotification(note)
+    // A chat (WhatsApp, Signal...): its messages by sender, as plain text.
+    readonly property var groups: Model.conversationGroups(note)
+    readonly property bool isChat: groups.length > 0
+    property bool chatTruncated: false
+    readonly property var latest: Model.latestMessage(note)
+    readonly property var titleParts: Model.chatTitle(note)
+    readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded
+      || (!!latest && latest.text !== groups[groups.length - 1].text))
+      : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
 
     hasCursor: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex
     foreground: root.foreground
@@ -2163,22 +2172,42 @@ Panel {
           font.letterSpacing: 1.0
           elide: Text.ElideRight
         }
-        Text {
-          textFormat: Text.PlainText
+        // The title; a group chat's unread count sits beside it, dimmed,
+        // and stays in view while a long name shortens.
+        RowLayout {
           Layout.fillWidth: true
-          text: Model.notificationTitle(row.note)
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          elide: Text.ElideRight
+          spacing: Style.space(6)
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: chatCount.text === ""
+            Layout.maximumWidth: implicitWidth
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: implicitWidth
+            text: row.titleParts.title
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          Text {
+            id: chatCount
+            visible: text !== ""
+            textFormat: Text.PlainText
+            Layout.alignment: Qt.AlignBaseline
+            text: row.titleParts.count
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Item { Layout.fillWidth: true; visible: chatCount.text !== "" }
         }
         // Three lines, and the whole message on a click (or e).
         Text {
           id: bodyText
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          visible: row.body !== ""
+          visible: row.body !== "" && !row.isChat
           text: row.body
           color: root.foreground
           opacity: 0.8
@@ -2195,9 +2224,60 @@ Panel {
             onClicked: root.toggleExpanded(row.note)
           }
         }
+        // A chat: like the phone, folded it is the latest message and who
+        // sent it; all of it on a click (or e). Names are bold by font, never by markup: nothing the phone
+        // sends is interpreted.
+        ColumnLayout {
+          Layout.fillWidth: true
+          visible: row.isChat
+          spacing: Style.space(4)
+          Repeater {
+            model: row.expanded ? row.groups : (row.latest ? [row.latest] : [])
+            ColumnLayout {
+              id: chatGroup
+              required property var modelData
+              required property int index
+              Layout.fillWidth: true
+              spacing: 0
+              Text {
+                Layout.fillWidth: true
+                visible: text !== ""
+                textFormat: Text.PlainText
+                text: chatGroup.modelData.sender
+                color: root.foreground
+                opacity: 0.9
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                elide: Text.ElideRight
+              }
+              Text {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: chatGroup.modelData.text
+                color: root.foreground
+                opacity: 0.8
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.Wrap
+                maximumLineCount: row.expanded ? 500 : 3
+                elide: Text.ElideRight
+                onTruncatedChanged: if (!row.expanded) row.chatTruncated = truncated
+                Component.onCompleted: if (!row.expanded) row.chatTruncated = truncated
+
+                MouseArea {
+                  anchors.fill: parent
+                  enabled: row.canExpand
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: root.toggleExpanded(row.note)
+                }
+              }
+            }
+          }
+        }
         Text {
-          // Only when there is more than three lines to show or hide.
-          visible: bodyText.truncated || (row.expanded && bodyText.lineCount > 3)
+          // Only when there is more to show or hide.
+          visible: row.canExpand
           textFormat: Text.PlainText
           text: row.expanded ? "Show less" : "Show all"
           color: root.dim

@@ -556,14 +556,58 @@ function notificationBody(n) {
   return ""
 }
 
+// A conversation notification (bridge `conversation`: plain {sender, text}
+// pairs) grouped the way the phone draws it: a sender's name once, then what
+// they sent. A message with no sender continues the one before; at the start
+// it is from whoever the title names (a one-to-one chat), so no name shows.
+function conversationGroups(n) {
+  var list = n && n.conversation ? n.conversation : []
+  var groups = []
+  for (var i = 0; i < list.length; i++) {
+    var sender = String(list[i] && list[i].sender || "").trim()
+    var text = String(list[i] && list[i].text || "").trim()
+    if (text === "") continue
+    var last = groups.length ? groups[groups.length - 1] : null
+    if (last && (sender === "" || sender === last.sender)) last.text += "\n" + text
+    else groups.push({ sender: sender, text: text })
+  }
+  return groups
+}
+
+// A folded chat shows what the phone's folded one does: who sent the last
+// message, and that message alone.
+function latestMessage(n) {
+  var list = n && n.conversation ? n.conversation : []
+  var text = ""
+  for (var i = list.length - 1; i >= 0; i--) {
+    var t = String(list[i] && list[i].text || "").trim()
+    var sender = String(list[i] && list[i].sender || "").trim()
+    if (text === "" && t !== "") text = t
+    if (text !== "" && sender !== "") return { sender: sender, text: text }
+  }
+  return text !== "" ? { sender: "", text: text } : null
+}
+
+// A group chat's title can end in the app's unread count, "Book club
+// (8 messages)" (KDE Connect passes WhatsApp's title on as it is, #38). The
+// panel shows the count apart from the name, in the app's own words (they
+// are localised). Only a chat's title, and only a count in brackets at the
+// very end, is taken apart; anything else is the title as it came.
+function chatTitle(n) {
+  var title = notificationTitle(n)
+  if (!n || !n.conversation || n.conversation.length === 0) return { title: title, count: "" }
+  var m = /^(.*\S)\s+\((\d+\s+[^()]+)\)$/.exec(title)
+  return m ? { title: m[1], count: m[2].trim() } : { title: title, count: "" }
+}
+
 function notificationTitle(n) {
   if (!n) return ""
   return String(n.title || n.app || "Notification").trim()
 }
 
 // A snapshot for looking at the panel without waiting for real traffic: the
-// live device (or a stand-in) with three notifications covering reply,
-// dismiss, actions and a long body. Used by the `demo` IPC. Media is not
+// live device (or a stand-in) with notifications covering reply,
+// dismiss, actions, a long body and a group chat. Used by the `demo` IPC. Media is not
 // faked: it comes from the phone's real MPRIS players.
 // kind "away", "down" (daemon not running) and "none" (nothing paired) show
 // the other states the panel has to draw.
@@ -592,6 +636,8 @@ function demoSnapshot(live, kind) {
     { id: "demo-1", key: "k1", app: "WhatsApp", title: "Alex", text: "Are you still coming on Sunday? We are starting around six, bring the board game if you can find it.", ticker: "", dismissable: true, replyId: "r1", actions: ["Mark as read"], icon: "", silent: false },
     { id: "demo-2", key: "k2", app: "Gmail", title: "Your invoice from Acme", text: "Invoice #4821 is ready to view.", ticker: "", dismissable: true, replyId: "", actions: ["Archive", "Reply"], icon: "", silent: false },
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
+    { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
+      conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works? <b>not bold</b> & <script>x</script>" }] },
     { id: "demo-3", key: "k3", app: "Calendar", title: "Team sync at 14:00", text: "Starts in 15 minutes", ticker: "", dismissable: false, replyId: "", actions: [], icon: "", silent: false }
   ]
   return { daemon: true, demo: true, devices: [dev] }
