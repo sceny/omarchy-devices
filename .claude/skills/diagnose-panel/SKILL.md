@@ -48,7 +48,12 @@ set KDE Connect to *Unrestricted*), or the phone app closed.
 ```bash
 dbus-monitor --session "type='signal',sender='org.kde.kdeconnect'" | grep -E 'member=|string'
 dbus-monitor --session "type='signal',interface='org.freedesktop.DBus.Properties',path='/org/mpris/MediaPlayer2'"
+dbus-monitor --session "type='signal',member='NameOwnerChanged',arg0='org.kde.kdeconnect'"   # KDE Connect restarts
 ```
+
+Match `NameOwnerChanged` without `sender='org.freedesktop.DBus'`: with
+dbus-broker, a monitor given that sender receives none of them (a normal
+`Gio` subscription with that sender does).
 
 Timestamp the stream while reproducing. It has settled real questions here: a
 seek sends Paused then Playing within ~100 ms (the blink), the phone rounds
@@ -59,6 +64,10 @@ and all of a phone's players share one position.
 
 - Ongoing notifications (navigation, timers, downloads) are dropped by the
   phone app before sending.
-- Messages cannot be marked read over KDE Connect.
+- App buttons (*Mark as read*, …) and read state from the phone need a KDE
+  Connect that passes them on; no release does yet (#29). Buttons that open
+  a screen on the phone (*Call*) may do nothing (#30).
+- A notification dismissed on the phone can stay if its one cancel packet
+  is lost: under investigation in #4.
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.

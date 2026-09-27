@@ -62,6 +62,11 @@ Keep them; change one only with the owner.
   come from `demo` mode, which fakes notifications and conversations and
   names the device Pixel 8. The demo picture message reads a local file
   (`~/.cache/sceny.devices/demo/picture.jpg`) that is not in the repository.
+- **Asking the phone for every conversation is expensive.**
+  `requestAllConversationThreads` makes the phone send one packet per
+  conversation: the bridge asks at start and after a KDE Connect restart,
+  never per user action. When the panel acts on a text-message
+  notification, it marks the conversation read itself.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player, which goes stale when the phone
   switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
