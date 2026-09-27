@@ -64,6 +64,50 @@ class Sends(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class Resync(unittest.TestCase):
+    """The sms bridge asks the phone again on "ask" and when the daemon
+    comes back after a restart (retrying while the device reconnects)."""
+
+    def make(self):
+        sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
+        sms.calls = []
+        sms.fail = 0
+
+        def call(method, args=None, sig=None, timeout=10000):
+            if sms.fail > 0:
+                sms.fail -= 1
+                raise bridge.GLib.Error("not yet")
+            sms.calls.append(method)
+        sms.call = call
+        sms.out = lambda obj: None
+        return sms
+
+    def test_ask_requests_every_thread(self):
+        sms = self.make()
+        sms.command({"cmd": "ask"})
+        self.assertEqual(sms.calls, ["requestAllConversationThreads"])
+
+    def test_daemon_back_triggers_a_request_with_retries(self):
+        sms = self.make()
+        timers = []
+        saved = bridge.GLib.timeout_add_seconds
+        bridge.GLib.timeout_add_seconds = lambda sec, fn: timers.append(fn)
+        try:
+            gone = bridge.GLib.Variant("(sss)", (bridge.BUS_NAME, ":1.5", ""))
+            sms.on_owner_changed(None, None, None, None, None, gone)
+            self.assertEqual(timers, [], "the daemon going away asks nothing")
+            back = bridge.GLib.Variant("(sss)", (bridge.BUS_NAME, "", ":1.9"))
+            sms.on_owner_changed(None, None, None, None, None, back)
+            sms.fail = 2
+            attempt = timers[0]
+            self.assertTrue(attempt(), "retry while the device reconnects")
+            self.assertTrue(attempt())
+            self.assertFalse(attempt(), "stop once the call went through")
+            self.assertEqual(sms.calls, ["requestAllConversationThreads"])
+        finally:
+            bridge.GLib.timeout_add_seconds = saved
+
+
 class DigitsKey(unittest.TestCase):
     def test_last_ten_digits(self):
         self.assertEqual(bridge.digits_key("+1 (514) 555-0123"), "5145550123")

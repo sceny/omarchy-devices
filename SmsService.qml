@@ -163,6 +163,13 @@ Item {
     send({ cmd: "refresh" })
   }
 
+  // After an action or reply on a text-message notification, ask the phone
+  // again a moment later: its Messages app writes the read state after it
+  // clears the notification, and the phone only pushes it by itself when
+  // the message is its newest. Answers come back as normal updates.
+  Timer { id: askPhone; interval: 2000; onTriggered: sms.send({ cmd: "ask" }) }
+  function askPhoneSoon() { if (!demo) askPhone.restart() }
+
   function send(obj) {
     if (!proc.running) return false
     proc.write(JSON.stringify(obj) + "\n")

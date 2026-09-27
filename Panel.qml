@@ -501,6 +501,7 @@ Panel {
     if (!n || !sms || !Model.isMessagingApp(n.app)) return
     var tid = threadForNotification(n)
     if (tid >= 0) sms.markSeen(tid)
+    sms.askPhoneSoon()
   }
 
   function threadForNotification(n) {
