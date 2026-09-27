@@ -22,7 +22,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - Chat notifications (WhatsApp, Signal and other group or one-to-one
   chats) show each sender's name and messages the way the phone does,
   instead of raw `<b>` and `<br/>` markup. Folded, it shows the latest
-  message and its sender; *Show all* shows the whole conversation. The text is always
+  message and its sender; *Show all* shows the whole conversation. A
+  group's unread count, which came glued to its name ("Book club
+  (8 messages)"), shows beside the name, dimmed (#39). The text is always
   shown as plain text, so nothing in a message is interpreted.
 - Pressing an action (such as *Mark as read*) or sending a reply on a
   text-message notification in the panel marks its conversation read in

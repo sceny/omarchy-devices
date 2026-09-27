@@ -357,3 +357,13 @@ test("a folded chat shows the latest message and its sender, like the phone", ()
   assert.deepEqual(M.latestMessage({ conversation: [{ sender: "", text: "Only" }] }), { sender: "", text: "Only" })
   assert.equal(M.latestMessage({}), null)
 })
+
+test("a group chat's unread count is taken apart from its name", () => {
+  const chat = (title) => ({ title, conversation: [{ sender: "Sam", text: "Hi" }] })
+  assert.deepEqual(M.chatTitle(chat("Book club (8 messages)")), { title: "Book club", count: "8 messages" })
+  assert.deepEqual(M.chatTitle(chat("Clube do livro (12 mensagens)")), { title: "Clube do livro", count: "12 mensagens" }, "the app's words, any language")
+  assert.deepEqual(M.chatTitle(chat("Book club")), { title: "Book club", count: "" })
+  assert.deepEqual(M.chatTitle(chat("Grade (1) class")), { title: "Grade (1) class", count: "" }, "only a count at the very end")
+  assert.deepEqual(M.chatTitle(chat("Team (B)")), { title: "Team (B)", count: "" }, "brackets without a number are part of the name")
+  assert.deepEqual(M.chatTitle({ title: "Invoice (2 pages)" }), { title: "Invoice (2 pages)", count: "" }, "not a chat: left alone")
+})

@@ -2099,6 +2099,7 @@ Panel {
     readonly property bool isChat: groups.length > 0
     property bool chatTruncated: false
     readonly property var latest: Model.latestMessage(note)
+    readonly property var titleParts: Model.chatTitle(note)
     readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded
       || (!!latest && latest.text !== groups[groups.length - 1].text))
       : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
@@ -2171,15 +2172,35 @@ Panel {
           font.letterSpacing: 1.0
           elide: Text.ElideRight
         }
-        Text {
-          textFormat: Text.PlainText
+        // The title; a group chat's unread count sits beside it, dimmed,
+        // and stays in view while a long name shortens.
+        RowLayout {
           Layout.fillWidth: true
-          text: Model.notificationTitle(row.note)
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          elide: Text.ElideRight
+          spacing: Style.space(6)
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: chatCount.text === ""
+            Layout.maximumWidth: implicitWidth
+            Layout.minimumWidth: 0
+            Layout.preferredWidth: implicitWidth
+            text: row.titleParts.title
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          Text {
+            id: chatCount
+            visible: text !== ""
+            textFormat: Text.PlainText
+            Layout.alignment: Qt.AlignBaseline
+            text: row.titleParts.count
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Item { Layout.fillWidth: true; visible: chatCount.text !== "" }
         }
         // Three lines, and the whole message on a click (or e).
         Text {
