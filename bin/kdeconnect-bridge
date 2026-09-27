@@ -843,9 +843,35 @@ class Sms:
             self.out({"ev": "error", "message": "unreadable command"})
         return True
 
+    # A restarted daemon starts with an empty cache and knows nothing the
+    # phone changed meanwhile (read state included). Once it is back, ask the
+    # phone again: every thread's latest message then arrives as a signal and
+    # replaces what the old run left here. The device needs a moment to
+    # reconnect, so retry until the call goes through.
+    RESYNC_RETRY_SEC = 3
+    RESYNC_TRIES = 20
+
+    def on_owner_changed(self, conn, sender, path, iface, signal, params):
+        name, old_owner, new_owner = params.unpack()
+        if name != BUS_NAME or not new_owner:
+            return
+        tries = [0]
+
+        def attempt():
+            tries[0] += 1
+            try:
+                self.call("requestAllConversationThreads")
+                return False
+            except GLib.Error:
+                return tries[0] < self.RESYNC_TRIES
+        GLib.timeout_add_seconds(self.RESYNC_RETRY_SEC, attempt)
+
     def run(self):
         self.conn.signal_subscribe(BUS_NAME, SMS_IF, None, self.path, None,
                                    Gio.DBusSignalFlags.NONE, self.on_signal)
+        self.conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
+                                   "NameOwnerChanged", "/org/freedesktop/DBus",
+                                   BUS_NAME, Gio.DBusSignalFlags.NONE, self.on_owner_changed)
         GLib.io_add_watch(sys.stdin.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_stdin)
         try:
             self.emit_threads()
