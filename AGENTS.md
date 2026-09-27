@@ -182,9 +182,12 @@ Keep them; change one only with the owner.
     issue's last report (published, or what to fix), comment the outcome
     on our issue, and close it.
   - No output: nothing is under review.
-- **Develop in a clone with `develop` checked out**, and update it with
-  `git pull`: `omarchy plugin update` reads `main` and does not bring
-  `develop` changes.
+- **Keep the repository apart from the installed copy.** Work in your own
+  clone, outside the shell's plugin folder. The plugin folder holds an
+  installed copy following `develop`; update it with `git pull`
+  (`omarchy plugin update` reads `main` and does not bring `develop`
+  changes). To check a branch live, push it, `git switch` to it in the
+  installed copy, and switch back to `develop` afterwards.
 - **An urgent fix for users** is a branch from `main` with a pull request
   into `main`, only while `main` is not frozen (*Releasing*, step 5);
   afterwards merge `main` into `develop`.
