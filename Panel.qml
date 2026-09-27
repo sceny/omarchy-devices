@@ -447,7 +447,9 @@ Panel {
     if (sms) {
       sms.start()
       if (threadId !== undefined && threadId >= 0) sms.openThread(threadId)
-      else if (device && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
+      // Demo conversations are made up: the real last conversation is not
+      // among them.
+      else if (device && !(phone && phone.demo) && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
         // Back to the conversation left open; the composer stays unfocused.
         var last = lastThreads[device.id]
         Qt.callLater(function() { if (messagesView) messagesView.openThread(last, false) })
