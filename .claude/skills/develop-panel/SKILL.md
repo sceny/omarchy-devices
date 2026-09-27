@@ -42,6 +42,16 @@ checked live, and the merge waits for someone who checks it.
   `MessagesView.qml`, `BarWidget.qml`, `Model.js`) is cached by the shell:** only
   `omarchy restart shell` picks it up. New IPC functions answer "Function not
   found" until then. A restart blinks the whole bar, so batch changes.
+- **Let a reload finish before restarting the shell.** When the installed
+  copy's files change, the shell reloads the plugin; wait until the panel
+  answers over IPC again, then `omarchy restart shell`. A restart while the
+  reload is still creating objects can crash the shell.
+
+  ```bash
+  for i in $(seq 1 20); do timeout 3 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices status >/dev/null 2>&1 && break; sleep 0.5; done
+  sleep 2 && omarchy restart shell
+  ```
+
 - **After every restart, confirm the panel answers:**
 
   ```bash
