@@ -31,8 +31,12 @@ Steps 3 to 5 need a running Omarchy shell. Without one (a cloud session),
 follow AGENTS.md, *Workflow*: the pull request says the change is not
 checked live, and the merge waits for someone who checks it.
 
+- **The shell runs the installed copy, not your clone** (AGENTS.md,
+  *Workflow*): push the branch, then in the installed copy
+  `git fetch && git switch <branch>`; `git switch develop && git pull` when
+  done.
 - `Service.qml`, `SmsService.qml` and the bridge reload by themselves when
-  saved ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
+  they change in the installed copy ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
   line but the pill keeps drawing the old code: restart.
 - **Anything the panel or the pill loads (`Panel.qml`, `SettingsView.qml`,
   `MessagesView.qml`, `BarWidget.qml`, `Model.js`) is cached by the shell:** only
