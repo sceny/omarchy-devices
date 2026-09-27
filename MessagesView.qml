@@ -174,18 +174,33 @@ Item {
     if (openRow || newMode) composer.forceActiveFocus()
   }
 
-  // Opening a conversation eases it in: the messages rise into place. The
-  // new-message pane comes in from the right instead, as a new page would.
+  // Opening a conversation eases its messages in: they rise into place.
+  // The header and the composer stay on the pane's edges and never move;
+  // only their contents change, in place.
   readonly property string paneKey: (newMode ? "new" : "thread") + ":" + (sms ? sms.openThreadId : -1)
-  onPaneKeyChanged: if (newMode || (sms && sms.openThreadId >= 0)) paneReveal.restart()
+  onPaneKeyChanged: if (!newMode && sms && sms.openThreadId >= 0) paneReveal.restart()
+
+  // The header's who, until the conversation is known and its messages land.
+  readonly property bool headerLoading: !newMode && !!sms && sms.openThreadId >= 0
+    && (!openRow || (sms.loading && messageList.count === 0))
 
   property real motion: 1
 
+  // The conversations ease in the same way when they land after their
+  // skeleton; the title, search and key hints around them stay put.
+  readonly property bool threadsReady: !!sms && sms.ready
+  onThreadsReadyChanged: if (threadsReady) threadReveal.restart()
+
+  ParallelAnimation {
+    id: threadReveal
+    NumberAnimation { target: threadList; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: threadShift; property: "y"; from: Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  }
+
   ParallelAnimation {
     id: paneReveal
-    NumberAnimation { target: convPane; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
-    NumberAnimation { target: paneShift; property: "x"; from: view.newMode ? Style.space(24) : 0; to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
-    NumberAnimation { target: paneShift; property: "y"; from: view.newMode ? 0 : Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: messageList; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: listShift; property: "y"; from: Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
   }
 
   Connections {
@@ -323,6 +338,7 @@ Item {
           Layout.fillHeight: true
           clip: true
           model: view.shown
+          transform: Translate { id: threadShift }
           spacing: Style.space(2)
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -359,7 +375,7 @@ Item {
 
       Column {
         anchors.centerIn: parent
-        visible: !view.openRow && !view.newMode
+        visible: !(!!view.sms && view.sms.openThreadId >= 0) && !view.newMode
         spacing: Style.space(6)
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -381,9 +397,8 @@ Item {
       ColumnLayout {
         id: convPane
         anchors.fill: parent
-        visible: !!view.openRow || view.newMode
+        visible: (!!view.sms && view.sms.openThreadId >= 0) || view.newMode
         spacing: Style.space(8)
-        transform: Translate { id: paneShift }
 
         // ---- New message: who to ----
         ColumnLayout {
@@ -537,29 +552,61 @@ Item {
         }
 
         // ---- Conversation header: who ----
+        // Pinned to the top: while the conversation loads it shows the
+        // shape of a name and a number, then the text lands in place.
         ColumnLayout {
           Layout.fillWidth: true
           visible: !view.newMode
           spacing: Style.space(1)
-          Text {
+          Item {
             Layout.fillWidth: true
-            textFormat: Text.PlainText
-            text: view.openRow ? view.openRow.title : ""
-            color: view.foreground
-            font.family: view.fontFamily
-            font.pixelSize: Style.font.title
-            font.bold: true
-            elide: Text.ElideRight
+            implicitHeight: headerTitle.implicitHeight
+            Text {
+              id: headerTitle
+              width: parent.width
+              textFormat: Text.PlainText
+              text: view.openRow ? view.openRow.title : " "
+              color: view.foreground
+              opacity: view.headerLoading ? 0 : 1
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.title
+              font.bold: true
+              elide: Text.ElideRight
+              Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            Skeleton {
+              visible: view.headerLoading
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(parent.width, Style.space(180))
+              height: Math.round(headerTitle.implicitHeight * 0.6)
+              foreground: view.foreground
+              motion: view.motion
+            }
           }
-          Text {
+          Item {
             Layout.fillWidth: true
-            textFormat: Text.PlainText
-            visible: !!view.openRow && view.openRow.addresses !== view.openRow.title
-            text: view.openRow ? view.openRow.addresses : ""
-            color: view.dim
-            font.family: view.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
+            visible: view.headerLoading || (!!view.openRow && view.openRow.addresses !== view.openRow.title)
+            implicitHeight: headerNumber.implicitHeight
+            Text {
+              id: headerNumber
+              width: parent.width
+              textFormat: Text.PlainText
+              text: view.openRow ? view.openRow.addresses : " "
+              color: view.dim
+              opacity: view.headerLoading ? 0 : 1
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+              Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            Skeleton {
+              visible: view.headerLoading
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(parent.width, Style.space(110))
+              height: Math.round(headerNumber.implicitHeight * 0.6)
+              foreground: view.foreground
+              motion: view.motion
+            }
           }
         }
 
@@ -572,6 +619,7 @@ Item {
           Layout.fillHeight: true
           clip: true
           model: view.sms ? view.sms.messages : null
+          transform: Translate { id: listShift }
           // Newest at the bottom, like every messaging app; older pages grow
           // upwards without moving what is on screen.
           verticalLayoutDirection: ListView.BottomToTop
