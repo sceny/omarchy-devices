@@ -234,7 +234,7 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.metaLine(M.demoSnapshot(null, "down"), null), "KDE Connect is not running")
   assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired device")
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 4)
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
 })
 
@@ -335,4 +335,18 @@ test("demo mode drops a notification from its own snapshot only", () => {
   const after = M.withoutNotification(s, "n1")
   assert.deepEqual(after.devices[0].notifications.map(n => n.id), ["n2"])
   assert.equal(s.devices[0].notifications.length, 2, "the original is left alone")
+})
+
+test("a conversation notification groups messages by sender, like the phone", () => {
+  const n = { conversation: [
+    { sender: "", text: "First, from the title's person" },
+    { sender: "Sam", text: "One" }, { sender: "", text: "Two" }, { sender: "Sam", text: "Three" },
+    { sender: "Maya", text: "<b>typed</b>" }, { sender: "Maya", text: "  " }
+  ] }
+  assert.deepEqual(M.conversationGroups(n), [
+    { sender: "", text: "First, from the title's person" },
+    { sender: "Sam", text: "One\nTwo\nThree" },
+    { sender: "Maya", text: "<b>typed</b>" }
+  ])
+  assert.deepEqual(M.conversationGroups({ text: "plain" }), [], "not a conversation")
 })
