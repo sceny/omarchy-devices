@@ -16,7 +16,6 @@ PanelActionButton {
     running: button.waiting
     motion: button.motion
     color: button.foreground
-    font.family: button.fontFamily
-    font.pixelSize: button.fontSize
+    size: Math.round(button.fontSize * 0.8)
   }
 }

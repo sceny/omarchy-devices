@@ -1775,8 +1775,7 @@ Panel {
       running: drow.working
       motion: root.motion
       color: root.foreground
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.icon
+      size: Math.round(Style.font.icon * 0.8)
     }
   }
 
@@ -2057,8 +2056,7 @@ Panel {
           running: tile.working
           motion: root.motion
           color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.heading
+          size: Math.round(Style.font.heading * 0.8)
         }
       }
       Text {
@@ -2252,8 +2250,7 @@ Panel {
                 running: noteAction.working
                 motion: root.motion
                 color: root.foreground
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.bodySmall
+                size: Math.round(Style.font.bodySmall * 0.8)
               }
             }
           }

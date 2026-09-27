@@ -601,8 +601,7 @@ Item {
                 running: parent.visible
                 motion: view.motion
                 color: view.dim
-                font.family: view.fontFamily
-                font.pixelSize: Style.font.bodySmall
+                size: Math.round(Style.font.bodySmall * 0.8)
               }
               Text {
                 anchors.verticalCenter: parent.verticalCenter
@@ -923,8 +922,7 @@ Item {
                       running: file.fetching && !file.picture
                       motion: view.motion
                       color: view.foreground
-                      font.family: view.fontFamily
-                      font.pixelSize: Style.font.body
+                      size: Math.round(Style.font.body * 0.8)
                     }
                   }
                   Text {
@@ -944,8 +942,7 @@ Item {
                   running: file.fetching && file.picture
                   motion: view.motion
                   color: view.foreground
-                  font.family: view.fontFamily
-                  font.pixelSize: Style.font.heading
+                  size: Math.round(Style.font.heading * 0.8)
                 }
                 MouseArea {
                   anchors.fill: parent
@@ -984,8 +981,7 @@ Item {
           running: bubble.pending && !bubble.failed
           motion: view.motion
           color: view.faint
-          font.family: view.fontFamily
-          font.pixelSize: Style.font.caption
+          size: Math.round(Style.font.caption * 0.8)
         }
         Text {
           textFormat: Text.PlainText
