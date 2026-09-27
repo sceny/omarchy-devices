@@ -787,6 +787,15 @@ Panel {
       root.markNotificationSeen(n)
       return JSON.stringify({ unread: root.sms ? root.sms.unreadCount : -1 })
     }
+    // Demo only: dismiss a notification as a click on its X would, to look
+    // at the waiting ring. Refused on live data.
+    function pressDismiss(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      root.phone.dismiss(n)
+      return "ok"
+    }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
@@ -1713,9 +1722,13 @@ Panel {
       }
 
       Row {
+        id: drowButtons
         spacing: Style.space(6)
         Layout.alignment: Qt.AlignVCenter
-        opacity: drow.working ? 0.5 : 1.0
+        opacity: drow.working ? 0 : 1.0
+        enabled: !drow.working
+        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+
 
         Button {
           visible: drow.row.incoming === true
@@ -1753,6 +1766,16 @@ Panel {
           onClicked: root.armOrUnpair(drow.row)
         }
       }
+    }
+
+    // Over the buttons, outside the layout, so nothing in the row moves.
+    WaitRing {
+      x: drowContent.x + drowButtons.x + (drowButtons.width - width) / 2
+      y: drowContent.y + drowButtons.y + (drowButtons.height - height) / 2
+      running: drow.working
+      motion: root.motion
+      color: root.foreground
+      size: Math.round(Style.font.icon * 0.8)
     }
   }
 
@@ -1927,16 +1950,21 @@ Panel {
 
           Repeater {
             model: 3
-            PanelActionButton {
+            WaitButton {
               required property int index
-              iconText: index === 0 ? Model.GLYPH.previous
+              // Play/pause flips at once (card.playing); a skip waits for the track.
+              readonly property bool skipping: index !== 1 && !!root.phone && !!card.player
+                && root.phone.isBusy(root.phone.skipKey(card.player, root.mediaKey(index)))
+              waiting: skipping
+              motion: root.motion
+              glyph: index === 0 ? Model.GLYPH.previous
                 : (index === 2 ? Model.GLYPH.next
                 : (card.playing ? Model.GLYPH.pause : Model.GLYPH.play))
               fontSize: index === 1 ? Style.font.heading : Style.font.icon
               size: Style.space(28)
               foreground: root.foreground
               fontFamily: root.fontFamily
-              enabled: !!card.player && (index === 0 ? card.player.canGoPrevious
+              enabled: !!card.player && !skipping && (index === 0 ? card.player.canGoPrevious
                 : (index === 2 ? card.player.canGoNext : card.player.canTogglePlaying))
               // Enter plays/pauses, so the keyboard cursor sits on that button.
               hasCursor: index === 1 && root.cursorActive && root.focusSection === "media"
@@ -2009,14 +2037,27 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(4)
 
-      Text {
+      Item {
         anchors.horizontalCenter: parent.horizontalCenter
-        text: tile.action.glyph || ""
-        color: root.foreground
-        opacity: tile.working ? 0.35 : 1.0
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading + 2
-        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+        width: tileGlyph.implicitWidth
+        height: tileGlyph.implicitHeight
+        Text {
+          id: tileGlyph
+          anchors.centerIn: parent
+          text: tile.action.glyph || ""
+          color: root.foreground
+          opacity: tile.working ? 0 : 1.0
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading + 2
+          Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+        }
+        WaitRing {
+          anchors.centerIn: parent
+          running: tile.working
+          motion: root.motion
+          color: root.foreground
+          size: Math.round(Style.font.heading * 0.8)
+        }
       }
       Text {
         textFormat: Text.PlainText
@@ -2180,18 +2221,36 @@ Panel {
 
           Repeater {
             model: row.note.actions || []
-            Button {
+            Item {
+              id: noteAction
               required property var modelData
-              text: String(modelData)
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              bordered: true
-              verticalPadding: Style.space(2)
-              horizontalPadding: Style.space(8)
-              onClicked: {
-                root.phone.notificationAction(row.note, String(modelData))
-                root.markNotificationSeen(row.note)
+              readonly property bool working: !!root.phone && root.phone.isBusy("action:" + row.note.id + ":" + String(modelData))
+              implicitWidth: noteActionButton.implicitWidth
+              implicitHeight: noteActionButton.implicitHeight
+              Button {
+                id: noteActionButton
+                anchors.fill: parent
+                text: String(noteAction.modelData)
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                bordered: true
+                verticalPadding: Style.space(2)
+                horizontalPadding: Style.space(8)
+                opacity: noteAction.working ? 0 : 1.0
+                enabled: !noteAction.working
+                Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+                onClicked: {
+                  root.phone.notificationAction(row.note, String(noteAction.modelData))
+                  root.markNotificationSeen(row.note)
+                }
+              }
+              WaitRing {
+                anchors.centerIn: parent
+                running: noteAction.working
+                motion: root.motion
+                color: root.foreground
+                size: Math.round(Style.font.bodySmall * 0.8)
               }
             }
           }
@@ -2249,22 +2308,31 @@ Panel {
           fontFamily: root.fontFamily
           onClicked: root.openNotificationConversation(row.note)
         }
-        PanelActionButton {
+        // While a sent reply is on its way, its button is the ring.
+        WaitButton {
+          readonly property bool sending: !!root.phone && root.phone.isBusy("reply:" + row.note.id)
           visible: !!row.note.replyId
-          iconText: Model.GLYPH.reply
-          tooltipText: "Reply"
+          glyph: Model.GLYPH.reply
+          waiting: sending
+          motion: root.motion
+          tooltipText: sending ? "Sending the reply" : "Reply"
           foreground: root.foreground
           fontFamily: root.fontFamily
+          enabled: !sending
           onClicked: row.replying ? root.closeReply() : root.openReply(row.note)
         }
-        PanelActionButton {
+        // The X turns into the ring until the phone has let it go.
+        WaitButton {
+          readonly property bool dismissing: !!root.phone && root.phone.isBusy("dismiss:" + row.note.id)
           visible: row.note.dismissable === true
-          iconText: Model.GLYPH.close
-          tooltipText: "Dismiss on " + Model.deviceLabel(root.device)
+          glyph: Model.GLYPH.close
+          waiting: dismissing
+          motion: root.motion
+          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss on " + Model.deviceLabel(root.device)
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily
-          enabled: root.phone ? !root.phone.isBusy("dismiss:" + row.note.id) : false
+          enabled: !!root.phone && !dismissing
           onClicked: root.phone.dismiss(row.note)
         }
       }

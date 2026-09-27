@@ -139,7 +139,7 @@ Item {
   // click on the same thing waits instead of stacking up.
   property var busy: ({})
 
-  function isBusy(key) { return busy[key] === true }
+  function isBusy(key) { return busy[key] === true || waits[key] !== undefined }
 
   function setBusy(key, on) {
     var next = Object.assign({}, busy)
@@ -161,17 +161,94 @@ Item {
       Quickshell.execDetached(["omarchy-osd", "-i", failed ? "\u{F0026}" : Model.deviceGlyph(device), "-m", text, "-d", failed ? "3000" : "1800"])
   }
 
-  function run(verb, args, key) {
+  // `wait` keeps the click waiting past the bridge, until the device's
+  // answer shows in the snapshot: { kind, note, before } (Model.answered).
+  function run(verb, args, key, wait) {
     if (!device || !device.reachable) return
-    if (demo) { report("Demo mode: nothing was sent to the device", false); return }
     key = key || verb
-    if (busy[key]) return
+    if (isBusy(key)) return
+    if (demo) { demoRun(verb, args, key); return }
     setBusy(key, true)
     var proc = actionComponent.createObject(root, {
       key: key,
+      wait: wait ? Object.assign({ device: String(device.id) }, wait) : null,
       command: [bridge, verb, device.id].concat(args || [])
     })
     proc.running = true
+  }
+
+  // ---- Waiting on the device ----
+  // key -> { kind, device, note, before, until, fail, said }: clicks the bridge has
+  // passed on and the device has not answered yet. The clicked control shows
+  // the waiting ring meanwhile (isBusy); a wait that runs out says so.
+  property var waits: ({})
+
+  function startWait(key, wait) {
+    var limit = Model.waitLimit(wait.kind, device ? device.name : "")
+    var next = Object.assign({}, waits)
+    next[key] = Object.assign({ until: Date.now() + limit.ms, fail: limit.fail }, wait)
+    waits = next
+    checkWaits()
+  }
+
+  function checkWaits() {
+    var now = Date.now()
+    var next = {}
+    var changed = false
+    for (var key in waits) {
+      var w = waits[key]
+      var done = w.kind === "track" ? !w.player || String(w.player.trackTitle || "") !== w.title
+        : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
+      if (done) {
+        changed = true
+        if (w.said) report(w.said, false)
+        continue
+      }
+      if (now > w.until) {
+        changed = true
+        if (w.fail !== "") report(w.fail, true)
+        else if (w.said) report(w.said, false)
+        continue
+      }
+      next[key] = w
+    }
+    if (changed) waits = next
+  }
+
+  onSnapshotChanged: if (Object.keys(waits).length > 0) checkWaits()
+
+  // The phone may never answer (it went away mid-click): the limit still ends it.
+  Timer {
+    interval: 500
+    repeat: true
+    running: Object.keys(root.waits).length > 0
+    onTriggered: root.checkWaits()
+  }
+
+  // Demo mode sends nothing: a click waits as long as a phone about takes,
+  // then says so; a dismissed or acted-on demo notification goes away.
+  function demoRun(verb, args, key) {
+    setBusy(key, true)
+    demoComponent.createObject(root, { key: key, verb: verb, note: args && args.length ? String(args[0]) : "" })
+  }
+
+  Component {
+    id: demoComponent
+    Timer {
+      id: demoClick
+      property string key: ""
+      property string verb: ""
+      property string note: ""
+      interval: 900
+      running: true
+      onTriggered: {
+        if ((verb === "dismiss" || verb === "action") && root.demo && root.snapshot)
+          root.snapshot = Model.withoutNotification(root.snapshot, note)
+        root.setBusy(key, false)
+        root.report("Demo mode: nothing was sent to the device", false)
+        demoClick.destroy()
+      }
+    }
   }
 
   // ---- Setup checks (kdeconnect-bridge doctor) ----
@@ -222,11 +299,15 @@ Item {
 
   // Pairing acts on any device the daemon knows, not only the one followed.
   function runOn(deviceId, verb) {
-    if (demo) { report("Demo mode: nothing was sent to the device", false); return }
     var key = verb + ":" + deviceId
-    if (!deviceId || busy[key]) return
+    if (!deviceId || isBusy(key)) return
+    if (demo) { demoRun(verb, [], key); return }
     setBusy(key, true)
-    var proc = actionComponent.createObject(root, { key: key, command: [bridge, verb, deviceId] })
+    var proc = actionComponent.createObject(root, {
+      key: key,
+      wait: { kind: verb, device: String(deviceId) },
+      command: [bridge, verb, deviceId]
+    })
     proc.running = true
   }
   function pairWith(id) { runOn(id, "pair") }
@@ -255,9 +336,19 @@ Item {
   function mediaAction(action, player) {
     var p = player || activePlayer
     if (!p) return
-    if (action === "Next") { if (p.canGoNext) p.next() }
-    else if (action === "Previous") { if (p.canGoPrevious) p.previous() }
+    if (action === "Next") { if (p.canGoNext && skipWait(p, action)) p.next() }
+    else if (action === "Previous") { if (p.canGoPrevious && skipWait(p, action)) p.previous() }
     else if (p.canTogglePlaying) p.togglePlaying()
+  }
+
+  // A skip waits for the next track's title (the phone sends it a moment
+  // later); a second press meanwhile is dropped, not queued.
+  function skipKey(player, action) { return "skip:" + String(player ? player.dbusName : "") + ":" + action }
+  function skipWait(player, action) {
+    var key = skipKey(player, action)
+    if (isBusy(key)) return false
+    startWait(key, { kind: "track", player: player, title: String(player.trackTitle || "") })
+    return true
   }
 
   function seek(player, seconds) {
@@ -273,12 +364,17 @@ Item {
   function setVolume(v) {
     if (volumePlayer) volumePlayer.volume = Math.max(0, Math.min(1, v))
   }
-  function dismiss(n) { if (n) run("dismiss", [n.id], "dismiss:" + n.id) }
+  function dismiss(n) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id) }) }
+  // A reply or an app action usually makes the phone update or drop the
+  // notification; the clicked control waits for that, briefly.
+  function noteWait(n) { return { kind: "note", note: String(n.id), before: JSON.stringify(Model.findNotification(device, n.id)) } }
   function reply(n, text) {
     var message = String(text || "").trim()
-    if (n && n.replyId && message !== "") run("reply", [n.replyId, message], "reply:" + n.id)
+    if (n && n.replyId && message !== "") run("reply", [n.replyId, message], "reply:" + n.id, noteWait(n))
   }
-  function notificationAction(n, action) { if (n) run("action", [n.id, action], "action:" + n.id) }
+  function notificationAction(n, action) {
+    if (n) run("action", [n.id, action], "action:" + n.id + ":" + action, noteWait(n))
+  }
 
   function openMessages() {
     if (device) Quickshell.execDetached(["uwsm-app", "--", "kdeconnect-sms", "--device", device.id])
@@ -316,6 +412,7 @@ Item {
     Process {
       id: proc
       property string key: ""
+      property var wait: null
       property int exitCode: -1
 
       stdout: StdioCollector { id: procOut }
@@ -324,6 +421,14 @@ Item {
       function finish() {
         var out = String(procOut.text || "").trim()
         var err = String(procErr.text || "").trim()
+        // Waiting starts before busy ends, so the ring does not blink between.
+        // Its line waits too: "Dismissed" shows when the notification goes.
+        if (proc.exitCode === 0 && proc.wait) {
+          root.startWait(proc.key, Object.assign({ said: out }, proc.wait))
+          root.setBusy(proc.key, false)
+          proc.destroy()
+          return
+        }
         root.setBusy(proc.key, false)
         if (proc.exitCode === 0) root.report(out, false)
         else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false)
