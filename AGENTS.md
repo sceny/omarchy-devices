@@ -24,6 +24,11 @@ its folder are caches under `~/.cache/sceny.devices/`.
 - **A feature KDE Connect does not offer is not faked.** Ongoing notifications
   never leave the phone; messages cannot be marked read on the phone; RCS is
   not in the SMS store. Say so in the UI or the README instead.
+- **A KDE Connect fault is fixed at its source, not worked around.** When
+  the panel shows what KDE Connect reports and KDE Connect is wrong, file it
+  here labelled `external:kde-connect` for the owner's KDE Connect
+  specialist (`diagnose-panel`, step 5). The plugin changes only when the
+  owner asks for a workaround.
 - **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
   D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
   connection per call and cannot listen. One Python process (PyGObject) holds

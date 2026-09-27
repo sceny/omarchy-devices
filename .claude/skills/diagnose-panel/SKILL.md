@@ -60,6 +60,38 @@ seek sends Paused then Playing within ~100 ms (the blink), the phone rounds
 volume to its steps and KDE Connect answers a set twice (echo, then the step),
 and all of a phone's players share one position.
 
+## 5. When KDE Connect is at fault
+
+The panel agrees with KDE Connect, and KDE Connect disagrees with the phone.
+The fault is KDE Connect's, and the plugin does not work around it: the
+owner's KDE Connect specialist fixes it at the source.
+
+1. **Rule out stale state on the desktop.** Ask the phone again and compare:
+   `requestPlayerList` on the device's `mprisremote` object for media, or a
+   reconnect for everything else. An answer that still disagrees with the
+   phone is the phone app's; one that corrects itself is the desktop
+   daemon's.
+2. **Find the cause in the source.** Shallow-clone the side at fault into
+   the scratchpad
+   ([kdeconnect-android](https://invent.kde.org/network/kdeconnect-android)
+   or [kdeconnect-kde](https://invent.kde.org/network/kdeconnect-kde)) and
+   find the code that produces what you saw. Note the file and the commit.
+3. **Ask the owner what the phone shows** when the evidence cannot tell
+   (a hidden player, a notification only the shade has).
+4. **File the issue here**, labelled `external:kde-connect` and `bug`:
+   what happens, the evidence (the D-Bus calls and what they returned, the
+   source file at its commit), and why the plugin shows it. No real data in
+   it: no app, track, contact or message names from the device.
+
+   ```bash
+   gh issue create --label external:kde-connect --label bug \
+     --title "<what the user sees>" --body-file <scratchpad>/issue.md
+   ```
+
+5. **Add it to the list below** with its issue number, so the next
+   diagnosis stops here. Change the plugin only when the owner asks for a
+   workaround.
+
 ## Known KDE Connect limits (not bugs here)
 
 - Ongoing notifications (navigation, timers, downloads) are dropped by the
@@ -69,5 +101,8 @@ and all of a phone's players share one position.
   a screen on the phone (*Call*) may do nothing (#30).
 - A notification dismissed on the phone can stay if its one cancel packet
   is lost: under investigation in #4.
+- A paused player the phone has hidden (Android hides one after about
+  10 minutes) stays in Now playing: the phone app forwards every open media
+  session (#33).
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.
