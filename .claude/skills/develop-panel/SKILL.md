@@ -75,6 +75,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
 "${IPC[@]}" fold actions ; "${IPC[@]}" moveSection media -1    # fold a section; move one in the order
 "${IPC[@]}" toggleBar <key> ; "${IPC[@]}" moveBar <key> -1      # bar indicators; toggleBar batteryLowOnly
+"${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
 "${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```
