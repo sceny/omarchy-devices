@@ -14,8 +14,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   nothing changes (#73).
 - The pill never disappears: with nothing to show (nothing paired, or
   KDE Connect stopped) it keeps a devices glyph to click.
-- A device asking to pair shows a card under the header, with its key,
-  *Accept* and *Reject*; it pushes the page down while it lasts.
+- A device asking to pair shows a card at the top of the panel, above the
+  tabs, with its key, *Accept* and *Reject*; it pushes the rest down while
+  it lasts.
 - The open-panel mark under the pill spans every chip (#67).
 - IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
 - Settings for devices (#74): a nickname and an icon for each device, used

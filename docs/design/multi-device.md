@@ -243,14 +243,14 @@ list, each tagged with its device. The one place that mixes devices.
 
 | When | What shows | Until |
 |---|---|---|
-| A device asks to pair | **The pairing card** under the header, pushing the page down (it grows in and out at `Model.MOTION`; covering the header hid the tabs it is about): icon, name, verification key (compare it with the device), *Accept*, *Reject*. Also KDE Connect's own notification. | Answered, withdrawn or expired |
+| A device asks to pair | **The pairing card** at the top, above the tabs (it is about all devices, not the viewed one), pushing everything down (it grows in and out at `Model.MOTION`; covering the header hid the tabs it is about): icon, name, verification key (compare it with the device), *Accept*, *Reject*. Also KDE Connect's own notification. | Answered, withdrawn or expired |
 | A device is away | Its details line, with *Reconnect* (5.1) | It is back |
 | A call rings or was missed | The call card (7.1) | It ends, or is closed |
 | A setup check fails | A dot on the gear | Fixed, or the check is ignored (6.2) |
 | Nothing is paired | The panel opens on Connection | A device is paired |
 
 The pairing card names the device and scripted calls never focus anything.
-Unlike a toast, it is part of the page while it lasts, under the header.
+Unlike a toast, it is part of the panel while it lasts, above the tabs.
 
 Adding a device needs no button on the main screen: pairing usually starts
 on the new device (open the app, pick this computer), and the computer

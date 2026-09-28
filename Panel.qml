@@ -1310,6 +1310,108 @@ Panel {
           width: panelFlick.width + (root.targetCardWidth - root.cardWidth)
           spacing: Style.space(12)
 
+          // ---- The pairing card: a device asking to pair, at the top, above
+          //      the tabs (it is about all devices, not the one viewed),
+          //      pushing everything down until it is answered. It grows in
+          //      and out at the plugin's pace (FoldBody), never jumps ----
+          FoldBody {
+            open: pairCard.showing
+            motion: root.motion
+            animate: root.settled
+            BorderSurface {
+              id: pairCard
+              // Kept while it fades out, so the text does not blank mid-fade.
+              property var shown: null
+              readonly property var request: root.phone ? root.phone.pairingRequest : null
+              readonly property bool showing: !!request && root.showMain
+              onRequestChanged: if (request) shown = request
+              Component.onCompleted: if (request) shown = request
+              readonly property bool waiting: !!shown && !!root.phone
+                && (root.phone.isBusy("accept:" + shown.id) || root.phone.isBusy("reject:" + shown.id))
+
+              width: parent.width
+              height: pairRow.implicitHeight + Style.space(20)
+              radius: Style.cornerRadius
+              color: root.bar ? root.bar.background : Color.background
+              borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+
+
+              // Clicks on the card stay on the card.
+              MouseArea { anchors.fill: parent }
+
+              RowLayout {
+                id: pairRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(10)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: Model.deviceGlyph(pairCard.shown)
+                  color: Color.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.display
+                  Layout.alignment: Qt.AlignVCenter
+                }
+                Column {
+                  Layout.fillWidth: true
+                  Layout.alignment: Qt.AlignVCenter
+                  spacing: Style.space(2)
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: "WANTS TO PAIR"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+                  Text {
+                    width: parent.width
+                    visible: text !== ""
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    // Compare it with the one the device shows.
+                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+                Button {
+                  text: "Accept"
+                  bordered: true
+                  enabled: !pairCard.waiting
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+                }
+                Button {
+                  text: "Reject"
+                  enabled: !pairCard.waiting
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+                }
+              }
+            }
+          }
+
           // ---- Tabs: one per device, only with two or more. Main page and
           //      messages; settings has its own device list ----
           Item {
@@ -1475,107 +1577,6 @@ Panel {
                   if (root.messagesOpen) root.closeMessagesView()
                   else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
                   else root.openSettings()
-                }
-              }
-            }
-          }
-
-          // ---- The pairing card: a device asking to pair, under the header,
-          //      pushing the page down until it is answered. It grows in
-          //      and out at the plugin's pace (FoldBody), never jumps ----
-          FoldBody {
-            open: pairCard.showing
-            motion: root.motion
-            animate: root.settled
-            BorderSurface {
-              id: pairCard
-              // Kept while it fades out, so the text does not blank mid-fade.
-              property var shown: null
-              readonly property var request: root.phone ? root.phone.pairingRequest : null
-              readonly property bool showing: !!request && root.showMain
-              onRequestChanged: if (request) shown = request
-              Component.onCompleted: if (request) shown = request
-              readonly property bool waiting: !!shown && !!root.phone
-                && (root.phone.isBusy("accept:" + shown.id) || root.phone.isBusy("reject:" + shown.id))
-
-              width: parent.width
-              height: pairRow.implicitHeight + Style.space(20)
-              radius: Style.cornerRadius
-              color: root.bar ? root.bar.background : Color.background
-              borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
-
-
-              // Clicks on the card stay on the card.
-              MouseArea { anchors.fill: parent }
-
-              RowLayout {
-                id: pairRow
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(12)
-                anchors.rightMargin: Style.space(10)
-                spacing: Style.space(10)
-
-                Text {
-                  textFormat: Text.PlainText
-                  text: Model.deviceGlyph(pairCard.shown)
-                  color: Color.accent
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.display
-                  Layout.alignment: Qt.AlignVCenter
-                }
-                Column {
-                  Layout.fillWidth: true
-                  Layout.alignment: Qt.AlignVCenter
-                  spacing: Style.space(2)
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: "WANTS TO PAIR"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.body
-                    font.bold: true
-                  }
-                  Text {
-                    width: parent.width
-                    visible: text !== ""
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    // Compare it with the one the device shows.
-                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                  }
-                }
-                Button {
-                  text: "Accept"
-                  bordered: true
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
-                }
-                Button {
-                  text: "Reject"
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
                 }
               }
             }
