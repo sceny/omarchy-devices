@@ -614,6 +614,23 @@ function notificationTitle(n) {
 // the other states the panel has to draw.
 function demoSnapshot(live, kind) {
   if (kind === "down") return { daemon: false, demo: true, devices: [] }
+  // Several paired devices: the demo phone, a tablet with news, a laptop
+  // that is away. "many-pair" adds a device asking to pair.
+  if (kind === "many" || kind === "many-pair") {
+    var many = demoSnapshot(live, "")
+    many.devices.push(
+      { id: "demo-tab", name: "Galaxy Tab S9", type: "tablet", paired: true, reachable: true, links: ["LAN"],
+        can: { share: true, clipboard: true, media: true, notifications: true, ping: true, ring: true },
+        battery: { charge: 12, charging: false }, network: null,
+        notifications: [
+          { id: "demo-t1", key: "t1", app: "YouTube", title: "New from a channel you follow", text: "Ten minute bread, no knead", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
+          { id: "demo-t2", key: "t2", app: "Calendar", title: "Piano lesson", text: "Tomorrow at 17:00", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false }
+        ] },
+      { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: true, reachable: false, links: [], can: {}, notifications: [] })
+    if (kind === "many-pair")
+      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+    return many
+  }
   if (kind === "devices") {
     var withOthers = demoSnapshot(live, "")
     withOthers.devices.push(

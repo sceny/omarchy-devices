@@ -45,7 +45,103 @@ Item {
     snapshot = liveSnapshot
     smsService.showLive()
   }
-  readonly property var device: Model.pickDevice(snapshot, String(setting("deviceId", "")))
+  // ---- Many devices (docs/design/multi-device.md) ----
+  // The settings read as defaults plus per-device profiles (Model.readSettings),
+  // and every paired device in the user's order.
+  readonly property var profiles: Model.readSettings(settings)
+  readonly property var ordered: Model.orderedDevices(snapshot, profiles)
+
+  // The device the panel shows and clicks act on. Chosen with a tab, a chip
+  // or IPC; empty means the one the panel opens on (Model.openingDevice).
+  // Shared by every monitor's panel.
+  property string viewedId: ""
+  // A chip or IPC asks for a device before the panel opens; opening uses it
+  // once instead of the usual choice.
+  property string requestedId: ""
+
+  readonly property var device: {
+    for (var i = 0; i < ordered.length; i++) if (ordered[i].id === viewedId) return ordered[i]
+    return Model.openingDevice(snapshot, profiles, callStates)
+  }
+  // Each device's call, for the opening rule (a ringing device opens first).
+  // Kept apart from deviceStates, which reads the messages service that
+  // itself follows `device`.
+  readonly property var callStates: ({})
+  readonly property int deviceIndex: {
+    for (var i = 0; i < ordered.length; i++) if (device && ordered[i].id === device.id) return i
+    return -1
+  }
+  // The viewed device's profile: its sections, shortcuts and folds.
+  readonly property var profile: Model.resolveProfile(profiles, device, deviceIndex <= 0)
+  // Devices with a tab (Show in panel), in order.
+  readonly property var panelDevices: {
+    var out = []
+    for (var i = 0; i < ordered.length; i++)
+      if (Model.resolveProfile(profiles, ordered[i], i === 0).showInPanel || (device && ordered[i].id === device.id)) out.push(ordered[i])
+    return out
+  }
+
+  function view(id) { viewedId = String(id || "") }
+  function requestView(id) { requestedId = String(id || "") }
+  // On opening: the device asked for (a chip, IPC), else the opening rule.
+  function viewOnOpen() {
+    if (requestedId !== "") { viewedId = requestedId; requestedId = ""; return }
+    var d = Model.openingDevice(snapshot, profiles, callStates)
+    viewedId = d ? String(d.id) : ""
+  }
+
+  // Finds a device by id, nickname or name (IPC takes any of them).
+  function findDevice(key) {
+    var k = String(key || "").trim().toLowerCase()
+    if (k === "") return null
+    for (var i = 0; i < ordered.length; i++) {
+      var d = ordered[i]
+      var p = Model.resolveProfile(profiles, d, i === 0)
+      if (String(d.id).toLowerCase() === k || p.nickname.toLowerCase() === k || String(d.name || "").toLowerCase() === k) return d
+    }
+    return null
+  }
+
+  // What each device has for the pill (Model.attention): its visible
+  // notifications (its playback ones left out, as on its page), unread
+  // messages while this service reads its messages, whether it plays.
+  readonly property int lowPercent: {
+    var n = parseInt(String(setting("lowBatteryPercent", 15)), 10)
+    return isFinite(n) ? n : 15
+  }
+  readonly property var deviceStates: {
+    var all = Mpris.players ? Mpris.players.values : []
+    var out = {}
+    for (var i = 0; i < ordered.length; i++) {
+      var d = ordered[i]
+      var media = [], playing = false
+      for (var j = 0; j < all.length; j++) {
+        var p = all[j]
+        if (!p || !Model.isPhonePlayer(p.dbusName, p.identity, String(d.name || ""))) continue
+        media.push({ app: Model.playerApp(p.identity, d.name), title: p.trackTitle })
+        if (p.isPlaying) playing = true
+      }
+      out[d.id] = {
+        notifications: Model.visibleNotifications(d, media).length,
+        messages: smsService.deviceId === String(d.id) ? smsService.unreadCount : 0,
+        playing: playing,
+        lowPercent: lowPercent
+      }
+    }
+    return out
+  }
+
+  // A device asking to pair: the first one, or null.
+  readonly property var pairingRequest: {
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].pairRequestedByPeer === true) return list[i]
+    return null
+  }
+
+  // The pill: a chip per device that shows, and a resting glyph when none
+  // does (Model.chips).
+  readonly property var pill: Model.chips(snapshot, profiles, deviceStates, !!pairingRequest)
+
   readonly property bool daemon: !!(snapshot && snapshot.daemon)
   readonly property bool reachable: !!(device && device.reachable)
   readonly property var notifications: {
@@ -244,6 +340,15 @@ Item {
       onTriggered: {
         if ((verb === "dismiss" || verb === "action") && root.demo && root.snapshot)
           root.snapshot = Model.withoutNotification(root.snapshot, note)
+        // A demo pairing request answered: accepted, the device is paired;
+        // rejected, it goes.
+        if ((verb === "accept" || verb === "reject") && root.demo && root.snapshot) {
+          var id = key.split(":")[1]
+          var copy = JSON.parse(JSON.stringify(root.snapshot))
+          copy.devices = (copy.devices || []).filter(function(d) { return verb === "accept" || d.id !== id })
+          copy.devices.forEach(function(d) { if (d.id === id) { d.pairRequestedByPeer = false; d.paired = true } })
+          root.snapshot = copy
+        }
         root.setBusy(key, false)
         root.report("Demo mode: nothing was sent to the device", false)
         demoClick.destroy()
@@ -389,7 +494,7 @@ Item {
   // Text messages (threads, the open conversation), started on first use,
   // or from the start when the bar counts unread messages.
   readonly property var sms: smsService
-  readonly property bool barCountsMessages: Model.normalizeBarIndicators(settings ? settings.barIndicators : null).indexOf("messages") >= 0
+  readonly property bool barCountsMessages: profile.barIndicators.indexOf("messages") >= 0
   SmsService {
     id: smsService
     bridge: root.bridge

@@ -37,15 +37,21 @@ Panel {
   // Layout settings, from this widget's shell.json entry. Written only by the
   // settings page (persistSettings), read everywhere else.
   readonly property bool showDevices: Model.layoutFlag(setting("showDevices", true))
-  readonly property bool showShortcuts: Model.layoutFlag(setting("showShortcuts", true))
-  readonly property bool showMedia: Model.layoutFlag(setting("showMedia", true))
-  readonly property bool showNotifications: Model.layoutFlag(setting("showNotifications", true))
-  readonly property var shortcutOrder: Model.normalizeShortcuts(setting("shortcuts", null))
+  // The viewed device's profile (Service.profile): its sections, their
+  // order and its shortcuts, its own changes over the defaults.
+  readonly property var profile: phone ? phone.profile : Model.resolveProfile(Model.readSettings(settings), null, true)
+  readonly property bool showShortcuts: profile.showShortcuts
+  readonly property bool showMedia: profile.showMedia
+  readonly property bool showNotifications: profile.showNotifications
+  readonly property var shortcutOrder: profile.shortcuts
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
   readonly property var barIndicators: Model.normalizeBarIndicators(setting("barIndicators", null))
   readonly property bool batteryLowOnly: Model.layoutFlag(setting("batteryLowOnly", true))
   // The order of the sections under the header (Layout settings).
-  readonly property var sectionOrder: Model.normalizeSections(setting("sectionOrder", null))
+  readonly property var sectionOrder: profile.sectionOrder
+  // Several devices: tabs in the header (Service.panelDevices).
+  readonly property var tabDevices: phone ? phone.panelDevices : []
+  readonly property bool manyDevices: tabDevices.length > 1
 
   property bool settingsOpen: false
   // Text messages: a two-pane view in place of the phone view, in a wider panel.
@@ -102,11 +108,11 @@ Panel {
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running
+    enabled: pageSwap.running || deviceSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running
+    enabled: pageSwap.running || deviceSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -130,6 +136,28 @@ Panel {
     }
     // A change of mind mid-way (Esc right after opening) lands too.
     onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+  }
+
+  // The same beat for changing the viewed device (switchDevice).
+  SequentialAnimation {
+    id: deviceSwap
+    ParallelAnimation {
+      NumberAnimation { target: pageHost; property: "opacity"; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageHost; property: "slide"; to: -root.deviceDirection * pageSwap.travel; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+    }
+    ScriptAction {
+      script: {
+        root.applyDevice()
+        pageHost.slide = root.deviceDirection * pageSwap.travel
+        if (panelFlick) panelFlick.contentY = 0
+      }
+    }
+    ParallelAnimation {
+      NumberAnimation { target: pageHost; property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+      NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+    }
+    // Stopped mid-way (the panel closing): land where it was going.
+    onStopped: { if (root.pendingDevice !== "") root.applyDevice(); pageHost.opacity = 1; pageHost.slide = 0 }
   }
   readonly property var sms: phone ? phone.sms : null
 
@@ -165,13 +193,20 @@ Panel {
   Timer {
     id: settleTimer
     interval: Model.MOTION.inMs * root.motion + 40
-    onTriggered: root.settled = root.opened && !pageSwap.running
+    onTriggered: root.settled = root.opened && !pageSwap.running && !deviceSwap.running
   }
   Connections {
     target: pageSwap
     function onRunningChanged() {
       root.settled = false
       if (!pageSwap.running) settleTimer.restart()
+    }
+  }
+  Connections {
+    target: deviceSwap
+    function onRunningChanged() {
+      root.settled = false
+      if (!deviceSwap.running) settleTimer.restart()
     }
   }
   Component.onDestruction: {
@@ -262,14 +297,29 @@ Panel {
   Timer { id: unpairDisarm; interval: 3000; onTriggered: root.unpairArmed = "" }
 
   // Folded sections, from this widget's settings; folded on the user's click.
+  // The main page's sections fold per device (the viewed device's profile);
+  // the settings page's groups fold once for all.
   readonly property var collapsed: Model.collapsedState(setting("collapsed", null))
-  function isCollapsed(key) { return collapsed[key] === true }
+  readonly property var pageSections: ["devices", "actions", "media", "notifications"]
+  function isCollapsed(key) {
+    return pageSections.indexOf(key) >= 0 ? profile.collapsed[key] === true : collapsed[key] === true
+  }
   // Only folded sections are stored; unfolding drops the key.
   function toggleCollapsed(key) {
-    var next = Object.assign({}, collapsed)
+    var perDevice = pageSections.indexOf(key) >= 0
+    var next = Object.assign({}, perDevice ? profile.collapsed : collapsed)
     if (next[key] === true) delete next[key]
     else next[key] = true
-    persistSettings({ collapsed: next })
+    if (perDevice) persistProfile({ collapsed: next })
+    else persistSettings({ collapsed: next })
+  }
+
+  // A change to the viewed device's own profile. With one device there is
+  // nothing to tell apart: it is written as today's flat keys (the defaults).
+  function persistProfile(values) {
+    if (!manyDevices || !device) { persistSettings(values); return }
+    var entry = Model.withProfile(root.settings, String(device.id), values, phone ? phone.deviceIndex === 0 : false)
+    persistSettings({ devices: entry.devices })
   }
 
   // The conversation last open in messages, per device, so the messages
@@ -291,9 +341,44 @@ Panel {
     persistSettings({ lastThread: next })
   }
 
-  function selectDevice(id) {
-    if (!id || (device && device.id === id)) return
-    persistSettings({ deviceId: id })
+  // Viewing a device (a tab, a chip, the Devices section, IPC). Not stored:
+  // the panel opens by the order's rule (Service.viewOnOpen).
+  function selectDevice(id) { switchDevice(id) }
+
+  // Changes the viewed device like a page change: the page slides out, the
+  // device swaps while nothing shows, and its page slides in, from the side
+  // of its tab.
+  property string pendingDevice: ""
+  property int deviceDirection: 1
+  function switchDevice(id) {
+    if (!phone || !id || (device && String(device.id) === String(id))) return
+    var from = -1, to = -1
+    for (var i = 0; i < tabDevices.length; i++) {
+      if (device && tabDevices[i].id === device.id) from = i
+      if (String(tabDevices[i].id) === String(id)) to = i
+    }
+    deviceDirection = to >= from ? 1 : -1
+    if (!opened) { phone.view(id); return }
+    pendingDevice = String(id)
+    deviceSwap.restart()
+  }
+  function applyDevice() {
+    if (!phone || pendingDevice === "") return
+    phone.view(pendingDevice)
+    pendingDevice = ""
+    browsedName = ""
+    replyingTo = ""
+    replyFocused = false
+    composing = false
+    composerFocused = false
+    notifIndex = 0
+    deviceIndexCursor = 0
+  }
+  property int deviceIndexCursor: 0
+  function tabAt(i) { if (i >= 0 && i < tabDevices.length) switchDevice(tabDevices[i].id) }
+  function tabStep(delta) {
+    for (var i = 0; i < tabDevices.length; i++)
+      if (device && tabDevices[i].id === device.id) { tabAt(Math.max(0, Math.min(tabDevices.length - 1, i + delta))); return }
   }
 
   function armOrUnpair(row) {
@@ -710,6 +795,10 @@ Panel {
   }
 
   function onOpened() {
+    // The device asked for (a chip, IPC), else the first connected one.
+    if (phone) phone.viewOnOpen()
+    deviceSwap.stop()
+    pendingDevice = ""
     // Positions are kept current while closed (Service), but re-read now too,
     // so the seek bar is already where it belongs when the panel shows.
     if (phone) phone.refreshPositions()
@@ -798,6 +887,29 @@ Panel {
     }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
+    // Many devices. A device is its id, nickname or name. Every verb acts on
+    // the viewed device; `view` picks it, `openOn` opens the panel on it.
+    function view(key: string): string {
+      var d = root.phone ? root.phone.findDevice(key) : null
+      if (!d) return "no device " + key
+      // Closed: the next open lands on it (Service.viewOnOpen).
+      if (root.opened) root.switchDevice(d.id); else root.phone.requestView(d.id)
+      return "ok"
+    }
+    function openOn(key: string): string {
+      var d = root.phone ? root.phone.findDevice(key) : null
+      if (!d) return "no device " + key
+      root.phone.requestView(d.id)
+      if (root.opened) root.switchDevice(d.id); else root.openFromHotkey()
+      return "ok"
+    }
+    function tabs(): string {
+      var list = root.phone ? root.phone.ordered : []
+      return JSON.stringify({ shown: root.manyDevices, viewed: root.device ? root.device.id : "",
+        tabs: root.tabDevices.map(function(d) { return d.id }),
+        pill: root.phone ? root.phone.pill.chips.map(function(c) { return { id: c.id, text: c.text, bubble: c.bubble, dimmed: c.dimmed } }) : [],
+        resting: root.phone ? root.phone.pill.resting : null, pairing: root.phone ? root.phone.pill.pairing : false })
+    }
     function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
     function pageState(): string {
@@ -985,6 +1097,9 @@ Panel {
           return
         }
         if (t === "s") { root.openSettings(); return }
+        // Tabs (with two or more devices): 1-9, and Shift+H / Shift+L.
+        if (root.manyDevices && t >= "1" && t <= "9") { root.tabAt(Number(t) - 1); return }
+        if (root.manyDevices && (t === "H" || t === "L")) { root.tabStep(t === "H" ? -1 : 1); return }
         if (t === "c" && root.cursorActive && root.focusSection !== "") {
           root.toggleCollapsed(root.focusSection)
           return
@@ -1003,6 +1118,109 @@ Panel {
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
           root.openReply(root.notifications[root.notifIndex])
+      }
+
+      // ---- The pairing card: a device asking to pair floats over the top
+      //      of the page until it is answered; it never pushes the page ----
+      BorderSurface {
+        id: pairCard
+        // Kept while it fades out, so the text does not blank mid-fade.
+        property var shown: null
+        readonly property var request: root.phone ? root.phone.pairingRequest : null
+        readonly property bool showing: !!request && root.showMain
+        onRequestChanged: if (request) shown = request
+        Component.onCompleted: if (request) shown = request
+        readonly property bool waiting: !!shown && !!root.phone
+          && (root.phone.isBusy("accept:" + shown.id) || root.phone.isBusy("reject:" + shown.id))
+
+        z: 11
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: showing ? 0 : -Style.space(10)
+        width: parent.width
+        height: pairRow.implicitHeight + Style.space(20)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        opacity: showing ? 1 : 0
+        visible: opacity > 0.01
+
+        Behavior on opacity { NumberAnimation { duration: (pairCard.showing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on anchors.topMargin { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+
+        // Clicks on the card stay on the card.
+        MouseArea { anchors.fill: parent }
+
+        RowLayout {
+          id: pairRow
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.space(12)
+          anchors.rightMargin: Style.space(10)
+          spacing: Style.space(10)
+
+          Text {
+            textFormat: Text.PlainText
+            text: Model.deviceGlyph(pairCard.shown)
+            color: Color.accent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.display
+            Layout.alignment: Qt.AlignVCenter
+          }
+          Column {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Style.space(2)
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              text: "WANTS TO PAIR"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              visible: text !== ""
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              // Compare it with the one the device shows.
+              text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+          Button {
+            text: "Accept"
+            bordered: true
+            enabled: !pairCard.waiting
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+          }
+          Button {
+            text: "Reject"
+            enabled: !pairCard.waiting
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+          }
+        }
       }
 
       BorderSurface {
@@ -1064,10 +1282,74 @@ Panel {
           width: panelFlick.width + (root.targetCardWidth - root.cardWidth)
           spacing: Style.space(12)
 
+          // ---- Tabs: one per device, only with two or more. Main page and
+          //      messages; settings has its own device list ----
+          Flickable {
+            id: tabStrip
+            visible: root.manyDevices && !root.showSettings
+            width: parent.width
+            height: visible ? tabRow.implicitHeight : 0
+            contentWidth: tabRow.implicitWidth
+            contentHeight: tabRow.implicitHeight
+            clip: true
+            interactive: contentWidth > width
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+
+            Row {
+              id: tabRow
+              spacing: Style.space(4)
+              Repeater {
+                model: root.tabDevices
+                Button {
+                  id: tab
+                  required property var modelData
+                  required property int index
+                  readonly property int deviceIndex: {
+                    var list = root.phone ? root.phone.ordered : []
+                    for (var i = 0; i < list.length; i++) if (list[i].id === modelData.id) return i
+                    return 0
+                  }
+                  readonly property var tabProfile: root.phone ? Model.resolveProfile(root.phone.profiles, modelData, deviceIndex === 0) : null
+                  readonly property var st: root.phone && root.phone.deviceStates[modelData.id] ? root.phone.deviceStates[modelData.id] : ({})
+                  readonly property var news: Model.attention(modelData, tabProfile, st)
+                  readonly property bool current: !!root.device && root.device.id === modelData.id
+                  iconText: Model.deviceIcon(modelData, tabProfile)
+                  // Its marks, in its own glyphs: the count, a low battery.
+                  text: Model.deviceTitle(modelData, tabProfile)
+                    + (news.notifications > 0 ? " " + news.notifications : "")
+                    + (news.lowBattery ? " " + String.fromCodePoint(0xF0083) : "")
+                  selected: current
+                  bordered: true
+                  opacity: modelData.reachable === true ? 1 : 0.5
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  iconSize: Style.font.body
+                  tooltipText: Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
+                  onClicked: root.switchDevice(modelData.id)
+                  onCurrentChanged: if (current) tabStrip.showTab(tab)
+                }
+              }
+            }
+
+            // Keeps the selected tab in view when the row scrolls.
+            function showTab(item) {
+              if (!item) return
+              if (item.x < contentX) contentX = item.x
+              else if (item.x + item.width > contentX + width) contentX = item.x + item.width - width
+            }
+          }
+
           PanelHero {
             id: hero
             width: parent.width
-            title: root.device ? root.device.name : "Devices"
+            // Nickname, then the full name when they differ.
+            title: {
+              if (!root.device) return "Devices"
+              var nick = root.profile.nickname
+              return nick && nick !== root.device.name ? nick + " · " + root.device.name : String(root.device.name || "")
+            }
             meta: root.showSettings ? "Settings"
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -1077,7 +1359,7 @@ Panel {
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: Model.deviceGlyph(root.device)
+                text: Model.deviceIcon(root.device, root.profile)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display

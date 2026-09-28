@@ -136,6 +136,22 @@ Item {
 
   function start() { wanted = true }
 
+  // The viewed device changed (a tab, a chip): this reader follows it from a
+  // clean slate, so one device's conversations never show under another.
+  // The seen marks follow too (their file is per device).
+  onDeviceIdChanged: {
+    if (demo) return
+    closeThread()
+    threadModel.clear()
+    seen = ({})
+    ready = false
+    modelRevision++
+    if (proc.running) {
+      proc.running = false
+      Qt.callLater(function() { if (sms.active && !proc.running) proc.running = true })
+    }
+  }
+
   // Demo: made-up conversations (Model.demoThreads) in place of the real
   // ones, for screenshots. Bridge events are ignored meanwhile and nothing
   // can be sent; showLive() asks the bridge for the real list again.
