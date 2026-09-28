@@ -130,37 +130,6 @@ Column {
       }
   }
 
-  // ---- Add a device: the steps on it (pairing starts there) ----
-  FoldToggle {
-    visible: root.scopeKind === "root"
-    width: root.width
-    title: "ADD A DEVICE"
-    summary: "Install KDE Connect on it, same Wi-Fi, pair from it"
-    folded: root.collapsed["addDevice"] !== false
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    motion: root.motion
-    animate: root.animate
-    onToggled: root.foldToggled("addDevice")
-  }
-
-  FoldBody {
-    visible: root.scopeKind === "root"
-    open: root.collapsed["addDevice"] === false
-    motion: root.motion
-    animate: root.animate
-    spacing: Style.space(6)
-
-      SetupChecks {
-        width: root.width
-        checks: []
-        showPhoneSteps: true
-        foreground: root.foreground
-        urgent: Color.urgent
-        fontFamily: root.fontFamily
-      }
-  }
-
   // ---- This device: its name and icon, and on its page where it shows ----
   Item { visible: root.hasIdentity && root.scopeKind === "root"; width: 1; height: Style.space(6) }
   PanelSeparator { visible: root.hasIdentity && root.scopeKind === "root"; foreground: root.foreground }
@@ -379,6 +348,40 @@ Column {
         rowIndex: index
       }
     }
+  }
+
+  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
+
+  // ---- Add a device: the steps on it (pairing starts there) ----
+  FoldToggle {
+    visible: root.scopeKind === "root"
+    width: root.width
+    title: "ADD A DEVICE"
+    summary: "Install KDE Connect on it, same Wi-Fi, pair from it"
+    folded: root.collapsed["addDevice"] !== false
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("addDevice")
+  }
+
+  FoldBody {
+    visible: root.scopeKind === "root"
+    open: root.collapsed["addDevice"] === false
+    motion: root.motion
+    animate: root.animate
+    spacing: Style.space(6)
+
+      SetupChecks {
+        width: root.width
+        checks: []
+        showPhoneSteps: true
+        foreground: root.foreground
+        urgent: Color.urgent
+        fontFamily: root.fontFamily
+      }
   }
 
   Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }

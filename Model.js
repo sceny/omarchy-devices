@@ -618,6 +618,9 @@ function demoSnapshot(live, kind) {
   // that is away. "many-pair" adds a device asking to pair.
   if (kind === "many" || kind === "many-pair") {
     var many = demoSnapshot(live, "")
+    // Made-up ids only, so nothing changed in this demo lands on a real
+    // device's settings (they are cleared on leaving demo).
+    many.devices[0].id = "demo"
     many.devices.push(
       { id: "demo-tab", name: "Galaxy Tab S9", type: "tablet", paired: true, reachable: true, links: ["LAN"],
         can: { share: true, clipboard: true, media: true, notifications: true, ping: true, ring: true },
@@ -884,12 +887,15 @@ function collapsedState(value) {
 function layoutSummary(flags, sections) {
   var sectionOrder = normalizeSections(sections)
   var on = []
-  for (var i = 0; i < sectionOrder.length; i++) {
-    var l = layoutBySection(sectionOrder[i])
+  // The Devices section is gone from the main page (tabs and Settings do
+  // its work), so it is not counted.
+  var shown = sectionOrder.filter(function(k) { return k !== "devices" })
+  for (var i = 0; i < shown.length; i++) {
+    var l = layoutBySection(shown[i])
     if (layoutFlag(flags[l.key])) on.push(l.label)
   }
   if (on.length === 0) return "Everything hidden"
-  if (on.length === LAYOUT.length && sectionOrder.join() === DEFAULT_SECTIONS.join()) return "Everything shown"
+  if (on.length === shown.length && shown.join() === DEFAULT_SECTIONS.filter(function(k) { return k !== "devices" }).join()) return "Everything shown"
   return on.join(", ")
 }
 

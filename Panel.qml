@@ -254,6 +254,20 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
   // Esc and the back arrow on a device's page or the defaults: to the list.
+  // Leaving demo: profiles and order written for demo devices (made-up ids)
+  // are removed, so a demo leaves nothing in the settings.
+  function forgetDemoProfiles() {
+    var devs = settings && settings.devices && typeof settings.devices === "object" ? settings.devices : {}
+    var order = settings && Array.isArray(settings.deviceOrder) ? settings.deviceOrder : null
+    var demoIds = Object.keys(devs).filter(function(k) { return k.indexOf("demo") === 0 })
+    var orderHasDemo = !!order && order.some(function(k) { return String(k).indexOf("demo") === 0 })
+    if (demoIds.length === 0 && !orderHasDemo) return
+    var next = Object.assign({}, devs)
+    demoIds.forEach(function(k) { delete next[k] })
+    var values = { devices: next }
+    if (order) values.deviceOrder = order.filter(function(k) { return String(k).indexOf("demo") !== 0 })
+    persistSettings(values)
+  }
   function settingsInfo() {
     return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
       rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
@@ -1086,7 +1100,7 @@ Panel {
       root.openReply(n)
       return "ok"
     }
-    function live(): string { if (root.phone) root.phone.showLive(); return "live" }
+    function live(): string { if (root.phone) root.phone.showLive(); root.forgetDemoProfiles(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
