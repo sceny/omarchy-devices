@@ -114,7 +114,7 @@ Column {
         textFormat: Text.PlainText
         width: root.width
         wrapMode: Text.WordWrap
-        text: "The first opens when the panel does and always shows in the bar. Shift+K and Shift+J move the selected one."
+        text: "The first opens when the panel does and always shows in the bar. Drag one by its grip, or Shift+K / Shift+J on the selected one."
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
@@ -215,7 +215,7 @@ Column {
           textFormat: Text.PlainText
           width: root.width
           wrapMode: Text.WordWrap
-          text: "The sections under the header, in this order. Shift+K and Shift+J move the selected one."
+          text: "The sections under the header, in this order. Drag one by its grip, or Shift+K / Shift+J on the selected one."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -261,7 +261,7 @@ Column {
           textFormat: Text.PlainText
           width: root.width
           wrapMode: Text.WordWrap
-          text: "Ticked ones show beside the device glyph in the bar, in this order. Shift+K and Shift+J move the selected one."
+          text: "Ticked ones show beside the device glyph in the bar, in this order. Drag one by its grip, or Shift+K / Shift+J on the selected one."
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
@@ -319,7 +319,7 @@ Column {
           width: root.width
           wrapMode: Text.WordWrap
           text: root.shortcutsShown
-            ? "Ticked ones show under the header, four per row, in this order. Shift+K and Shift+J move the selected one."
+            ? "Ticked ones show under the header, four per row, in this order. Drag one by its grip, or Shift+K / Shift+J on the selected one."
             : "The shortcuts row is off in Layout. What you pick here shows once it is on again."
           color: root.dim
           font.family: root.fontFamily
@@ -610,31 +610,6 @@ Column {
         }
       }
 
-      // A device: move it in the order, then open its page.
-      Row {
-        visible: listRow.row.kind === "device"
-        spacing: Style.space(2)
-        Layout.alignment: Qt.AlignVCenter
-        PanelActionButton {
-          iconText: Model.GLYPH.up
-          tooltipText: "Move up"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: listRow.row.first !== true
-          onHovered: function(on) { if (on) root.hovered(listRow.rowIndex) }
-          onClicked: deviceOrder.step(listRow.place, -1)
-        }
-        PanelActionButton {
-          iconText: Model.GLYPH.down
-          tooltipText: "Move down"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: listRow.row.last !== true
-          onHovered: function(on) { if (on) root.hovered(listRow.rowIndex) }
-          onClicked: deviceOrder.step(listRow.place, 1)
-        }
-      }
-
       // Asking to pair: accept or reject. In reach: pair.
       Button {
         visible: listRow.row.kind === "request" || listRow.row.kind === "available"
@@ -883,31 +858,6 @@ Column {
         }
       }
 
-      Row {
-        visible: layoutRow.row.kind === "layout"
-        spacing: Style.space(2)
-        Layout.alignment: Qt.AlignVCenter
-
-        PanelActionButton {
-          iconText: Model.GLYPH.up
-          tooltipText: "Move up"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: layoutRow.row.first !== true
-          onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
-          onClicked: layoutOrder.step(layoutRow.place, -1)
-        }
-        PanelActionButton {
-          iconText: Model.GLYPH.down
-          tooltipText: "Move down"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: layoutRow.row.last !== true
-          onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
-          onClicked: layoutOrder.step(layoutRow.place, 1)
-        }
-      }
-
       ToggleSwitch {
         Layout.alignment: Qt.AlignVCenter
         checked: layoutRow.row.on === true
@@ -1008,30 +958,6 @@ Column {
         }
       }
 
-      Row {
-        visible: shortcutRow.row.on === true
-        spacing: Style.space(2)
-        Layout.alignment: Qt.AlignVCenter
-
-        PanelActionButton {
-          iconText: Model.GLYPH.up
-          tooltipText: "Move earlier"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: shortcutRow.row.first !== true
-          onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: shortcutRow.order.step(shortcutRow.place, -1)
-        }
-        PanelActionButton {
-          iconText: Model.GLYPH.down
-          tooltipText: "Move later"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          enabled: shortcutRow.row.last !== true
-          onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: shortcutRow.order.step(shortcutRow.place, 1)
-        }
-      }
     }
   }
 }

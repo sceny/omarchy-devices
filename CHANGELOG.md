@@ -21,8 +21,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
 - Settings for devices (#74): a nickname and an icon for each device, used
   in the bar and the tabs. With several devices, Settings lists them
-  (move with the arrows or Shift+K / Shift+J; pair, accept and reject
-  there too); each has its own page: nickname, icon, whether it shows in
+  (drag to move, or Shift+K / Shift+J; pair, accept and reject there
+  too); each has its own page: nickname, icon, whether it shows in
   the bar (always, only with news, never), whether it has a tab, and its
   own layout, bar and shortcuts, marked CUSTOM with *use the defaults*.
   *Defaults for all devices* sets the rest. Unpair is on the device's page.
@@ -31,8 +31,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - Drag to reorder: every order has a grip to drag by (devices, sections,
   bar indicators, shortcuts), and the tabs can be dragged sideways. While
   one moves, the others slide aside to show where it will land; on release
-  it glides into place. The arrows and Shift+K / Shift+J glide the same
-  way.
+  it glides into place. Shift+K / Shift+J glide the same way. The ↑ ↓
+  buttons on each row are gone: the grip and the keys do their work.
 
 ### Fixed
 - Moving the first section up in Layout did nothing: it swapped with the

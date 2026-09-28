@@ -140,8 +140,9 @@ Keep them; change one only with the owner.
 - **Orders move with a glide, never a jump.** Every order (devices,
   sections, bar indicators, shortcuts, tabs) moves through `Reorder`:
   while an item moves, the others slide aside to show where it lands; it
-  glides in at `Model.MOTION`, and only then is the order written. A drag,
-  the arrows and Shift+K / Shift+J all look the same. A new order uses
+  glides in at `Model.MOTION`, and only then is the order written. A drag
+  and Shift+K / Shift+J look the same; there are no ↑ ↓ buttons (the grip
+  says a row moves). A new order uses
   these components, not a copy.
 - **Sections fold with an animation, never a jump:** content grows or
   shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all

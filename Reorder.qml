@@ -3,7 +3,7 @@ import "Model.js" as Model
 
 // One order being moved: devices, sections, bar indicators, shortcuts, tabs.
 // Every way of moving an item goes through here, so they all look the same:
-// a drag (begin, dragTo, release), the arrows and the keyboard (step).
+// a drag (begin, dragTo, release) and the keyboard (step).
 //
 // While an item moves, the ones between its place and where it would land
 // slide aside by its size, animated (ReorderShift), so the gap shows where
