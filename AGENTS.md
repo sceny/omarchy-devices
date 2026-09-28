@@ -115,9 +115,10 @@ Keep them; change one only with the owner.
   device order (`deviceOrder`; an old `deviceId` is read as its first
   place), the conversation last open in messages, per device (`lastThread`), and the
   messages unread filter (`unreadOnly`). With two or more devices, a
-  device's own changes (its folds, and from step 3 its sections and
-  shortcuts) go into its profile (`devices`); with one, the flat keys as
-  before (`docs/design/multi-device.md`). New UI
+  device's own changes (its folds, sections, shortcuts, bar indicators)
+  go into its profile (`devices`), as do every device's nickname, icon,
+  place in the bar and tab; with one device, everything but its nickname
+  and icon stays in the flat keys (`docs/design/multi-device.md`). New UI
   state follows the same path unless it is private: unsent message drafts
   stay in memory (they are message text) and read state lives in the cache.
   Deliberately fresh on every open: the panel opens on its main page, on
@@ -141,15 +142,23 @@ Keep them; change one only with the owner.
   folded Shortcuts become a row of icons that still work.
   Every section, on the main page and in settings, uses the same
   `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
-- **Sections move without being rebuilt.** Devices, Shortcuts, Now playing
-  and Notifications are fixed items placed by `sectionOrder`
+- **Sections move without being rebuilt.** Shortcuts, Now playing and
+  Notifications are fixed items placed by `sectionOrder`
   (`sectionsBox`), so a new order keeps the media cards and a half-typed
   text. `stackBefore`/`stackAfter` are not callable from QML; do not reach
   for them. A separator goes between sections, never under the header.
 - **A section shows when its Layout switch is on and it has something:**
-  Devices only when there is a choice (a second paired device, one to pair
-  with, or a request), Now playing while a player exists, Notifications
-  while there are any (no empty state). Unpair asks twice.
+  Now playing while a player exists, Notifications while there are any (no
+  empty state). There is no Devices section: tabs switch devices, the
+  pairing card answers requests, and Settings' device list pairs, orders
+  and unpairs (Unpair asks twice).
+- **Each device's settings are its own** (`docs/design/multi-device.md`):
+  with two or more devices, Settings lists them; a device's page edits its
+  nickname, icon, place in the bar, tab, and any group it changes (marked
+  CUSTOM, with *use the defaults*); *Defaults for all devices* edits the
+  flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
+  one device, Settings is one flat page. Moving a device writes down how
+  each one shows in the bar, so moving never changes it.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.

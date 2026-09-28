@@ -18,6 +18,15 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   *Accept* and *Reject*.
 - The open-panel mark under the pill spans every chip (#67).
 - IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
+- Settings for devices (#74): a nickname and an icon for each device, used
+  in the bar and the tabs. With several devices, Settings lists them
+  (move with the arrows or Shift+K / Shift+J; pair, accept and reject
+  there too); each has its own page: nickname, icon, whether it shows in
+  the bar (always, only with news, never), whether it has a tab, and its
+  own layout, bar and shortcuts, marked CUSTOM with *use the defaults*.
+  *Defaults for all devices* sets the rest. Unpair is on the device's page.
+- The Devices section is gone from the main page: tabs, the pairing card
+  and Settings do its work.
 
 ## 0.6.1 — 2026-09-28
 

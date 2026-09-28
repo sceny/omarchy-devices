@@ -15,9 +15,8 @@
   and opens a link there; Ctrl+Enter sends it as a ping.
 - **Several devices:** a tab each at the top, and a chip each in the bar
   (the first always, the others when they have news). A device asking to
-  pair shows a card with Accept and Reject.
-- **Devices:** switch between paired devices, pair, accept or reject a
-  request. Shown only when there is a choice.
+  pair shows a card with Accept and Reject. Pair, order and unpair them in
+  [Settings](settings.md).
 - A click that goes to the phone turns into a small ring until the phone
   answers.
 

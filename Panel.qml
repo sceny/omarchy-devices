@@ -36,7 +36,6 @@ Panel {
 
   // Layout settings, from this widget's shell.json entry. Written only by the
   // settings page (persistSettings), read everywhere else.
-  readonly property bool showDevices: Model.layoutFlag(setting("showDevices", true))
   // The viewed device's profile (Service.profile): its sections, their
   // order and its shortcuts, its own changes over the defaults.
   readonly property var profile: phone ? phone.profile : Model.resolveProfile(Model.readSettings(settings), null, true)
@@ -391,12 +390,7 @@ Panel {
   }
   property int notifIndex: 0
 
-  // Every device KDE Connect knows, for the Devices section.
-  readonly property var deviceRows: Model.deviceRows(snapshot, device ? device.id : "")
-  // Whether the Devices section has anything to offer (a choice or a request).
-  readonly property bool devicesWanted: Model.showDevicesSection(deviceRows)
-  property int deviceIndex: 0
-  // The device whose Unpair is armed (x once, then x again; or two clicks).
+  // The device whose Unpair is armed (two presses on Unpair).
   property string unpairArmed: ""
   Timer { id: unpairDisarm; interval: 3000; onTriggered: root.unpairArmed = "" }
 
@@ -486,9 +480,7 @@ Panel {
     composing = false
     composerFocused = false
     notifIndex = 0
-    deviceIndexCursor = 0
   }
-  property int deviceIndexCursor: 0
   function tabAt(i) { if (i >= 0 && i < tabDevices.length) switchDevice(tabDevices[i].id) }
   function tabStep(delta) {
     for (var i = 0; i < tabDevices.length; i++)
@@ -503,20 +495,11 @@ Panel {
     phone.report("Unpair " + row.name + "? Do it again to confirm", false)
   }
 
-  // Enter on a device row: the one thing it is waiting for.
-  function deviceMainAction(row) {
-    if (!row || !phone) return
-    if (row.incoming) phone.acceptPairing(row.id)
-    else if (!row.paired && !row.outgoing) phone.pairWith(row.id)
-    else if (row.paired && !row.current) selectDevice(row.id)
-  }
-
   readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // The sections drawn under the header, in the chosen order: switched on
-  // in Layout and with something in them. Devices shows while the device is
-  // away too (another one may be there to switch to).
+  // in Layout and with something in them, while the device is here.
   readonly property var drawnSections: {
     var s = []
     for (var i = 0; i < sectionOrder.length; i++) {
@@ -867,10 +850,6 @@ Panel {
         return
       }
     }
-    if (focusSection === "devices" && !isCollapsed("devices")) {
-      var nd = deviceIndex + dy
-      if (nd >= 0 && nd < deviceRows.length) { deviceIndex = nd; return }
-    }
     if (focusSection === "notifications" && !isCollapsed("notifications")) {
       var next = notifIndex + dy
       if (next >= 0 && next < notifications.length) { notifIndex = next; scrollToCursor(); return }
@@ -880,18 +859,16 @@ Panel {
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
     if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
-    if (focusSection === "devices") deviceIndex = dy > 0 ? 0 : deviceRows.length - 1
     scrollToCursor()
   }
 
   function activateCursor() {
     ensureCursor()
     // A folded section opens on Enter; its content is not there to act on.
-    if ((focusSection === "devices" || focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
+    if ((focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
       return
     }
-    if (focusSection === "devices") { deviceMainAction(deviceRows[deviceIndex]); return }
     if (focusSection === "actions") {
       var a = actions[actionIndex]
       if (a && a.enabled) runAction(a.key)
@@ -1064,7 +1041,7 @@ Panel {
         pill: root.phone ? root.phone.pill.chips.map(function(c) { return { id: c.id, text: c.text, bubble: c.bubble, dimmed: c.dimmed } }) : [],
         resting: root.phone ? root.phone.pill.resting : null, pairing: root.phone ? root.phone.pill.pairing : false })
     }
-    function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
+    function devices(): string { return JSON.stringify(Model.devicesListRows(root.snapshot, root.profilesRead, root.lowPercent).map(function(r) { return r.kind + ":" + r.title + ":" + r.status.split(" ·")[0] })) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
     function pageState(): string {
       return JSON.stringify({ target: root.targetPage, shown: root.shownPage, running: pageSwap.running,
@@ -1202,12 +1179,6 @@ Panel {
         else root.activateCursor()
       }
       onDeleteRequested: {
-        if (root.mainView && root.cursorActive && root.focusSection === "devices" && !root.isCollapsed("devices")) {
-          var dr = root.deviceRows[root.deviceIndex]
-          if (dr && (dr.incoming || dr.outgoing)) root.phone.rejectPairing(dr.id)
-          else root.armOrUnpair(dr)
-          return
-        }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
           var n = root.notifications[root.notifIndex]
           if (n && n.dismissable) root.phone.dismiss(n)
@@ -1635,7 +1606,7 @@ Panel {
               //      nothing: the media cards and a half-typed text keep their state ----
               Item {
                 id: sectionsBox
-                readonly property var items: ({ devices: devicesColumn, actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
                 readonly property real gap: Style.space(12)
                 function topOf(key) {
                   var y = 0
@@ -1654,54 +1625,6 @@ Panel {
                   return h
                 }
                 implicitHeight: height
-
-                // ---- Devices: only when there is a choice or a decision ----
-                Column {
-                  id: devicesColumn
-                  y: sectionsBox.topOf("devices")
-                  visible: root.showMain && root.drawnSections.indexOf("devices") >= 0
-                  width: parent.width
-                  spacing: Style.space(6)
-
-                  PanelSeparator { visible: root.separatedAbove("devices"); foreground: root.foreground }
-
-                  FoldToggle {
-
-                    foreground: root.foreground
-
-                    fontFamily: root.fontFamily
-
-                    motion: root.motion
-
-                    animate: root.settled
-                    width: parent.width
-                    title: "DEVICES · " + root.deviceRows.length
-                    folded: root.isCollapsed("devices")
-                    summary: Model.devicesSummary(root.deviceRows)
-                    onToggled: root.toggleCollapsed("devices")
-                  }
-
-                  FoldBody {
-
-                    motion: root.motion
-
-                    animate: root.settled
-                    id: deviceColumn
-                    open: !root.isCollapsed("devices")
-                    spacing: Style.space(4)
-
-                    Repeater {
-                      model: root.deviceRows
-                      DeviceRow {
-                        required property var modelData
-                        required property int index
-                        width: deviceColumn.width
-                        row: modelData
-                        rowIndex: index
-                      }
-                    }
-                  }
-                }
 
                 // ---- Shortcuts: up to four per row, in the order chosen in settings.
                 //      Folded, a row of icons in the header that still work ----
@@ -2197,128 +2120,6 @@ Panel {
           }
         }
       }
-    }
-  }
-
-  // A section header that folds: chevron, title, and in place of the
-  // content, one line saying what is in it.
-  component DeviceRow: CursorSurface {
-    id: drow
-    property var row: ({})
-    property int rowIndex: 0
-    readonly property bool armed: root.unpairArmed === row.id
-    readonly property bool working: !!root.phone && (root.phone.isBusy("pair:" + row.id) || root.phone.isBusy("accept:" + row.id)
-      || root.phone.isBusy("reject:" + row.id) || root.phone.isBusy("unpair:" + row.id))
-
-    hasCursor: root.cursorActive && root.focusSection === "devices" && root.deviceIndex === rowIndex
-    current: row.current === true
-    foreground: root.foreground
-    implicitHeight: drowContent.implicitHeight + Style.space(12)
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: drow.row.paired && !drow.row.current ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "devices"; root.deviceIndex = drow.rowIndex }
-      onClicked: if (drow.row.paired && !drow.row.current) root.selectDevice(drow.row.id)
-    }
-
-    RowLayout {
-      id: drowContent
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(10)
-      anchors.rightMargin: Style.space(8)
-      spacing: Style.space(10)
-
-      Text {
-        text: drow.row.glyph || ""
-        color: root.foreground
-        opacity: drow.row.reachable ? 1.0 : 0.5
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading
-      }
-
-      ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Style.space(1)
-        Text {
-          Layout.fillWidth: true
-          textFormat: Text.PlainText
-          text: drow.row.name || ""
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: drow.row.current === true
-          elide: Text.ElideRight
-        }
-        Text {
-          Layout.fillWidth: true
-          textFormat: Text.PlainText
-          text: (drow.row.status || "") + (drow.row.key ? " · Key " + drow.row.key : "")
-          color: drow.row.incoming ? root.foreground : root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-      }
-
-      Row {
-        id: drowButtons
-        spacing: Style.space(6)
-        Layout.alignment: Qt.AlignVCenter
-        opacity: drow.working ? 0 : 1.0
-        enabled: !drow.working
-        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
-
-
-        Button {
-          visible: drow.row.incoming === true
-          text: "Accept"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.acceptPairing(drow.row.id)
-        }
-        Button {
-          visible: drow.row.incoming === true || drow.row.outgoing === true
-          text: drow.row.incoming ? "Reject" : "Cancel"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.rejectPairing(drow.row.id)
-        }
-        Button {
-          visible: !drow.row.paired && !drow.row.incoming && !drow.row.outgoing
-          text: "Pair"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.pairWith(drow.row.id)
-        }
-        Button {
-          visible: drow.row.paired === true && !drow.row.incoming
-          text: drow.armed ? "Unpair?" : "Unpair"
-          tooltipText: drow.armed ? "Click again to unpair" : ""
-          foreground: drow.armed ? root.urgent : root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.armOrUnpair(drow.row)
-        }
-      }
-    }
-
-    // Over the buttons, outside the layout, so nothing in the row moves.
-    WaitRing {
-      x: drowContent.x + drowButtons.x + (drowButtons.width - width) / 2
-      y: drowContent.y + drowButtons.y + (drowButtons.height - height) / 2
-      running: drow.working
-      motion: root.motion
-      color: root.foreground
-      size: Math.round(Style.font.icon * 0.8)
     }
   }
 

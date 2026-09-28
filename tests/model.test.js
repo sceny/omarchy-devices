@@ -246,27 +246,6 @@ test("one pace for motion", () => {
 })
 
 
-test("devices: rows ranked by what needs doing, section only when there is a choice", () => {
-  const one = snap(device({ id: "a" }))
-  assert.equal(M.showDevicesSection(M.deviceRows(one, "a")), false, "one device: no section")
-  const rows = M.deviceRows(snap(
-    device({ id: "a", name: "Pixel 8" }),
-    device({ id: "b", name: "Tab", type: "tablet", reachable: false }),
-    { id: "c", name: "Laptop", type: "laptop", paired: false, reachable: true },
-    { id: "d", name: "New", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "ABCD" }
-  ), "a")
-  assert.deepEqual(rows.map(r => r.id), ["d", "a", "b", "c"])
-  assert.equal(rows[0].incoming, true)
-  assert.equal(rows[0].key, "ABCD")
-  assert.equal(rows[1].current, true)
-  assert.match(rows[1].status, /^Connected · Wi-Fi · 63%$/)
-  assert.equal(rows[2].status, "Away")
-  assert.equal(rows[3].status, "Available to pair")
-  assert.equal(M.showDevicesSection(rows), true)
-  assert.equal(M.devicesSummary(rows), "New wants to pair")
-  assert.equal(M.devicesSummary(rows.slice(1)), "Pixel 8 · Connected · Wi-Fi · 63%")
-})
-
 test("collapsed sections: one-line summaries and a safe folded state", () => {
   assert.equal(M.mediaSummary("Ep 2", "Ep 2", "Podcasts"), "Ep 2 · Podcasts")
   assert.equal(M.mediaSummary("Song", "Band", "Music"), "Song · Band · Music")
@@ -278,8 +257,10 @@ test("collapsed sections: one-line summaries and a safe folded state", () => {
 })
 
 test("demo devices cover requests, away and available", () => {
-  const rows = M.deviceRows(M.demoSnapshot(null, "devices"), "demo")
-  assert.deepEqual(rows.map(r => r.status.split(" ·")[0]), ["Wants to pair", "Connected", "Away", "Available to pair"])
+  const rows = M.devicesListRows(M.demoSnapshot(null, "devices"), M.readSettings({}), 15)
+  assert.deepEqual(rows.map(r => [r.kind, r.title]),
+    [["device", "Pixel 8"], ["device", "Galaxy Tab"], ["request", "Pixel Tablet"], ["available", "Work laptop"]], "asking to pair before in reach")
+  assert.equal(rows[1].status, "Away")
 })
 
 test("folded settings sections say what is in them", () => {
