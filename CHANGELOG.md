@@ -29,7 +29,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   *Defaults for all devices* sets the rest. Unpair is on the device's page.
 - The Devices section is gone from the main page: tabs, the pairing card
   and Settings do its work.
-- Edit the page in place (✎ on the device's header, or `E`): each section
+- Edit the page in place (✎ on hovering the device's name, a right-click
+  on the page, or `E`): each section
   becomes a bar to drag or switch off, every shortcut shows (drag the
   chosen ones, click to add or take one away), and ✓ Done ends it. Each
   device keeps its own; a device's page in Settings points there, and

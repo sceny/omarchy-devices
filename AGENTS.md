@@ -158,7 +158,9 @@ Keep them; change one only with the owner.
 - **A section shows when its switch is on and it has something:** Now
   playing while a player exists, Notifications while there are any (no
   empty state).
-- **A device's page is edited in place** (✎ on its header, or `E`): every
+- **A device's page is edited in place** (✎, shown only while the pointer
+  is on the device's header so the page has no chrome at rest; a
+  right-click on the page, KDE's *Enter Edit Mode* idiom; or `E`): every
   section becomes a bar with its grip and switch, every shortcut shows
   (drag the chosen ones, click to add or take away), and ✓ Done, `E` or
   Esc ends it. It edits the viewed device's profile (with one device, the

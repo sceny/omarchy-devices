@@ -443,7 +443,10 @@ A device's row opens its page:
 ### 8.4 Editing a device's page in place *(Decided)*
 
 A device's sections and shortcuts are edited on its own page, not in
-Settings: ✎ on the device's header (or `E`) turns the page into its editor.
+Settings: ✎ on the device's header turns the page into its editor. ✎ shows
+only while the pointer is on that header, so the page has no chrome at rest;
+a right-click on the page (KDE's *Enter Edit Mode* idiom) and `E` open it
+too.
 
 - Each section becomes a bar: its grip, its name, what it holds now (or
   when it would show), and its switch. Every section shows while editing,

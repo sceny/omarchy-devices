@@ -15,8 +15,9 @@
 - **Several devices:** a tab each, and a chip each in the bar (the first
   always, the others with news). A device asking to pair shows a card.
   Pair, order and unpair in [Settings](settings.md).
-- **✎ Edit the page:** drag or switch off sections; drag, add or take
-  away shortcuts. ✓ when done. Each device keeps its own.
+- **Edit the page** (✎ on hovering the device's name, right-click the
+  page, or `E`): drag or switch off sections; drag, add or take away
+  shortcuts. ✓ when done. Each device keeps its own.
 - A click that goes to the phone turns into a small ring until the phone
   answers.
 

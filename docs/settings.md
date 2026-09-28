@@ -11,7 +11,8 @@ Press `s` or the cog.
   first opens with the panel). Open one for its nickname, icon, place in
   the bar (always, with news, never) and tab. Devices asking to pair or in
   reach show there too.
-- **Sections and shortcuts** are edited on the page itself (✎).
+- **Sections and shortcuts** are edited on the page itself (hover the
+  device's name for ✎, or right-click the page).
   *Defaults for all devices* sets them for devices that did not change
   them.
 - **Folds:** any section folds to one line; folded shortcuts still work as
