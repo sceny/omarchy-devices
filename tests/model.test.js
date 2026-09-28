@@ -544,3 +544,23 @@ test("orders: the shown order only, a place and a count per row, and a move onto
   assert.deepEqual(M.moveTo(["a", "b"], "a", "z"), ["a", "b"])
   assert.deepEqual(M.moveShortcut(M.visibleSections(["devices", "actions", "media"]), "media", -1), ["media", "actions", "notifications"])
 })
+
+test("moving an item: where it lands, how far the others slide, how far it glides", () => {
+  const rows = () => 50, gap = 6            // three rows of 50, 6 apart: 56 each
+  assert.equal(M.reorderTarget(1, 0, 3, rows, gap), 1)
+  assert.equal(M.reorderTarget(1, 27, 3, rows, gap), 1, "not past the next row's middle")
+  assert.equal(M.reorderTarget(1, 29, 3, rows, gap), 2, "past it: its place")
+  assert.equal(M.reorderTarget(1, 500, 3, rows, gap), 2, "never past the end")
+  assert.equal(M.reorderTarget(1, -29, 3, rows, gap), 0)
+  assert.equal(M.reorderTarget(0, -500, 3, rows, gap), 0)
+  // The middle one of three, down one: the bottom one slides up, the top stays.
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, 1, 2, 56)), [0, 0, -56])
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, 2, 0, 56)), [56, 56, 0], "the last to the top: both slide down")
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, -1, -1, 56)), [0, 0, 0], "nothing moving")
+  assert.equal(M.reorderOffset(1, 2, rows, gap), 56)
+  assert.equal(M.reorderOffset(2, 0, rows, gap), -112)
+  // Tabs of different widths: the glide covers the widths it passes.
+  const tabs = i => [80, 140, 100][i]
+  assert.equal(M.reorderOffset(0, 2, tabs, 4), 140 + 4 + 100 + 4)
+  assert.equal(M.reorderTarget(0, 80, 3, tabs, 4), 1, "past the middle of the 140 wide tab")
+})

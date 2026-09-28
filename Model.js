@@ -1267,3 +1267,42 @@ function movedOrder(snapshot, settings, id, delta) {
   var ids = orderedDevices(snapshot, settings).map(function(d) { return String(d.id) })
   return moveShortcut(ids, String(id), delta)
 }
+
+// ---- Moving an item in an order (Reorder.qml) ----
+// `extent(i)` is item i's size along the axis; `gap` the space between two.
+
+// Where an item dragged by `off` from its place `from` would land: past an
+// item once it is past that item's middle.
+function reorderTarget(from, off, count, extent, gap) {
+  var t = from, edge = 0
+  if (off > 0) {
+    for (var i = from + 1; i < count; i++) {
+      edge += extent(i) + gap
+      if (off > edge - (extent(i) + gap) / 2) t = i; else break
+    }
+  } else if (off < 0) {
+    for (var j = from - 1; j >= 0; j--) {
+      edge -= extent(j) + gap
+      if (off < edge + (extent(j) + gap) / 2) t = j; else break
+    }
+  }
+  return t
+}
+
+// How far the moving item travels from `a` to land at `b`: the sizes of the
+// items it passes.
+function reorderOffset(a, b, extent, gap) {
+  var x = 0
+  for (var i = a + 1; i <= b; i++) x += extent(i) + gap
+  for (var j = b; j < a; j++) x -= extent(j) + gap
+  return x
+}
+
+// How far item `i` slides aside while the one at `from` would land at `to`:
+// by the moving item's size (`step`, its size plus the gap).
+function reorderShift(i, from, to, step) {
+  if (from < 0 || i === from) return 0
+  if (to > from && i > from && i <= to) return -step
+  if (to < from && i < from && i >= to) return step
+  return 0
+}

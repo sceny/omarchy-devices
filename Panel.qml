@@ -481,45 +481,9 @@ Panel {
     composerFocused = false
     notifIndex = 0
   }
-  // Dragging a tab: where it would land (its index once dropped, among the
-  // tabs), from where the dragged tab's middle is.
-  property int tabDropIndex: -1
-  property int tabDragFrom: -1
-  property real tabDragWidth: 0
-  property bool tabCommitting: false
-  // How far tab `i` slides aside for the dragged one (to show the gap).
-  function tabShift(i) {
-    if (tabDragFrom < 0 || tabDropIndex < 0 || i === tabDragFrom) return 0
-    var step = tabDragWidth + Style.space(4)
-    if (tabDropIndex > tabDragFrom && i > tabDragFrom && i <= tabDropIndex) return -step
-    if (tabDropIndex < tabDragFrom && i < tabDragFrom && i >= tabDropIndex) return step
-    return 0
-  }
-  // Where the dragged tab ends up, from its own place: the widths it passes.
-  function tabOffset(from, to) {
-    var x = 0
-    if (to > from) for (var i = from + 1; i <= to; i++) { var a = tabRepeaterItem(i); if (a) x += a.width + Style.space(4) }
-    if (to < from) for (var j = to; j < from; j++) { var b = tabRepeaterItem(j); if (b) x -= b.width + Style.space(4) }
-    return x
-  }
-  function tabTarget(from, dx) {
-    tabDragFrom = from
-    var me = tabRepeaterItem(from)
-    if (!me) return from
-    var middle = me.x + me.width / 2 + dx
-    var k = 0
-    for (var i = 0; i < tabDevices.length; i++) {
-      if (i === from) continue
-      var t = tabRepeaterItem(i)
-      if (t && t.x + t.width / 2 < middle) k++
-    }
-    return k
-  }
-  function tabRepeaterItem(i) { return tabStrip && tabStrip.tabItem ? tabStrip.tabItem(i) : null }
   // A tab dropped at `to`: its device moves there among the tabs; devices
   // without a tab keep their places in the order.
   function dropTab(from, to) {
-    tabDragFrom = -1
     if (from === to || from < 0 || !phone) return
     var tabIds = tabDevices.map(function(d) { return String(d.id) })
     var moved = tabIds.splice(from, 1)[0]
@@ -1273,14 +1237,10 @@ Panel {
         if (t === "m") { root.openMessagesView(-1); return }
         if (root.settingsOpen) {
           var row = root.settingsRows[root.settingsIndex]
-          if (root.cursorActive && row && row.kind === "shortcut" && row.on && (t === "K" || t === "J"))
-            root.moveShortcutKey(row.key, t === "K" ? -1 : 1)
-          else if (root.cursorActive && row && row.kind === "layout" && (t === "K" || t === "J"))
-            root.moveSectionKey(row.section, t === "K" ? -1 : 1)
-          else if (root.cursorActive && row && row.kind === "bar" && row.on && (t === "K" || t === "J"))
-            root.moveBarIndicator(row.key, t === "K" ? -1 : 1)
-          else if (root.cursorActive && row && row.kind === "device" && (t === "K" || t === "J"))
-            root.moveDevice(row.id, t === "K" ? -1 : 1)
+          // Shift+K / Shift+J glide the row like its arrows (Reorder).
+          if (root.cursorActive && row && (t === "K" || t === "J")
+              && (row.kind === "device" || row.kind === "layout" || ((row.kind === "shortcut" || row.kind === "bar") && row.on)))
+            settingsView.glideMove(row.kind, row.pos, t === "K" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
@@ -1549,37 +1509,12 @@ Panel {
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
-                  // Drag a tab sideways to move its device in the order; a
-                  // click still selects it (the drag starts past a threshold).
-                  // The other tabs slide aside to show where it goes; on
-                  // release it glides into the gap, and only then is the
-                  // order written (the row rebuilt where it already shows).
-                  property real dragX: 0
-                  readonly property bool moving: tabDrag.active || tabSettle.running
-                  transform: Translate {
-                    x: tab.moving ? tab.dragX : root.tabShift(tab.index)
-                    Behavior on x {
-                      enabled: !root.tabCommitting && !tab.moving
-                      NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
-                    }
-                  }
-                  z: tab.moving ? 5 : 0
-                  NumberAnimation {
-                    id: tabSettle
-                    target: tab
-                    property: "dragX"
-                    duration: Model.MOTION.inMs * root.motion
-                    easing.type: Easing.OutCubic
-                    onFinished: {
-                      var from = tab.index, to = root.tabDropIndex
-                      root.tabCommitting = true
-                      root.tabDropIndex = -1
-                      tab.dragX = 0
-                      // Rebuilds the tabs (this one with them): the last use of it.
-                      root.dropTab(from, to)
-                      root.tabCommitting = false
-                    }
-                  }
+                  // Drag a tab sideways to move its device in the order (a
+                  // click still selects it: the drag starts past a threshold).
+                  // The others slide aside; it glides in on release (Reorder).
+                  readonly property bool moving: tabOrder.from === tab.index
+                  transform: ReorderShift { order: tabOrder; index: tab.index }
+                  z: moving ? 5 : 0
                   // Solid while dragged, so the tab it passes over never shows
                   // through; otherwise the kit's own fills (hover, selected).
                   color: tab.moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
@@ -1590,19 +1525,10 @@ Panel {
                     target: null
                     yAxis.enabled: false
                     grabPermissions: PointerHandler.CanTakeOverFromAnything
-                    onTranslationChanged: if (active) { tab.dragX = translation.x; root.tabDropIndex = root.tabTarget(tab.index, tab.dragX) }
+                    onTranslationChanged: if (active) tabOrder.dragTo(translation.x)
                     onActiveChanged: {
-                      if (active) {
-                        root.tabDragFrom = tab.index
-                        root.tabDragWidth = tab.width
-                        root.tabDropIndex = tab.index
-                        return
-                      }
-                      var to = root.tabTarget(tab.index, tab.dragX)
-                      root.tabDropIndex = to
-                      tabSettle.from = tab.dragX
-                      tabSettle.to = root.tabOffset(tab.index, to)
-                      tabSettle.restart()
+                      if (active) tabOrder.begin(tab.index, tab.width)
+                      else tabOrder.release()
                     }
                   }
                 }
@@ -1618,7 +1544,17 @@ Panel {
               else if (item.x + item.width + pad > contentX + width) glideTo(item.x + item.width + pad - width)
             }
             readonly property real tabArrowWidth: Style.space(28)
-            function tabItem(i) { return tabRepeater.itemAt(i) }
+
+            // The tabs' order, moved by dragging a tab (sideways).
+            Reorder {
+              id: tabOrder
+              axis: "x"
+              count: root.tabDevices.length
+              gap: tabRow.spacing
+              motion: root.motion
+              extentOf: function(i) { var t = tabRepeater.itemAt(i); return t ? t.width : 0 }
+              onMoved: function(a, b) { root.dropTab(a, b) }
+            }
           }
 
           // The arrows: at an edge with more tabs beyond it, over a fade into
