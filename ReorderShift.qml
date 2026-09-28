@@ -11,9 +11,10 @@ Translate {
 
   readonly property bool isMoving: !!order && index >= 0 && order.from === index
   readonly property real value: !order || index < 0 ? 0 : (isMoving ? order.offset : order.shift(index))
+  readonly property bool inGrid: !!order && order.grid && index >= 0
 
-  x: order && order.axis === "x" ? value : 0
-  y: order && order.axis === "y" ? value : 0
+  x: inGrid ? (isMoving ? order.offsetX : order.shiftX(index)) : (order && order.axis === "x" ? value : 0)
+  y: inGrid ? (isMoving ? order.offsetY : order.shiftY(index)) : (order && order.axis === "y" ? value : 0)
 
   Behavior on x {
     enabled: !!place.order && !place.order.committing && !place.isMoving
