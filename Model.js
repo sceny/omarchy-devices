@@ -1253,7 +1253,7 @@ function settingsPageRows(ctx) {
     // that. The defaults, with no page of their own, keep them here.
     var onPage = scope === "device" || (scope === "root" && ctx.single)
     if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections and shortcuts",
-                            hint: "Edit them on the page: open, hide and drag them where they are" })
+                            hint: "Edited on the page itself (✎)" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.
