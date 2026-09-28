@@ -67,7 +67,7 @@ Item {
     glide.restart()
   }
 
-  // The arrows and the keyboard: one step, gliding like a drop.
+  // The keyboard: one step, gliding like a drop.
   function step(i, delta, size) {
     if (moving || i < 0 || i >= count) return
     var t = Math.max(0, Math.min(count - 1, i + delta))
