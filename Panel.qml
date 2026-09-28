@@ -1537,8 +1537,11 @@ Panel {
                   property real dragX: 0
                   transform: Translate { x: tab.dragX }
                   z: tabDrag.active ? 5 : 0
-                  // Solid while dragged, so the tab it passes over never shows through.
-                  background: tabDrag.active ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent)) : "transparent"
+                  // Solid while dragged, so the tab it passes over never shows
+                  // through; otherwise the kit's own fills (hover, selected).
+                  color: tabDrag.active ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+                    : hot ? Style.hoverFillFor(root.foreground, Color.accent)
+                    : selected ? Style.selectedFillFor(root.foreground, Color.accent) : "transparent"
                   DragHandler {
                     id: tabDrag
                     target: null
