@@ -3,6 +3,20 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## 0.6.1 — 2026-09-28
+
+### Docs
+- A new picture for the marketplace and the README: the pill in the bar,
+  the panel with shortcuts, Now playing and notifications, and the
+  messages view, in one shot.
+- A one-screen README, a short user guide (getting started, the panel,
+  messages, settings, troubleshooting) and the technical pages apart.
+
+### Fixed
+- Demo mode shows every feature even while the real phone is away: the
+  messages view no longer refuses to open, and the shortcuts are no
+  longer dimmed.
+
 ## 0.6.0 — 2026-09-27
 
 ### Panel
