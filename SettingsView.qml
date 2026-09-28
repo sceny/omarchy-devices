@@ -33,6 +33,9 @@ Column {
   property bool unpairArmed: false
   property string deviceName: ""
   property var phone: null
+  // The panel's own background: a dragged row is painted solid over it, so
+  // it never shows the row it passes over through itself.
+  property color panelBackground: Color.background
   property real motion: 1
   property bool animate: true
   function isFolded(key) { return collapsed[key] === true }
@@ -514,7 +517,9 @@ Column {
     height: 2
     radius: 1
     color: Color.accent
-    y: grip ? grip.steps * grip.pitch - grip.dragY + (grip.steps > 0 ? parent.height + grip.gap / 2 : -grip.gap / 2) - 1 : 0
+    // Down: on the target row's lower edge (a group clips anything below its
+    // last row); up: in the gap above the target row.
+    y: grip ? grip.steps * grip.pitch - grip.dragY + (grip.steps > 0 ? parent.height - height : -grip.gap / 2 - 1) : 0
   }
 
   // A row of the device list (a device, one asking to pair, one in reach),
@@ -530,6 +535,7 @@ Column {
     implicitHeight: listContent.implicitHeight + Style.space(12)
     transform: Translate { y: listGrip.dragY }
     z: listGrip.dragging ? 10 : 0
+    color: listGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
     DropLine { grip: listGrip }
 
     MouseArea {
@@ -814,6 +820,7 @@ Column {
     implicitHeight: layoutContent.implicitHeight + Style.space(12)
     transform: Translate { y: layoutGrip.dragY }
     z: layoutGrip.dragging ? 10 : 0
+    color: layoutGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
     DropLine { grip: layoutGrip }
 
     MouseArea {
@@ -913,6 +920,7 @@ Column {
     implicitHeight: shortcutContent.implicitHeight + Style.space(10)
     transform: Translate { y: shortcutGrip.dragY }
     z: shortcutGrip.dragging ? 10 : 0
+    color: shortcutGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
     DropLine { grip: shortcutGrip }
 
     MouseArea {

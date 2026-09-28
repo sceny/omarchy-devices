@@ -2158,6 +2158,7 @@ Panel {
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
                 phone: root.phone
+                panelBackground: root.bar ? root.bar.background : Color.background
                 onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
                 onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
                 onNicknameSet: function(text) {
