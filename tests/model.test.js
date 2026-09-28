@@ -598,3 +598,53 @@ test("editing in place: the grid moves, and every shortcut shows", () => {
   assert.equal(tiles.length, M.SHORTCUTS.length, "every shortcut, the rest to add")
   assert.ok(tiles.slice(2).every(t => !t.chosen && t.pos === -1))
 })
+
+test("calls: ringing for RING_MS at most, missed until closed or MISSED_MS", () => {
+  const at = 1_000_000
+  const ringing = device({ call: { event: "ringing", number: "+15145550123", name: "Alex Rivera", at } })
+  const c = M.callState(ringing, at + 1000, 0)
+  assert.deepEqual([c.state, c.who, c.detail], ["ringing", "Alex Rivera", "+1 514-555-0123"])
+  assert.equal(M.callState(ringing, at + M.RING_MS + 1, 0), null, "no end signal: ringing runs out")
+  assert.equal(M.callState(ringing, at + 1000, at), null, "closed")
+  assert.equal(M.callState(device({ reachable: false, call: ringing.call }), at, 0), null, "away: nothing stale")
+  const missed = device({ call: { event: "missed", number: "+15145550123", name: "", at } })
+  const m = M.callState(missed, at + M.RING_MS + 1, 0)
+  assert.deepEqual([m.state, m.who, m.detail], ["missed", "+1 514-555-0123", ""])
+  assert.equal(M.callState(missed, at + M.MISSED_MS + 1, 0), null)
+  assert.equal(M.callState(device({ call: { event: "talking", at } }), at, 0), null)
+  assert.equal(M.callState(device({ call: { event: "ringing", number: "", name: "", at } }), at, 0).who, "Unknown number")
+  assert.equal(M.callExpiresIn(c, at + 1000), M.RING_MS - 1000)
+  assert.equal(M.callExpiresIn(null, at), -1)
+  const demo = device({ call: M.demoCall("ringing", at) })
+  assert.equal(M.callState(demo, at + M.RING_MS * 10, 0).state, "ringing", "a demo call rings until closed")
+  assert.equal(M.callExpiresIn(M.callState(demo, at, 0), at), -1)
+  assert.equal(M.callState(demo, at, at), null)
+  assert.equal(M.callHeading(c), "INCOMING CALL")
+  assert.equal(M.RING_BEAT.waveMs, M.MOTION.outMs, "the waves light on the plugin's pace")
+  assert.equal(M.ringMs(), 3 * M.MOTION.outMs + M.MOTION.inMs)
+  assert.deepEqual(M.ringPhases().map(p => [p.lit, p.ms]),
+    [[true, M.ringMs()], [false, M.RING_BEAT.gapMs], [true, M.ringMs()], [false, M.RING_BEAT.restMs]])
+  assert.match(M.callHeading(m), /^MISSED CALL · \d\d:\d\d$/)
+})
+
+test("calls lead the bar text and the tooltip", () => {
+  const P = M.GLYPH.phone
+  const c = { state: "ringing", who: "Alex Rivera" }
+  assert.equal(M.barText(device(), ["percent"], { call: c }), [P, M.GLYPH.callRing, "63%"].join(" "))
+  assert.equal(M.barText(device(), [], { call: { state: "missed" } }), P + " " + M.GLYPH.callMissed)
+  assert.equal(M.barText(device({ reachable: false }), [], { call: c }), P)
+  assert.match(M.tooltip(snap(device()), device(), "", 0, c), /\nCall from Alex Rivera/)
+})
+
+test("calls with several devices: the card shows a ringing one first, else the latest missed; a call leads its chip", () => {
+  const ringing = { state: "ringing", at: 5, device: "t1" }, missed = { state: "missed", at: 9, device: "p1" }
+  assert.equal(M.shownCall({ p1: missed, t1: ringing }, ["p1", "t1"]), ringing)
+  assert.equal(M.shownCall({ p1: missed, t1: { state: "missed", at: 3 } }, ["p1", "t1"]), missed)
+  assert.equal(M.shownCall({}, ["p1"]), null)
+  const s = M.readSettings({ deviceOrder: ["p1", "t1"], devices: { t1: { bar: "never" } } })
+  const pill = M.chips(snap(phone(), tablet()), s, { t1: { call: { state: "ringing" } } })
+  assert.deepEqual(pill.chips.map(c => [c.id, c.ringing]), [["p1", false], ["t1", true]], "a ringing device shows, even set Never")
+  assert.equal(pill.chips[1].parts[1].text, M.GLYPH.callRing, "the call leads, after the device's icon")
+  const flags = M.settingsRows({}, [], {}, null, [], true, false).filter(r => r.kind === "barFlag")
+  assert.deepEqual(flags.map(r => [r.key, r.on]), [["batteryLowOnly", true], ["showCalls", false]])
+})
