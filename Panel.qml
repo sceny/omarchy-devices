@@ -1324,13 +1324,17 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
+        // Room for the scroll bar: while the page is taller than the panel,
+        // it is laid out narrower by the bar and a gap, so nothing sits
+        // under the bar.
+        readonly property real gutter: contentHeight > height ? pageScrollBar.implicitWidth + Style.space(6) : 0
 
         Column {
           id: column
           // Laid out at the card's final width while the card itself is still
           // animating, so the page never re-flows during a page change.
-          width: panelFlick.width + (root.targetCardWidth - root.cardWidth)
+          width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - panelFlick.gutter
           spacing: Style.space(12)
 
           // ---- The pairing card: a device asking to pair, at the top, above
