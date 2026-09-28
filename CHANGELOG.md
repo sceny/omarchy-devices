@@ -3,6 +3,22 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## Unreleased
+
+- Several devices: with two or more paired devices, a tab each at the top
+  of the panel (`1`–`9`, Shift+H / Shift+L), and a chip each in the bar:
+  the first device always, the others while they have news (notifications,
+  unread messages, a low battery). Each chip has its own bubble; clicking
+  it opens the panel on that device. The panel opens on the first
+  connected device. Folded sections are kept per device. With one device,
+  nothing changes (#73).
+- The pill never disappears: with nothing to show (nothing paired, or
+  KDE Connect stopped) it keeps a devices glyph to click.
+- A device asking to pair shows a card over the panel with its key,
+  *Accept* and *Reject*.
+- The open-panel mark under the pill spans every chip (#67).
+- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
+
 ## 0.6.1 — 2026-09-28
 
 ### Docs
