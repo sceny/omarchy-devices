@@ -153,6 +153,23 @@ function normalizeSections(value) {
   return out
 }
 
+// The sections the page can show, in order: the Devices section is gone
+// from the page (tabs and Settings do its work), so it is never moved past.
+function visibleSections(value) {
+  return normalizeSections(value).filter(function(k) { return k !== "devices" })
+}
+
+// A list with `key` moved to `target`'s place: before it when moving up, after
+// it when moving down (a drop on another row). Unknown keys: unchanged.
+function moveTo(list, key, target) {
+  var from = list.indexOf(key), to = list.indexOf(target)
+  if (from < 0 || to < 0 || from === to) return list.slice()
+  var next = list.slice()
+  next.splice(from, 1)
+  next.splice(to, 0, key)
+  return next
+}
+
 function shortcutByKey(key) {
   for (var i = 0; i < SHORTCUTS.length; i++) if (SHORTCUTS[i].key === key) return SHORTCUTS[i]
   return null
@@ -214,13 +231,15 @@ function moveShortcut(order, key, delta) {
 // the layout switches in the sections' order, the bar indicators (chosen ones
 // in their order, then the rest) and the only-when-low option, the shortcuts
 // (the same way), then reset and the KDE Connect link.
+// Each row of an order carries `pos` (its place) and `count` (how many share
+// the order), for its arrows and for dragging it.
 function settingsRows(flags, order, can, sections, bar, lowOnly) {
   var rows = []
-  var sectionOrder = normalizeSections(sections)
+  var sectionOrder = visibleSections(sections)
   for (var i = 0; i < sectionOrder.length; i++) {
     var l = layoutBySection(sectionOrder[i])
     rows.push({ kind: "layout", key: l.key, section: l.section, label: l.label, hint: l.hint, on: layoutFlag(flags[l.key]),
-                first: i === 0, last: i === sectionOrder.length - 1 })
+                first: i === 0, last: i === sectionOrder.length - 1, pos: i, count: sectionOrder.length })
   }
   var chosen = bar ? normalizeBarIndicators(bar) : DEFAULT_BAR.slice()
   var others = []
@@ -230,7 +249,7 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     var ind = barIndicatorByKey(barKeys[n])
     var at = chosen.indexOf(ind.key)
     rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
-                first: at === 0, last: at === chosen.length - 1 })
+                first: at === 0, last: at === chosen.length - 1, pos: at, count: chosen.length })
   }
   // A switch, not a place in the pill: it decides when battery and % show.
   rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
@@ -242,7 +261,7 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     var s = shortcutByKey(keys[k])
     var pos = order.indexOf(s.key)
     rows.push({ kind: "shortcut", key: s.key, label: s.label, hint: s.hint, glyph: s.glyph, on: pos >= 0,
-                first: pos === 0, last: pos === order.length - 1,
+                first: pos === 0, last: pos === order.length - 1, pos: pos, count: order.length,
                 available: !can || s.needs === "" || can[s.needs] === true })
   }
   rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
@@ -829,7 +848,7 @@ function layoutSummary(flags, sections) {
   var on = []
   // The Devices section is gone from the main page (tabs and Settings do
   // its work), so it is not counted.
-  var shown = sectionOrder.filter(function(k) { return k !== "devices" })
+  var shown = visibleSections(sectionOrder)
   for (var i = 0; i < shown.length; i++) {
     var l = layoutBySection(shown[i])
     if (layoutFlag(flags[l.key])) on.push(l.label)
@@ -1152,7 +1171,7 @@ function devicesListRows(snapshot, settings, lowPercent) {
     var p = resolveProfile(settings, d, i === 0)
     rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
                 status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : "Away",
-                away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1 })
+                away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1, pos: i, count: ordered.length })
   }
   // Asking to pair first (they wait on the user), then those in reach.
   var list = snapshot && snapshot.devices ? snapshot.devices : []

@@ -566,7 +566,8 @@ Panel {
   }
 
   function moveSectionKey(section, delta) {
-    persistScoped({ sectionOrder: Model.moveShortcut(editProfile.sectionOrder, section, delta) })
+    // The order as shown (the Devices section is not on the page any more).
+    persistScoped({ sectionOrder: Model.moveShortcut(Model.visibleSections(editProfile.sectionOrder), section, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
