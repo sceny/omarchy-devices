@@ -111,16 +111,23 @@ Keep them; change one only with the owner.
 - **UI state persists.** What the user arranged is still there after the
   panel closes, the shell restarts or the machine reboots, stored in this
   widget's `shell.json` entry: folded sections, main page and settings (`collapsed`), section
-  visibility and order (`sectionOrder`), shortcuts, bar indicators, the followed device (`deviceId`), and the
-  conversation last open in messages, per device (`lastThread`), and the
-  messages unread filter (`unreadOnly`). New UI
+  visibility and order (`sectionOrder`), shortcuts, bar indicators, the
+  device order (`deviceOrder`; an old `deviceId` is read as its first
+  place), the conversation last open in messages, per device (`lastThread`), and the
+  messages unread filter (`unreadOnly`). With two or more devices, a
+  device's own changes (its folds, and from step 3 its sections and
+  shortcuts) go into its profile (`devices`); with one, the flat keys as
+  before (`docs/design/multi-device.md`). New UI
   state follows the same path unless it is private: unsent message drafts
   stay in memory (they are message text) and read state lives in the cache.
-  Deliberately fresh on every open: the panel opens on its main page, the
-  media carousel on the active player, search empty, nothing focused.
+  Deliberately fresh on every open: the panel opens on its main page, on
+  the device asked for (a chip, IPC) else the first connected one in the
+  order, the media carousel on the active player, search empty, nothing
+  focused. The device viewed with a tab is not stored.
 - **Settings are written only by the panel**, into this widget's
   `shell.json` entry (`updateEntryInline`), on the user's action (settings
-  page, folding a section, choosing a device).
+  page, folding a section). Never on upgrade: old entries are read as they
+  are (`Model.readSettings`) and new keys appear on the user's next change.
 - **Never edit `shell.json` by hand while the shell runs.** Each monitor has
   its own panel holding its own copy of the settings; a hand edit leaves one
   stale, and the next toggle starts from the wrong state. Go through the

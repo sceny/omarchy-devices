@@ -70,6 +70,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" open ; "${IPC[@]}" close
 "${IPC[@]}" page settings           # also: main, messages
 "${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
+"${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
+"${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>

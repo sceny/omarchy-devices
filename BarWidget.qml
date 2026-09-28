@@ -3,29 +3,23 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Bar pill for the phone: the device glyph, then the indicators chosen in
-// settings, in order (Model.barText): by default the battery only when low,
-// and a notification count drawn on the glyph (the bubble).
+// Bar pill for the devices: one chip per device that shows (Model.chips, in
+// the user's order), each its own icon, its chosen indicators and its own
+// notification bubble; a resting glyph when no chip shows, so the pill never
+// disappears. With one device this is today's pill.
 //
-// A text pill, not BarIconButton: that one is a fixed one-glyph slot and would
-// clip the indicators. Away (or KDE Connect down) it keeps its place, dimmed
-// and without numbers. Low battery and not charging turns it urgent.
+// Chips are text pills, not BarIconButton: that one is a fixed one-glyph slot
+// and would clip the indicators. An away device keeps its chip dimmed when it
+// shows always. A low battery turns its chip urgent.
 BarWidget {
   id: root
   moduleName: "sceny.devices"
 
   readonly property var phone: bar && bar.shell ? bar.shell.serviceFor("sceny.devices") : null
-  readonly property var device: phone ? phone.device : null
-  readonly property bool reachable: phone ? phone.reachable : false
-  readonly property var indicators: Model.normalizeBarIndicators(setting("barIndicators", null))
-  readonly property bool lowOnly: Model.layoutFlag(setting("batteryLowOnly", true))
-  readonly property int notificationCount: phone && phone.notifications ? phone.notifications.length : 0
-  readonly property int unreadMessages: phone && phone.sms ? phone.sms.unreadCount : 0
-  readonly property int bubble: Model.barBubble(device, indicators, notificationCount)
-  readonly property int lowPercent: {
-    var n = parseInt(String(setting("lowBatteryPercent", 15)), 10)
-    return isFinite(n) ? n : 15
-  }
+  readonly property var pill: phone ? phone.pill : ({ chips: [], resting: { glyph: Model.GLYPH.devices, dimmed: true, ringing: false }, pairing: false })
+  // What is drawn: the chips, or the resting glyph as one chip of no device.
+  readonly property var items: pill.chips.length > 0 ? pill.chips
+    : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, bubble: 0, dimmed: pill.resting.dimmed, ringing: false, marks: {} }]
 
   function syncService() {
     if (root.phone && "settings" in root.phone) root.phone.settings = root.settings
@@ -36,13 +30,36 @@ BarWidget {
     if (!target) return
     if ("bar" in target) target.bar = root.bar
     if ("settings" in target) target.settings = root.settings
-    if ("anchorItem" in target) target.anchorItem = button
+    if ("anchorItem" in target) target.anchorItem = chipRow
     if ("hostWidget" in target) target.hostWidget = root
     if ("phone" in target) target.phone = root.phone
   }
 
-  function togglePanel() {
-    if (panelLoader.item && panelLoader.item.toggle) panelLoader.item.toggle()
+  function deviceById(id) {
+    var list = phone ? phone.ordered : []
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(id)) return list[i]
+    return null
+  }
+
+  // A chip opens the panel on its device; on the device already shown it
+  // closes it; on another while open it switches to it. The resting glyph
+  // (no device) opens on the usual one.
+  function chipPressed(button, id) {
+    var panel = panelLoader.item
+    if (!panel) return
+    if (button === Qt.MiddleButton) {
+      if (phone && id !== "") phone.requestView(id)
+      if (panel.openMessagesFromHotkey) panel.openMessagesFromHotkey()
+      return
+    }
+    if (!panel.opened) {
+      if (phone && id !== "") phone.requestView(id)
+      panel.open()
+    } else if (id === "" || !phone || !phone.device || String(phone.device.id) === String(id)) {
+      panel.close()
+    } else if (panel.switchDevice) {
+      panel.switchDevice(id, true)
+    }
   }
 
   // Shape contract for shell summon/hide/toggle routing and popout switching.
@@ -52,8 +69,13 @@ BarWidget {
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   function closeForPopoutSwitch() { if (panelLoader.item) panelLoader.item.closeForPopoutSwitch() }
 
-  implicitWidth: button.implicitWidth
-  implicitHeight: button.implicitHeight
+  // The open-panel mark under the pill spans every chip's label (#67).
+  readonly property real openPanelIndicatorWidth: root.vertical ? 0 : Math.max(0, chipRow.width - 2 * Style.spaceReal(8.75))
+
+  implicitWidth: chipRow.implicitWidth
+  implicitHeight: chipRow.implicitHeight
+  // A chip arriving or leaving widens or narrows the pill at the plugin's pace.
+  Behavior on implicitWidth { NumberAnimation { duration: Model.MOTION.inMs; easing.type: Easing.OutCubic } }
 
   onBarChanged: injectPanel()
   onSettingsChanged: { injectPanel(); syncService() }
@@ -70,53 +92,83 @@ BarWidget {
     }
   }
 
-  WidgetButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: root.vertical ? Model.deviceGlyph(root.device) : Model.barText(root.device, root.indicators, {
-      lowPercent: root.lowPercent, lowOnly: root.lowOnly, notifications: root.notificationCount,
-      messages: root.unreadMessages, playing: !!root.phone && root.phone.nowPlaying !== "" })
-    horizontalMargin: 8.75
-    dimmed: !root.reachable
-    active: Model.lowBattery(root.device, root.lowPercent)
-    tooltipText: root.opened ? "" : Model.tooltip(root.phone ? root.phone.snapshot : null, root.device, root.phone ? root.phone.nowPlaying : "", root.unreadMessages)
+  // Side by side on a horizontal bar, stacked (icons only) on a vertical one.
+  Grid {
+    id: chipRow
+    anchors.centerIn: parent
+    columns: root.vertical ? 1 : Math.max(1, root.items.length)
 
-    onPressed: function(b) {
-      if (b === Qt.MiddleButton && panelLoader.item && panelLoader.item.openMessagesFromHotkey) panelLoader.item.openMessagesFromHotkey()
-      else root.togglePanel()
-    }
-  }
+    Repeater {
+      model: root.items
 
-  // The bubble: the notification count on the glyph's top right corner, like
-  // a phone's app badge. Drawn over the pill, so it adds no width. The glyph
-  // is the start of the pill's centred label.
-  TextMetrics {
-    id: glyphMetrics
-    font.family: button.fontFamily
-    font.pixelSize: button.fontSize
-    text: Model.deviceGlyph(root.device)
-  }
+      Item {
+        id: chip
+        required property var modelData
+        required property int index
+        readonly property var dev: root.deviceById(modelData.id)
+        implicitWidth: button.implicitWidth
+        implicitHeight: button.implicitHeight
 
-  Rectangle {
-    visible: root.bubble > 0
-    readonly property real glyphLeft: (button.width - button.labelWidth) / 2
-    height: Math.max(9, Math.round(button.fontSize * 0.72))
-    width: Math.max(height, bubbleText.implicitWidth + 4)
-    radius: height / 2
-    x: glyphLeft + glyphMetrics.advanceWidth - width * 0.55
-    y: button.height / 2 - glyphMetrics.height / 2 - height * 0.2
-    // Red with a white count, like a phone's badge; no outline.
-    color: Color.urgent
+        WidgetButton {
+          id: button
+          anchors.fill: parent
+          bar: root.bar
+          text: root.vertical ? chip.modelData.glyph : chip.modelData.text
+          horizontalMargin: 8.75
+          dimmed: chip.modelData.dimmed === true
+          active: !!chip.modelData.marks && chip.modelData.marks.lowBattery === true
+          tooltipText: root.opened ? "" : (chip.dev
+            ? Model.tooltip(root.phone ? root.phone.snapshot : null, chip.dev,
+                root.phone && root.phone.device && root.phone.device.id === chip.dev.id ? root.phone.nowPlaying : "",
+                root.phone && root.phone.sms && root.phone.sms.deviceId === String(chip.dev.id) ? root.phone.sms.unreadCount : 0)
+            : Model.tooltip(root.phone ? root.phone.snapshot : null, null, "", 0))
+          onPressed: function(b) { root.chipPressed(b, chip.modelData.id) }
+        }
 
-    Text {
-      id: bubbleText
-      anchors.centerIn: parent
-      text: root.bubble > 9 ? "9+" : String(root.bubble)
-      color: "white"
-      font.family: button.fontFamily
-      font.pixelSize: Math.max(6, parent.height * 0.72)
-      font.bold: true
+        // The bubble: this device's notification count on its own icon, like
+        // a phone's app badge. Drawn over the chip, so it adds no width.
+        TextMetrics {
+          id: glyphMetrics
+          font.family: button.fontFamily
+          font.pixelSize: button.fontSize
+          text: chip.modelData.glyph
+        }
+
+        Rectangle {
+          visible: chip.modelData.bubble > 0
+          readonly property real glyphLeft: (button.width - button.labelWidth) / 2
+          height: Math.max(9, Math.round(button.fontSize * 0.72))
+          width: Math.max(height, bubbleText.implicitWidth + 4)
+          radius: height / 2
+          x: glyphLeft + glyphMetrics.advanceWidth - width * 0.55
+          y: button.height / 2 - glyphMetrics.height / 2 - height * 0.2
+          // Red with a white count, like a phone's badge; no outline.
+          color: Color.urgent
+
+          Text {
+            id: bubbleText
+            anchors.centerIn: parent
+            text: chip.modelData.bubble > 9 ? "9+" : String(chip.modelData.bubble)
+            color: "white"
+            font.family: button.fontFamily
+            font.pixelSize: Math.max(6, parent.height * 0.72)
+            font.bold: true
+          }
+        }
+
+        // A device asking to pair: an accent dot at the first chip's lower
+        // left, until it is answered.
+        Rectangle {
+          visible: chip.index === 0 && root.pill.pairing === true
+          readonly property real glyphLeft: (button.width - button.labelWidth) / 2
+          width: Math.max(5, Math.round(button.fontSize * 0.36))
+          height: width
+          radius: width / 2
+          x: glyphLeft - width * 0.4
+          y: button.height / 2 + glyphMetrics.height / 2 - height * 0.8
+          color: Color.accent
+        }
+      }
     }
   }
 }

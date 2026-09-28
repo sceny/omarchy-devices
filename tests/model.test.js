@@ -487,3 +487,14 @@ test("writing a profile: only what changed, the first device's always written do
   const reordered = M.readSettings(M.withOrder(e, ["t1", "p1"]))
   assert.equal(M.resolveProfile(reordered, phone(), false).bar, "always")
 })
+
+test("demo: several devices, and one asking to pair", () => {
+  const many = M.demoSnapshot(null, "many")
+  assert.deepEqual(many.devices.map(d => [d.name, d.paired, d.reachable]),
+    [["Pixel 8", true, true], ["Galaxy Tab S9", true, true], ["Work laptop", true, false]])
+  const withRequest = M.demoSnapshot(null, "many-pair")
+  assert.equal(withRequest.devices.filter(d => d.pairRequestedByPeer).length, 1)
+  const s = M.readSettings({})
+  const pill = M.chips(many, s, { "demo-tab": { notifications: 2, lowPercent: 15 } })
+  assert.deepEqual(pill.chips.map(c => c.id), ["demo", "demo-tab"], "the tablet shows: news and a low battery; the away laptop does not")
+})

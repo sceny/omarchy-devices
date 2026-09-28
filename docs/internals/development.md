@@ -19,6 +19,8 @@ bin/kdeconnect-bridge snapshot           # what the plugin sees
 IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status                 # what the panel shows
 "${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|down|none
+"${IPC[@]}" demo many              # several devices (tabs, chips); many-pair adds a pairing request
+"${IPC[@]}" view "Galaxy Tab S9"   # view a device (id, nickname or name); openOn opens on it; tabs
 "${IPC[@]}" live                   # back to the phone
 "${IPC[@]}" page settings          # also main, messages
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
