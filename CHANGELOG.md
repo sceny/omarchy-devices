@@ -5,6 +5,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
+- Scrolling follows the wheel: a long spin goes as far as it was spun
+  and a nudge moves a little, instead of about one step per spin; a
+  touchpad moves the lists with the fingers. On the main page, the
+  conversation list, the messages and the new-message suggestions.
 - Fixed: opening a conversation showed only its latest message, with no
   older ones to scroll to, after the plugin had asked the phone for every
   conversation (at start, or after KDE Connect restarted). The count KDE
