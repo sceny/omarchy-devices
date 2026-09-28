@@ -116,5 +116,8 @@ side are tracked apart.
 - A paused player the phone has hidden (Android hides one after about
   10 minutes) stays in Now playing: the phone app forwards every open media
   session (#33).
+- A System UI notification reading "1 more notification" shows while the
+  phone shows nothing: One UI's hidden summary, forwarded by the phone
+  app (#52).
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.
