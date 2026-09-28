@@ -398,31 +398,38 @@ function normalizeBarIndicators(value) {
 // follows the percent only when the battery glyph (which has its own) is not
 // shown.
 function barText(device, indicators, state) {
+  return barParts(device, indicators, state).map(function(p) { return p.text }).join(" ")
+}
+
+// The pill's text in parts, each drawn on its own so that only what is
+// urgent turns red: a low battery's glyph and percent, not the whole chip.
+// [{ text, urgent }], the device's glyph first.
+function barParts(device, indicators, state) {
   var st = state || {}
   // `glyph`: the device's own icon when its user picked one (deviceIcon).
-  var text = st.glyph || deviceGlyph(device)
+  var parts = [{ text: st.glyph || deviceGlyph(device), urgent: false }]
   var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
-  var parts = []
+  function add(text, urgent) { parts.push({ text: text, urgent: !!urgent }) }
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
       if (!device) continue
-      if (!reachable) parts.push(GLYPH.wifiOff)
-      else parts.push(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
+      if (!reachable) add(GLYPH.wifiOff)
+      else add(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
       continue
     }
     if (!reachable) continue
-    if (key === "battery" && showBattery) parts.push(batteryGlyph(device, st.lowPercent))
+    if (key === "battery" && showBattery) add(batteryGlyph(device, st.lowPercent), low)
     else if (key === "percent" && showBattery)
-      parts.push(c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : ""))
-    else if (key === "notifications" && st.notifications > 0) parts.push(GLYPH.bell + " " + st.notifications)
-    else if (key === "messages" && st.messages > 0) parts.push(GLYPH.messages + " " + st.messages)
-    else if (key === "playing" && st.playing) parts.push(GLYPH.play)
+      add(c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : ""), low)
+    else if (key === "notifications" && st.notifications > 0) add(GLYPH.bell + " " + st.notifications)
+    else if (key === "messages" && st.messages > 0) add(GLYPH.messages + " " + st.messages)
+    else if (key === "playing" && st.playing) add(GLYPH.play)
   }
-  return parts.length ? text + " " + parts.join(" ") : text
+  return parts
 }
 
 // The number on the glyph, or 0 for none.
@@ -431,11 +438,21 @@ function barBubble(device, indicators, notifications) {
   return Math.max(0, notifications || 0)
 }
 
+// Ticking an indicator puts it at its natural place among the chosen ones
+// (the catalogue's order: connection, battery, %, counts, playing, bubble),
+// so % lands right after the battery. The order the user dragged is kept.
 function toggleBarIndicator(order, key) {
   var next = order.slice()
   var at = next.indexOf(key)
-  if (at >= 0) next.splice(at, 1)
-  else if (barIndicatorByKey(key)) next.push(key)
+  if (at >= 0) { next.splice(at, 1); return next }
+  if (!barIndicatorByKey(key)) return next
+  var rank = function(k) { for (var i = 0; i < BAR_INDICATORS.length; i++) if (BAR_INDICATORS[i].key === k) return i; return 99 }
+  var place = next.length
+  for (var j = next.length - 1; j >= 0; j--) {
+    if (rank(next[j]) < rank(key)) { place = j + 1; break }
+    place = j
+  }
+  next.splice(place, 0, key)
   return next
 }
 
@@ -1076,6 +1093,8 @@ function chips(snapshot, settings, states, pairing) {
       glyph: glyph,
       // The chip's text: its icon and its indicators, as today's pill.
       text: barText(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing }),
+      parts: barParts(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
         notifications: a.notifications, messages: a.messages, playing: !!st.playing }),
       bubble: barBubble(d, p.barIndicators, a.notifications),
       dimmed: d.reachable !== true,

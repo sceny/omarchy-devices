@@ -564,3 +564,17 @@ test("moving an item: where it lands, how far the others slide, how far it glide
   assert.equal(M.reorderOffset(0, 2, tabs, 4), 140 + 4 + 100 + 4)
   assert.equal(M.reorderTarget(0, 80, 3, tabs, 4), 1, "past the middle of the 140 wide tab")
 })
+
+test("the pill in parts: only a low battery is urgent; a ticked indicator goes to its natural place", () => {
+  const low = device({ battery: { charge: 9, charging: false } })
+  const parts = M.barParts(low, ["bubble", "battery", "percent", "notifications"], { lowPercent: 15, notifications: 2 })
+  assert.deepEqual(parts.map(p => p.urgent), [false, true, true, false], "glyph, battery, %, bell")
+  assert.equal(M.barText(low, ["percent"], { lowPercent: 15 }), parts[0].text + " 9%")
+  assert.ok(M.barParts(device(), ["battery", "percent"], { lowPercent: 15 }).every(p => !p.urgent), "not low: nothing red")
+  assert.deepEqual(M.toggleBarIndicator(["battery", "bubble"], "percent"), ["battery", "percent", "bubble"], "% right after the battery")
+  assert.deepEqual(M.toggleBarIndicator(["bubble"], "connection"), ["connection", "bubble"])
+  assert.deepEqual(M.toggleBarIndicator(["bubble", "percent"], "battery"), ["battery", "bubble", "percent"], "before the first that comes after it")
+  assert.deepEqual(M.toggleBarIndicator([], "playing"), ["playing"])
+  const chip = M.chips(snap(low), M.readSettings({ barIndicators: ["battery", "percent"], batteryLowOnly: false }), {}).chips[0]
+  assert.deepEqual(chip.parts.map(p => p.urgent), [false, true, true])
+})
