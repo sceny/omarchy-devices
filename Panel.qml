@@ -1527,7 +1527,7 @@ Panel {
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
-                  tooltipText: textless ? Model.deviceLabel(modelData) + " has no text messages"
+                  tooltipText: tabDrag.active ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
@@ -1537,6 +1537,8 @@ Panel {
                   property real dragX: 0
                   transform: Translate { x: tab.dragX }
                   z: tabDrag.active ? 5 : 0
+                  // Solid while dragged, so the tab it passes over never shows through.
+                  background: tabDrag.active ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent)) : "transparent"
                   DragHandler {
                     id: tabDrag
                     target: null
@@ -1563,7 +1565,10 @@ Panel {
               radius: 1
               height: tabRow.height
               color: Color.accent
-              x: !at ? 0 : (root.tabDropIndex < root.tabDragFrom ? at.x - tabRow.spacing / 2 - 1 : at.x + at.width + tabRow.spacing / 2 - 1)
+              // Kept inside the row: at the very front or end it sits on the edge.
+              x: !at ? 0 : Math.max(0, Math.min(tabRow.width - width,
+                   root.tabDropIndex < root.tabDragFrom ? at.x - tabRow.spacing / 2 - 1 : at.x + at.width + tabRow.spacing / 2 - 1))
+              z: 6
             }
 
             // Keeps the selected tab in view when the row scrolls, clear of
