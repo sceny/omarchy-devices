@@ -180,7 +180,7 @@ Item {
 
   onDeviceNameChanged: updatePlayers()
   onReachableChanged: updatePlayers()
-  Component.onCompleted: updatePlayers()
+  Component.onCompleted: { updatePlayers(); followSms() }
 
   Connections {
     target: Mpris.players
@@ -494,11 +494,20 @@ Item {
   // Text messages (threads, the open conversation), started on first use,
   // or from the start when the bar counts unread messages.
   readonly property var sms: smsService
+  // The device whose messages are read: the viewed one when it has text
+  // messages, else the last one viewed that had them. A tablet without a SIM
+  // never takes the reader away from the phone (nor its unread count).
+  property string smsDeviceId: ""
+  function followSms() {
+    if (device && device.paired && device.can && device.can.sms === true) smsDeviceId = String(device.id)
+    else if (smsDeviceId === "" && device && device.paired && !(device.can && device.can.sms === false)) smsDeviceId = String(device.id)
+  }
+  onDeviceChanged: followSms()
   readonly property bool barCountsMessages: profile.barIndicators.indexOf("messages") >= 0
   SmsService {
     id: smsService
     bridge: root.bridge
-    deviceId: root.device && root.device.paired ? String(root.device.id) : ""
+    deviceId: root.smsDeviceId
     // Keeps running in demo (the view shows made-up threads and ignores it).
     reachable: root.reachable
     // Once started (start() on first use) it stays started.
