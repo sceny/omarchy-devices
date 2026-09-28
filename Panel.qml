@@ -240,6 +240,10 @@ Panel {
   // The profile the page's groups edit: the device's own on its page, else
   // the defaults (with one device, the flat keys as always).
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
+  // What the settings page binds to: never missing, even for the moment a
+  // reload tears the panel down.
+  readonly property var editing: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+    shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
   readonly property var settingsRows: Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
@@ -1632,7 +1636,7 @@ Panel {
             // Nickname, then the full name when they differ.
             title: {
               if (!root.heroDevice) return "Devices"
-              var nick = root.heroProfile.nickname
+              var nick = root.heroProfile ? root.heroProfile.nickname : ""
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
@@ -2160,15 +2164,15 @@ Panel {
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 // The groups show what the page edits: a device's own
                 // profile on its page, else the defaults.
-                shortcutsShown: root.editProfile.showShortcuts
+                shortcutsShown: root.editing.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.editProfile.showShortcuts, showMedia: root.editProfile.showMedia, showNotifications: root.editProfile.showNotifications })
-                order: root.editProfile.shortcuts
-                sectionOrder: root.editProfile.sectionOrder
-                barIndicators: root.editProfile.barIndicators
-                batteryLowOnly: root.editProfile.batteryLowOnly
+                flags: ({ showShortcuts: root.editing.showShortcuts, showMedia: root.editing.showMedia, showNotifications: root.editing.showNotifications })
+                order: root.editing.shortcuts
+                sectionOrder: root.editing.sectionOrder
+                barIndicators: root.editing.barIndicators
+                batteryLowOnly: root.editing.batteryLowOnly
                 scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
-                custom: root.editingDevice ? root.editProfile.custom : ({})
+                custom: root.editingDevice ? root.editing.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
