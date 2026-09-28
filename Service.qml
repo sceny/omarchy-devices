@@ -44,6 +44,8 @@ Item {
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    searchedAt = 0
+    runDoctor()
   }
   readonly property var device: Model.pickDevice(snapshot, String(setting("deviceId", "")))
   readonly property bool daemon: !!(snapshot && snapshot.daemon)
@@ -257,9 +259,80 @@ Item {
   property var setupChecks: []
   property int setupWanted: 0          // panels showing the checks right now
   property var setupFixing: ({})
+  // This computer's network ("192.168.1.0/24"), from the doctor.
+  property string setupNetwork: ""
+
+  // ---- A paired device that is away ----
+  // Where each device was when it left: { link, address, at }, by id. Memory
+  // only: after a restart nothing is known, and the detail says less.
+  property var lastSeen: ({})
+  property var wasReachable: ({})
+  // When the last search started (Look again, or the one the panel makes
+  // on opening), and a clock for the detail's "just now" and "not found".
+  property real searchedAt: 0
+  property real awayClock: Date.now()
+
+  function noteReachability() {
+    if (demo || !liveSnapshot || !liveSnapshot.devices) return
+    var seen = null, was = Object.assign({}, wasReachable)
+    for (var i = 0; i < liveSnapshot.devices.length; i++) {
+      var d = liveSnapshot.devices[i]
+      if (!d || !d.paired) continue
+      var now = d.reachable === true
+      if (now) { lastLink[d.id] = { link: (d.links || [])[0] || "", address: (d.addresses || [])[0] || "" } }
+      else if (was[d.id] === true) {
+        seen = seen || Object.assign({}, lastSeen)
+        seen[d.id] = Object.assign({ at: Date.now() }, lastLink[d.id] || {})
+      }
+      was[d.id] = now
+    }
+    wasReachable = was
+    if (seen) lastSeen = seen
+  }
+  // The link and address while connected, kept apart so a snapshot every few
+  // seconds does not re-bind anything.
+  property var lastLink: ({})
+
+  // Looks for devices again (kdeconnect-bridge fix search). `quiet`: the
+  // panel's own search on opening, with no toast.
+  function searchDevices(quiet) {
+    if (!daemon) return
+    searchedAt = Date.now()
+    awayClock = searchedAt
+    searchRecheck.restart()
+    // Demo: the detail goes through looking and not found; nothing is sent.
+    if (demo) return
+    if (quiet) Quickshell.execDetached([bridge, "fix", "search"])
+    else fixSetup("search")
+  }
+
+  // Opening a panel on a paired device that is away looks for it once,
+  // at most once a minute: a lost link is usually found again this way.
+  function searchIfAway() {
+    if (device && device.paired && !device.reachable && Date.now() - searchedAt > 60000) searchDevices(true)
+  }
+
+  readonly property var shownSetupChecks: Model.withAwayDetail(setupChecks, device,
+    device ? lastSeen[device.id] || null : null, setupNetwork, searchedAt, awayClock)
+
+  // After a search: check again when the device had time to answer, and
+  // move the detail from "looking" to "not found".
+  Timer {
+    id: searchRecheck
+    interval: Model.SEARCH_MS + 100
+    onTriggered: { root.awayClock = Date.now(); if (!root.demo) root.runDoctor() }
+  }
+  // "12 min ago" stays right while the checks show.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.setupWanted > 0 && !root.reachable
+    onTriggered: root.awayClock = Date.now()
+  }
 
   function runDoctor() {
-    if (doctorProc.running) return
+    // Demo checks (demoSetup, demoAway) stay until live again.
+    if (doctorProc.running || demo) return
     doctorProc.running = true
   }
 
@@ -284,7 +357,11 @@ Item {
     stdout: StdioCollector {
       id: doctorOut
       onStreamFinished: {
-        try { root.setupChecks = JSON.parse(text).checks || [] } catch (e) {}
+        try {
+          var report = JSON.parse(text)
+          root.setupChecks = report.checks || []
+          root.setupNetwork = String(report.network || "")
+        } catch (e) {}
       }
     }
   }
@@ -454,6 +531,7 @@ Item {
       onRead: function(line) {
         try {
           root.liveSnapshot = JSON.parse(line)
+          root.noteReachability()
           if (!root.demo) root.snapshot = root.liveSnapshot
           root.watchError = ""
           restart.interval = 1000

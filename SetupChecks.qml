@@ -70,7 +70,8 @@ Column {
         iconText: root.busyFixes[check.modelData.fix] ? "\u{F0996}" : ""
         iconSpinning: root.busyFixes[check.modelData.fix] === true
         enabled: !root.busyFixes[check.modelData.fix]
-        tooltipText: check.modelData.fix === "install" || check.modelData.fix === "firewall" ? "Asks for your password" : ""
+        tooltipText: check.modelData.fix === "install" || check.modelData.fix === "firewall" ? "Asks for your password"
+          : (check.modelData.fix === "search" ? "Asks KDE Connect to look for it on the network" : "")
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily

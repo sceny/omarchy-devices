@@ -22,8 +22,9 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge action <device> <notification> <action>
   kdeconnect-bridge pair|accept|reject|unpair <device>
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall   fix one (install and
-                                              firewall ask for a password)
+  kdeconnect-bridge fix install|start|firewall|search   fix one (install
+                                              and firewall ask for a password;
+                                              search looks for devices again)
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -487,13 +488,28 @@ def doctor():
     checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
                    "detail": "" if paired else "Open KDE Connect on the phone or tablet and pair it with this computer",
                    "fix": "", "fixLabel": ""})
-    checks.append({"key": "reachable", "ok": len(reachable) > 0, "label": "A paired device is connected",
-                   "detail": "" if reachable or not paired else "Same network as this computer, with the KDE Connect app running",
-                   "fix": "", "fixLabel": ""})
+    # Paired but away is often only the two sides having lost each other on
+    # the network: a search (a discovery broadcast) finds it again.
+    away = paired and not reachable
+    label = "A paired device is connected"
+    if len(paired) == 1:
+        label = "%s is connected" % (paired[0].get("name") or "The device")
+    checks.append({"key": "reachable", "ok": len(reachable) > 0, "label": label,
+                   "detail": "Not found on the network" if away else "",
+                   "fix": "search" if away and running else "", "fixLabel": "Look again"})
     return {"checks": checks, "network": lan, "firewall": fw}
 
 
 def fix(what):
+    if what == "search":
+        # What `kdeconnect-cli --refresh` does: the daemon announces itself on
+        # every network, and a device that hears it connects back. Nothing
+        # on the system changes.
+        try:
+            call(bus(), ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Looking for devices on the network")
     if what == "install":
         cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "kdeconnect"]
     elif what == "start":

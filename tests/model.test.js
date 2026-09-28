@@ -370,3 +370,24 @@ test("a group chat's unread count is taken apart from its name", () => {
   assert.deepEqual(M.chatTitle(chat("Team (B)")), { title: "Team (B)", count: "" }, "brackets without a number are part of the name")
   assert.deepEqual(M.chatTitle({ title: "Invoice (2 pages)" }), { title: "Invoice (2 pages)", count: "" }, "not a chat: left alone")
 })
+
+test("away: where it was last seen, then looking, then what to try", () => {
+  assert.equal(M.inNetwork("192.168.1.243", "192.168.1.0/24"), true)
+  assert.equal(M.inNetwork("10.0.0.5", "192.168.1.0/24"), false)
+  assert.equal(M.inNetwork("", "192.168.1.0/24"), null, "no address: unknown, not elsewhere")
+  const now = 10_000_000, d = device({ reachable: false })
+  const seen = { link: "LAN", address: "192.168.1.243", at: now - 12 * 60000 }
+  const lines = s => s.split("\n")
+  assert.deepEqual(lines(M.awayDetail(d, seen, "192.168.1.0/24", 0, now)),
+    ["Last seen on Wi-Fi at 192.168.1.243, 12 min ago.", "Not found on the network. Look again, or open KDE Connect on Pixel 8."])
+  assert.match(M.awayDetail(d, { ...seen, address: "10.0.0.5" }, "192.168.1.0/24", 0, now), /not this computer's network \(192\.168\.1\.0\/24\)/)
+  assert.match(M.awayDetail(d, null, "", now - 1000, now), /^Looking for it on the network…$/)
+  assert.match(M.awayDetail(d, null, "", now - M.SEARCH_MS - 1, now), /^Not found\. On Pixel 8: open KDE Connect.*Unrestricted\.$/)
+  assert.equal(M.agoText(now - 30_000, now), "just now")
+  assert.equal(M.agoText(now - 2 * 3600_000, now), "2 h ago")
+  const checks = [{ key: "paired", ok: true }, { key: "reachable", ok: false, fix: "search", detail: "Not found on the network" }]
+  const out = M.withAwayDetail(checks, d, seen, "192.168.1.0/24", 0, now)
+  assert.match(out[1].detail, /^Last seen/)
+  assert.equal(checks[1].detail, "Not found on the network", "the doctor's checks are left as they came")
+  assert.deepEqual(M.withAwayDetail([{ key: "reachable", ok: true, fix: "" }], d, seen, "", 0, now), [{ key: "reachable", ok: true, fix: "" }])
+})

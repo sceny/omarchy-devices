@@ -713,6 +713,8 @@ Panel {
     // Positions are kept current while closed (Service), but re-read now too,
     // so the seek bar is already where it belongs when the panel shows.
     if (phone) phone.refreshPositions()
+    // A paired device that is away is looked for once (Service.searchIfAway).
+    if (phone) phone.searchIfAway()
     cursorActive = false
     browsedName = ""
     settingsOpen = false
@@ -764,10 +766,10 @@ Panel {
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
-    // Sample failing checks, to look at the fix buttons (replaced by the next
-    // real check within 10 s).
+    // Sample failing checks, to look at the fix buttons (kept until `live`).
     function demoSetup(): string {
       if (!root.phone) return "no service"
+      root.phone.showDemo("none")
       root.phone.setupChecks = [
         { key: "installed", ok: true, label: "KDE Connect installed", detail: "", fix: "", fixLabel: "" },
         { key: "running", ok: false, label: "KDE Connect running", detail: "It starts at login; it is not running now", fix: "start", fixLabel: "Start" },
@@ -775,6 +777,26 @@ Panel {
         { key: "paired", ok: false, label: "A device is paired", detail: "Open KDE Connect on the phone or tablet and pair it with this computer", fix: "", fixLabel: "" }
       ]
       return "ok"
+    }
+    // Demo only: the followed device paired but away, last seen 12 minutes
+    // ago, as the checks show it (Look again searches nothing in demo).
+    function demoAway(): string {
+      if (!root.phone) return "no service"
+      root.phone.showDemo("away")
+      var id = root.device ? root.device.id : ""
+      var seen = {}
+      seen[id] = { link: "LAN", address: "192.168.1.243", at: Date.now() - 12 * 60000 }
+      root.phone.lastSeen = seen
+      root.phone.searchedAt = 0
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.setupChecks = [
+        { key: "installed", ok: true, label: "KDE Connect installed", detail: "", fix: "", fixLabel: "" },
+        { key: "running", ok: true, label: "KDE Connect running", detail: "", fix: "", fixLabel: "" },
+        { key: "firewall", ok: true, label: "Firewall lets devices in", detail: "", fix: "", fixLabel: "" },
+        { key: "paired", ok: true, label: "A device is paired", detail: "", fix: "", fixLabel: "" },
+        { key: "reachable", ok: false, label: "Pixel 8 is connected", detail: "Not found on the network", fix: "search", fixLabel: "Look again" }
+      ]
+      return JSON.stringify(root.phone.shownSetupChecks[4])
     }
     // Demo only: press a notification's action as a click would, to check
     // what follows in the panel. Refused on live data, where it would act on
@@ -1598,13 +1620,13 @@ Panel {
                 SetupChecks {
                   visible: !!root.snapshot
                   width: parent.width
-                  checks: root.phone ? root.phone.setupChecks : []
+                  checks: root.phone ? root.phone.shownSetupChecks : []
                   busyFixes: root.phone ? root.phone.setupFixing : ({})
                   showPhoneSteps: !root.device
                   foreground: root.foreground
                   urgent: root.urgent
                   fontFamily: root.fontFamily
-                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                  onFixRequested: function(what) { if (!root.phone) return; if (what === "search") root.phone.searchDevices(false); else root.phone.fixSetup(what) }
                 }
               }
 
@@ -1640,9 +1662,9 @@ Panel {
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
-                setupChecks: root.phone ? root.phone.setupChecks : []
+                setupChecks: root.phone ? root.phone.shownSetupChecks : []
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
-                onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                onFixRequested: function(what) { if (!root.phone) return; if (what === "search") root.phone.searchDevices(false); else root.phone.fixSetup(what) }
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }

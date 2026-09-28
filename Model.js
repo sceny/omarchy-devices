@@ -884,6 +884,66 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
+// ---- A paired device that is away: where it was, and what to try ----
+
+// Whether an IPv4 address is inside a network written "192.168.1.0/24".
+function inNetwork(address, network) {
+  var m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(String(network || ""))
+  var a = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(address || ""))
+  if (!m || !a) return null
+  var bits = Number(m[5])
+  function num(x) { return ((Number(x[1]) * 256 + Number(x[2])) * 256 + Number(x[3])) * 256 + Number(x[4]) }
+  var size = Math.pow(2, 32 - bits)
+  return Math.floor(num(a) / size) === Math.floor(num(m) / size)
+}
+
+// "just now", "5 min ago", "2 h ago", "3 days ago".
+function agoText(ms, nowMs) {
+  var s = Math.max(0, Math.round((nowMs - ms) / 1000))
+  if (s < 60) return "just now"
+  if (s < 3600) return Math.round(s / 60) + " min ago"
+  if (s < 86400) return Math.round(s / 3600) + " h ago"
+  var d = Math.round(s / 86400)
+  return d === 1 ? "a day ago" : d + " days ago"
+}
+
+// How long a search waits for the device before saying it was not found.
+var SEARCH_MS = 8000
+
+// The away check's detail, in steps: where the device was last seen (and
+// whether that is this computer's network), then while a search runs that
+// it is looking, and after a search that found nothing, what to try on the
+// device. `seen` is { link, address, at } from when it left (Service), or
+// null; `searchedAt` is when the last search started, 0 for none.
+function awayDetail(device, seen, network, searchedAt, nowMs) {
+  var name = deviceLabel(device)
+  var lines = []
+  if (seen && seen.at) {
+    var how = seen.link === "Bluetooth" ? "Bluetooth" : "Wi-Fi"
+    var where = seen.address ? " at " + seen.address : ""
+    lines.push("Last seen on " + how + where + ", " + agoText(seen.at, nowMs) + ".")
+    if (inNetwork(seen.address, network) === false)
+      lines.push("That is not this computer's network (" + network + "): join the same one.")
+  }
+  if (searchedAt > 0 && nowMs - searchedAt < SEARCH_MS) lines.push("Looking for it on the network…")
+  else if (searchedAt > 0)
+    lines.push("Not found. On " + name + ": open KDE Connect, check it is on the same Wi-Fi, and on Samsung set the app's battery use to Unrestricted.")
+  else lines.push("Not found on the network. Look again, or open KDE Connect on " + name + ".")
+  return lines.join("\n")
+}
+
+// The doctor's checks with the away check's detail filled in (awayDetail).
+function withAwayDetail(checks, device, seen, network, searchedAt, nowMs) {
+  var out = []
+  for (var i = 0; i < (checks || []).length; i++) {
+    var c = checks[i]
+    if (c && c.key === "reachable" && !c.ok && c.fix === "search")
+      c = Object.assign({}, c, { detail: awayDetail(device, seen, network, searchedAt, nowMs) })
+    out.push(c)
+  }
+  return out
+}
+
 function setupSummary(checks) {
   var list = checks || []
   if (list.length === 0) return "Checking…"

@@ -261,3 +261,18 @@ class Conversations(unittest.TestCase):
     def test_plain_text_for_one_string(self):
         messages = [{"sender": "Sam", "text": "Hi"}, {"sender": "", "text": "Again"}]
         self.assertEqual(bridge.conversation_text(messages), "Sam: Hi\nAgain")
+
+
+class Search(unittest.TestCase):
+    """Look again: the daemon's forceOnNetworkChange, nothing else."""
+
+    def test_search_asks_the_daemon_to_announce_itself(self):
+        calls, saved = [], (bridge.bus, bridge.call)
+        bridge.bus = lambda: None
+        bridge.call = lambda conn, path, iface, method, args=None, sig=None: calls.append((path, iface, method))
+        try:
+            with open(os.devnull, "w") as null, contextlib.redirect_stdout(null):
+                self.assertEqual(bridge.fix("search"), bridge.EXIT_OK)
+        finally:
+            bridge.bus, bridge.call = saved
+        self.assertEqual(calls, [("/modules/kdeconnect", "org.kde.kdeconnect.daemon", "forceOnNetworkChange")])
