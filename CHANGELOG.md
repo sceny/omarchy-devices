@@ -53,6 +53,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   `demoTextTo`, `pressEscape`.
 
 ### Fixed
+- New message: after picking someone, every contact stayed listed; the
+  list now shows only while typing a name, and a click on a contact goes
+  on to the message. Esc ends a new message before it closes messages.
 - Moving the first section up in Layout did nothing: it swapped with the
   hidden Devices section.
 - A low battery turned the whole pill red; now only the battery glyph and
