@@ -1150,7 +1150,7 @@ Panel {
         width: parent.width
         // Covers the whole header (tabs and all), so nothing peeks from under it.
         height: Math.max(pairRow.implicitHeight + Style.space(20),
-                         (tabStrip.visible ? tabStrip.height + Style.space(12) : 0) + hero.height)
+                         (tabBox.visible ? tabBox.height + Style.space(12) : 0) + hero.height)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
@@ -1296,17 +1296,45 @@ Panel {
 
           // ---- Tabs: one per device, only with two or more. Main page and
           //      messages; settings has its own device list ----
-          Flickable {
-            id: tabStrip
+          Item {
+            id: tabBox
             visible: root.manyDevices && !root.showSettings
             width: parent.width
             height: visible ? tabRow.implicitHeight : 0
+
+          Flickable {
+            id: tabStrip
+            anchors.fill: parent
             contentWidth: tabRow.implicitWidth
             contentHeight: tabRow.implicitHeight
             clip: true
             interactive: contentWidth > width
             boundsBehavior: Flickable.StopAtBounds
             flickableDirection: Flickable.HorizontalFlick
+            // More tabs to either side (the arrows show then).
+            readonly property bool moreLeft: contentX > 1
+            readonly property bool moreRight: contentX + width < contentWidth - 1
+
+            // Glides to a place at the plugin's pace.
+            NumberAnimation { id: tabGlide; target: tabStrip; property: "contentX"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+            function glideTo(x) {
+              tabGlide.stop()
+              tabGlide.to = Math.max(0, Math.min(contentWidth - width, x))
+              tabGlide.start()
+            }
+            // One step: most of a row's width, so a tab cut at the edge comes
+            // fully into view.
+            function page(dir) { glideTo(contentX + dir * width * 0.7) }
+
+            // The wheel (either direction) scrolls the row sideways.
+            WheelHandler {
+              target: null
+              acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+              onWheel: function(event) {
+                var d = event.angleDelta.x !== 0 ? event.angleDelta.x : event.angleDelta.y
+                if (tabStrip.contentWidth > tabStrip.width) tabStrip.glideTo(tabStrip.contentX - d)
+              }
+            }
 
             Row {
               id: tabRow
@@ -1349,12 +1377,52 @@ Panel {
               }
             }
 
-            // Keeps the selected tab in view when the row scrolls.
+            // Keeps the selected tab in view when the row scrolls, clear of
+            // the arrows.
             function showTab(item) {
               if (!item) return
-              if (item.x < contentX) contentX = item.x
-              else if (item.x + item.width > contentX + width) contentX = item.x + item.width - width
+              var pad = tabArrowWidth
+              if (item.x - pad < contentX) glideTo(item.x - pad)
+              else if (item.x + item.width + pad > contentX + width) glideTo(item.x + item.width + pad - width)
             }
+            readonly property real tabArrowWidth: Style.space(28)
+          }
+
+          // The arrows: at an edge with more tabs beyond it, over a fade into
+          // the panel, so a cut tab reads as "more this way".
+          component TabArrow: Item {
+            id: arrow
+            property int dir: 1
+            property bool shown: false
+            width: tabStrip.tabArrowWidth + Style.space(12)
+            height: parent.height
+            opacity: shown ? 1 : 0
+            visible: opacity > 0.01
+            Behavior on opacity { NumberAnimation { duration: (arrow.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+            Rectangle {
+              anchors.fill: parent
+              gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: arrow.dir > 0 ? "transparent" : (root.bar ? root.bar.background : Color.background) }
+                GradientStop { position: 0.45; color: root.bar ? root.bar.background : Color.background }
+                GradientStop { position: 1; color: arrow.dir > 0 ? (root.bar ? root.bar.background : Color.background) : "transparent" }
+              }
+              rotation: 0
+            }
+            PanelActionButton {
+              anchors.verticalCenter: parent.verticalCenter
+              anchors.right: arrow.dir > 0 ? parent.right : undefined
+              anchors.left: arrow.dir < 0 ? parent.left : undefined
+              iconText: arrow.dir > 0 ? Model.GLYPH.right : Model.GLYPH.left
+              tooltipText: arrow.dir > 0 ? "More devices" : "Back"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              onClicked: tabStrip.page(arrow.dir)
+            }
+          }
+          TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: parent.left }
+          TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: parent.right }
+          }
           }
 
           PanelHero {
