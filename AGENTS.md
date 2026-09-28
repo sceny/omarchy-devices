@@ -170,7 +170,10 @@ Keep them; change one only with the owner.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
   green, the change checked in a running shell (check the branch out in the
-  installed clone), squash-merge, delete the branch.
+  installed clone), squash-merge, delete the branch. `Closes #n` in a pull
+  request into `develop` closes nothing (GitHub acts on it only for the
+  default branch): close the issue by hand after the merge, with a comment
+  naming the pull request.
 - **Without a running Omarchy shell** (a cloud session, a machine without
   Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
   request that the change is not checked in a running shell, and leave the
@@ -214,7 +217,16 @@ Keep them; change one only with the owner.
 
 ## Releasing
 
-1. **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
+When the owner says to release, run every step below to the end without
+stopping to ask: the owner approved the whole process, the marketplace
+request included. Stop only when a check fails or the freeze check finds
+`main` frozen, and report that.
+
+0. **Check the freeze** (*Workflow*). A marketplace issue still open means
+   `main` is frozen: say so and release nothing.
+1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
+   alone raise Z (`0.6.0` → `0.6.1`).
+   **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
    `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the
    entries by area (Bar, Panel, Messages, Fixed), and add an *Upgrading*
    group when a setting or a default changes. Set `"version": "X.Y.Z"` in
@@ -237,10 +249,12 @@ Keep them; change one only with the owner.
    git fetch origin && git switch develop && git merge --ff-only origin/main && git push
    ```
 
-4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`),
-   by hand, not from CI: every update needs a maintainer's approval anyway,
-   and the request carries the owner's acknowledgment. Show the owner the
-   exact title and body and file it only on their explicit approval.
+4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`)
+   as soon as the release is published, with the text below as it stands:
+   the owner approved it for every release. It is filed from a session,
+   not from CI (CI cannot open issues in another repository). The
+   *Standard installation* box stays unticked: Devices needs KDE Connect
+   set up separately, which is why the marketplace lists it `manual-setup`.
    - Not listed yet: the plugin submission issue form (the marketplace's
      `SUBMISSION.md`).
    - Listed: the *Verify and publish a newer upstream commit* form, with the
@@ -287,6 +301,9 @@ Keep them; change one only with the owner.
 
    Status notes (bot reports matched, the maintainer's requests) go on that
    issue as comments, never into commits.
+
+   Then report to the owner: the release link, the marketplace issue, the
+   tracking issue, and that `main` is frozen.
 5. **Freeze `main` while the marketplace issue is open** (the check is in
    *Workflow*). The marketplace checks, reviews and publishes one exact
    commit, and refuses to publish when `main` moved after its checks. Merge
