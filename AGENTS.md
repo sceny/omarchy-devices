@@ -222,18 +222,19 @@ Keep them; change one only with the owner.
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
-   history. Then bring `develop` level with `main`:
-
-   ```bash
-   git fetch origin && git switch develop && git merge --ff-only origin/main && git push
-   ```
-
-3. **Tag the merge commit and publish the release**, its notes taken from
-   that CHANGELOG section:
+   history. The `release` check on that pull request fails while the
+   version in `manifest.json` is already tagged or has no CHANGELOG
+   section with entries.
+3. **The `release` workflow tags and publishes** when the merge lands on
+   `main`: it tags the merge commit `vX.Y.Z`, publishes the release with
+   that CHANGELOG section as its notes, and brings `develop` level with
+   `main`. Check it ran (`gh run list --workflow release --limit 1`,
+   `gh release view vX.Y.Z`). If it failed, do what it does by hand:
 
    ```bash
    git tag -a vX.Y.Z -m "Devices X.Y.Z" origin/main && git push origin vX.Y.Z
    gh release create vX.Y.Z --title "Devices X.Y.Z" --notes-file notes.md --verify-tag --latest
+   git fetch origin && git switch develop && git merge --ff-only origin/main && git push
    ```
 
 4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`),
