@@ -101,7 +101,12 @@ Panel {
   // seen mid-transition on the way to and from messages (the width) and back
   // from settings (the height). Only page changes animate it: a fold already
   // animates the height itself, and a second animation on top would lag.
-  readonly property real targetCardWidth: panel.fittedContentWidth(showMessages ? Style.space(880) : Style.space(400))
+  // The page's width, plus its margins on both sides (pageGutter).
+  readonly property real targetCardWidth: panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
+  // The margin every page keeps on both sides, wide enough for the scroll
+  // bar (about 7 px, drawn at the right edge) and a gap: when the bar shows,
+  // nothing is under it, and nothing shifts when it comes or goes.
+  readonly property real pageGutter: Style.space(12)
   // No cap of our own: KeyboardPanel already clamps to what fits on screen.
   readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight)
   property real cardWidth: targetCardWidth
@@ -1325,17 +1330,13 @@ Panel {
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
-        // Room for the scroll bar: while the page is taller than the panel,
-        // it is laid out narrower by the bar (about 7 px drawn at the right
-        // edge; its implicit width counts padding it does not draw) and a
-        // gap, so nothing sits under the bar.
-        readonly property real gutter: contentHeight > height ? Style.space(14) : 0
-
         Column {
           id: column
+          // Inside the page margins (pageGutter), on every page.
+          x: root.pageGutter
           // Laid out at the card's final width while the card itself is still
           // animating, so the page never re-flows during a page change.
-          width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - panelFlick.gutter
+          width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - 2 * root.pageGutter
           spacing: Style.space(12)
 
           // ---- The pairing card: a device asking to pair, at the top, above
