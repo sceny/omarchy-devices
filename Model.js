@@ -1216,7 +1216,8 @@ function settingsPageRows(ctx) {
   if (scope === "root" && !ctx.single) {
     rows.push({ kind: "defaults", key: "defaults", label: "Defaults for all devices", hint: "Sections, bar and shortcuts for devices that did not change them, and for new ones" })
   } else {
-    var e = ctx.edit
+    // A panel torn down mid-reload can ask with nothing to edit.
+    var e = ctx.edit || resolveProfile(readSettings({}), null, true)
     var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly)
     base.forEach(function(r) {

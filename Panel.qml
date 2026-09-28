@@ -1061,6 +1061,12 @@ Panel {
     function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
     function nickname(text: string): string { settingsView.nicknameSet(text); return root.settingsInfo() }
     function pickIcon(code: string): string { settingsView.iconSet(code); return root.settingsInfo() }
+    // A tab dropped at another tab's place, as a drag would (checks the
+    // order kept for devices without a tab).
+    function dragTab(from: int, to: int): string {
+      root.dropTab(from, to)
+      return JSON.stringify(root.pairedDevices.map(function(x) { return x.id }))
+    }
     function moveDevice(key: string, delta: int): string {
       var d = root.phone ? root.phone.findDevice(key) : null
       if (!d) return "no device " + key
