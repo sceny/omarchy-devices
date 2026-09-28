@@ -1155,6 +1155,14 @@ Panel {
       root.textBack(root.call, false)
       return JSON.stringify({ device: root.device ? root.device.id : "", call: root.call })
     }
+    // Demo only: Text back to any number, as from a call.
+    function demoTextTo(number: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.textBack({ device: root.device ? String(root.device.id) : "", number: number, who: "" }, false)
+      return "ok"
+    }
+    // Esc on the panel (not in a text field), as the key would.
+    function escape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, open: root.opened }) }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
     function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
@@ -1208,7 +1216,8 @@ Panel {
       if (!s) return "{}"
       return JSON.stringify({ active: s.active, ready: s.ready, threads: s.threads.count, unread: s.unreadCount,
         open: s.openThreadId, loaded: s.messages.count, hasMore: s.hasMore, loading: s.loading,
-        contacts: s.contactCount, error: s.lastError, composerFocused: messagesView ? messagesView.composerFocused : false })
+        contacts: s.contactCount, error: s.lastError, composerFocused: messagesView ? messagesView.composerFocused : false,
+        newMessage: messagesView && messagesView.newMode ? { to: messagesView.recipients.map(function(r) { return r.number }), suggestions: messagesView.suggestions.length } : null })
     }
     function loadOlder(): string { if (root.sms) root.sms.loadMore(); return "ok" }
     function searchThreads(q: string): string {
