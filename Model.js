@@ -47,7 +47,8 @@ var GLYPH = {
   wifiOff: "\u{F05AA}",
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
-  volumeOff: "\u{F0581}"     // volume-off
+  volumeOff: "\u{F0581}",    // volume-off
+  grip: "\u{F01DD}"          // drag-vertical: drag a row to move it
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive

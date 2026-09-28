@@ -481,6 +481,38 @@ Panel {
     composerFocused = false
     notifIndex = 0
   }
+  // Dragging a tab: where it would land (its index once dropped, among the
+  // tabs), from where the dragged tab's middle is.
+  property int tabDropIndex: -1
+  property int tabDragFrom: -1
+  function tabTarget(from, dx) {
+    tabDragFrom = from
+    var me = tabRepeaterItem(from)
+    if (!me) return from
+    var middle = me.x + me.width / 2 + dx
+    var k = 0
+    for (var i = 0; i < tabDevices.length; i++) {
+      if (i === from) continue
+      var t = tabRepeaterItem(i)
+      if (t && t.x + t.width / 2 < middle) k++
+    }
+    return k
+  }
+  function tabRepeaterItem(i) { return tabStrip && tabStrip.tabItem ? tabStrip.tabItem(i) : null }
+  // A tab dropped at `to`: its device moves there among the tabs; devices
+  // without a tab keep their places in the order.
+  function dropTab(from, to) {
+    tabDragFrom = -1
+    if (from === to || from < 0 || !phone) return
+    var tabIds = tabDevices.map(function(d) { return String(d.id) })
+    var moved = tabIds.splice(from, 1)[0]
+    tabIds.splice(to, 0, moved)
+    var all = pairedDevices.map(function(d) { return String(d.id) })
+    var next = [], t = 0
+    for (var i = 0; i < all.length; i++) next.push(tabDevices.some(function(d) { return String(d.id) === all[i] }) ? tabIds[t++] : all[i])
+    var entry = Model.withDeviceOrder(root.settings, snapshot, next)
+    persistSettings({ deviceOrder: entry.deviceOrder, devices: entry.devices || {} })
+  }
   function tabAt(i) { if (i >= 0 && i < tabDevices.length) switchDevice(tabDevices[i].id) }
   function tabStep(delta) {
     for (var i = 0; i < tabDevices.length; i++)
@@ -1459,6 +1491,7 @@ Panel {
               id: tabRow
               spacing: Style.space(4)
               Repeater {
+                id: tabRepeater
                 model: root.tabDevices
                 Button {
                   id: tab
@@ -1492,8 +1525,39 @@ Panel {
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
+
+                  // Drag a tab sideways to move its device in the order; a
+                  // click still selects it (the drag starts past a threshold).
+                  property real dragX: 0
+                  transform: Translate { x: tab.dragX }
+                  z: tabDrag.active ? 5 : 0
+                  DragHandler {
+                    id: tabDrag
+                    target: null
+                    yAxis.enabled: false
+                    grabPermissions: PointerHandler.CanTakeOverFromAnything
+                    onTranslationChanged: if (active) { tab.dragX = translation.x; root.tabDropIndex = root.tabTarget(tab.index, tab.dragX) }
+                    onActiveChanged: if (!active) {
+                      var to = root.tabTarget(tab.index, tab.dragX)
+                      tab.dragX = 0
+                      root.tabDropIndex = -1
+                      root.dropTab(tab.index, to)
+                    }
+                  }
                 }
               }
+            }
+
+            // Where a dragged tab will land: a line between tabs.
+            Rectangle {
+              readonly property var at: root.tabDropIndex >= 0 ? tabRepeater.itemAt(root.tabDropIndex) : null
+              readonly property var from: root.tabDragFrom >= 0 ? tabRepeater.itemAt(root.tabDragFrom) : null
+              visible: !!at && root.tabDropIndex !== root.tabDragFrom
+              width: 2
+              radius: 1
+              height: tabRow.height
+              color: Color.accent
+              x: !at ? 0 : (root.tabDropIndex < root.tabDragFrom ? at.x - tabRow.spacing / 2 - 1 : at.x + at.width + tabRow.spacing / 2 - 1)
             }
 
             // Keeps the selected tab in view when the row scrolls, clear of
@@ -1505,6 +1569,7 @@ Panel {
               else if (item.x + item.width + pad > contentX + width) glideTo(item.x + item.width + pad - width)
             }
             readonly property real tabArrowWidth: Style.space(28)
+            function tabItem(i) { return tabRepeater.itemAt(i) }
           }
 
           // The arrows: at an edge with more tabs beyond it, over a fade into

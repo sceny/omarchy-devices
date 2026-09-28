@@ -468,6 +468,55 @@ Column {
     }
   }
 
+  // Drag to reorder: a row with a place in an order carries this grip. The
+  // row follows the pointer, a line shows where it will land, and on release
+  // it moves that many places: the same move as its arrows and Shift+K/J.
+  component Grip: Text {
+    id: grip
+    property Item row: null
+    property int pos: 0
+    property int count: 1
+    property real gap: Style.space(6)
+    property real dragY: 0
+    readonly property real pitch: row ? row.height + gap : 1
+    readonly property int steps: Math.max(-pos, Math.min(count - 1 - pos, Math.round(dragY / pitch)))
+    readonly property bool dragging: area.pressed && Math.abs(dragY) > 2
+    signal moved(int delta)
+
+    text: Model.GLYPH.grip
+    color: area.containsMouse || area.pressed ? root.foreground : root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.icon
+    Layout.alignment: Qt.AlignVCenter
+
+    MouseArea {
+      id: area
+      anchors.fill: parent
+      anchors.margins: -Style.space(4)
+      hoverEnabled: true
+      // The page's own scrolling does not take the drag away.
+      preventStealing: true
+      cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
+      property real startY: 0
+      // Scene coordinates: the pointer's place, however far the row moved.
+      onPressed: function(m) { startY = mapToItem(null, m.x, m.y).y; grip.dragY = 0 }
+      onPositionChanged: function(m) { if (pressed) grip.dragY = mapToItem(null, m.x, m.y).y - startY }
+      onReleased: { var d = grip.steps; grip.dragY = 0; if (d !== 0) grip.moved(d) }
+      onCanceled: grip.dragY = 0
+    }
+  }
+
+  // Where a dragged row will land: a line in the gap, drawn by the row.
+  component DropLine: Rectangle {
+    property var grip: null
+    visible: !!grip && grip.dragging && grip.steps !== 0
+    width: parent ? parent.width : 0
+    height: 2
+    radius: 1
+    color: Color.accent
+    y: grip ? grip.steps * grip.pitch - grip.dragY + (grip.steps > 0 ? parent.height + grip.gap / 2 : -grip.gap / 2) - 1 : 0
+  }
+
   // A row of the device list (a device, one asking to pair, one in reach),
   // the Defaults row, or a group's "use the defaults".
   component ListRow: CursorSurface {
@@ -479,6 +528,9 @@ Column {
     hasCursor: root.cursorIndex === rowIndex
     foreground: root.foreground
     implicitHeight: listContent.implicitHeight + Style.space(12)
+    transform: Translate { y: listGrip.dragY }
+    z: listGrip.dragging ? 10 : 0
+    DropLine { grip: listGrip }
 
     MouseArea {
       anchors.fill: parent
@@ -496,6 +548,16 @@ Column {
       anchors.leftMargin: Style.space(10)
       anchors.rightMargin: Style.space(6)
       spacing: Style.space(10)
+
+      Grip {
+        id: listGrip
+        visible: listRow.row.kind === "device"
+        row: listRow
+        pos: listRow.row.pos || 0
+        count: listRow.row.count || 1
+        gap: Style.space(4)
+        onMoved: function(delta) { root.deviceMoveRequested(listRow.row.id, delta) }
+      }
 
       Text {
         visible: (listRow.row.glyph || "") !== ""
@@ -750,6 +812,9 @@ Column {
     hasCursor: root.cursorIndex === rowIndex
     foreground: root.foreground
     implicitHeight: layoutContent.implicitHeight + Style.space(12)
+    transform: Translate { y: layoutGrip.dragY }
+    z: layoutGrip.dragging ? 10 : 0
+    DropLine { grip: layoutGrip }
 
     MouseArea {
       anchors.fill: parent
@@ -767,6 +832,15 @@ Column {
       anchors.leftMargin: Style.space(10)
       anchors.rightMargin: Style.space(10)
       spacing: Style.space(10)
+
+      Grip {
+        id: layoutGrip
+        visible: layoutRow.row.kind === "layout"
+        row: layoutRow
+        pos: layoutRow.row.pos || 0
+        count: layoutRow.row.count || 1
+        onMoved: function(delta) { root.sectionMoveRequested(layoutRow.row.section, delta) }
+      }
 
       ColumnLayout {
         Layout.fillWidth: true
@@ -837,6 +911,9 @@ Column {
     foreground: root.foreground
     opacity: shortcutRow.row.kind !== "shortcut" || root.shortcutsShown ? 1.0 : 0.55
     implicitHeight: shortcutContent.implicitHeight + Style.space(10)
+    transform: Translate { y: shortcutGrip.dragY }
+    z: shortcutGrip.dragging ? 10 : 0
+    DropLine { grip: shortcutGrip }
 
     MouseArea {
       anchors.fill: parent
@@ -854,6 +931,21 @@ Column {
       anchors.leftMargin: Style.space(10)
       anchors.rightMargin: Style.space(6)
       spacing: Style.space(10)
+
+      // Only chosen ones have a place to move in; the grip keeps its room
+      // either way, so the rows line up.
+      Grip {
+        id: shortcutGrip
+        opacity: shortcutRow.row.on === true ? 1 : 0
+        enabled: shortcutRow.row.on === true
+        row: shortcutRow
+        pos: Math.max(0, shortcutRow.row.pos || 0)
+        count: shortcutRow.row.count || 1
+        onMoved: function(delta) {
+          if (shortcutRow.row.kind === "bar") root.barMoveRequested(shortcutRow.row.key, delta)
+          else root.moveRequested(shortcutRow.row.key, delta)
+        }
+      }
 
       Text {
         text: shortcutRow.row.on ? Model.GLYPH.checked : Model.GLYPH.unchecked
