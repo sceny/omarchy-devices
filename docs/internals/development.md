@@ -39,6 +39,10 @@ the plugin; `Panel.qml`, `MessagesView.qml`, `BarWidget.qml` and `Model.js`
 need `omarchy restart shell`. Errors land in
 `journalctl --user -t omarchy-shell`.
 
+## Screenshots
+
+See [Screenshots](screenshots.md): demo data only.
+
 ## Contributing
 
 `main` is what users install and moves only at a release; changes go into

@@ -236,6 +236,9 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
   assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
+  const away = M.demoSnapshot(snap(device({ reachable: false, can: { sms: false, ring: false } })), "").devices[0]
+  assert.equal(away.reachable, true, "the demo device is here even when the real one is away")
+  assert.equal(away.can.sms && away.can.ring && away.can.media && away.can.ping, true, "and offers every feature")
 })
 
 test("one pace for motion", () => {
