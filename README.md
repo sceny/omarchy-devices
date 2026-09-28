@@ -4,7 +4,7 @@ Your phone in the [Omarchy](https://omarchy.org) bar, through
 [KDE Connect](https://kdeconnect.kde.org/): texts, notifications and media
 without picking it up.
 
-![The panel (demo data)](preview.png)
+![Devices in the Omarchy bar: the pill with its notification bubble, the panel with shortcuts, Now playing and notifications, and the messages view with a conversation (demo data)](preview.png)
 
 - **Messages:** every conversation, its whole history and picture messages;
   reply or start one from the keyboard.
@@ -40,8 +40,10 @@ without picking it up.
 
 ## Internals
 
-- [How it works](docs/internals/how-it-works.md): the bridge, messages,
-  media, motion
+- [How it works](docs/internals/how-it-works.md): the files, the bridge,
+  motion
+- [Messages and media](docs/internals/messages-and-media.md): history, read
+  state, chats, players
 - [Development](docs/internals/development.md): tests, demo mode, driving the
   panel, contributing
 - [Screenshots](docs/internals/screenshots.md): regenerating the listing image

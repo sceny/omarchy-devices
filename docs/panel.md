@@ -2,7 +2,7 @@
 
 # The panel
 
-![The panel (demo data)](../preview.png)
+![The panel: shortcuts, Now playing and notifications (demo data)](images/panel.png)
 
 - **Notifications:** reply, dismiss, and the app's own buttons where KDE
   Connect passes them on. A chat shows the latest message folded, the whole
