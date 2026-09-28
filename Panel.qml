@@ -1042,6 +1042,13 @@ Panel {
     function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
     function nickname(text: string): string { settingsView.nicknameSet(text); return root.settingsInfo() }
     function pickIcon(code: string): string { settingsView.iconSet(code); return root.settingsInfo() }
+    // A settings row moved one step as the keyboard would (Reorder's glide);
+    // the order's state right after, for checks.
+    function glide(kind: string, pos: int, delta: int): string {
+      var ok = settingsView.glideMove(kind, pos, delta)
+      var o = settingsView.orderFor(kind)
+      return JSON.stringify({ ok: ok, from: o ? o.from : null, to: o ? o.to : null, count: o ? o.count : null, itemSize: o ? o.itemSize : null, extent: o ? o.movingExtent : null })
+    }
     // A tab dropped at another tab's place, as a drag would (checks the
     // order kept for devices without a tab).
     function dragTab(from: int, to: int): string {
