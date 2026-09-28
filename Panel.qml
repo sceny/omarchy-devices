@@ -36,7 +36,6 @@ Panel {
 
   // Layout settings, from this widget's shell.json entry. Written only by the
   // settings page (persistSettings), read everywhere else.
-  readonly property bool showDevices: Model.layoutFlag(setting("showDevices", true))
   // The viewed device's profile (Service.profile): its sections, their
   // order and its shortcuts, its own changes over the defaults.
   readonly property var profile: phone ? phone.profile : Model.resolveProfile(Model.readSettings(settings), null, true)
@@ -102,7 +101,12 @@ Panel {
   // seen mid-transition on the way to and from messages (the width) and back
   // from settings (the height). Only page changes animate it: a fold already
   // animates the height itself, and a second animation on top would lag.
-  readonly property real targetCardWidth: panel.fittedContentWidth(showMessages ? Style.space(880) : Style.space(400))
+  // The page's width, plus its margins on both sides (pageGutter).
+  readonly property real targetCardWidth: panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
+  // The margin every page keeps on both sides, wide enough for the scroll
+  // bar (about 7 px, drawn at the right edge) and a gap: when the bar shows,
+  // nothing is under it, and nothing shifts when it comes or goes.
+  readonly property real pageGutter: Style.space(12)
   // No cap of our own: KeyboardPanel already clamps to what fits on screen.
   readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight)
   property real cardWidth: targetCardWidth
@@ -214,9 +218,137 @@ Panel {
     if (countedSetup && phone) phone.setupWanted = Math.max(0, phone.setupWanted - 1)
   }
   property int settingsIndex: 0
-  readonly property var settingsRows: Model.settingsRows(
-    { showDevices: showDevices, showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
-    shortcutOrder, device ? device.can : null, sectionOrder, barIndicators, batteryLowOnly)
+
+  // ---- Settings for devices ----
+  // What the settings page edits: "root" (the device list, or with one
+  // device the whole flat page), "defaults", or a device's id (its page).
+  property string settingsScope: "root"
+  readonly property var pairedDevices: phone ? phone.ordered : []
+  readonly property bool singleDevice: pairedDevices.length <= 1
+  readonly property var scopeDevice: {
+    var id = settingsScope === "root" && singleDevice && pairedDevices.length === 1 ? String(pairedDevices[0].id) : settingsScope
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === id) return pairedDevices[i]
+    return null
+  }
+  readonly property int scopeIndex: {
+    for (var i = 0; i < pairedDevices.length; i++) if (scopeDevice && pairedDevices[i].id === scopeDevice.id) return i
+    return -1
+  }
+  readonly property bool editingDevice: settingsScope !== "root" && settingsScope !== "defaults" && !!scopeDevice
+  readonly property var profilesRead: phone ? phone.profiles : Model.readSettings(settings)
+  readonly property var scopeProfile: scopeDevice ? Model.resolveProfile(profilesRead, scopeDevice, scopeIndex === 0) : null
+  // The profile the page's groups edit: the device's own on its page, else
+  // the defaults (with one device, the flat keys as always).
+  readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
+  // What the settings page binds to: never missing, even for the moment a
+  // reload tears the panel down.
+  readonly property var editing: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+    shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
+  readonly property var settingsRows: Model.settingsPageRows({
+    scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
+    single: singleDevice,
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
+    identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
+                               bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
+    edit: editProfile,
+    can: scopeDevice ? scopeDevice.can : (device ? device.can : null)
+  })
+
+  function openScope(scope) {
+    settingsScope = scope
+    settingsIndex = 0
+    iconPicking = false
+    if (panelFlick) panelFlick.contentY = 0
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+  // Esc and the back arrow on a device's page or the defaults: to the list.
+  // A demo leaves nothing in the settings: entering it keeps a copy of this
+  // widget's entry (on the service, shared by every monitor's panel), and
+  // leaving it writes that copy back, undoing anything changed meanwhile,
+  // defaults included. Keys added during the demo go.
+  function enterDemo(kind) {
+    if (!phone) return
+    if (!phone.demo || phone.settingsBeforeDemo === null) phone.settingsBeforeDemo = JSON.parse(JSON.stringify(root.settings || {}))
+    phone.showDemo(kind)
+  }
+  function leaveDemo() {
+    var before = phone ? phone.settingsBeforeDemo : null
+    if (!before) { forgetDemoProfiles(); return }
+    phone.settingsBeforeDemo = null
+    if (JSON.stringify(before) === JSON.stringify(root.settings || {})) return
+    var values = {}
+    for (var k in root.settings) if (k !== "id") values[k] = before[k]
+    for (var b in before) if (b !== "id") values[b] = before[b]
+    persistSettings(values)
+  }
+
+  // Without a copy (a demo entered before this was kept): profiles and order
+  // written for demo devices (made-up ids) are removed.
+  function forgetDemoProfiles() {
+    var devs = settings && settings.devices && typeof settings.devices === "object" ? settings.devices : {}
+    var order = settings && Array.isArray(settings.deviceOrder) ? settings.deviceOrder : null
+    var demoIds = Object.keys(devs).filter(function(k) { return k.indexOf("demo") === 0 })
+    var orderHasDemo = !!order && order.some(function(k) { return String(k).indexOf("demo") === 0 })
+    var emptyLeft = (settings && settings.devices !== undefined && Object.keys(devs).length === 0) || (!!order && order.length === 0)
+    if (demoIds.length === 0 && !orderHasDemo && !emptyLeft) return
+    var next = Object.assign({}, devs)
+    demoIds.forEach(function(k) { delete next[k] })
+    var left = order ? order.filter(function(k) { return String(k).indexOf("demo") !== 0 }) : []
+    // Nothing left: the keys go (undefined is not written), as before the demo.
+    persistSettings({ devices: Object.keys(next).length > 0 ? next : undefined, deviceOrder: left.length > 0 ? left : undefined })
+  }
+  function settingsInfo() {
+    return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
+      rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
+  }
+  function settingsBack() {
+    if (settingsScope !== "root") { openScope("root"); return true }
+    return false
+  }
+
+  // A change to what the page edits: the device's profile on its page, else
+  // the flat keys (the defaults).
+  function persistScoped(values) {
+    if (editingDevice) persistDeviceProfile(String(scopeDevice.id), values)
+    else persistSettings(values)
+  }
+  function persistDeviceProfile(id, values) {
+    var idx = -1
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === String(id)) idx = i
+    var entry = Model.withProfile(root.settings, String(id), values, idx === 0)
+    persistSettings({ devices: entry.devices })
+  }
+  // Identity is always the device's own, with one device too.
+  function setIdentity(values) {
+    if (scopeDevice) persistDeviceProfile(String(scopeDevice.id), values)
+  }
+  // A group's settings back to the defaults, on a device's page.
+  function resetGroup(group) {
+    var keys = Model.SETTING_GROUPS[group] || []
+    var values = {}
+    keys.forEach(function(k) { values[k] = null })
+    persistScoped(values)
+  }
+  function moveDevice(id, delta) {
+    var ids = Model.movedOrder(snapshot, profilesRead, id, delta)
+    var entry = Model.withDeviceOrder(root.settings, snapshot, ids)
+    persistSettings({ deviceOrder: entry.deviceOrder, devices: entry.devices || {} })
+    Qt.callLater(function() {
+      for (var i = 0; i < settingsRows.length; i++)
+        if (settingsRows[i].kind === "device" && settingsRows[i].id === String(id)) { settingsIndex = i; return }
+    })
+  }
+  function cycleBarPlace() {
+    var order = ["always", "attention", "never"]
+    var at = order.indexOf(scopeProfile ? (scopeProfile.bar === "own" ? "always" : scopeProfile.bar) : "always")
+    setIdentity({ bar: order[(at + 1) % order.length] })
+  }
+  property bool iconPicking: false
+  // The header names the device a settings page edits, else the viewed one.
+  readonly property var heroDevice: showSettings && editingDevice ? scopeDevice : device
+  readonly property var heroProfile: showSettings && editingDevice ? scopeProfile : profile
+  // The nickname field has focus (typing goes to it, not to the keys).
+  property bool nicknameFocused: false
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -287,12 +419,7 @@ Panel {
   }
   property int notifIndex: 0
 
-  // Every device KDE Connect knows, for the Devices section.
-  readonly property var deviceRows: Model.deviceRows(snapshot, device ? device.id : "")
-  // Whether the Devices section has anything to offer (a choice or a request).
-  readonly property bool devicesWanted: Model.showDevicesSection(deviceRows)
-  property int deviceIndex: 0
-  // The device whose Unpair is armed (x once, then x again; or two clicks).
+  // The device whose Unpair is armed (two presses on Unpair).
   property string unpairArmed: ""
   Timer { id: unpairDisarm; interval: 3000; onTriggered: root.unpairArmed = "" }
 
@@ -382,9 +509,20 @@ Panel {
     composing = false
     composerFocused = false
     notifIndex = 0
-    deviceIndexCursor = 0
   }
-  property int deviceIndexCursor: 0
+  // A tab dropped at `to`: its device moves there among the tabs; devices
+  // without a tab keep their places in the order.
+  function dropTab(from, to) {
+    if (from === to || from < 0 || !phone) return
+    var tabIds = tabDevices.map(function(d) { return String(d.id) })
+    var moved = tabIds.splice(from, 1)[0]
+    tabIds.splice(to, 0, moved)
+    var all = pairedDevices.map(function(d) { return String(d.id) })
+    var next = [], t = 0
+    for (var i = 0; i < all.length; i++) next.push(tabDevices.some(function(d) { return String(d.id) === all[i] }) ? tabIds[t++] : all[i])
+    var entry = Model.withDeviceOrder(root.settings, snapshot, next)
+    persistSettings({ deviceOrder: entry.deviceOrder, devices: entry.devices || {} })
+  }
   function tabAt(i) { if (i >= 0 && i < tabDevices.length) switchDevice(tabDevices[i].id) }
   function tabStep(delta) {
     for (var i = 0; i < tabDevices.length; i++)
@@ -399,25 +537,18 @@ Panel {
     phone.report("Unpair " + row.name + "? Do it again to confirm", false)
   }
 
-  // Enter on a device row: the one thing it is waiting for.
-  function deviceMainAction(row) {
-    if (!row || !phone) return
-    if (row.incoming) phone.acceptPairing(row.id)
-    else if (!row.paired && !row.outgoing) phone.pairWith(row.id)
-    else if (row.paired && !row.current) selectDevice(row.id)
-  }
-
   readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // The sections drawn under the header, in the chosen order: switched on
-  // in Layout and with something in them. Devices shows while the device is
-  // away too (another one may be there to switch to).
+  // in Layout and with something in them, while the device is here.
   readonly property var drawnSections: {
     var s = []
     for (var i = 0; i < sectionOrder.length; i++) {
       var key = sectionOrder[i]
-      if (key === "devices") { if (showDevices && devicesWanted) s.push(key) }
+      // The Devices section is gone: tabs switch, the pairing card and
+      // Settings' device list pair and unpair.
+      if (key === "devices") continue
       else if (!reachable) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -461,14 +592,14 @@ Panel {
 
   function toggleLayout(key) {
     var values = {}
-    values[key] = !Model.layoutFlag(setting(key, true))
-    persistSettings(values)
+    values[key] = !Model.layoutFlag(editProfile[key])
+    persistScoped(values)
   }
 
-  function toggleShortcutKey(key) { persistSettings({ shortcuts: Model.toggleShortcut(shortcutOrder, key) }) }
+  function toggleShortcutKey(key) { persistScoped({ shortcuts: Model.toggleShortcut(editProfile.shortcuts, key) }) }
 
   function moveShortcutKey(key, delta) {
-    persistSettings({ shortcuts: Model.moveShortcut(shortcutOrder, key, delta) })
+    persistScoped({ shortcuts: Model.moveShortcut(editProfile.shortcuts, key, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -477,7 +608,8 @@ Panel {
   }
 
   function moveSectionKey(section, delta) {
-    persistSettings({ sectionOrder: Model.moveShortcut(sectionOrder, section, delta) })
+    // The order as shown (the Devices section is not on the page any more).
+    persistScoped({ sectionOrder: Model.moveShortcut(Model.visibleSections(editProfile.sectionOrder), section, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -486,7 +618,7 @@ Panel {
   }
 
   function moveBarIndicator(key, delta) {
-    persistSettings({ barIndicators: Model.moveShortcut(barIndicators, key, delta) })
+    persistScoped({ barIndicators: Model.moveShortcut(editProfile.barIndicators, key, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -494,7 +626,7 @@ Panel {
     })
   }
 
-  function resetShortcuts() { persistSettings({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
+  function resetShortcuts() { persistScoped({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
 
   // A settings row under a folded section is not there to land on.
   function settingsRowShown(i) {
@@ -503,6 +635,8 @@ Panel {
     if (row.kind === "layout") return !isCollapsed("layout")
     if (row.kind === "shortcut") return !isCollapsed("shortcuts")
     if (row.kind === "bar" || row.kind === "barFlag") return !isCollapsed("bar")
+    if (row.kind === "device" || row.kind === "request" || row.kind === "available") return !isCollapsed("devicesList")
+    if (["nickname", "icon", "barPlace", "showInPanel"].indexOf(row.kind) >= 0) return !isCollapsed("identity")
     return true
   }
   function nextSettingsRow(from, dy) {
@@ -521,9 +655,19 @@ Panel {
     settingsIndex = index
     if (row.kind === "layout") toggleLayout(row.key)
     else if (row.kind === "shortcut") toggleShortcutKey(row.key)
-    else if (row.kind === "bar") persistSettings({ barIndicators: Model.toggleBarIndicator(barIndicators, row.key) })
-    else if (row.kind === "barFlag") persistSettings({ batteryLowOnly: !batteryLowOnly })
+    else if (row.kind === "bar") persistScoped({ barIndicators: Model.toggleBarIndicator(editProfile.barIndicators, row.key) })
+    else if (row.kind === "barFlag") persistScoped({ batteryLowOnly: !editProfile.batteryLowOnly })
     else if (row.kind === "reset") resetShortcuts()
+    else if (row.kind === "device") openScope(row.id)
+    else if (row.kind === "defaults") openScope("defaults")
+    else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
+    else if (row.kind === "available" && phone && !row.waiting) phone.pairWith(row.id)
+    else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
+    else if (row.kind === "icon") iconPicking = !iconPicking
+    else if (row.kind === "barPlace") cycleBarPlace()
+    else if (row.kind === "showInPanel") setIdentity({ showInPanel: !scopeProfile.showInPanel })
+    else if (row.kind === "resetGroup") resetGroup(row.key)
+    else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
 
@@ -616,6 +760,8 @@ Panel {
     composerFocused = false
     settingsOpen = true
     settingsIndex = 0
+    settingsScope = "root"
+    iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -747,10 +893,6 @@ Panel {
         return
       }
     }
-    if (focusSection === "devices" && !isCollapsed("devices")) {
-      var nd = deviceIndex + dy
-      if (nd >= 0 && nd < deviceRows.length) { deviceIndex = nd; return }
-    }
     if (focusSection === "notifications" && !isCollapsed("notifications")) {
       var next = notifIndex + dy
       if (next >= 0 && next < notifications.length) { notifIndex = next; scrollToCursor(); return }
@@ -760,18 +902,16 @@ Panel {
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
     if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
-    if (focusSection === "devices") deviceIndex = dy > 0 ? 0 : deviceRows.length - 1
     scrollToCursor()
   }
 
   function activateCursor() {
     ensureCursor()
     // A folded section opens on Enter; its content is not there to act on.
-    if ((focusSection === "devices" || focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
+    if ((focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
       return
     }
-    if (focusSection === "devices") { deviceMainAction(deviceRows[deviceIndex]); return }
     if (focusSection === "actions") {
       var a = actions[actionIndex]
       if (a && a.enabled) runAction(a.key)
@@ -913,6 +1053,43 @@ Panel {
       if (root.opened) root.switchDevice(d.id); else root.openFromHotkey()
       return "ok"
     }
+    // Settings for devices: open a scope ("root", "defaults", or a device's
+    // id, nickname or name) as a click would, and what its page lists.
+    function settingsScope(key: string): string {
+      if (!root.settingsOpen) { root.openFromHotkey(); root.openSettings() }
+      if (key === "root" || key === "defaults") root.openScope(key)
+      else {
+        var d = root.phone ? root.phone.findDevice(key) : null
+        if (!d) return "no device " + key
+        root.openScope(String(d.id))
+      }
+      return root.settingsInfo()
+    }
+    function settingsRowsInfo(): string { return root.settingsInfo() }
+    // Checks: a settings row pressed as a click would; a nickname entered as
+    // Enter in its field would; an icon picked (hex, "" for its kind).
+    function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
+    function nickname(text: string): string { settingsView.nicknameSet(text); return root.settingsInfo() }
+    function pickIcon(code: string): string { settingsView.iconSet(code); return root.settingsInfo() }
+    // A settings row moved one step as the keyboard would (Reorder's glide);
+    // the order's state right after, for checks.
+    function glide(kind: string, pos: int, delta: int): string {
+      var ok = settingsView.glideMove(kind, pos, delta)
+      var o = settingsView.orderFor(kind)
+      return JSON.stringify({ ok: ok, from: o ? o.from : null, to: o ? o.to : null, count: o ? o.count : null, itemSize: o ? o.itemSize : null, extent: o ? o.movingExtent : null })
+    }
+    // A tab dropped at another tab's place, as a drag would (checks the
+    // order kept for devices without a tab).
+    function dragTab(from: int, to: int): string {
+      root.dropTab(from, to)
+      return JSON.stringify(root.pairedDevices.map(function(x) { return x.id }))
+    }
+    function moveDevice(key: string, delta: int): string {
+      var d = root.phone ? root.phone.findDevice(key) : null
+      if (!d) return "no device " + key
+      root.moveDevice(String(d.id), delta)
+      return JSON.stringify(root.pairedDevices.map(function(x) { return x.id }))
+    }
     function tabs(): string {
       var list = root.phone ? root.phone.ordered : []
       return JSON.stringify({ shown: root.manyDevices, viewed: root.device ? root.device.id : "",
@@ -920,7 +1097,7 @@ Panel {
         pill: root.phone ? root.phone.pill.chips.map(function(c) { return { id: c.id, text: c.text, bubble: c.bubble, dimmed: c.dimmed } }) : [],
         resting: root.phone ? root.phone.pill.resting : null, pairing: root.phone ? root.phone.pill.pairing : false })
     }
-    function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
+    function devices(): string { return JSON.stringify(Model.devicesListRows(root.snapshot, root.profilesRead, root.lowPercent).map(function(r) { return r.kind + ":" + r.title + ":" + r.status.split(" ·")[0] })) }
     function fold(key: string): string { root.toggleCollapsed(key); return JSON.stringify(root.collapsed) }
     function pageState(): string {
       return JSON.stringify({ target: root.targetPage, shown: root.shownPage, running: pageSwap.running,
@@ -960,7 +1137,7 @@ Panel {
       root.phone.seek(p, seconds)
       return "ok"
     }
-    function demo(kind: string): string { if (root.phone) root.phone.showDemo(kind); return "demo " + kind }
+    function demo(kind: string): string { root.enterDemo(kind); return "demo " + kind }
     function openReply(index: int): string {
       var n = root.notifications[index]
       if (!n || !n.replyId) return "no replyable notification at " + index
@@ -968,7 +1145,7 @@ Panel {
       root.openReply(n)
       return "ok"
     }
-    function live(): string { if (root.phone) root.phone.showLive(); return "live" }
+    function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
@@ -1039,7 +1216,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.replyFocused || root.composerFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
+      blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
 
       onMoveRequested: function(dx, dy) {
         if (root.messagesOpen) { if (dy !== 0) messagesView.moveCursor(dy); return }
@@ -1058,18 +1235,16 @@ Panel {
         else root.activateCursor()
       }
       onDeleteRequested: {
-        if (root.mainView && root.cursorActive && root.focusSection === "devices" && !root.isCollapsed("devices")) {
-          var dr = root.deviceRows[root.deviceIndex]
-          if (dr && (dr.incoming || dr.outgoing)) root.phone.rejectPairing(dr.id)
-          else root.armOrUnpair(dr)
-          return
-        }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
           var n = root.notifications[root.notifIndex]
           if (n && n.dismissable) root.phone.dismiss(n)
         }
       }
-      onCloseRequested: root.messagesOpen ? root.closeMessagesView() : (root.settingsOpen ? root.closeSettings() : root.close())
+      onCloseRequested: {
+        if (root.messagesOpen) root.closeMessagesView()
+        else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+        else root.close()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       // PgUp/PgDn scroll the open conversation. Keys has no page-key handlers
       // and a second Keys.onPressed here would replace the catcher's own, so
@@ -1098,12 +1273,10 @@ Panel {
         if (t === "m") { root.openMessagesView(-1); return }
         if (root.settingsOpen) {
           var row = root.settingsRows[root.settingsIndex]
-          if (root.cursorActive && row && row.kind === "shortcut" && row.on && (t === "K" || t === "J"))
-            root.moveShortcutKey(row.key, t === "K" ? -1 : 1)
-          else if (root.cursorActive && row && row.kind === "layout" && (t === "K" || t === "J"))
-            root.moveSectionKey(row.section, t === "K" ? -1 : 1)
-          else if (root.cursorActive && row && row.kind === "bar" && row.on && (t === "K" || t === "J"))
-            root.moveBarIndicator(row.key, t === "K" ? -1 : 1)
+          // Shift+K / Shift+J glide the row like its arrows (Reorder).
+          if (root.cursorActive && row && (t === "K" || t === "J")
+              && (row.kind === "device" || row.kind === "layout" || ((row.kind === "shortcut" || row.kind === "bar") && row.on)))
+            settingsView.glideMove(row.kind, row.pos, t === "K" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
@@ -1128,111 +1301,6 @@ Panel {
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
           root.openReply(root.notifications[root.notifIndex])
-      }
-
-      // ---- The pairing card: a device asking to pair floats over the top
-      //      of the page until it is answered; it never pushes the page ----
-      BorderSurface {
-        id: pairCard
-        // Kept while it fades out, so the text does not blank mid-fade.
-        property var shown: null
-        readonly property var request: root.phone ? root.phone.pairingRequest : null
-        readonly property bool showing: !!request && root.showMain
-        onRequestChanged: if (request) shown = request
-        Component.onCompleted: if (request) shown = request
-        readonly property bool waiting: !!shown && !!root.phone
-          && (root.phone.isBusy("accept:" + shown.id) || root.phone.isBusy("reject:" + shown.id))
-
-        z: 11
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        anchors.topMargin: showing ? 0 : -Style.space(10)
-        width: parent.width
-        // Covers the whole header (tabs and all), so nothing peeks from under it.
-        height: Math.max(pairRow.implicitHeight + Style.space(20),
-                         (tabBox.visible ? tabBox.height + Style.space(12) : 0) + hero.height)
-        radius: Style.cornerRadius
-        color: root.bar ? root.bar.background : Color.background
-        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
-        opacity: showing ? 1 : 0
-        visible: opacity > 0.01
-
-        Behavior on opacity { NumberAnimation { duration: (pairCard.showing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
-        Behavior on anchors.topMargin { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-
-        // Clicks on the card stay on the card.
-        MouseArea { anchors.fill: parent }
-
-        RowLayout {
-          id: pairRow
-          anchors.left: parent.left
-          anchors.right: parent.right
-          anchors.verticalCenter: parent.verticalCenter
-          anchors.leftMargin: Style.space(12)
-          anchors.rightMargin: Style.space(10)
-          spacing: Style.space(10)
-
-          Text {
-            textFormat: Text.PlainText
-            text: Model.deviceGlyph(pairCard.shown)
-            color: Color.accent
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.display
-            Layout.alignment: Qt.AlignVCenter
-          }
-          Column {
-            Layout.fillWidth: true
-            Layout.alignment: Qt.AlignVCenter
-            spacing: Style.space(2)
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              elide: Text.ElideRight
-              text: "WANTS TO PAIR"
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-            }
-            Text {
-              width: parent.width
-              textFormat: Text.PlainText
-              elide: Text.ElideRight
-              text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
-            }
-            Text {
-              width: parent.width
-              visible: text !== ""
-              textFormat: Text.PlainText
-              elide: Text.ElideRight
-              // Compare it with the one the device shows.
-              text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-            }
-          }
-          Button {
-            text: "Accept"
-            bordered: true
-            enabled: !pairCard.waiting
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
-          }
-          Button {
-            text: "Reject"
-            enabled: !pairCard.waiting
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
-          }
-        }
       }
 
       BorderSurface {
@@ -1285,14 +1353,117 @@ Panel {
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-
+        ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
         Column {
           id: column
+          // Inside the page margins (pageGutter), on every page.
+          x: root.pageGutter
           // Laid out at the card's final width while the card itself is still
           // animating, so the page never re-flows during a page change.
-          width: panelFlick.width + (root.targetCardWidth - root.cardWidth)
+          width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - 2 * root.pageGutter
           spacing: Style.space(12)
+
+          // ---- The pairing card: a device asking to pair, at the top, above
+          //      the tabs (it is about all devices, not the one viewed),
+          //      pushing everything down until it is answered. It grows in
+          //      and out at the plugin's pace (FoldBody), never jumps ----
+          FoldBody {
+            open: pairCard.showing
+            motion: root.motion
+            animate: root.settled
+            BorderSurface {
+              id: pairCard
+              // Kept while it fades out, so the text does not blank mid-fade.
+              property var shown: null
+              readonly property var request: root.phone ? root.phone.pairingRequest : null
+              readonly property bool showing: !!request && root.showMain
+              onRequestChanged: if (request) shown = request
+              Component.onCompleted: if (request) shown = request
+              readonly property bool waiting: !!shown && !!root.phone
+                && (root.phone.isBusy("accept:" + shown.id) || root.phone.isBusy("reject:" + shown.id))
+
+              width: parent.width
+              height: pairRow.implicitHeight + Style.space(20)
+              radius: Style.cornerRadius
+              color: root.bar ? root.bar.background : Color.background
+              borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+
+
+              // Clicks on the card stay on the card.
+              MouseArea { anchors.fill: parent }
+
+              RowLayout {
+                id: pairRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(10)
+                spacing: Style.space(10)
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: Model.deviceGlyph(pairCard.shown)
+                  color: Color.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.display
+                  Layout.alignment: Qt.AlignVCenter
+                }
+                Column {
+                  Layout.fillWidth: true
+                  Layout.alignment: Qt.AlignVCenter
+                  spacing: Style.space(2)
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: "WANTS TO PAIR"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                  }
+                  Text {
+                    width: parent.width
+                    visible: text !== ""
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    // Compare it with the one the device shows.
+                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+                Button {
+                  text: "Accept"
+                  bordered: true
+                  enabled: !pairCard.waiting
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+                }
+                Button {
+                  text: "Reject"
+                  enabled: !pairCard.waiting
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+                }
+              }
+            }
+          }
 
           // ---- Tabs: one per device, only with two or more. Main page and
           //      messages; settings has its own device list ----
@@ -1302,9 +1473,29 @@ Panel {
             width: parent.width
             height: visible ? tabRow.implicitHeight : 0
 
+          // Settings for all devices sits on the devices' own line, at its
+          // end (as a phone picker and its settings do): the header below
+          // is only the viewed device's. With one device there is no tab
+          // row, and the gear stays in the header.
+          PanelActionButton {
+            id: tabsGear
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.showMain
+            iconText: Model.GLYPH.settings
+            tooltipText: "Settings"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.openSettings()
+          }
+
           Flickable {
             id: tabStrip
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: tabsGear.visible ? tabsGear.left : parent.right
+            anchors.rightMargin: tabsGear.visible ? Style.space(6) : 0
             contentWidth: tabRow.implicitWidth
             contentHeight: tabRow.implicitHeight
             clip: true
@@ -1340,6 +1531,7 @@ Panel {
               id: tabRow
               spacing: Style.space(4)
               Repeater {
+                id: tabRepeater
                 model: root.tabDevices
                 Button {
                   id: tab
@@ -1369,10 +1561,33 @@ Panel {
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
-                  tooltipText: textless ? Model.deviceLabel(modelData) + " has no text messages"
+                  tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
+
+                  // Drag a tab sideways to move its device in the order (a
+                  // click still selects it: the drag starts past a threshold).
+                  // The others slide aside; it glides in on release (Reorder).
+                  readonly property bool moving: tabOrder.from === tab.index
+                  transform: ReorderShift { order: tabOrder; index: tab.index }
+                  z: moving ? 5 : 0
+                  // Solid while dragged, so the tab it passes over never shows
+                  // through; otherwise the kit's own fills (hover, selected).
+                  color: tab.moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+                    : hot ? Style.hoverFillFor(root.foreground, Color.accent)
+                    : selected ? Style.selectedFillFor(root.foreground, Color.accent) : "transparent"
+                  DragHandler {
+                    id: tabDrag
+                    target: null
+                    yAxis.enabled: false
+                    grabPermissions: PointerHandler.CanTakeOverFromAnything
+                    onTranslationChanged: if (active) tabOrder.dragTo(translation.x)
+                    onActiveChanged: {
+                      if (active) tabOrder.begin(tab.index, tab.width)
+                      else tabOrder.release()
+                    }
+                  }
                 }
               }
             }
@@ -1386,6 +1601,17 @@ Panel {
               else if (item.x + item.width + pad > contentX + width) glideTo(item.x + item.width + pad - width)
             }
             readonly property real tabArrowWidth: Style.space(28)
+
+            // The tabs' order, moved by dragging a tab (sideways).
+            Reorder {
+              id: tabOrder
+              axis: "x"
+              count: root.tabDevices.length
+              gap: tabRow.spacing
+              motion: root.motion
+              extentOf: function(i) { var t = tabRepeater.itemAt(i); return t ? t.width : 0 }
+              onMoved: function(a, b) { root.dropTab(a, b) }
+            }
           }
 
           // The arrows: at an edge with more tabs beyond it, over a fade into
@@ -1420,8 +1646,8 @@ Panel {
               onClicked: tabStrip.page(arrow.dir)
             }
           }
-          TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: parent.left }
-          TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: parent.right }
+          TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: tabStrip.left }
+          TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: tabStrip.right }
           }
 
           PanelHero {
@@ -1429,32 +1655,40 @@ Panel {
             width: parent.width
             // Nickname, then the full name when they differ.
             title: {
-              if (!root.device) return "Devices"
-              var nick = root.profile.nickname
-              return nick && nick !== root.device.name ? nick + " · " + root.device.name : String(root.device.name || "")
+              if (!root.heroDevice) return "Devices"
+              var nick = root.heroProfile ? root.heroProfile.nickname : ""
+              return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
-            meta: root.showSettings ? "Settings"
+            // On a device's page the title already names it.
+            meta: root.showSettings ? (root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.reachable ? 1.0 : 0.45
+            iconOpacity: root.heroDevice && root.heroDevice.reachable === true ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: Model.deviceIcon(root.device, root.profile)
+                text: Model.deviceIcon(root.heroDevice, root.heroProfile)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
               }
             }
+            // The gear, only while there is no tab row to carry it; the
+            // back arrow on the other pages.
             trailingControl: Component {
               PanelActionButton {
+                visible: !(root.showMain && root.manyDevices)
                 iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
                 tooltipText: root.showMain ? "Settings" : "Back"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                onClicked: root.messagesOpen ? root.closeMessagesView() : (root.settingsOpen ? root.closeSettings() : root.openSettings())
+                onClicked: {
+                  if (root.messagesOpen) root.closeMessagesView()
+                  else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+                  else root.openSettings()
+                }
               }
             }
           }
@@ -1480,7 +1714,7 @@ Panel {
               //      nothing: the media cards and a half-typed text keep their state ----
               Item {
                 id: sectionsBox
-                readonly property var items: ({ devices: devicesColumn, actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
                 readonly property real gap: Style.space(12)
                 function topOf(key) {
                   var y = 0
@@ -1499,54 +1733,6 @@ Panel {
                   return h
                 }
                 implicitHeight: height
-
-                // ---- Devices: only when there is a choice or a decision ----
-                Column {
-                  id: devicesColumn
-                  y: sectionsBox.topOf("devices")
-                  visible: root.showMain && root.drawnSections.indexOf("devices") >= 0
-                  width: parent.width
-                  spacing: Style.space(6)
-
-                  PanelSeparator { visible: root.separatedAbove("devices"); foreground: root.foreground }
-
-                  FoldToggle {
-
-                    foreground: root.foreground
-
-                    fontFamily: root.fontFamily
-
-                    motion: root.motion
-
-                    animate: root.settled
-                    width: parent.width
-                    title: "DEVICES · " + root.deviceRows.length
-                    folded: root.isCollapsed("devices")
-                    summary: Model.devicesSummary(root.deviceRows)
-                    onToggled: root.toggleCollapsed("devices")
-                  }
-
-                  FoldBody {
-
-                    motion: root.motion
-
-                    animate: root.settled
-                    id: deviceColumn
-                    open: !root.isCollapsed("devices")
-                    spacing: Style.space(4)
-
-                    Repeater {
-                      model: root.deviceRows
-                      DeviceRow {
-                        required property var modelData
-                        required property int index
-                        width: deviceColumn.width
-                        row: modelData
-                        rowIndex: index
-                      }
-                    }
-                  }
-                }
 
                 // ---- Shortcuts: up to four per row, in the order chosen in settings.
                 //      Folded, a row of icons in the header that still work ----
@@ -1991,17 +2177,40 @@ Panel {
 
               // ---- Settings, in place of everything above but the header ----
               SettingsView {
+                id: settingsView
                 visible: root.showSettings
                 width: parent.width
                 rows: root.settingsRows
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
-                shortcutsShown: root.showShortcuts
+                // The groups show what the page edits: a device's own
+                // profile on its page, else the defaults.
+                shortcutsShown: root.editing.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showDevices: root.showDevices, showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
-                order: root.shortcutOrder
-                sectionOrder: root.sectionOrder
-                barIndicators: root.barIndicators
-                batteryLowOnly: root.batteryLowOnly
+                flags: ({ showShortcuts: root.editing.showShortcuts, showMedia: root.editing.showMedia, showNotifications: root.editing.showNotifications })
+                order: root.editing.shortcuts
+                sectionOrder: root.editing.sectionOrder
+                barIndicators: root.editing.barIndicators
+                batteryLowOnly: root.editing.batteryLowOnly
+                scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
+                custom: root.editingDevice ? root.editing.custom : ({})
+                iconPicking: root.iconPicking
+                unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
+                deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
+                phone: root.phone
+                panelBackground: root.bar ? root.bar.background : Color.background
+                onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
+                onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
+                onNicknameSet: function(text) {
+                  var t = String(text || "").replace(/\s+/g, " ").trim()
+                  root.setIdentity({ nickname: t === "" ? null : t })
+                  keyCatcher.forceActiveFocus()
+                }
+                onIconSet: function(code) { root.setIdentity({ icon: code === "" ? null : code }); root.iconPicking = false }
+                onBarPlaceSet: function(place) { root.setIdentity({ bar: place }) }
+                onNicknameFocus: function(focused) {
+                  root.nicknameFocused = focused
+                  if (!focused) Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+                }
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
@@ -2020,128 +2229,6 @@ Panel {
           }
         }
       }
-    }
-  }
-
-  // A section header that folds: chevron, title, and in place of the
-  // content, one line saying what is in it.
-  component DeviceRow: CursorSurface {
-    id: drow
-    property var row: ({})
-    property int rowIndex: 0
-    readonly property bool armed: root.unpairArmed === row.id
-    readonly property bool working: !!root.phone && (root.phone.isBusy("pair:" + row.id) || root.phone.isBusy("accept:" + row.id)
-      || root.phone.isBusy("reject:" + row.id) || root.phone.isBusy("unpair:" + row.id))
-
-    hasCursor: root.cursorActive && root.focusSection === "devices" && root.deviceIndex === rowIndex
-    current: row.current === true
-    foreground: root.foreground
-    implicitHeight: drowContent.implicitHeight + Style.space(12)
-
-    MouseArea {
-      anchors.fill: parent
-      hoverEnabled: true
-      cursorShape: drow.row.paired && !drow.row.current ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "devices"; root.deviceIndex = drow.rowIndex }
-      onClicked: if (drow.row.paired && !drow.row.current) root.selectDevice(drow.row.id)
-    }
-
-    RowLayout {
-      id: drowContent
-      anchors.left: parent.left
-      anchors.right: parent.right
-      anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(10)
-      anchors.rightMargin: Style.space(8)
-      spacing: Style.space(10)
-
-      Text {
-        text: drow.row.glyph || ""
-        color: root.foreground
-        opacity: drow.row.reachable ? 1.0 : 0.5
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading
-      }
-
-      ColumnLayout {
-        Layout.fillWidth: true
-        spacing: Style.space(1)
-        Text {
-          Layout.fillWidth: true
-          textFormat: Text.PlainText
-          text: drow.row.name || ""
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: drow.row.current === true
-          elide: Text.ElideRight
-        }
-        Text {
-          Layout.fillWidth: true
-          textFormat: Text.PlainText
-          text: (drow.row.status || "") + (drow.row.key ? " · Key " + drow.row.key : "")
-          color: drow.row.incoming ? root.foreground : root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
-        }
-      }
-
-      Row {
-        id: drowButtons
-        spacing: Style.space(6)
-        Layout.alignment: Qt.AlignVCenter
-        opacity: drow.working ? 0 : 1.0
-        enabled: !drow.working
-        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
-
-
-        Button {
-          visible: drow.row.incoming === true
-          text: "Accept"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.acceptPairing(drow.row.id)
-        }
-        Button {
-          visible: drow.row.incoming === true || drow.row.outgoing === true
-          text: drow.row.incoming ? "Reject" : "Cancel"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.rejectPairing(drow.row.id)
-        }
-        Button {
-          visible: !drow.row.paired && !drow.row.incoming && !drow.row.outgoing
-          text: "Pair"
-          bordered: true
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.phone.pairWith(drow.row.id)
-        }
-        Button {
-          visible: drow.row.paired === true && !drow.row.incoming
-          text: drow.armed ? "Unpair?" : "Unpair"
-          tooltipText: drow.armed ? "Click again to unpair" : ""
-          foreground: drow.armed ? root.urgent : root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.bodySmall
-          onClicked: root.armOrUnpair(drow.row)
-        }
-      }
-    }
-
-    // Over the buttons, outside the layout, so nothing in the row moves.
-    WaitRing {
-      x: drowContent.x + drowButtons.x + (drowButtons.width - width) / 2
-      y: drowContent.y + drowButtons.y + (drowButtons.height - height) / 2
-      running: drow.working
-      motion: root.motion
-      color: root.foreground
-      size: Math.round(Style.font.icon * 0.8)
     }
   }
 

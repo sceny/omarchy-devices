@@ -21,7 +21,8 @@ Item {
 
   // Started on first use of the messages view, then kept.
   property bool wanted: false
-  readonly property bool active: wanted && reachable && deviceId !== "" && bridge !== ""
+  // A demo device (made-up id) has no messages to read.
+  readonly property bool active: wanted && reachable && deviceId !== "" && deviceId.indexOf("demo") !== 0 && bridge !== ""
 
   property bool ready: false
   property int contactCount: 0

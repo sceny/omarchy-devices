@@ -35,9 +35,9 @@ test("bar text: the glyph, then the chosen indicators in order; away, the glyph 
   const all = ["connection", "battery", "percent", "notifications", "messages", "playing", "bubble"]
   const st = { lowPercent: 15, notifications: 3, messages: 2, playing: true }
   assert.equal(M.barText(device(), all, st),
-    [P, M.GLYPH.wifi, M.batteryGlyph(device(), 15), "63%", M.GLYPH.bell + " 3", M.GLYPH.messages + " 2", M.GLYPH.play].join(" "))
+    [P, M.GLYPH.wifi, M.batteryGlyph(device(), 15) + "\u2009" + "63%", M.GLYPH.bell + " 3", M.GLYPH.messages + " 2", M.GLYPH.play].join(" "), "the % is part of the battery beside it")
   assert.equal(M.barText(device({ battery: { charge: 63, charging: true } }), ["battery", "percent"], st),
-    [P, M.batteryGlyph(device({ battery: { charge: 63, charging: true } }), 15), "63%"].join(" "), "one bolt: the battery glyph has it")
+    [P, M.batteryGlyph(device({ battery: { charge: 63, charging: true } }), 15) + "\u2009" + "63%"].join(" "), "one bolt: the battery glyph has it")
   assert.equal(M.barText(device(), ["messages", "notifications"], { notifications: 0, messages: 0 }), P, "counts hide at 0")
   assert.equal(M.barText(device({ links: ["Bluetooth"] }), ["connection"]), P + " " + M.GLYPH.bluetooth)
   assert.equal(M.barText(device({ reachable: false }), all, st), P + " " + M.GLYPH.wifiOff, "away: a crossed-out link, nothing stale")
@@ -48,7 +48,7 @@ test("bar: battery only when low; the default; the bubble", () => {
   const low = device({ battery: { charge: 9, charging: false } })
   assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: true, lowPercent: 15 }), P)
   assert.equal(M.barText(low, ["percent"], { lowOnly: true, lowPercent: 15 }), P + " 9%")
-  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: false, lowPercent: 15 }), P + " " + M.batteryGlyph(device(), 15) + " 63%", "unticked: always shown")
+  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: false, lowPercent: 15 }), P + " " + M.batteryGlyph(device(), 15) + "\u2009" + "63%", "unticked: always shown")
   assert.deepEqual(M.normalizeBarIndicators(undefined), ["battery", "bubble"], "the default: battery when low, the bubble")
   assert.deepEqual(M.normalizeBarIndicators("not json"), ["battery", "bubble"])
   assert.deepEqual(M.normalizeBarIndicators([]), [], "an empty choice stays empty")
@@ -111,9 +111,9 @@ test("section order: known sections once, the missing ones back at their default
   assert.deepEqual(M.normalizeSections(["media", "bogus", "media", "devices"]), ["media", "actions", "devices", "notifications"])
   assert.deepEqual(M.normalizeSections('["notifications"]'), ["devices", "actions", "media", "notifications"], "a hand-edited string; the rest back at their default position")
   const rows = M.settingsRows({ showMedia: false }, [], {}, ["notifications", "media", "devices", "actions"]).filter(r => r.kind === "layout")
-  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "devices", "actions"])
-  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, false], [false, true]])
-  assert.deepEqual(rows.map(r => r.on), [true, false, true, true])
+  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "actions"], "the Devices section is not on the page")
+  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, true]])
+  assert.deepEqual(rows.map(r => r.on), [true, false, true])
 })
 
 test("settings rows: bar indicators chosen first in order, the rest after, then the low-only switch", () => {
@@ -163,7 +163,7 @@ test("shortcuts: stored order is cleaned, toggled, moved; empty stays empty", ()
 
 test("settings rows: layout switches, chosen shortcuts in order, then the rest", () => {
   const rows = M.settingsRows({ showMedia: false }, ["messages", "ring"], { ring: true, sms: true })
-  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, true, false, true])
+  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, false, true])
   const s = rows.filter(r => r.kind === "shortcut")
   assert.deepEqual(s.slice(0, 2).map(r => r.key), ["messages", "ring"])
   assert.equal(s[0].first, true)
@@ -246,27 +246,6 @@ test("one pace for motion", () => {
 })
 
 
-test("devices: rows ranked by what needs doing, section only when there is a choice", () => {
-  const one = snap(device({ id: "a" }))
-  assert.equal(M.showDevicesSection(M.deviceRows(one, "a")), false, "one device: no section")
-  const rows = M.deviceRows(snap(
-    device({ id: "a", name: "Pixel 8" }),
-    device({ id: "b", name: "Tab", type: "tablet", reachable: false }),
-    { id: "c", name: "Laptop", type: "laptop", paired: false, reachable: true },
-    { id: "d", name: "New", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "ABCD" }
-  ), "a")
-  assert.deepEqual(rows.map(r => r.id), ["d", "a", "b", "c"])
-  assert.equal(rows[0].incoming, true)
-  assert.equal(rows[0].key, "ABCD")
-  assert.equal(rows[1].current, true)
-  assert.match(rows[1].status, /^Connected · Wi-Fi · 63%$/)
-  assert.equal(rows[2].status, "Away")
-  assert.equal(rows[3].status, "Available to pair")
-  assert.equal(M.showDevicesSection(rows), true)
-  assert.equal(M.devicesSummary(rows), "New wants to pair")
-  assert.equal(M.devicesSummary(rows.slice(1)), "Pixel 8 · Connected · Wi-Fi · 63%")
-})
-
 test("collapsed sections: one-line summaries and a safe folded state", () => {
   assert.equal(M.mediaSummary("Ep 2", "Ep 2", "Podcasts"), "Ep 2 · Podcasts")
   assert.equal(M.mediaSummary("Song", "Band", "Music"), "Song · Band · Music")
@@ -278,15 +257,17 @@ test("collapsed sections: one-line summaries and a safe folded state", () => {
 })
 
 test("demo devices cover requests, away and available", () => {
-  const rows = M.deviceRows(M.demoSnapshot(null, "devices"), "demo")
-  assert.deepEqual(rows.map(r => r.status.split(" ·")[0]), ["Wants to pair", "Connected", "Away", "Available to pair"])
+  const rows = M.devicesListRows(M.demoSnapshot(null, "devices"), M.readSettings({}), 15)
+  assert.deepEqual(rows.map(r => [r.kind, r.title]),
+    [["device", "Pixel 8"], ["device", "Galaxy Tab"], ["request", "Pixel Tablet"], ["available", "Work laptop"]], "asking to pair before in reach")
+  assert.equal(rows[1].status, "Away")
 })
 
 test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({}), "Everything shown")
-  assert.equal(M.layoutSummary({ showMedia: false }), "Devices, Shortcuts, Notifications")
+  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications", "the Devices section is gone from the page")
   assert.equal(M.layoutSummary({ showDevices: false, showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
-  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Devices, Shortcuts, Now playing", "a new order is never hidden")
+  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Shortcuts, Now playing", "a new order is never hidden")
   assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
@@ -497,4 +478,105 @@ test("demo: several devices, and one asking to pair", () => {
   const s = M.readSettings({})
   const pill = M.chips(many, s, { "demo-tab": { notifications: 2, lowPercent: 15 } })
   assert.deepEqual(pill.chips.map(c => c.id), ["demo", "demo-tab"], "the tablet shows: news and a low battery; the away laptop does not")
+})
+
+test("settings rows: one device is one flat page with its nickname and icon; several get a device list", () => {
+  const s = M.readSettings({})
+  const one = snap(phone())
+  const edit = M.resolveProfile(s, phone(), true)
+  const ctx = (over) => ({ scope: "root", single: true, devices: M.devicesListRows(one, s, 15),
+    identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
+  const flat = M.settingsPageRows(ctx({}))
+  const kinds = flat.map(r => r.kind)
+  assert.deepEqual(kinds.slice(0, 2), ["nickname", "icon"])
+  assert.ok(kinds.includes("layout") && kinds.includes("shortcut") && kinds.includes("reset") && kinds.includes("kdeconnect"))
+  assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
+  assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
+  const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A 3506" }), device({ id: "a", name: "Near", paired: false }))
+  const list = M.devicesListRows(two, s, 15)
+  assert.deepEqual(list.map(r => [r.kind, r.id]), [["device", "p1"], ["device", "t1"], ["request", "n"], ["available", "a"]])
+  assert.match(list[2].status, /Wants to pair · key 4E5A 3506/)
+  const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "kdeconnect"])
+})
+
+test("settings rows: a device's page has identity, its groups, a reset per changed group, and Unpair", () => {
+  const s = M.readSettings({ devices: { t1: { shortcuts: ["share"], bar: "never" } } })
+  const edit = M.resolveProfile(s, tablet(), false)
+  const rows = M.settingsPageRows({ scope: "device", single: false, identity: { nickname: "", icon: "", glyph: "x", bar: edit.bar, showInPanel: true }, edit, can: tablet().can })
+  const kinds = rows.map(r => r.kind)
+  assert.deepEqual(kinds.slice(0, 4), ["nickname", "icon", "barPlace", "showInPanel"])
+  assert.equal(rows.find(r => r.kind === "barPlace").value, "never")
+  assert.deepEqual(rows.filter(r => r.kind === "resetGroup").map(r => r.key), ["shortcuts"])
+  assert.equal(kinds[kinds.length - 1], "unpair")
+  assert.ok(!kinds.includes("kdeconnect") && !kinds.includes("reset"))
+  const defaults = M.settingsPageRows({ scope: "defaults", single: false, edit: M.resolveProfile(s, null, true) })
+  assert.ok(!defaults.some(r => ["nickname", "device", "unpair", "resetGroup"].includes(r.kind)))
+  assert.equal(defaults[defaults.length - 1].kind, "reset")
+})
+
+test("moving devices never changes how they show in the bar", () => {
+  const entry = { deviceOrder: ["p1", "t1"] }
+  const two = snap(phone(), tablet())
+  const ids = M.movedOrder(two, M.readSettings(entry), "t1", -1)
+  assert.deepEqual(ids, ["t1", "p1"])
+  const e = M.withDeviceOrder(entry, two, ids)
+  assert.deepEqual(e.deviceOrder, ["t1", "p1"])
+  assert.deepEqual(e.devices, { p1: { bar: "always" }, t1: { bar: "attention" } }, "both places written down")
+  const s = M.readSettings(e)
+  assert.equal(M.resolveProfile(s, phone(), false).bar, "always")
+  assert.equal(M.resolveProfile(s, tablet(), true).bar, "attention")
+  const chosen = M.withDeviceOrder({ deviceOrder: ["p1", "t1"], devices: { t1: { bar: "never" } } }, two, ["t1", "p1"])
+  assert.equal(chosen.devices.t1.bar, "never", "a place the user chose is kept")
+  assert.equal(M.ICON_CHOICES.every(c => /^[0-9A-F]{5}$/.test(c.code)), true)
+  assert.equal(M.groupCustom({ shortcuts: true }, "shortcuts"), true)
+  assert.equal(M.groupCustom({ shortcuts: true }, "bar"), false)
+})
+
+test("orders: the shown order only, a place and a count per row, and a move onto another row", () => {
+  const rows = M.settingsRows({}, ["ring", "share"], null, ["devices", "actions", "media", "notifications"], ["bubble"], true)
+  const layout = rows.filter(r => r.kind === "layout")
+  assert.deepEqual(layout.map(r => [r.section, r.pos, r.count, r.first]), [["actions", 0, 3, true], ["media", 1, 3, false], ["notifications", 2, 3, false]],
+    "the hidden Devices section takes no place")
+  assert.deepEqual(rows.filter(r => r.kind === "shortcut" && r.on).map(r => [r.key, r.pos, r.count]), [["ring", 0, 2], ["share", 1, 2]])
+  assert.deepEqual(M.moveTo(["a", "b", "c", "d"], "d", "b"), ["a", "d", "b", "c"], "up: before the target")
+  assert.deepEqual(M.moveTo(["a", "b", "c", "d"], "a", "c"), ["b", "c", "a", "d"], "down: after the target")
+  assert.deepEqual(M.moveTo(["a", "b"], "a", "z"), ["a", "b"])
+  assert.deepEqual(M.moveShortcut(M.visibleSections(["devices", "actions", "media"]), "media", -1), ["media", "actions", "notifications"])
+})
+
+test("moving an item: where it lands, how far the others slide, how far it glides", () => {
+  const rows = () => 50, gap = 6            // three rows of 50, 6 apart: 56 each
+  assert.equal(M.reorderTarget(1, 0, 3, rows, gap), 1)
+  assert.equal(M.reorderTarget(1, 27, 3, rows, gap), 1, "not past the next row's middle")
+  assert.equal(M.reorderTarget(1, 29, 3, rows, gap), 2, "past it: its place")
+  assert.equal(M.reorderTarget(1, 500, 3, rows, gap), 2, "never past the end")
+  assert.equal(M.reorderTarget(1, -29, 3, rows, gap), 0)
+  assert.equal(M.reorderTarget(0, -500, 3, rows, gap), 0)
+  // The middle one of three, down one: the bottom one slides up, the top stays.
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, 1, 2, 56)), [0, 0, -56])
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, 2, 0, 56)), [56, 56, 0], "the last to the top: both slide down")
+  assert.deepEqual([0, 1, 2].map(i => M.reorderShift(i, -1, -1, 56)), [0, 0, 0], "nothing moving")
+  assert.equal(M.reorderOffset(1, 2, rows, gap), 56)
+  assert.equal(M.reorderOffset(2, 0, rows, gap), -112)
+  // Tabs of different widths: the glide covers the widths it passes.
+  const tabs = i => [80, 140, 100][i]
+  assert.equal(M.reorderOffset(0, 2, tabs, 4), 140 + 4 + 100 + 4)
+  assert.equal(M.reorderTarget(0, 80, 3, tabs, 4), 1, "past the middle of the 140 wide tab")
+})
+
+test("the pill in parts: only a low battery is urgent; a ticked indicator goes to its natural place", () => {
+  const low = device({ battery: { charge: 9, charging: false } })
+  const parts = M.barParts(low, ["bubble", "battery", "percent", "notifications"], { lowPercent: 15, notifications: 2 })
+  assert.deepEqual(parts.map(p => p.urgent), [false, true, false], "glyph, battery with its %, bell")
+  assert.equal(parts[1].text, M.batteryGlyph(low, 15) + "\u2009" + "9%")
+  assert.deepEqual(M.barParts(low, ["percent", "battery"], { lowPercent: 15 }).map(p => p.text), [M.GLYPH.phone, "9%", M.batteryGlyph(low, 15)], "not beside it: apart")
+  assert.equal(M.barText(low, ["percent"], { lowPercent: 15 }), parts[0].text + " 9%")
+  assert.ok(M.barParts(device(), ["battery", "percent"], { lowPercent: 15 }).every(p => !p.urgent), "not low: nothing red")
+  assert.deepEqual(M.toggleBarIndicator(["battery", "bubble"], "percent"), ["battery", "percent", "bubble"], "% right after the battery")
+  assert.deepEqual(M.toggleBarIndicator(["bubble"], "connection"), ["connection", "bubble"])
+  assert.deepEqual(M.toggleBarIndicator(["bubble", "percent"], "battery"), ["battery", "bubble", "percent"], "before the first that comes after it")
+  assert.deepEqual(M.toggleBarIndicator([], "playing"), ["playing"])
+  const chip = M.chips(snap(low), M.readSettings({ barIndicators: ["battery", "percent"], batteryLowOnly: false }), {}).chips[0]
+  assert.deepEqual(chip.parts.map(p => p.urgent), [false, true])
 })

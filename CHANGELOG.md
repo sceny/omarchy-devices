@@ -14,10 +14,36 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   nothing changes (#73).
 - The pill never disappears: with nothing to show (nothing paired, or
   KDE Connect stopped) it keeps a devices glyph to click.
-- A device asking to pair shows a card over the panel with its key,
-  *Accept* and *Reject*.
+- A device asking to pair shows a card at the top of the panel, above the
+  tabs, with its key, *Accept* and *Reject*; it pushes the rest down while
+  it lasts.
 - The open-panel mark under the pill spans every chip (#67).
-- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
+- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`. Leaving a
+  demo (`live`) puts every setting back as it was when the demo began.
+- Settings for devices (#74): a nickname and an icon for each device, used
+  in the bar and the tabs. With several devices, Settings lists them
+  (drag to move, or Shift+K / Shift+J; pair, accept and reject there
+  too); each has its own page: nickname, icon, whether it shows in
+  the bar (always, only with news, never), whether it has a tab, and its
+  own layout, bar and shortcuts, marked CUSTOM with *use the defaults*.
+  *Defaults for all devices* sets the rest. Unpair is on the device's page.
+- The Devices section is gone from the main page: tabs, the pairing card
+  and Settings do its work.
+- Drag to reorder: every order has a grip to drag by (devices, sections,
+  bar indicators, shortcuts), and the tabs can be dragged sideways. While
+  one moves, the others slide aside to show where it will land; on release
+  it glides into place. Shift+K / Shift+J glide the same way. The ↑ ↓
+  buttons on each row are gone: the grip and the keys do their work.
+
+### Fixed
+- Moving the first section up in Layout did nothing: it swapped with the
+  hidden Devices section.
+- A low battery turned the whole pill red; now only the battery glyph and
+  its % do. Beside the battery glyph, the % joins it (a thin space apart),
+  so the two read as one.
+- A newly ticked bar indicator went to the end; it now goes to its natural
+  place (connection, battery, %, counts, playing, bubble), so % follows
+  the battery.
 
 ## 0.6.1 — 2026-09-28
 

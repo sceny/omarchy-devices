@@ -243,14 +243,14 @@ list, each tagged with its device. The one place that mixes devices.
 
 | When | What shows | Until |
 |---|---|---|
-| A device asks to pair | **The pairing card** over the top of the page: icon, name, verification key (compare it with the device), *Accept*, *Reject*. Also KDE Connect's own notification. | Answered, withdrawn or expired |
+| A device asks to pair | **The pairing card** at the top, above the tabs (it is about all devices, not the viewed one), pushing everything down (it grows in and out at `Model.MOTION`; covering the header hid the tabs it is about): icon, name, verification key (compare it with the device), *Accept*, *Reject*. Also KDE Connect's own notification. | Answered, withdrawn or expired |
 | A device is away | Its details line, with *Reconnect* (5.1) | It is back |
 | A call rings or was missed | The call card (7.1) | It ends, or is closed |
 | A setup check fails | A dot on the gear | Fixed, or the check is ignored (6.2) |
 | Nothing is paired | The panel opens on Connection | A device is paired |
 
-The pairing card follows the call card's rules: it floats (never pushes the
-page), names the device, and scripted calls never focus anything.
+The pairing card names the device and scripted calls never focus anything.
+Unlike a toast, it is part of the panel while it lasts, above the tabs.
 
 Adding a device needs no button on the main screen: pairing usually starts
 on the new device (open the app, pick this computer), and the computer
@@ -412,8 +412,10 @@ A device's row opens its page:
    Unpair
 ```
 
-- **Order:** Shift+K / Shift+J on a device row moves it (no arrows: the
-  arrow keys always move the cursor). The order is the tabs' and the chips'.
+- **Order:** drag a device row by its grip, or Shift+K / Shift+J on it (no
+  arrow keys: they always move the cursor). Dragging a tab sideways moves
+  it too. The order is the tabs' and the chips'. Every other order in
+  Settings (sections, bar indicators, shortcuts) drags the same way.
 - **Identity is never inherited:** nickname, icon, *In the bar* and *Show in
   panel* belong to the device only; the rest may be *Custom* or default.
 - **Custom** marks a changed setting; ↺ on it goes back to the default.

@@ -33,6 +33,9 @@ Item {
   // to the real phone, so demo rows are inert: `run` refuses while it is on.
   property bool demo: false
   property var liveSnapshot: null
+  // The widget's settings as they were when the demo began (Panel.enterDemo),
+  // put back on leaving it; null outside a demo.
+  property var settingsBeforeDemo: null
 
   function showDemo(kind) {
     demo = true

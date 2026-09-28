@@ -10,7 +10,8 @@ import "Model.js" as Model
 //
 // Chips are text pills, not BarIconButton: that one is a fixed one-glyph slot
 // and would clip the indicators. An away device keeps its chip dimmed when it
-// shows always. A low battery turns its chip urgent.
+// shows always. A low battery turns its glyph and % red, not the whole chip:
+// a chip is drawn in parts (Model.barParts), each its own colour.
 BarWidget {
   id: root
   moduleName: "sceny.devices"
@@ -19,7 +20,8 @@ BarWidget {
   readonly property var pill: phone ? phone.pill : ({ chips: [], resting: { glyph: Model.GLYPH.devices, dimmed: true, ringing: false }, pairing: false })
   // What is drawn: the chips, or the resting glyph as one chip of no device.
   readonly property var items: pill.chips.length > 0 ? pill.chips
-    : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, bubble: 0, dimmed: pill.resting.dimmed, ringing: false, marks: {} }]
+    : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, parts: [{ text: pill.resting.glyph, urgent: false }],
+         bubble: 0, dimmed: pill.resting.dimmed, ringing: false, marks: {} }]
 
   function syncService() {
     if (root.phone && "settings" in root.phone) root.phone.settings = root.settings
@@ -106,23 +108,49 @@ BarWidget {
         required property var modelData
         required property int index
         readonly property var dev: root.deviceById(modelData.id)
+        // On a vertical bar, the glyph alone.
+        readonly property var parts: root.vertical ? [{ text: chip.modelData.glyph, urgent: false }] : (chip.modelData.parts || [])
         implicitWidth: button.implicitWidth
         implicitHeight: button.implicitHeight
 
+        // The button gives the chip its size, clicks and tooltip; the parts
+        // are drawn over it (its own label is one colour).
         WidgetButton {
           id: button
           anchors.fill: parent
           bar: root.bar
-          text: root.vertical ? chip.modelData.glyph : chip.modelData.text
+          text: chip.modelData.glyph
+          labelVisible: false
+          fixedWidth: root.vertical ? -1 : partsRow.implicitWidth + 2 * Style.spaceReal(8.75)
           horizontalMargin: 8.75
           dimmed: chip.modelData.dimmed === true
-          active: !!chip.modelData.marks && chip.modelData.marks.lowBattery === true
           tooltipText: root.opened ? "" : (chip.dev
             ? Model.tooltip(root.phone ? root.phone.snapshot : null, chip.dev,
                 root.phone && root.phone.device && root.phone.device.id === chip.dev.id ? root.phone.nowPlaying : "",
                 root.phone && root.phone.sms && root.phone.sms.deviceId === String(chip.dev.id) ? root.phone.sms.unreadCount : 0)
             : Model.tooltip(root.phone ? root.phone.snapshot : null, null, "", 0))
           onPressed: function(b) { root.chipPressed(b, chip.modelData.id) }
+        }
+
+        Row {
+          id: partsRow
+          anchors.centerIn: parent
+          spacing: glyphMetrics.spaceWidth
+          opacity: button.opacity
+          Repeater {
+            model: chip.parts
+            Text {
+              required property var modelData
+              textFormat: Text.PlainText
+              text: modelData.text
+              color: modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
+              font.family: button.fontFamily
+              font.pixelSize: button.fontSize
+              renderType: Text.NativeRendering
+              anchors.verticalCenter: parent.verticalCenter
+              Behavior on color { ColorAnimation { duration: 160 } }
+            }
+          }
         }
 
         // The bubble: this device's notification count on its own icon, like
@@ -132,11 +160,18 @@ BarWidget {
           font.family: button.fontFamily
           font.pixelSize: button.fontSize
           text: chip.modelData.glyph
+          readonly property real spaceWidth: spaceMetrics.advanceWidth
+        }
+        TextMetrics {
+          id: spaceMetrics
+          font.family: button.fontFamily
+          font.pixelSize: button.fontSize
+          text: " "
         }
 
         Rectangle {
           visible: chip.modelData.bubble > 0
-          readonly property real glyphLeft: (button.width - button.labelWidth) / 2
+          readonly property real glyphLeft: partsRow.x
           height: Math.max(9, Math.round(button.fontSize * 0.72))
           width: Math.max(height, bubbleText.implicitWidth + 4)
           radius: height / 2
@@ -160,7 +195,7 @@ BarWidget {
         // left, until it is answered.
         Rectangle {
           visible: chip.index === 0 && root.pill.pairing === true
-          readonly property real glyphLeft: (button.width - button.labelWidth) / 2
+          readonly property real glyphLeft: partsRow.x
           width: Math.max(5, Math.round(button.fontSize * 0.36))
           height: width
           radius: width / 2

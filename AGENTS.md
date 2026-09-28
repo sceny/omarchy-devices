@@ -50,6 +50,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
+| `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
 
 ## Rules: what the owner decided, so nobody undoes it
@@ -115,9 +116,10 @@ Keep them; change one only with the owner.
   device order (`deviceOrder`; an old `deviceId` is read as its first
   place), the conversation last open in messages, per device (`lastThread`), and the
   messages unread filter (`unreadOnly`). With two or more devices, a
-  device's own changes (its folds, and from step 3 its sections and
-  shortcuts) go into its profile (`devices`); with one, the flat keys as
-  before (`docs/design/multi-device.md`). New UI
+  device's own changes (its folds, sections, shortcuts, bar indicators)
+  go into its profile (`devices`), as do every device's nickname, icon,
+  place in the bar and tab; with one device, everything but its nickname
+  and icon stays in the flat keys (`docs/design/multi-device.md`). New UI
   state follows the same path unless it is private: unsent message drafts
   stay in memory (they are message text) and read state lives in the cache.
   Deliberately fresh on every open: the panel opens on its main page, on
@@ -135,21 +137,36 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
+- **Orders move with a glide, never a jump.** Every order (devices,
+  sections, bar indicators, shortcuts, tabs) moves through `Reorder`:
+  while an item moves, the others slide aside to show where it lands; it
+  glides in at `Model.MOTION`, and only then is the order written. A drag
+  and Shift+K / Shift+J look the same; there are no ↑ ↓ buttons (the grip
+  says a row moves). A new order uses
+  these components, not a copy.
 - **Sections fold with an animation, never a jump:** content grows or
   shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all
   at `Model.MOTION`. Folded Now playing keeps the cover and a play button;
   folded Shortcuts become a row of icons that still work.
   Every section, on the main page and in settings, uses the same
   `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
-- **Sections move without being rebuilt.** Devices, Shortcuts, Now playing
-  and Notifications are fixed items placed by `sectionOrder`
+- **Sections move without being rebuilt.** Shortcuts, Now playing and
+  Notifications are fixed items placed by `sectionOrder`
   (`sectionsBox`), so a new order keeps the media cards and a half-typed
   text. `stackBefore`/`stackAfter` are not callable from QML; do not reach
   for them. A separator goes between sections, never under the header.
 - **A section shows when its Layout switch is on and it has something:**
-  Devices only when there is a choice (a second paired device, one to pair
-  with, or a request), Now playing while a player exists, Notifications
-  while there are any (no empty state). Unpair asks twice.
+  Now playing while a player exists, Notifications while there are any (no
+  empty state). There is no Devices section: tabs switch devices, the
+  pairing card answers requests, and Settings' device list pairs, orders
+  and unpairs (Unpair asks twice).
+- **Each device's settings are its own** (`docs/design/multi-device.md`):
+  with two or more devices, Settings lists them; a device's page edits its
+  nickname, icon, place in the bar, tab, and any group it changes (marked
+  CUSTOM, with *use the defaults*); *Defaults for all devices* edits the
+  flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
+  one device, Settings is one flat page. Moving a device writes down how
+  each one shows in the bar, so moving never changes it.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.
