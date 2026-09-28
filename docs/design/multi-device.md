@@ -87,7 +87,7 @@ In the device's page in Settings, **In the bar**:
 |---|---|
 | **Always** | A chip in the pill, always (dimmed while away). |
 | **With attention** | A chip only while it has attention (4.4). |
-| **Never** | No chip. Its calls and pairing requests still mark the pill (4.4). |
+| **Never** | No chip, except while it rings (a call overrides the choice). Its pairing requests still mark the pill (4.4). |
 | **Own pill** *(later: 14)* | A separate pill beside the main one, for this device alone. |
 
 Each device also picks **its indicators** (today's Bar settings: connection,
@@ -145,7 +145,7 @@ only where its row says.
 |---|---|---|---|---|---|
 | New notifications | Bubble with the count | Count | · | · | Bubble on the chip |
 | Unread text messages | Count, if the device's indicators include it | Count, added to the tab's | · | · | As the chip |
-| Ringing call | Glows on the ring beat (even set *Never*: the resting glyph glows) | Glows | · | Call card | KDE Connect's own notification + the glow |
+| Ringing call | The ringing device always has a chip while it rings, whatever its choice, glowing on the ring beat | Glows | · | Call card | KDE Connect's own notification + the glow |
 | Missed call | Missed-call mark | Missed-call mark | · | Call card until closed | Mark on the chip |
 | Low battery | Urgent battery mark | Battery mark | · | · | Mark on the chip |
 | Pairing request | Pairing mark on the resting or first chip | · | · | Pairing card | KDE Connect's own notification + the mark |
@@ -344,8 +344,9 @@ its KDE Connect offers (#63).
 ### 7.1 Calls
 
 - A call from **any** device shows the call card over the panel, whatever
-  device is viewed, naming the device by its nickname. The ringing device's
-  chip (or the resting glyph) glows on the ring beat (`Model.RING_BEAT`).
+  device is viewed, naming the device by its nickname. The ringing device
+  always has a chip while it rings (even set *Never*), glowing on the ring
+  beat (`Model.RING_BEAT`).
 - **Panel closed:** KDE Connect's own notification plus the glow (principle
   7). The plugin does not open the panel or raise a second popup.
 - **Calls on or off** per device, in its profile.
