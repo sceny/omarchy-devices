@@ -3,6 +3,50 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## 0.6.0 — 2026-09-27
+
+### Panel
+- Every click that goes to the device shows it is waiting: the clicked
+  control (the dismiss X, a notification's action or reply button, a
+  shortcut, the pairing buttons, next and previous) turns into a small
+  ring until the device's answer shows, not only until the call returns.
+  A dismiss the phone never confirms brings the X back and says so. The
+  line under a click ("Dismissed") shows once the device has answered.
+- Chat notifications (WhatsApp, Signal and other group or one-to-one
+  chats) show each sender's name and messages the way the phone does,
+  instead of raw `<b>` and `<br/>` markup. Folded, it shows the latest
+  message and its sender; *Show all* shows the whole conversation. A
+  group's unread count, which came glued to its name ("Book club
+  (8 messages)"), shows beside the name, dimmed (#39). The text is always
+  shown as plain text, so nothing in a message is interpreted.
+- Scrolling follows the wheel: a long spin goes as far as it was spun
+  and a nudge moves a little, instead of about one step per spin; a
+  touchpad moves the lists with the fingers. On the main page, the
+  conversation list, the messages and the new-message suggestions.
+- Demo mode waits as long as a phone about takes, so the waiting states
+  can be looked at; `pressDismiss` presses a demo notification's X.
+
+### Messages
+- The conversation list and a conversation that is opening show
+  skeletons when loading takes more than a quarter second; the messages
+  ease in when they land. The conversation's header and the composer stay
+  on the pane's edges while the panel resizes, and the name crossfades in
+  place when moving between conversations. Loading older messages, a
+  message being sent and an attachment being fetched show the ring.
+- Pressing an action (such as *Mark as read*) or sending a reply on a
+  text-message notification in the panel marks its conversation read in
+  the messages view at once, instead of when the phone reports it.
+- When KDE Connect restarts, the plugin asks the phone for its
+  conversations again, so nothing from the previous run stays stale.
+
+### Fixed
+- Opening a conversation could show only its latest message, with no
+  older ones to scroll to, after the plugin had asked the phone for every
+  conversation (at start, or after KDE Connect restarted). The count KDE
+  Connect sends after that is how many messages it holds, not how long
+  the conversation is; only the answer to a page the plugin asked for is
+  taken as that now.
+
 ## 0.5.0 — 2026-09-26
 
 ### Bar

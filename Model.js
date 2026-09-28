@@ -270,6 +270,57 @@ function batteryCharge(device) {
   return isFinite(c) && c >= 0 ? Math.min(100, Math.round(c)) : -1
 }
 
+// ---- Waiting on the device ----
+// A click is done when its effect shows in the snapshot, not when the D-Bus
+// call returns: the phone answers a moment later. `kind` says what to look
+// for; `before` is the notification as it was at the click (JSON), for the
+// kinds that wait for it to change. A device gone from the snapshot ends
+// every wait: there is nothing left to answer.
+function findNotification(device, id) {
+  var list = device && device.notifications ? device.notifications : []
+  for (var i = 0; i < list.length; i++) if (list[i] && String(list[i].id) === String(id)) return list[i]
+  return null
+}
+
+function answered(kind, snapshot, deviceId, noteId, before) {
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  var d = null
+  for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === deviceId) d = list[i]
+  if (!d) return true
+  if (kind === "dismiss") return !findNotification(d, noteId)
+  if (kind === "note") {
+    var n = findNotification(d, noteId)
+    return !n || JSON.stringify(n) !== before
+  }
+  if (kind === "pair") return d.paired === true || d.pairRequested === true
+  if (kind === "accept") return d.paired === true
+  if (kind === "reject") return d.pairRequested !== true && d.pairRequestedByPeer !== true
+  if (kind === "unpair") return d.paired !== true
+  return true
+}
+
+// The snapshot with one notification gone: demo mode's stand-in for the
+// phone answering a dismiss.
+function withoutNotification(snapshot, id) {
+  var copy = JSON.parse(JSON.stringify(snapshot || {}))
+  var list = copy.devices || []
+  for (var i = 0; i < list.length; i++)
+    if (list[i] && list[i].notifications)
+      list[i].notifications = list[i].notifications.filter(function(n) { return String(n.id) !== String(id) })
+  return copy
+}
+
+// How long to wait for the answer, and what to say when it never comes.
+// A notification action or a reply may leave the notification as it was,
+// and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+function waitLimit(kind, deviceName) {
+  var name = String(deviceName || "The device")
+  if (kind === "note") return { ms: 4000, fail: "" }
+  if (kind === "track") return { ms: 3000, fail: "" }
+  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it" }
+  return { ms: 15000, fail: name + " did not answer" }
+}
+
 function charging(device) {
   return !!(device && device.reachable && device.battery && device.battery.charging)
 }
@@ -505,14 +556,58 @@ function notificationBody(n) {
   return ""
 }
 
+// A conversation notification (bridge `conversation`: plain {sender, text}
+// pairs) grouped the way the phone draws it: a sender's name once, then what
+// they sent. A message with no sender continues the one before; at the start
+// it is from whoever the title names (a one-to-one chat), so no name shows.
+function conversationGroups(n) {
+  var list = n && n.conversation ? n.conversation : []
+  var groups = []
+  for (var i = 0; i < list.length; i++) {
+    var sender = String(list[i] && list[i].sender || "").trim()
+    var text = String(list[i] && list[i].text || "").trim()
+    if (text === "") continue
+    var last = groups.length ? groups[groups.length - 1] : null
+    if (last && (sender === "" || sender === last.sender)) last.text += "\n" + text
+    else groups.push({ sender: sender, text: text })
+  }
+  return groups
+}
+
+// A folded chat shows what the phone's folded one does: who sent the last
+// message, and that message alone.
+function latestMessage(n) {
+  var list = n && n.conversation ? n.conversation : []
+  var text = ""
+  for (var i = list.length - 1; i >= 0; i--) {
+    var t = String(list[i] && list[i].text || "").trim()
+    var sender = String(list[i] && list[i].sender || "").trim()
+    if (text === "" && t !== "") text = t
+    if (text !== "" && sender !== "") return { sender: sender, text: text }
+  }
+  return text !== "" ? { sender: "", text: text } : null
+}
+
+// A group chat's title can end in the app's unread count, "Book club
+// (8 messages)" (KDE Connect passes WhatsApp's title on as it is, #38). The
+// panel shows the count apart from the name, in the app's own words (they
+// are localised). Only a chat's title, and only a count in brackets at the
+// very end, is taken apart; anything else is the title as it came.
+function chatTitle(n) {
+  var title = notificationTitle(n)
+  if (!n || !n.conversation || n.conversation.length === 0) return { title: title, count: "" }
+  var m = /^(.*\S)\s+\((\d+\s+[^()]+)\)$/.exec(title)
+  return m ? { title: m[1], count: m[2].trim() } : { title: title, count: "" }
+}
+
 function notificationTitle(n) {
   if (!n) return ""
   return String(n.title || n.app || "Notification").trim()
 }
 
 // A snapshot for looking at the panel without waiting for real traffic: the
-// live device (or a stand-in) with three notifications covering reply,
-// dismiss, actions and a long body. Used by the `demo` IPC. Media is not
+// live device (or a stand-in) with notifications covering reply,
+// dismiss, actions, a long body and a group chat. Used by the `demo` IPC. Media is not
 // faked: it comes from the phone's real MPRIS players.
 // kind "away", "down" (daemon not running) and "none" (nothing paired) show
 // the other states the panel has to draw.
@@ -541,6 +636,8 @@ function demoSnapshot(live, kind) {
     { id: "demo-1", key: "k1", app: "WhatsApp", title: "Alex", text: "Are you still coming on Sunday? We are starting around six, bring the board game if you can find it.", ticker: "", dismissable: true, replyId: "r1", actions: ["Mark as read"], icon: "", silent: false },
     { id: "demo-2", key: "k2", app: "Gmail", title: "Your invoice from Acme", text: "Invoice #4821 is ready to view.", ticker: "", dismissable: true, replyId: "", actions: ["Archive", "Reply"], icon: "", silent: false },
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
+    { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
+      conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works? <b>not bold</b> & <script>x</script>" }] },
     { id: "demo-3", key: "k3", app: "Calendar", title: "Team sync at 14:00", text: "Starts in 15 minutes", ticker: "", dismissable: false, replyId: "", actions: [], icon: "", silent: false }
   ]
   return { daemon: true, demo: true, devices: [dev] }

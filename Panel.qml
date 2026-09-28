@@ -447,7 +447,9 @@ Panel {
     if (sms) {
       sms.start()
       if (threadId !== undefined && threadId >= 0) sms.openThread(threadId)
-      else if (device && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
+      // Demo conversations are made up: the real last conversation is not
+      // among them.
+      else if (device && !(phone && phone.demo) && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
         // Back to the conversation left open; the composer stays unfocused.
         var last = lastThreads[device.id]
         Qt.callLater(function() { if (messagesView) messagesView.openThread(last, false) })
@@ -489,6 +491,18 @@ Panel {
 
   function isTextNotification(n) {
     return !!n && (Model.isMessagingApp(n.app) || threadForNotification(n) >= 0)
+  }
+
+  // An action pressed or a reply sent on a text-message notification from
+  // the panel means the message was seen here: its conversation stops
+  // counting as unread at once. The phone's own read state follows a moment
+  // later (after its app writes it), or never on a KDE Connect that ignores
+  // read changes to messages it already has. Only SMS apps: another
+  // messenger's sender can share a name with an SMS conversation.
+  function markNotificationSeen(n) {
+    if (!n || !sms || !Model.isMessagingApp(n.app)) return
+    var tid = threadForNotification(n)
+    if (tid >= 0) sms.markSeen(tid)
   }
 
   function threadForNotification(n) {
@@ -762,6 +776,26 @@ Panel {
       ]
       return "ok"
     }
+    // Demo only: press a notification's action as a click would, to check
+    // what follows in the panel. Refused on live data, where it would act on
+    // the phone.
+    function pressAction(index: int, action: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      root.phone.notificationAction(n, action)
+      root.markNotificationSeen(n)
+      return JSON.stringify({ unread: root.sms ? root.sms.unreadCount : -1 })
+    }
+    // Demo only: dismiss a notification as a click on its X would, to look
+    // at the waiting ring. Refused on live data.
+    function pressDismiss(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      root.phone.dismiss(n)
+      return "ok"
+    }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     function devices(): string { return JSON.stringify({ shown: root.drawnSections.indexOf("devices") >= 0, rows: root.deviceRows.map(function(r) { return r.name + ":" + r.status.split(" ·")[0] }) }) }
@@ -1013,6 +1047,7 @@ Panel {
 
       Flickable {
         id: panelFlick
+        WheelScroll { flickable: panelFlick; motion: root.motion }
         anchors.fill: parent
         contentWidth: width
         contentHeight: column.implicitHeight
@@ -1688,9 +1723,13 @@ Panel {
       }
 
       Row {
+        id: drowButtons
         spacing: Style.space(6)
         Layout.alignment: Qt.AlignVCenter
-        opacity: drow.working ? 0.5 : 1.0
+        opacity: drow.working ? 0 : 1.0
+        enabled: !drow.working
+        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+
 
         Button {
           visible: drow.row.incoming === true
@@ -1728,6 +1767,16 @@ Panel {
           onClicked: root.armOrUnpair(drow.row)
         }
       }
+    }
+
+    // Over the buttons, outside the layout, so nothing in the row moves.
+    WaitRing {
+      x: drowContent.x + drowButtons.x + (drowButtons.width - width) / 2
+      y: drowContent.y + drowButtons.y + (drowButtons.height - height) / 2
+      running: drow.working
+      motion: root.motion
+      color: root.foreground
+      size: Math.round(Style.font.icon * 0.8)
     }
   }
 
@@ -1902,16 +1951,21 @@ Panel {
 
           Repeater {
             model: 3
-            PanelActionButton {
+            WaitButton {
               required property int index
-              iconText: index === 0 ? Model.GLYPH.previous
+              // Play/pause flips at once (card.playing); a skip waits for the track.
+              readonly property bool skipping: index !== 1 && !!root.phone && !!card.player
+                && root.phone.isBusy(root.phone.skipKey(card.player, root.mediaKey(index)))
+              waiting: skipping
+              motion: root.motion
+              glyph: index === 0 ? Model.GLYPH.previous
                 : (index === 2 ? Model.GLYPH.next
                 : (card.playing ? Model.GLYPH.pause : Model.GLYPH.play))
               fontSize: index === 1 ? Style.font.heading : Style.font.icon
               size: Style.space(28)
               foreground: root.foreground
               fontFamily: root.fontFamily
-              enabled: !!card.player && (index === 0 ? card.player.canGoPrevious
+              enabled: !!card.player && !skipping && (index === 0 ? card.player.canGoPrevious
                 : (index === 2 ? card.player.canGoNext : card.player.canTogglePlaying))
               // Enter plays/pauses, so the keyboard cursor sits on that button.
               hasCursor: index === 1 && root.cursorActive && root.focusSection === "media"
@@ -1984,14 +2038,27 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(4)
 
-      Text {
+      Item {
         anchors.horizontalCenter: parent.horizontalCenter
-        text: tile.action.glyph || ""
-        color: root.foreground
-        opacity: tile.working ? 0.35 : 1.0
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.heading + 2
-        Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+        width: tileGlyph.implicitWidth
+        height: tileGlyph.implicitHeight
+        Text {
+          id: tileGlyph
+          anchors.centerIn: parent
+          text: tile.action.glyph || ""
+          color: root.foreground
+          opacity: tile.working ? 0 : 1.0
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading + 2
+          Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+        }
+        WaitRing {
+          anchors.centerIn: parent
+          running: tile.working
+          motion: root.motion
+          color: root.foreground
+          size: Math.round(Style.font.heading * 0.8)
+        }
       }
       Text {
         textFormat: Text.PlainText
@@ -2028,6 +2095,15 @@ Panel {
     readonly property string body: Model.notificationBody(note)
     readonly property bool expanded: root.expandedNotes[note.id] === true
     readonly property bool isText: root.isTextNotification(note)
+    // A chat (WhatsApp, Signal...): its messages by sender, as plain text.
+    readonly property var groups: Model.conversationGroups(note)
+    readonly property bool isChat: groups.length > 0
+    property bool chatTruncated: false
+    readonly property var latest: Model.latestMessage(note)
+    readonly property var titleParts: Model.chatTitle(note)
+    readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded
+      || (!!latest && latest.text !== groups[groups.length - 1].text))
+      : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
 
     hasCursor: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex
     foreground: root.foreground
@@ -2097,22 +2173,43 @@ Panel {
           font.letterSpacing: 1.0
           elide: Text.ElideRight
         }
-        Text {
-          textFormat: Text.PlainText
+        // The title; a group chat's unread count sits beside it, dimmed,
+        // and stays in view while a long name shortens. The title may use
+        // the whole row but the count's room, so it is cut only when it does
+        // not fit; the count follows the text as drawn (contentWidth), since
+        // a measured width can fall short of a drawn emoji.
+        Item {
           Layout.fillWidth: true
-          text: Model.notificationTitle(row.note)
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          elide: Text.ElideRight
+          implicitHeight: noteTitle.implicitHeight
+          Text {
+            id: noteTitle
+            width: parent.width - (chatCount.visible ? chatCount.implicitWidth + Style.space(6) : 0)
+            textFormat: Text.PlainText
+            text: row.titleParts.title
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          Text {
+            id: chatCount
+            visible: text !== ""
+            x: Math.min(noteTitle.contentWidth, noteTitle.width) + Style.space(6)
+            y: noteTitle.baselineOffset - baselineOffset
+            textFormat: Text.PlainText
+            text: row.titleParts.count
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
         }
         // Three lines, and the whole message on a click (or e).
         Text {
           id: bodyText
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          visible: row.body !== ""
+          visible: row.body !== "" && !row.isChat
           text: row.body
           color: root.foreground
           opacity: 0.8
@@ -2129,9 +2226,60 @@ Panel {
             onClicked: root.toggleExpanded(row.note)
           }
         }
+        // A chat: like the phone, folded it is the latest message and who
+        // sent it; all of it on a click (or e). Names are bold by font, never by markup: nothing the phone
+        // sends is interpreted.
+        ColumnLayout {
+          Layout.fillWidth: true
+          visible: row.isChat
+          spacing: Style.space(4)
+          Repeater {
+            model: row.expanded ? row.groups : (row.latest ? [row.latest] : [])
+            ColumnLayout {
+              id: chatGroup
+              required property var modelData
+              required property int index
+              Layout.fillWidth: true
+              spacing: 0
+              Text {
+                Layout.fillWidth: true
+                visible: text !== ""
+                textFormat: Text.PlainText
+                text: chatGroup.modelData.sender
+                color: root.foreground
+                opacity: 0.9
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                font.bold: true
+                elide: Text.ElideRight
+              }
+              Text {
+                Layout.fillWidth: true
+                textFormat: Text.PlainText
+                text: chatGroup.modelData.text
+                color: root.foreground
+                opacity: 0.8
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.Wrap
+                maximumLineCount: row.expanded ? 500 : 3
+                elide: Text.ElideRight
+                onTruncatedChanged: if (!row.expanded) row.chatTruncated = truncated
+                Component.onCompleted: if (!row.expanded) row.chatTruncated = truncated
+
+                MouseArea {
+                  anchors.fill: parent
+                  enabled: row.canExpand
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: root.toggleExpanded(row.note)
+                }
+              }
+            }
+          }
+        }
         Text {
-          // Only when there is more than three lines to show or hide.
-          visible: bodyText.truncated || (row.expanded && bodyText.lineCount > 3)
+          // Only when there is more to show or hide.
+          visible: row.canExpand
           textFormat: Text.PlainText
           text: row.expanded ? "Show less" : "Show all"
           color: root.dim
@@ -2155,16 +2303,37 @@ Panel {
 
           Repeater {
             model: row.note.actions || []
-            Button {
+            Item {
+              id: noteAction
               required property var modelData
-              text: String(modelData)
-              foreground: root.foreground
-              fontFamily: root.fontFamily
-              fontSize: Style.font.caption
-              bordered: true
-              verticalPadding: Style.space(2)
-              horizontalPadding: Style.space(8)
-              onClicked: root.phone.notificationAction(row.note, String(modelData))
+              readonly property bool working: !!root.phone && root.phone.isBusy("action:" + row.note.id + ":" + String(modelData))
+              implicitWidth: noteActionButton.implicitWidth
+              implicitHeight: noteActionButton.implicitHeight
+              Button {
+                id: noteActionButton
+                anchors.fill: parent
+                text: String(noteAction.modelData)
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.caption
+                bordered: true
+                verticalPadding: Style.space(2)
+                horizontalPadding: Style.space(8)
+                opacity: noteAction.working ? 0 : 1.0
+                enabled: !noteAction.working
+                Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+                onClicked: {
+                  root.phone.notificationAction(row.note, String(noteAction.modelData))
+                  root.markNotificationSeen(row.note)
+                }
+              }
+              WaitRing {
+                anchors.centerIn: parent
+                running: noteAction.working
+                motion: root.motion
+                color: root.foreground
+                size: Math.round(Style.font.bodySmall * 0.8)
+              }
             }
           }
         }
@@ -2185,6 +2354,7 @@ Panel {
             onAccepted: {
               if (text.trim() === "") return
               root.phone.reply(row.note, text)
+              root.markNotificationSeen(row.note)
               text = ""
               root.closeReply()
             }
@@ -2220,22 +2390,31 @@ Panel {
           fontFamily: root.fontFamily
           onClicked: root.openNotificationConversation(row.note)
         }
-        PanelActionButton {
+        // While a sent reply is on its way, its button is the ring.
+        WaitButton {
+          readonly property bool sending: !!root.phone && root.phone.isBusy("reply:" + row.note.id)
           visible: !!row.note.replyId
-          iconText: Model.GLYPH.reply
-          tooltipText: "Reply"
+          glyph: Model.GLYPH.reply
+          waiting: sending
+          motion: root.motion
+          tooltipText: sending ? "Sending the reply" : "Reply"
           foreground: root.foreground
           fontFamily: root.fontFamily
+          enabled: !sending
           onClicked: row.replying ? root.closeReply() : root.openReply(row.note)
         }
-        PanelActionButton {
+        // The X turns into the ring until the phone has let it go.
+        WaitButton {
+          readonly property bool dismissing: !!root.phone && root.phone.isBusy("dismiss:" + row.note.id)
           visible: row.note.dismissable === true
-          iconText: Model.GLYPH.close
-          tooltipText: "Dismiss on " + Model.deviceLabel(root.device)
+          glyph: Model.GLYPH.close
+          waiting: dismissing
+          motion: root.motion
+          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss on " + Model.deviceLabel(root.device)
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily
-          enabled: root.phone ? !root.phone.isBusy("dismiss:" + row.note.id) : false
+          enabled: !!root.phone && !dismissing
           onClicked: root.phone.dismiss(row.note)
         }
       }

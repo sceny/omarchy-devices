@@ -24,6 +24,13 @@ its folder are caches under `~/.cache/sceny.devices/`.
 - **A feature KDE Connect does not offer is not faked.** Ongoing notifications
   never leave the phone; messages cannot be marked read on the phone; RCS is
   not in the SMS store. Say so in the UI or the README instead.
+- **A KDE Connect fault is fixed at its source, not worked around.** When
+  the panel shows what KDE Connect reports and KDE Connect is suspected,
+  file two issues here (`diagnose-panel`, step 5): a KDE Connect issue
+  (`external:kde-connect`) for the owner's KDE Connect specialist, which
+  links every KDE bug report, merge request, branch and fork we create or
+  follow; and a plugin issue (`bug`), blocked by it. The plugin changes only
+  when the owner asks for a workaround.
 - **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
   D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
   connection per call and cannot listen. One Python process (PyGObject) holds
@@ -46,7 +53,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 ## Rules: what the owner decided, so nobody undoes it
 
-Each rule records a fault that was hit or a decision the owner made.
+Each rule is a decision the owner made or guards against a known fault.
+Keep them; change one only with the owner.
 
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
@@ -61,9 +69,14 @@ Each rule records a fault that was hit or a decision the owner made.
   come from `demo` mode, which fakes notifications and conversations and
   names the device Pixel 8. The demo picture message reads a local file
   (`~/.cache/sceny.devices/demo/picture.jpg`) that is not in the repository.
+- **Asking the phone for every conversation is expensive.**
+  `requestAllConversationThreads` makes the phone send one packet per
+  conversation: the bridge asks at start and after a KDE Connect restart,
+  never per user action. When the panel acts on a text-message
+  notification, it marks the conversation read itself.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
-  object shows one "current" player that went stale when the phone switched
-  apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
+  object shows one "current" player, which goes stale when the phone
+  switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
 - **The media card shows the active player only**, like the phone; the others
   are a carousel away (arrows, dots, swipe, drag, `h`/`l`). It opens on the
   active player (playing, else last played) every time.
@@ -79,7 +92,7 @@ Each rule records a fault that was hit or a decision the owner made.
   page out, swaps it at the midpoint, and slides the new one in, while the
   panel's box (the card) animates to the new size at the same beat. The card
   is an item inside a full-screen layer surface, so animating it costs no
-  window resize; snapping it was the jump seen mid-transition. The page is
+  window resize; snapping it jumps mid-transition. The page is
   laid out at the card's final width from the first frame, so it never
   re-flows while the card moves.
 - **Size animations are for the user's own changes.** A hidden page has no
@@ -136,8 +149,8 @@ Each rule records a fault that was hit or a decision the owner made.
   fitting. Use `slowMotion 10` to catch a transition mid-way.
 - **After every shell restart, confirm the panel answers over IPC.** A QML
   error takes the whole widget off the bar, and it can be logged after a
-  quick log check has already passed (`Keys.onPageUpPressed` does not exist
-  and did exactly that).
+  quick log check has already passed (an attached handler that does not
+  exist, such as `Keys.onPageUpPressed`, does exactly that).
 
 - **Fixes change the system only on a click.** `fix install` and `fix firewall`
   go through `pkexec` (one password prompt); the firewall rule is limited to
@@ -147,18 +160,145 @@ Each rule records a fault that was hit or a decision the owner made.
 
 - **Re-read an issue before starting it**, body and comments
   (`gh issue view <n> --comments`): the owner edits issues to change scope.
-- **`main` is what users install** (`omarchy plugin add`/`update` take it).
-  It only moves through pull requests: a short-lived branch per change, CI
-  green, and the change checked in a running shell (check the branch out in
-  the installed clone) before merging. Squash-merge, delete the branch.
-- **Releases are tags on `main`** (`vX.Y.Z`), with an entry in
-  `CHANGELOG.md` and the same `version` in `manifest.json`, published as a
-  GitHub release. The marketplace listing moves to a new release only
-  through its *Verify and publish a newer upstream commit* form.
+- **Two branches.** `main` is what users get: `omarchy plugin add` and
+  `omarchy plugin update` install the latest commit of the default branch,
+  and the marketplace lists one commit of `main`. `main` moves only at a
+  release (*Releasing*); a commit on `main` between releases ships
+  unreviewed code to anyone who installs or updates, and shows the listing
+  as *Update unverified*. `develop` is where work lands. Keep `main` the
+  GitHub default branch.
+- **Every change goes into `develop` through a pull request:** a
+  short-lived branch from `develop`, `gh pr create --base develop`, CI
+  green, the change checked in a running shell (check the branch out in the
+  installed clone), squash-merge, delete the branch.
+- **Without a running Omarchy shell** (a cloud session, a machine without
+  Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
+  request that the change is not checked in a running shell, and leave the
+  merge until someone checks it there.
+- **Check the freeze before merging anything into `main`**, and whenever
+  you look at the open issues. It takes two steps:
+  each open `marketplace-review` issue here points to a marketplace issue,
+  and the marketplace issue says whether its review is still open:
+
+  ```bash
+  gh issue list --label marketplace-review --state open --json number,body \
+    --jq '.[] | "\(.number) \(.body | capture("omacom/omarchy-plugin-marketplace#(?<n>[0-9]+)").n)"' |
+  while read -r ours theirs; do
+    echo "#$ours -> omacom/omarchy-plugin-marketplace#$theirs $(gh issue view "$theirs" \
+      --repo omacom/omarchy-plugin-marketplace --json state -q .state)"
+  done
+  ```
+
+  - `OPEN`: a review is in progress and `main` is frozen.
+  - `CLOSED`: the two are out of sync; sync them now. Read the marketplace
+    issue's last report (published, or what to fix), comment the outcome
+    on our issue, and close it.
+  - No output: nothing is under review.
+- **Keep the repository apart from the installed copy.** Work in your own
+  clone, outside the shell's plugin folder. The plugin folder holds an
+  installed copy following `develop`; update it with `git pull`
+  (`omarchy plugin update` reads `main` and does not bring `develop`
+  changes). To check a branch live, push it, `git switch` to it in the
+  installed copy, and switch back to `develop` afterwards.
+- **An urgent fix for users** is a branch from `main` with a pull request
+  into `main`, only while `main` is not frozen (*Releasing*, step 5);
+  afterwards merge `main` into `develop`.
+- **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
+  and the README's process notes give steps, conditions and rules in the
+  present tense; the reason for a rule is a present-tense consequence. How
+  something came about goes in commit messages and `CHANGELOG.md`.
 - **The README has three parts, in this order:** for users (what it does,
   screenshots, keyboard, what KDE Connect cannot do), getting started
   (requirements, setup, install, update, remove), under the hood (how it
   works, development). Nothing technical above getting started.
+
+## Releasing
+
+1. **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
+   `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the
+   entries by area (Bar, Panel, Messages, Fixed), and add an *Upgrading*
+   group when a setting or a default changes. Set `"version": "X.Y.Z"` in
+   `manifest.json`. Pull request into `develop`, CI green, squash-merge.
+2. **Merge `develop` into `main`** through a pull request titled
+   *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
+   merged with a merge commit, never squashed, so both branches keep one
+   history. The `release` check on that pull request fails while the
+   version in `manifest.json` is already tagged or has no CHANGELOG
+   section with entries.
+3. **The `release` workflow tags and publishes** when the merge lands on
+   `main`: it tags the merge commit `vX.Y.Z`, publishes the release with
+   that CHANGELOG section as its notes, and brings `develop` level with
+   `main`. Check it ran (`gh run list --workflow release --limit 1`,
+   `gh release view vX.Y.Z`). If it failed, do what it does by hand:
+
+   ```bash
+   git tag -a vX.Y.Z -m "Devices X.Y.Z" origin/main && git push origin vX.Y.Z
+   gh release create vX.Y.Z --title "Devices X.Y.Z" --notes-file notes.md --verify-tag --latest
+   git fetch origin && git switch develop && git merge --ff-only origin/main && git push
+   ```
+
+4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`),
+   by hand, not from CI: every update needs a maintainer's approval anyway,
+   and the request carries the owner's acknowledgment. Show the owner the
+   exact title and body and file it only on their explicit approval.
+   - Not listed yet: the plugin submission issue form (the marketplace's
+     `SUBMISSION.md`).
+   - Listed: the *Verify and publish a newer upstream commit* form, with the
+     full SHA of the current head of `main`:
+
+     ```bash
+     cat > /tmp/devices-verify.md <<EOF
+     ### Verification action
+
+     Verify and publish a newer upstream commit
+
+     ### Plugin ID
+
+     sceny.devices
+
+     ### Repository URL
+
+     https://github.com/sceny/omarchy-devices
+
+     ### Target commit
+
+     $(git rev-parse origin/main)
+
+     ### Verification acknowledgment
+
+     - [x] I understand that only the exact target commit can become a verified marketplace snapshot and that verification is not a security audit.
+
+     ### Standard installation acknowledgment
+
+     - [ ] I confirm that this listed root plugin supports the standard Omarchy installation path and does not require manual setup.
+     EOF
+     gh issue create --repo omacom/omarchy-plugin-marketplace --title "[Verify]: Devices" --body-file /tmp/devices-verify.md
+     ```
+
+   Then open the tracking issue here, labelled `marketplace-review`, with
+   the marketplace issue and the commit under review in its body:
+
+   ```bash
+   gh issue create --label marketplace-review \
+     --title "Marketplace review: omacom/omarchy-plugin-marketplace#<n> (vX.Y.Z)" \
+     --body "Marketplace: omacom/omarchy-plugin-marketplace#<n>
+   Commit under review: $(git rev-parse origin/main)"
+   ```
+
+   Status notes (bot reports matched, the maintainer's requests) go on that
+   issue as comments, never into commits.
+5. **Freeze `main` while the marketplace issue is open** (the check is in
+   *Workflow*). The marketplace checks, reviews and publishes one exact
+   commit, and refuses to publish when `main` moved after its checks. Merge
+   nothing into `main` meanwhile; work keeps landing on `develop`. The
+   freeze ends when the marketplace closes its issue; the freeze check then
+   finds the two out of sync and syncs them (*Workflow*).
+6. **If `main` moves during the freeze anyway:** edit the submission issue
+   (every edit makes the bots check the current head of `main`; the
+   submission form has no commit field), wait until both bot reports
+   (validation and security baseline) name the new commit, tell the
+   maintainer in a comment which commit is ready and whether the reported
+   capabilities changed, and put the new commit on the tracking issue.
 
 ## Never
 

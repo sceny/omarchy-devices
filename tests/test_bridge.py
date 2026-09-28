@@ -64,6 +64,94 @@ class Sends(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class Resync(unittest.TestCase):
+    """The sms bridge asks the phone again when the daemon comes back after
+    a restart, retrying while the device reconnects."""
+
+    def make(self):
+        sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
+        sms.calls = []
+        sms.fail = 0
+
+        def call(method, args=None, sig=None, timeout=10000):
+            if sms.fail > 0:
+                sms.fail -= 1
+                raise bridge.GLib.Error("not yet")
+            sms.calls.append(method)
+        sms.call = call
+        sms.out = lambda obj: None
+        return sms
+
+    def test_daemon_back_triggers_a_request_with_retries(self):
+        sms = self.make()
+        timers = []
+        saved = bridge.GLib.timeout_add_seconds
+        bridge.GLib.timeout_add_seconds = lambda sec, fn: timers.append(fn)
+        try:
+            gone = bridge.GLib.Variant("(sss)", (bridge.BUS_NAME, ":1.5", ""))
+            sms.on_owner_changed(None, None, None, None, None, gone)
+            self.assertEqual(timers, [], "the daemon going away asks nothing")
+            back = bridge.GLib.Variant("(sss)", (bridge.BUS_NAME, "", ":1.9"))
+            sms.on_owner_changed(None, None, None, None, None, back)
+            sms.fail = 2
+            attempt = timers[0]
+            self.assertTrue(attempt(), "retry while the device reconnects")
+            self.assertTrue(attempt())
+            self.assertFalse(attempt(), "stop once the call went through")
+            self.assertEqual(sms.calls, ["requestAllConversationThreads"])
+        finally:
+            bridge.GLib.timeout_add_seconds = saved
+
+
+class History(unittest.TestCase):
+    """How far a conversation goes is learnt only from the answer to a page
+    asked for: the daemon's count after any other batch (every thread's
+    latest message) is what it holds, not the conversation's length."""
+
+    def make(self):
+        sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
+        sms.path = "/dev"
+        sms.cache, sms.latest, sms.pending, sms.loaded, sms.settle = {}, {}, {}, {}, {}
+        sms.calls, sms.sent = [], []
+        sms.call = lambda method, args=None, sig=None, timeout=10000: sms.calls.append((method, args))
+        sms.out = sms.sent.append
+        sms.remember({"thread": 7, "uid": 1, "date": 100})
+        return sms
+
+    def loaded(self, sms, tid, count):
+        params = bridge.GLib.Variant("(xt)", (tid, count))
+        sms.on_signal(None, None, "/dev", None, "conversationLoaded", params)
+
+    def test_a_count_nobody_asked_for_does_not_end_the_history(self):
+        sms = self.make()
+        self.loaded(sms, 7, 1)          # every thread's latest message
+        self.assertEqual(sms.loaded, {})
+        saved = bridge.GLib.timeout_add_seconds
+        bridge.GLib.timeout_add_seconds = lambda sec, fn: 1
+        try:
+            sms.load(7, 0, 30)
+        finally:
+            bridge.GLib.timeout_add_seconds = saved
+        self.assertEqual(sms.calls, [("requestConversation", (7, 0, 30))], "the phone is asked for the page")
+        self.assertEqual(sms.sent, [], "no answer yet: one message is not the conversation")
+
+    def test_the_answer_to_a_page_says_how_far_it_goes(self):
+        sms = self.make()
+        sms.pending[7] = [(0, 30, 1)]
+        saved = bridge.GLib.source_remove
+        bridge.GLib.source_remove = lambda source: True
+        try:
+            for uid in range(2, 26):
+                sms.remember({"thread": 7, "uid": uid, "date": 100 + uid})
+            self.loaded(sms, 7, 25)
+        finally:
+            bridge.GLib.source_remove = saved
+        self.assertEqual(sms.loaded, {7: 25})
+        [page] = [e for e in sms.sent if e.get("ev") == "messages"]
+        self.assertEqual(len(page["messages"]), 25)
+        self.assertFalse(page["hasMore"], "all 25 are here")
+
+
 class DigitsKey(unittest.TestCase):
     def test_last_ten_digits(self):
         self.assertEqual(bridge.digits_key("+1 (514) 555-0123"), "5145550123")
@@ -136,3 +224,40 @@ class AttachmentNames(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Conversations(unittest.TestCase):
+    """A conversation notification's markup from the daemon becomes plain
+    {sender, text} pairs; nothing in it is ever interpreted."""
+
+    def test_senders_and_messages(self):
+        markup = ("Running late<br/><b>~Alex Rivera</b>\nSee you at six<br/>Bring chairs"
+                  "<br/><b>Sam</b>\nOK &amp; thanks \U0001F389")
+        self.assertEqual(bridge.parse_conversation(markup), [
+            {"sender": "", "text": "Running late"},
+            {"sender": "~Alex Rivera", "text": "See you at six"},
+            {"sender": "", "text": "Bring chairs"},
+            {"sender": "Sam", "text": "OK & thanks \U0001F389"},
+        ])
+
+    def test_line_breaks_inside_a_message_stay(self):
+        self.assertEqual(bridge.parse_conversation("<b>Sam</b>\nOne\n\nTwo")[0]["text"], "One\n\nTwo")
+
+    def test_markup_in_a_message_stays_text(self):
+        # The daemon escapes content, so tags someone typed arrive as entities:
+        # they come out as the characters typed, for plain-text display.
+        escaped = "&lt;script&gt;alert(1)&lt;/script&gt; &lt;b&gt;x&lt;/b&gt;&lt;br/&gt; &lt;img src=x onerror=y&gt;"
+        [m] = bridge.parse_conversation("<b>Eve &lt;/b&gt;</b>\n" + escaped)
+        self.assertEqual(m["sender"], "Eve </b>")
+        self.assertEqual(m["text"], "<script>alert(1)</script> <b>x</b><br/> <img src=x onerror=y>")
+
+    def test_an_escaped_marker_does_not_split(self):
+        self.assertEqual(len(bridge.parse_conversation("a &lt;br/&gt; b")), 1)
+
+    def test_anything_else_is_one_message_as_it_came(self):
+        self.assertEqual(bridge.parse_conversation("<b>no close"), [{"sender": "", "text": "<b>no close"}])
+        self.assertEqual(bridge.parse_conversation(""), [])
+
+    def test_plain_text_for_one_string(self):
+        messages = [{"sender": "Sam", "text": "Hi"}, {"sender": "", "text": "Again"}]
+        self.assertEqual(bridge.conversation_text(messages), "Sam: Hi\nAgain")

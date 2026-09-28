@@ -66,8 +66,13 @@ Item {
     if (seenFile.path !== "") seenFile.setText(JSON.stringify(seen) + "\n")
   }
 
+  // Demo conversations are made up: what is opened in demo mode is kept
+  // apart, starts empty on every showDemo(), and never reaches the file.
+  property var demoSeen: ({})
+  function seenMap() { return demo ? demoSeen : seen }
+
   function isUnread(tid, date, readOnPhone, sentLast) {
-    return !readOnPhone && !sentLast && date > (seen[tid] || 0)
+    return !readOnPhone && !sentLast && date > (seenMap()[tid] || 0)
   }
 
   function recomputeUnread() {
@@ -136,20 +141,51 @@ Item {
   // can be sent; showLive() asks the bridge for the real list again.
   property bool demo: false
 
+  // Demo data arrives after a phone's usual delay, so the skeletons the
+  // view shows meanwhile can be looked at too.
+  readonly property int demoDelay: 900
+
   function showDemo() {
     demo = true
+    demoSeen = ({})
     threadModel.clear()
-    var threads = Model.demoThreads()
-    for (var i = 0; i < threads.length; i++) threadModel.append(threadRow(threads[i]))
-    ready = true
+    ready = false
     modelRevision++
     openThreadId = -1
     messageModel.clear()
+    demoThreadsTimer.restart()
+  }
+
+  Timer {
+    id: demoThreadsTimer
+    interval: sms.demoDelay
+    onTriggered: {
+      if (!sms.demo) return
+      var threads = Model.demoThreads()
+      for (var i = 0; i < threads.length; i++) threadModel.append(threadRow(threads[i]))
+      sms.ready = true
+      sms.modelRevision++
+    }
+  }
+
+  Timer {
+    id: demoOpenTimer
+    interval: sms.demoDelay
+    onTriggered: {
+      if (!sms.demo || sms.openThreadId < 0) return
+      var convo = sms.openThreadId === 9001 ? Model.demoConversation(undefined, sms.cacheBase + "/demo/picture.jpg") : []
+      for (var d = convo.length - 1; d >= 0; d--) messageModel.append(sms.messageRow(convo[d]))
+      sms.loadedCount = messageModel.count
+      sms.loading = false
+      sms.refreshDays()
+    }
   }
 
   function showLive() {
     if (!demo) return
     demo = false
+    demoThreadsTimer.stop()
+    demoOpenTimer.stop()
     closeThread()
     threadModel.clear()
     ready = false
@@ -211,11 +247,11 @@ Item {
   function markSeen(tid) {
     var at = indexOfThread(tid)
     var date = at >= 0 ? threadModel.get(at).date : Date.now()
-    if ((seen[tid] || 0) >= date) return
-    var next = Object.assign({}, seen)
+    if ((seenMap()[tid] || 0) >= date) return
+    var next = Object.assign({}, seenMap())
     next[tid] = date
-    seen = next
-    saveSeen()
+    if (demo) demoSeen = next
+    else { seen = next; saveSeen() }
     if (at >= 0) threadModel.setProperty(at, "unread", false)
     modelRevision++
   }
@@ -252,14 +288,12 @@ Item {
 
   function openThread(tid) {
     if (demo) {
+      if (tid === openThreadId && (messageModel.count > 0 || loading)) return
       openThreadId = tid
       messageModel.clear()
-      var convo = tid === 9001 ? Model.demoConversation(undefined, cacheBase + "/demo/picture.jpg") : []
-      for (var d = convo.length - 1; d >= 0; d--) messageModel.append(messageRow(convo[d]))
-      loadedCount = messageModel.count
       hasMore = false
-      loading = false
-      refreshDays()
+      loading = true
+      demoOpenTimer.restart()
       return
     }
     start()

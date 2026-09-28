@@ -27,13 +27,31 @@ paste real numbers, names or message text into a test; use 555 numbers.
 
 ## 3. Get the change into the shell
 
+Steps 3 to 5 need a running Omarchy shell. Without one (a cloud session),
+follow AGENTS.md, *Workflow*: the pull request says the change is not
+checked live, and the merge waits for someone who checks it.
+
+- **The shell runs the installed copy, not your clone** (AGENTS.md,
+  *Workflow*): push the branch, then in the installed copy
+  `git fetch && git switch <branch>`; `git switch develop && git pull` when
+  done.
 - `Service.qml`, `SmsService.qml` and the bridge reload by themselves when
-  saved ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
+  they change in the installed copy ("Local plugin changed, reloading"). `BarWidget.qml` logs the same
   line but the pill keeps drawing the old code: restart.
 - **Anything the panel or the pill loads (`Panel.qml`, `SettingsView.qml`,
   `MessagesView.qml`, `BarWidget.qml`, `Model.js`) is cached by the shell:** only
   `omarchy restart shell` picks it up. New IPC functions answer "Function not
   found" until then. A restart blinks the whole bar, so batch changes.
+- **Let a reload finish before restarting the shell.** When the installed
+  copy's files change, the shell reloads the plugin; wait until the panel
+  answers over IPC again, then `omarchy restart shell`. A restart while the
+  reload is still creating objects can crash the shell.
+
+  ```bash
+  for i in $(seq 1 20); do timeout 3 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices status >/dev/null 2>&1 && break; sleep 0.5; done
+  sleep 2 && omarchy restart shell
+  ```
+
 - **After every restart, confirm the panel answers:**
 
   ```bash
@@ -57,6 +75,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
 "${IPC[@]}" fold actions ; "${IPC[@]}" moveSection media -1    # fold a section; move one in the order
 "${IPC[@]}" toggleBar <key> ; "${IPC[@]}" moveBar <key> -1      # bar indicators; toggleBar batteryLowOnly
+"${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
+"${IPC[@]}" pressDismiss <index>      # demo only: its X, to see the waiting ring
 "${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```
@@ -64,6 +84,18 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 None of these focus a text field, by design (AGENTS.md). Opening an unread
 thread marks it seen: undo that in
 `~/.cache/sceny.devices/sms-seen-<device>.json` after a test.
+
+**A save reloads the plugin.** Saving any file in the plugin folder, even a
+`.md`, drops the IPC target for a moment (`Target not found`). Wait about
+2 s after a save before scripted IPC, and check each call's answer before a
+later step that undoes it: an undo after a failed call makes the change
+instead of undoing it.
+
+**Simulated keys go to whatever has keyboard focus.** For keyboard checks
+(`wtype`), open the panel over IPC, and before every key check that
+`status` shows `"opened": true` and the expected `cursor`; stop at the first
+mismatch. Never while the owner is typing. `wtype -M shift -k k` types a
+lowercase k: type `K` for Shift+K.
 
 ## 5. Look at it
 
@@ -78,6 +110,11 @@ takes keyboard focus: not while the owner is typing, and never on a locked
 screen. A screenshot of a real device shows real messages and notifications:
 keep it out of the repository and delete it once read.
 
-## 6. Publish
+## 6. Ship
 
-Commit, push. Other machines take it with `omarchy plugin update sceny.devices`.
+Branch from `develop`, `gh pr create --base develop`, CI green, the change
+checked in a running shell, squash-merge, then `git switch develop && git
+pull` in the installed clone (AGENTS.md, *Workflow*). A pull request into
+`main` is only a release or an urgent fix, and never while `main` is frozen
+for a marketplace review (AGENTS.md, *Releasing*). Users get `main` with
+`omarchy plugin update sceny.devices` after a release.

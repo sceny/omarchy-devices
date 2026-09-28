@@ -174,18 +174,68 @@ Item {
     if (openRow || newMode) composer.forceActiveFocus()
   }
 
-  // Opening a conversation eases it in: the messages rise into place. The
-  // new-message pane comes in from the right instead, as a new page would.
-  readonly property string paneKey: (newMode ? "new" : "thread") + ":" + (sms ? sms.openThreadId : -1)
-  onPaneKeyChanged: if (newMode || (sms && sms.openThreadId >= 0)) paneReveal.restart()
+  // A conversation's messages ease in when they land: they rise into place
+  // while the skeleton, if one showed, fades. The header and the composer
+  // stay on the pane's edges and never move; only their contents change.
+
+  // The header's who: its shape only while the conversation is not known
+  // yet (opened before the list arrived). Moving between conversations,
+  // the name crossfades in place: out quickly, swap, in at the shared pace,
+  // so j/k held down just keeps crossfading to wherever it stops.
+  readonly property bool headerLoading: !newMode && !!sms && sms.openThreadId >= 0 && !openRow
+  property var shownRow: null
+  onOpenRowChanged: {
+    if (!openRow || !shownRow || openRow.tid === shownRow.tid) { shownRow = openRow; return }
+    headerSwap.restart()
+  }
+  SequentialAnimation {
+    id: headerSwap
+    NumberAnimation { target: headerWho; property: "opacity"; to: 0; duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic }
+    ScriptAction { script: view.shownRow = view.openRow }
+    NumberAnimation { target: headerWho; property: "opacity"; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  }
+
+  // A skeleton only for a wait worth showing: a load that lands within a
+  // quarter second goes straight to its content, with no flash of shapes.
+  readonly property int skeletonDelayMs: 250
+  readonly property bool conversationWaiting: !newMode && !!sms && sms.openThreadId >= 0 && sms.loading && messageList.count === 0
+  property bool conversationSkeleton: false
+  onConversationWaitingChanged: {
+    conversationSkeleton = false
+    if (conversationWaiting) conversationSkeletonDelay.restart()
+    else {
+      conversationSkeletonDelay.stop()
+      if (messageList.count > 0) paneReveal.restart()
+    }
+  }
+  Timer { id: conversationSkeletonDelay; interval: view.skeletonDelayMs; onTriggered: view.conversationSkeleton = true }
+
+  readonly property bool threadsWaiting: !!sms && !sms.ready && sms.reachable
+  property bool threadsSkeleton: false
+  onThreadsWaitingChanged: {
+    threadsSkeleton = false
+    if (threadsWaiting) threadsSkeletonDelay.restart(); else threadsSkeletonDelay.stop()
+  }
+  Timer { id: threadsSkeletonDelay; interval: view.skeletonDelayMs; onTriggered: view.threadsSkeleton = true }
+  Component.onCompleted: if (threadsWaiting) threadsSkeletonDelay.restart()
 
   property real motion: 1
 
+  // The conversations ease in the same way when they land after their
+  // skeleton; the title, search and key hints around them stay put.
+  readonly property bool threadsReady: !!sms && sms.ready
+  onThreadsReadyChanged: if (threadsReady) threadReveal.restart()
+
+  ParallelAnimation {
+    id: threadReveal
+    NumberAnimation { target: threadList; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: threadShift; property: "y"; from: Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  }
+
   ParallelAnimation {
     id: paneReveal
-    NumberAnimation { target: convPane; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
-    NumberAnimation { target: paneShift; property: "x"; from: view.newMode ? Style.space(24) : 0; to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
-    NumberAnimation { target: paneShift; property: "y"; from: view.newMode ? 0 : Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: messageList; property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+    NumberAnimation { target: listShift; property: "y"; from: Style.space(14); to: 0; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
   }
 
   Connections {
@@ -266,21 +316,67 @@ Item {
 
         Text {
           Layout.fillWidth: true
-          visible: !!view.sms && !view.sms.ready
+          visible: !!view.sms && !view.sms.ready && !view.sms.reachable
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: view.sms && !view.sms.reachable ? "The device is away. Conversations load when it reconnects." : "Loading conversations…"
+          text: "The device is away. Conversations load when it reconnects."
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall
         }
 
+        // The conversations on their way from the phone: the shape of the
+        // list, until the first ones land.
+        Column {
+          Layout.fillWidth: true
+          visible: view.threadsWaiting
+          opacity: view.threadsSkeleton ? 1 : 0
+          Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          spacing: Style.space(2)
+          Repeater {
+            model: 6
+            Item {
+              required property int index
+              width: parent.width - Style.space(8)
+              height: Style.space(32) + Style.space(12)
+              Skeleton {
+                id: faceBone
+                x: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(32)
+                height: Style.space(32)
+                radius: width / 2
+                foreground: view.foreground
+                motion: view.motion
+              }
+              Skeleton {
+                x: faceBone.x + faceBone.width + Style.space(10)
+                y: faceBone.y + Style.space(3)
+                width: (parent.width - x - Style.space(8)) * [0.55, 0.4, 0.65, 0.35, 0.5, 0.45][index]
+                height: Style.space(10)
+                foreground: view.foreground
+                motion: view.motion
+              }
+              Skeleton {
+                x: faceBone.x + faceBone.width + Style.space(10)
+                y: faceBone.y + faceBone.height - height - Style.space(3)
+                width: (parent.width - x - Style.space(8)) * [0.85, 0.7, 0.9, 0.6, 0.8, 0.75][index]
+                height: Style.space(8)
+                foreground: view.foreground
+                motion: view.motion
+              }
+            }
+          }
+        }
+
         ListView {
           id: threadList
+          WheelScroll { flickable: threadList; motion: view.motion }
           Layout.fillWidth: true
           Layout.fillHeight: true
           clip: true
           model: view.shown
+          transform: Translate { id: threadShift }
           spacing: Style.space(2)
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
@@ -317,7 +413,7 @@ Item {
 
       Column {
         anchors.centerIn: parent
-        visible: !view.openRow && !view.newMode
+        visible: !(!!view.sms && view.sms.openThreadId >= 0) && !view.newMode
         spacing: Style.space(6)
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
@@ -339,9 +435,8 @@ Item {
       ColumnLayout {
         id: convPane
         anchors.fill: parent
-        visible: !!view.openRow || view.newMode
+        visible: (!!view.sms && view.sms.openThreadId >= 0) || view.newMode
         spacing: Style.space(8)
-        transform: Translate { id: paneShift }
 
         // ---- New message: who to ----
         ColumnLayout {
@@ -449,6 +544,7 @@ Item {
 
         ListView {
           id: suggestionList
+          WheelScroll { flickable: suggestionList; motion: view.motion }
           Layout.fillWidth: true
           Layout.fillHeight: true
           visible: view.newMode
@@ -495,29 +591,62 @@ Item {
         }
 
         // ---- Conversation header: who ----
+        // Pinned to the top: while the conversation loads it shows the
+        // shape of a name and a number, then the text lands in place.
         ColumnLayout {
+          id: headerWho
           Layout.fillWidth: true
           visible: !view.newMode
           spacing: Style.space(1)
-          Text {
+          Item {
             Layout.fillWidth: true
-            textFormat: Text.PlainText
-            text: view.openRow ? view.openRow.title : ""
-            color: view.foreground
-            font.family: view.fontFamily
-            font.pixelSize: Style.font.title
-            font.bold: true
-            elide: Text.ElideRight
+            implicitHeight: headerTitle.implicitHeight
+            Text {
+              id: headerTitle
+              width: parent.width
+              textFormat: Text.PlainText
+              text: view.shownRow ? view.shownRow.title : " "
+              color: view.foreground
+              opacity: view.headerLoading ? 0 : 1
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.title
+              font.bold: true
+              elide: Text.ElideRight
+              Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            Skeleton {
+              visible: view.headerLoading
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(parent.width, Style.space(180))
+              height: Math.round(headerTitle.implicitHeight * 0.6)
+              foreground: view.foreground
+              motion: view.motion
+            }
           }
-          Text {
+          Item {
             Layout.fillWidth: true
-            textFormat: Text.PlainText
-            visible: !!view.openRow && view.openRow.addresses !== view.openRow.title
-            text: view.openRow ? view.openRow.addresses : ""
-            color: view.dim
-            font.family: view.fontFamily
-            font.pixelSize: Style.font.caption
-            elide: Text.ElideRight
+            visible: view.headerLoading || (!!view.shownRow && view.shownRow.addresses !== view.shownRow.title)
+            implicitHeight: headerNumber.implicitHeight
+            Text {
+              id: headerNumber
+              width: parent.width
+              textFormat: Text.PlainText
+              text: view.shownRow ? view.shownRow.addresses : " "
+              color: view.dim
+              opacity: view.headerLoading ? 0 : 1
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+              Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            Skeleton {
+              visible: view.headerLoading
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(parent.width, Style.space(110))
+              height: Math.round(headerNumber.implicitHeight * 0.6)
+              foreground: view.foreground
+              motion: view.motion
+            }
           }
         }
 
@@ -525,11 +654,13 @@ Item {
 
         ListView {
           id: messageList
+          WheelScroll { flickable: messageList; motion: view.motion }
           visible: !view.newMode
           Layout.fillWidth: true
           Layout.fillHeight: true
           clip: true
           model: view.sms ? view.sms.messages : null
+          transform: Translate { id: listShift }
           // Newest at the bottom, like every messaging app; older pages grow
           // upwards without moving what is on screen.
           verticalLayoutDirection: ListView.BottomToTop
@@ -545,17 +676,62 @@ Item {
           onContentYChanged: maybeLoadMore()
           onCountChanged: Qt.callLater(maybeLoadMore)
 
+          // Only once there are messages: a conversation still opening shows
+          // its skeleton instead.
           header: Item {
             width: messageList.width
-            height: view.sms && view.sms.loading ? Style.space(24) : 0
-            Text {
+            height: view.sms && view.sms.loading && messageList.count > 0 ? Style.space(24) : 0
+            Row {
               anchors.centerIn: parent
               visible: parent.height > 0
-              textFormat: Text.PlainText
-              text: "Loading older messages…"
-              color: view.dim
-              font.family: view.fontFamily
-              font.pixelSize: Style.font.caption
+              spacing: Style.space(6)
+              WaitRing {
+                anchors.verticalCenter: parent.verticalCenter
+                running: parent.visible
+                motion: view.motion
+                color: view.dim
+                size: Math.round(Style.font.bodySmall * 0.8)
+              }
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: "Loading older messages…"
+                color: view.dim
+                font.family: view.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
+
+          // The conversation on its way from the phone: bubbles' shapes,
+          // newest at the bottom like the messages that replace them.
+          Column {
+            parent: messageList
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Style.space(10)
+            visible: opacity > 0
+            opacity: view.conversationWaiting && view.conversationSkeleton ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: (view.conversationSkeleton ? Model.MOTION.inMs : Model.MOTION.outMs) * view.motion; easing.type: Easing.OutCubic } }
+            spacing: Style.space(6)
+            Repeater {
+              model: 6
+              Item {
+                required property int index
+                readonly property bool mine: [false, true, false, false, true, false][index]
+                width: parent.width
+                height: bubbleBone.height
+                Skeleton {
+                  id: bubbleBone
+                  x: parent.mine ? parent.width - width : 0
+                  width: parent.width * [0.5, 0.35, 0.62, 0.3, 0.45, 0.55][parent.index]
+                  height: [Style.space(34), Style.space(34), Style.space(52), Style.space(34), Style.space(52), Style.space(34)][parent.index]
+                  radius: Style.space(10)
+                  foreground: view.foreground
+                  motion: view.motion
+                }
+              }
             }
           }
 
@@ -579,9 +755,13 @@ Item {
             onAccepted: view.sendComposer()
             Keys.onEscapePressed: view.blurComposer()
           }
-          PanelActionButton {
-            iconText: Model.GLYPH.send
-            tooltipText: "Send"
+          // A new conversation waits for its thread to show up; the button
+          // is the ring meanwhile.
+          WaitButton {
+            glyph: Model.GLYPH.send
+            waiting: view.newMode && view.sendingNew
+            motion: view.motion
+            tooltipText: waiting ? "Sending" : "Send"
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: composer.text.trim() !== "" && !!view.sms && view.sms.reachable
@@ -651,6 +831,7 @@ Item {
         color: Style.selectedFillFor(view.foreground, Color.accent)
         Text {
           anchors.centerIn: parent
+          textFormat: Text.PlainText
           text: row.group ? Model.GLYPH.group : row.initial
           color: view.foreground
           font.family: view.fontFamily
@@ -815,13 +996,26 @@ Item {
                   id: fileChip
                   visible: !file.picture
                   spacing: Style.space(6)
-                  Text {
-                    text: String(file.modelData.mime).indexOf("video/") === 0 ? Model.GLYPH.video
-                      : (String(file.modelData.mime).indexOf("audio/") === 0 ? Model.GLYPH.music
-                      : (String(file.modelData.mime).indexOf("image/") === 0 ? Model.GLYPH.picture : Model.GLYPH.file))
-                    color: view.foreground
-                    font.family: view.fontFamily
-                    font.pixelSize: Style.font.heading
+                  Item {
+                    width: chipGlyph.implicitWidth
+                    height: chipGlyph.implicitHeight
+                    Text {
+                      id: chipGlyph
+                      opacity: file.fetching ? 0 : 1
+                      text: String(file.modelData.mime).indexOf("video/") === 0 ? Model.GLYPH.video
+                        : (String(file.modelData.mime).indexOf("audio/") === 0 ? Model.GLYPH.music
+                        : (String(file.modelData.mime).indexOf("image/") === 0 ? Model.GLYPH.picture : Model.GLYPH.file))
+                      color: view.foreground
+                      font.family: view.fontFamily
+                      font.pixelSize: Style.font.heading
+                    }
+                    WaitRing {
+                      anchors.centerIn: parent
+                      running: file.fetching && !file.picture
+                      motion: view.motion
+                      color: view.foreground
+                      size: Math.round(Style.font.body * 0.8)
+                    }
                   }
                   Text {
                     anchors.verticalCenter: parent.verticalCenter
@@ -834,6 +1028,13 @@ Item {
                     font.family: view.fontFamily
                     font.pixelSize: Style.font.bodySmall
                   }
+                }
+                WaitRing {
+                  anchors.centerIn: parent
+                  running: file.fetching && file.picture
+                  motion: view.motion
+                  color: view.foreground
+                  size: Math.round(Style.font.heading * 0.8)
                 }
                 MouseArea {
                   anchors.fill: parent
@@ -864,13 +1065,23 @@ Item {
         }
       }
 
-      Text {
+      Row {
         anchors.right: bubble.sent ? parent.right : undefined
-        textFormat: Text.PlainText
-        text: bubble.time + (bubble.failed ? " · Not sent" : (bubble.pending ? " · Sending…" : ""))
-        color: bubble.failed ? view.urgent : view.faint
-        font.family: view.fontFamily
-        font.pixelSize: Style.font.caption
+        spacing: Style.space(4)
+        WaitRing {
+          anchors.verticalCenter: parent.verticalCenter
+          running: bubble.pending && !bubble.failed
+          motion: view.motion
+          color: view.faint
+          size: Math.round(Style.font.caption * 0.8)
+        }
+        Text {
+          textFormat: Text.PlainText
+          text: bubble.time + (bubble.failed ? " · Not sent" : (bubble.pending ? " · Sending…" : ""))
+          color: bubble.failed ? view.urgent : view.faint
+          font.family: view.fontFamily
+          font.pixelSize: Style.font.caption
+        }
       }
     }
   }

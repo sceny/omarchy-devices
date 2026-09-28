@@ -41,8 +41,8 @@ panel and made for the keyboard.
   away, urgent when it runs low. Click for the panel, middle-click for
   messages. The panel adds the link (Wi-Fi or Bluetooth)
   and the cellular signal bars and network type (`󰣸 LTE`).
-- **Notifications** from the device, with inline reply, dismiss and the
-  app's own actions.
+- **Notifications** from the device, with inline reply, dismiss and, where
+  KDE Connect passes them on, the app's own buttons (see *Good to know*).
 - **Now playing:** the device's active media player, with the others a swipe
   away, a seek bar and its volume.
 - **Shortcuts** you choose and order: Ring, Send files, Clipboard, Send
@@ -95,8 +95,13 @@ The panel can only show what KDE Connect sends, and its Android app has limits:
 
 - **Ongoing notifications** (navigation, timers, downloads, "USB debugging")
   never leave the phone: the app drops them on purpose.
-- **Messages cannot be marked read** on the phone. The panel remembers what you
-  opened on the computer instead.
+- **App buttons** such as *Mark as read* show only when KDE Connect passes a
+  notification's actions on, which no KDE Connect release does yet. Buttons
+  that open something on the phone, such as *Call*, may do nothing.
+- **Read state:** a message read on the phone shows as read here only with a
+  KDE Connect that passes on read changes to messages it already has; no
+  release does yet. Opening a conversation here, or acting on or replying to
+  its notification from the panel, marks it read here at once.
 - **RCS chats** may be missing: KDE Connect reads the phone's SMS/MMS store.
 - **Names** need the contacts permission; until then threads show numbers.
 - **One playback position** is shared by all of a phone's media players, so
@@ -288,12 +293,14 @@ panel component). Load errors land in `journalctl --user -t omarchy-shell`.
 
 ### Contributing
 
-`main` is what `omarchy plugin add` and `omarchy plugin update` install, so it
-only moves through pull requests: each change on a short-lived branch, CI
-green, and checked in a running shell before it merges. Releases are tags
-(`vX.Y.Z`) on `main` with an entry in [CHANGELOG.md](CHANGELOG.md) and the
-same version in `manifest.json`. [AGENTS.md](AGENTS.md) holds the rules the
-plugin is built to; read it before changing anything.
+`main` is what `omarchy plugin add` and `omarchy plugin update` install, and
+it moves only at a release. Changes go into `develop` through pull requests:
+each on a short-lived branch from `develop`, CI green, and checked in a
+running shell before it merges. A release merges `develop` into `main`, is
+tagged (`vX.Y.Z`) with an entry in [CHANGELOG.md](CHANGELOG.md) and the same
+version in `manifest.json`, and then goes to the Omarchy plugin marketplace.
+[AGENTS.md](AGENTS.md) has the steps (*Releasing*) and the rules the plugin
+is built to; read it before changing anything.
 
 ## License
 

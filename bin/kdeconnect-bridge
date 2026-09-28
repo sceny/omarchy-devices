@@ -32,6 +32,7 @@ out (closed the file chooser), 2 on failure.
 """
 
 import base64
+import html
 import ipaddress
 import json
 import shutil
@@ -86,6 +87,34 @@ def daemon_running(conn):
     return owner.unpack()[0]
 
 
+# A conversation's text (WhatsApp, Signal, Messages...) comes from the daemon
+# as markup it builds itself (kdeconnect-kde, getConversationMessages): each
+# message's content HTML-escaped, a new sender as "<b>sender</b>\n" before
+# it, messages joined by "<br/>". It is split on exactly those markers into
+# plain {sender, text} pairs, never rendered: the entities become characters,
+# so a message that says "<script>" is shown as those characters. Text that
+# does not follow the format is one message from nobody, as it came.
+CONVERSATION_BREAK = "<br/>"
+SENDER_OPEN, SENDER_CLOSE = "<b>", "</b>\n"
+
+
+def parse_conversation(markup):
+    messages = []
+    for chunk in str(markup or "").split(CONVERSATION_BREAK):
+        sender = ""
+        if chunk.startswith(SENDER_OPEN) and SENDER_CLOSE in chunk:
+            end = chunk.index(SENDER_CLOSE)
+            sender, chunk = chunk[len(SENDER_OPEN):end], chunk[end + len(SENDER_CLOSE):]
+        messages.append({"sender": html.unescape(sender).strip(), "text": html.unescape(chunk).strip()})
+    return [m for m in messages if m["sender"] or m["text"]]
+
+
+def conversation_text(messages):
+    """The whole conversation as plain lines, for where one string is read."""
+    return "\n".join(("%s: %s" % (m["sender"], m["text"])) if m["sender"] else m["text"]
+                     for m in messages)
+
+
 def read_notifications(conn, dpath):
     npath = dpath + "/notifications"
     try:
@@ -100,12 +129,17 @@ def read_notifications(conn, dpath):
         if not p:
             continue
         icon = p.get("iconPath", "") if p.get("hasIcon") else ""
+        text = p.get("text", "")
+        conversation = parse_conversation(text) if p.get("isConversation") else []
+        if conversation:
+            text = conversation_text(conversation)
         out.append({
             "id": nid,
             "key": p.get("internalId", ""),
             "app": p.get("appName", ""),
             "title": p.get("title", ""),
-            "text": p.get("text", ""),
+            "text": text,
+            "conversation": conversation,
             "ticker": p.get("ticker", ""),
             "dismissable": bool(p.get("dismissable", False)),
             "replyId": p.get("replyId", ""),
@@ -580,7 +614,7 @@ class Sms:
         self.cache = {}        # thread -> {uid: message}
         self.latest = {}       # thread -> newest message (summary source)
         self.pending = {}      # thread -> [(start, count, timeout_source)]
-        self.loaded = {}       # thread -> messages the daemon holds (conversationLoaded)
+        self.loaded = {}       # thread -> messages the daemon held when a page we asked for came in
         self.settle = {}       # thread -> quiet-period timer while a page loads
         self.contacts, self.contact_list = read_contacts(device_id)
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
@@ -690,9 +724,14 @@ class Sms:
             if (old is None and newest) or (old is not None and old != m):
                 self.out({"ev": "message", "message": m})
         elif signal == "conversationLoaded":
+            # Sent after every batch the daemon takes in, with how many
+            # messages it holds for the thread, not how long the conversation
+            # is: asking for every thread's latest message says 1 for each.
+            # Only the answer to a page asked for here says how far it goes.
             tid, count = params.unpack()
-            self.loaded[tid] = count
-            self.finish_loads(tid, count)
+            if tid in self.pending:
+                self.loaded[tid] = count
+                self.finish_loads(tid, count)
         elif signal == "conversationRemoved":
             tid = params.unpack()[0]
             self.cache.pop(tid, None)
@@ -843,9 +882,35 @@ class Sms:
             self.out({"ev": "error", "message": "unreadable command"})
         return True
 
+    # A restarted daemon starts with an empty cache and knows nothing the
+    # phone changed meanwhile (read state included). Once it is back, ask the
+    # phone again: every thread's latest message then arrives as a signal and
+    # replaces what the old run left here. The device needs a moment to
+    # reconnect, so retry until the call goes through.
+    RESYNC_RETRY_SEC = 3
+    RESYNC_TRIES = 20
+
+    def on_owner_changed(self, conn, sender, path, iface, signal, params):
+        name, old_owner, new_owner = params.unpack()
+        if name != BUS_NAME or not new_owner:
+            return
+        tries = [0]
+
+        def attempt():
+            tries[0] += 1
+            try:
+                self.call("requestAllConversationThreads")
+                return False
+            except GLib.Error:
+                return tries[0] < self.RESYNC_TRIES
+        GLib.timeout_add_seconds(self.RESYNC_RETRY_SEC, attempt)
+
     def run(self):
         self.conn.signal_subscribe(BUS_NAME, SMS_IF, None, self.path, None,
                                    Gio.DBusSignalFlags.NONE, self.on_signal)
+        self.conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
+                                   "NameOwnerChanged", "/org/freedesktop/DBus",
+                                   BUS_NAME, Gio.DBusSignalFlags.NONE, self.on_owner_changed)
         GLib.io_add_watch(sys.stdin.fileno(), GLib.IO_IN | GLib.IO_HUP | GLib.IO_ERR, self.on_stdin)
         try:
             self.emit_threads()
