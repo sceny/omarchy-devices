@@ -386,6 +386,14 @@ Panel {
   }
   function stopEditing() { editing = false; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
   function toggleEditing() { if (editing) stopEditing(); else startEditing() }
+
+  // Right-click on the main page: a small menu (Edit page, Settings), as a
+  // right-click on the Plasma desktop offers Enter Edit Mode. `menuAt` is
+  // where it opens, in the panel's coordinates.
+  property bool pageMenuOpen: false
+  property point menuAt: Qt.point(0, 0)
+  function openPageMenu(x, y) { menuAt = Qt.point(x, y); pageMenuOpen = true }
+  function closePageMenu() { pageMenuOpen = false }
   // A section's Layout switch, from the page.
   function sectionFlag(key) { var l = Model.layoutBySection(key); return l ? l.key : "" }
   function toggleSectionShown(key) {
@@ -982,6 +990,7 @@ Panel {
 
   function onOpened() {
     editing = false
+    pageMenuOpen = false
     // The device asked for (a chip, IPC), else the first connected one.
     if (phone) phone.viewOnOpen()
     deviceSwap.stop()
@@ -1105,6 +1114,8 @@ Panel {
     function settingsRowsInfo(): string { return root.settingsInfo() }
     // Checks while editing, as a click or a drag would: a section's switch, a
     // shortcut added or taken away, a section or a chosen tile moved (glide).
+    // The right-click menu, opened as a right-click at x, y would.
+    function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
     function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
     function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
     function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
@@ -1290,7 +1301,8 @@ Panel {
         }
       }
       onCloseRequested: {
-        if (root.editing) root.stopEditing()
+        if (root.pageMenuOpen) root.closePageMenu()
+        else if (root.editing) root.stopEditing()
         else if (root.messagesOpen) root.closeMessagesView()
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
@@ -1360,6 +1372,55 @@ Panel {
           root.openReply(root.notifications[root.notifIndex])
       }
 
+      // ---- The page menu (right-click): Edit page, Settings ----
+      MouseArea {
+        anchors.fill: parent
+        z: 20
+        visible: root.pageMenuOpen
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: root.closePageMenu()
+      }
+      BorderSurface {
+        id: pageMenu
+        z: 21
+        visible: root.pageMenuOpen
+        x: Math.min(root.menuAt.x, parent.width - width - Style.space(6))
+        y: Math.min(root.menuAt.y, parent.height - height - Style.space(6))
+        width: menuColumn.implicitWidth + Style.space(8)
+        height: menuColumn.implicitHeight + Style.space(8)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+        Column {
+          id: menuColumn
+          anchors.centerIn: parent
+          // As wide as its widest entry (the entries fill it).
+          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth)
+          Button {
+            id: menuEdit
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.edit
+            text: "Edit page"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.startEditing() }
+          }
+          Button {
+            id: menuSettings
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.settings
+            text: "Settings"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+        }
+      }
+
       BorderSurface {
         id: toast
         property string shownText: ""
@@ -1411,6 +1472,18 @@ Panel {
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
+        // Right-click anywhere on the main page opens its menu; other buttons
+        // pass through to the page.
+        MouseArea {
+          x: column.x
+          width: column.width
+          height: column.height
+          z: 50
+          enabled: root.showMain && !root.editing
+          acceptedButtons: Qt.RightButton
+          onClicked: function(m) { var p = mapToItem(keyCatcher, m.x, m.y); root.openPageMenu(p.x, p.y) }
+        }
+
         Column {
           id: column
           // Inside the page margins (pageGutter), on every page.
@@ -1710,6 +1783,8 @@ Panel {
           PanelHero {
             id: hero
             width: parent.width
+            // The pointer on the header reveals ✎ (edit this page).
+            HoverHandler { id: heroHover }
             // Nickname, then the full name when they differ.
             title: {
               if (!root.heroDevice) return "Devices"
@@ -1737,8 +1812,14 @@ Panel {
             trailingControl: Component {
               Row {
                 spacing: Style.space(2)
+                // ✎ shows only while the pointer is on the header (or while
+                // editing, as ✓): no noise at rest. It keeps its room either
+                // way, so the gear beside it never moves.
                 PanelActionButton {
                   visible: root.showMain && !!root.device
+                  opacity: root.editing || heroHover.hovered ? 1 : 0
+                  enabled: opacity > 0.5
+                  Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
                   tooltipText: root.editing ? "Done" : "Edit this page"
                   foreground: root.editing ? Color.accent : root.foreground
