@@ -1138,7 +1138,9 @@ Panel {
         anchors.top: parent.top
         anchors.topMargin: showing ? 0 : -Style.space(10)
         width: parent.width
-        height: pairRow.implicitHeight + Style.space(20)
+        // Covers the whole header (tabs and all), so nothing peeks from under it.
+        height: Math.max(pairRow.implicitHeight + Style.space(20),
+                         (tabStrip.visible ? tabStrip.height + Style.space(12) : 0) + hero.height)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
