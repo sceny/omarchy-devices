@@ -47,7 +47,11 @@ var GLYPH = {
   wifiOff: "\u{F05AA}",
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
-  volumeOff: "\u{F0581}"     // volume-off
+  volumeOff: "\u{F0581}",    // volume-off
+  callRing: "\u{F0F32}",     // phone-ring
+  callMissed: "\u{F03F9}",   // phone-missed
+  callBack: "\u{F03F2}",     // phone
+  callText: "\u{F0369}"      // message-text
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -214,7 +218,7 @@ function moveShortcut(order, key, delta) {
 // the layout switches in the sections' order, the bar indicators (chosen ones
 // in their order, then the rest) and the only-when-low option, the shortcuts
 // (the same way), then reset and the KDE Connect link.
-function settingsRows(flags, order, can, sections, bar, lowOnly) {
+function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
   var rows = []
   var sectionOrder = normalizeSections(sections)
   for (var i = 0; i < sectionOrder.length; i++) {
@@ -232,9 +236,12 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
                 first: at === 0, last: at === chosen.length - 1 })
   }
-  // A switch, not a place in the pill: it decides when battery and % show.
+  // Switches, not places in the pill: when battery and % show, and whether
+  // calls show at all (in the pill and over the panel).
   rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
               hint: "Off, the battery and % always show", on: lowOnly !== false })
+  rows.push({ kind: "barFlag", key: "showCalls", label: "Calls",
+              hint: "Who is calling, and a call missed until you close it", on: calls !== false })
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)
@@ -385,6 +392,8 @@ function barText(device, indicators, state) {
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
   var parts = []
+  // A call is news, not an indicator: it leads whatever else is chosen.
+  if (st.call && reachable) parts.push(st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed)
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
@@ -471,6 +480,54 @@ function networkText(device) {
   return [signalGlyph(device), net].filter(function (p) { return p !== "" }).join(" ")
 }
 
+// ---- Calls, from KDE Connect's telephony plugin ----
+// The bridge keeps the device's last call event: { event: "ringing" |
+// "missed", number, name, at (ms) }. KDE Connect says when a call rings and
+// when one is missed (a declined call counts as missed), never when it is
+// answered or ends (#60, #61). So a ringing call counts as ringing for
+// RING_MS at most, which is about as long as a phone rings before voicemail
+// takes it. A missed call shows until the user closes it (`closedAt`: the
+// `at` of the last call closed), for MISSED_MS at most.
+var RING_MS = 45000
+var MISSED_MS = 30 * 60000
+
+function callState(device, nowMs, closedAt) {
+  var c = device && device.reachable === true ? device.call : null
+  if (!c || (c.event !== "ringing" && c.event !== "missed")) return null
+  var at = Number(c.at) || 0
+  if (closedAt && at <= closedAt) return null
+  var age = nowMs - at
+  if (c.event === "ringing" && age > RING_MS) return null
+  if (c.event === "missed" && age > MISSED_MS) return null
+  var number = String(c.number || "").trim()
+  var name = String(c.name || "").trim()
+  return {
+    state: c.event, at: at, number: number,
+    who: name || (number ? formatNumber(number) : "Unknown number"),
+    // The number under the name, when there is a name to put it under.
+    detail: name && number ? formatNumber(number) : ""
+  }
+}
+
+// The card's small caps line: "INCOMING CALL", "MISSED CALL · 14:05".
+function callHeading(call) {
+  if (!call) return ""
+  return call.state === "ringing" ? "INCOMING CALL" : "MISSED CALL · " + clockTime(call.at)
+}
+
+// How long until the call's state can change on its own (ringing runs out,
+// missed expires), for the timer that re-reads it; -1 when nothing will.
+function callExpiresIn(call, nowMs) {
+  if (!call) return -1
+  return Math.max(0, call.at + (call.state === "ringing" ? RING_MS : MISSED_MS) - nowMs)
+}
+
+// A made-up call for demo mode: a fictional name and a 555 number.
+function demoCall(kind, nowMs) {
+  if (kind !== "ringing" && kind !== "missed") return null
+  return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0) }
+}
+
 // Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
 // size of the text, since the bolt in it says charging. With no charge known
 // it says "CONNECTED". Away or down, just the status.
@@ -491,10 +548,12 @@ function batteryText(device) {
 }
 
 // `nowPlaying` is the playing phone player's line (Service.nowPlaying), since
-// media comes from MPRIS in the shell rather than from the snapshot.
-function tooltip(snapshot, device, nowPlaying, unreadMessages) {
+// media comes from MPRIS in the shell rather than from the snapshot. `call`
+// is Model.callState's, or null.
+function tooltip(snapshot, device, nowPlaying, unreadMessages, call) {
   if (!device) return statusWord(snapshot, device)
   var lines = [device.name + " — " + statusWord(snapshot, device)]
+  if (call) lines.push((call.state === "ringing" ? "Call from " : "Missed call from ") + call.who)
   var c = batteryCharge(device)
   if (c >= 0) lines.push("Battery " + c + "%" + (charging(device) ? ", charging" : ""))
   var n = device.notifications ? device.notifications.length : 0

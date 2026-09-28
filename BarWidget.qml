@@ -22,6 +22,7 @@ BarWidget {
   readonly property int notificationCount: phone && phone.notifications ? phone.notifications.length : 0
   readonly property int unreadMessages: phone && phone.sms ? phone.sms.unreadCount : 0
   readonly property int bubble: Model.barBubble(device, indicators, notificationCount)
+  readonly property var call: phone ? phone.call : null
   readonly property int lowPercent: {
     var n = parseInt(String(setting("lowBatteryPercent", 15)), 10)
     return isFinite(n) ? n : 15
@@ -76,11 +77,12 @@ BarWidget {
     bar: root.bar
     text: root.vertical ? Model.deviceGlyph(root.device) : Model.barText(root.device, root.indicators, {
       lowPercent: root.lowPercent, lowOnly: root.lowOnly, notifications: root.notificationCount,
-      messages: root.unreadMessages, playing: !!root.phone && root.phone.nowPlaying !== "" })
+      messages: root.unreadMessages, playing: !!root.phone && root.phone.nowPlaying !== "", call: root.call })
     horizontalMargin: 8.75
     dimmed: !root.reachable
-    active: Model.lowBattery(root.device, root.lowPercent)
-    tooltipText: root.opened ? "" : Model.tooltip(root.phone ? root.phone.snapshot : null, root.device, root.phone ? root.phone.nowPlaying : "", root.unreadMessages)
+    // A ringing phone lights the pill up, like a low battery does.
+    active: Model.lowBattery(root.device, root.lowPercent) || (!!root.call && root.call.state === "ringing")
+    tooltipText: root.opened ? "" : Model.tooltip(root.phone ? root.phone.snapshot : null, root.device, root.phone ? root.phone.nowPlaying : "", root.unreadMessages, root.call)
 
     onPressed: function(b) {
       if (b === Qt.MiddleButton && panelLoader.item && panelLoader.item.openMessagesFromHotkey) panelLoader.item.openMessagesFromHotkey()

@@ -53,6 +53,14 @@ class Sends(unittest.TestCase):
         self.assertEqual(self.run_quiet(["url", "d1", " https://example.com/a?b=1 "]), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareUrl", ("https://example.com/a?b=1",), "(s)")])
 
+    def test_dial_shares_a_tel_link(self):
+        self.assertEqual(self.run_quiet(["dial", "d1", "+1 (514) 555-0123"]), bridge.EXIT_OK)
+        self.assertEqual(self.calls, [("share", "share", "shareUrl", ("tel:+15145550123",), "(s)")])
+
+    def test_dial_without_a_number_sends_nothing(self):
+        self.assertEqual(self.run_quiet(["dial", "d1", " - "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.calls, [])
+
     def test_ping_with_and_without_a_message(self):
         self.run_quiet(["ping", "d1"])
         self.run_quiet(["ping", "d1", "Leaving now"])
@@ -261,3 +269,20 @@ class Conversations(unittest.TestCase):
     def test_plain_text_for_one_string(self):
         messages = [{"sender": "Sam", "text": "Hi"}, {"sender": "", "text": "Again"}]
         self.assertEqual(bridge.conversation_text(messages), "Sam: Hi\nAgain")
+
+
+class Calls(unittest.TestCase):
+    """What KDE Connect's callReceived(event, number, contactName) becomes."""
+
+    def test_ringing_and_missed(self):
+        self.assertEqual(bridge.call_event("callReceived", "+15145550123", "Alex Rivera", 1000),
+                         {"event": "ringing", "number": "+15145550123", "name": "Alex Rivera", "at": 1000})
+        self.assertEqual(bridge.call_event("missedCall", "+15145550123", "Alex Rivera", 2000)["event"], "missed")
+
+    def test_a_name_that_is_the_number_is_no_name(self):
+        # KDE Connect fills contactName with the number when it knows no name.
+        self.assertEqual(bridge.call_event("callReceived", "5550123", "5550123", 0)["name"], "")
+
+    def test_other_events_are_ignored(self):
+        self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
+        self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))

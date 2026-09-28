@@ -44,6 +44,10 @@ Panel {
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
   readonly property var barIndicators: Model.normalizeBarIndicators(setting("barIndicators", null))
   readonly property bool batteryLowOnly: Model.layoutFlag(setting("batteryLowOnly", true))
+  readonly property bool showCalls: Model.layoutFlag(setting("showCalls", true))
+  // The phone ringing, or a call missed (Service.call); a card floats over
+  // the top of the panel while there is one.
+  readonly property var call: phone ? phone.call : null
   // The order of the sections under the header (Layout settings).
   readonly property var sectionOrder: Model.normalizeSections(setting("sectionOrder", null))
 
@@ -181,7 +185,7 @@ Panel {
   property int settingsIndex: 0
   readonly property var settingsRows: Model.settingsRows(
     { showDevices: showDevices, showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
-    shortcutOrder, device ? device.can : null, sectionOrder, barIndicators, batteryLowOnly)
+    shortcutOrder, device ? device.can : null, sectionOrder, barIndicators, batteryLowOnly, showCalls)
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -401,6 +405,37 @@ Panel {
 
   function resetShortcuts() { persistSettings({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
 
+  // The Bar group's switches (batteryLowOnly, showCalls): on unless stored false.
+  function toggleFlag(key) {
+    var values = {}
+    values[key] = !Model.layoutFlag(setting(key, true))
+    persistSettings(values)
+  }
+
+  // ---- Calls ----
+  // Text back: the caller's conversation when there is one, else a new
+  // message to the number. Only the user's click passes typeHere, so only it
+  // focuses the composer.
+  function textBack(c, typeHere) {
+    if (!c || !phone) return
+    var tid = c.number !== "" ? threadForNotification({ app: "Messages", title: c.number }) : -1
+    if (tid < 0 && c.who !== "") tid = threadForNotification({ app: "Messages", title: c.who })
+    phone.closeCall()
+    if (tid >= 0) { openMessagesView(tid, typeHere === true); return }
+    openMessagesView(-1)
+    Qt.callLater(function() {
+      if (!messagesView) return
+      messagesView.startNew(typeHere === true)
+      messagesView.setToText(c.number)
+    })
+  }
+
+  function callBack(c) {
+    if (!c || !phone) return
+    phone.closeCall()
+    phone.callBack(c.number)
+  }
+
   // A settings row under a folded section is not there to land on.
   function settingsRowShown(i) {
     var row = settingsRows[i]
@@ -427,7 +462,7 @@ Panel {
     if (row.kind === "layout") toggleLayout(row.key)
     else if (row.kind === "shortcut") toggleShortcutKey(row.key)
     else if (row.kind === "bar") persistSettings({ barIndicators: Model.toggleBarIndicator(barIndicators, row.key) })
-    else if (row.kind === "barFlag") persistSettings({ batteryLowOnly: !batteryLowOnly })
+    else if (row.kind === "barFlag") toggleFlag(row.key)
     else if (row.kind === "reset") resetShortcuts()
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
@@ -859,9 +894,22 @@ Panel {
     function moveShortcut(key: string, delta: int): string { root.moveShortcutKey(key, delta); return "ok" }
     function moveSection(key: string, delta: int): string { root.moveSectionKey(key, delta); return JSON.stringify(root.sectionOrder) }
     function toggleBar(key: string): string {
-      if (key === "batteryLowOnly") root.persistSettings({ batteryLowOnly: !root.batteryLowOnly })
+      if (key === "batteryLowOnly" || key === "showCalls") root.toggleFlag(key)
       else root.persistSettings({ barIndicators: Model.toggleBarIndicator(root.barIndicators, key) })
-      return JSON.stringify({ indicators: root.barIndicators, lowOnly: root.batteryLowOnly })
+      return JSON.stringify({ indicators: root.barIndicators, lowOnly: root.batteryLowOnly, calls: root.showCalls })
+    }
+    // Demo only: a made-up caller ringing, or a call missed; "none" ends it.
+    function demoCall(kind: string): string {
+      if (!root.phone) return "no service"
+      root.phone.showDemoCall(kind)
+      return JSON.stringify(root.call)
+    }
+    function closeCall(): string { if (root.phone) root.phone.closeCall(); return JSON.stringify(root.call) }
+    // Demo only: Text back, without focusing the composer (scripted).
+    function pressTextBack(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.textBack(root.call, false)
+      return JSON.stringify({ open: root.sms ? root.sms.openThreadId : -1, call: root.call })
     }
     function moveBar(key: string, delta: int): string { root.moveBarIndicator(key, delta); return JSON.stringify(root.barIndicators) }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
@@ -874,7 +922,8 @@ Panel {
         reachable: root.reachable,
         bar: Model.barText(root.device, root.barIndicators, { lowPercent: root.lowPercent, lowOnly: root.batteryLowOnly,
           notifications: root.notifications.length, messages: root.sms ? root.sms.unreadCount : 0,
-          playing: !!root.phone && root.phone.nowPlaying !== "" }),
+          playing: !!root.phone && root.phone.nowPlaying !== "", call: root.call }),
+        call: root.call,
         bubble: Model.barBubble(root.device, root.barIndicators, root.notifications.length),
         meta: Model.metaLine(root.snapshot, root.device),
         battery: Model.batteryText(root.device),
@@ -1042,6 +1091,118 @@ Panel {
           color: toast.shownFailed ? root.urgent : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
+        }
+      }
+
+      // ---- The call card: floats over the top of the panel while the phone
+      //      rings or after a call was missed, so it never pushes the page ----
+      BorderSurface {
+        id: callCard
+        // Kept while it fades out, so the text does not blank mid-fade.
+        property var shown: null
+        readonly property bool showing: !!root.call
+        onShowingChanged: if (showing) shown = root.call
+        Connections {
+          target: root
+          function onCallChanged() { if (root.call) callCard.shown = root.call }
+        }
+        readonly property bool ringing: !!shown && shown.state === "ringing"
+
+        z: 11
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Style.space(8) + (showing ? 0 : -Style.space(10))
+        width: parent.width - Style.space(16)
+        height: callRow.implicitHeight + Style.space(20)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec(ringing ? "focus" : "normal", root.foreground, Color.accent)
+        opacity: showing ? 1 : 0
+        visible: opacity > 0.01
+
+        Behavior on opacity { NumberAnimation { duration: (callCard.showing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Behavior on anchors.topMargin { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+
+        // Clicks on the card stay on the card.
+        MouseArea { anchors.fill: parent }
+
+        RowLayout {
+          id: callRow
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.space(12)
+          anchors.rightMargin: Style.space(8)
+          spacing: Style.space(10)
+
+          Text {
+            textFormat: Text.PlainText
+            text: callCard.ringing ? Model.GLYPH.callRing : Model.GLYPH.callMissed
+            color: callCard.ringing ? Color.accent : root.urgent
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.display
+            Layout.alignment: Qt.AlignVCenter
+          }
+
+          Column {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
+            spacing: Style.space(2)
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              text: Model.callHeading(callCard.shown)
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              text: callCard.shown ? callCard.shown.who : ""
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+            }
+            Text {
+              width: parent.width
+              visible: text !== ""
+              textFormat: Text.PlainText
+              elide: Text.ElideRight
+              text: callCard.shown ? callCard.shown.detail : ""
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+            }
+          }
+
+          // Missed: call back on the phone. Ringing: answering is the phone's.
+          PanelActionButton {
+            visible: !callCard.ringing && !!callCard.shown && callCard.shown.number !== "" && root.can.share === true
+            iconText: Model.GLYPH.callBack
+            tooltipText: "Call back from " + Model.deviceLabel(root.device)
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.callBack(callCard.shown)
+          }
+          PanelActionButton {
+            visible: !!callCard.shown && callCard.shown.number !== "" && root.can.sms === true
+            iconText: Model.GLYPH.callText
+            tooltipText: callCard.ringing ? "Text instead" : "Text back"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.textBack(callCard.shown, true)
+          }
+          PanelActionButton {
+            iconText: Model.GLYPH.close
+            tooltipText: "Close"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: if (root.phone) root.phone.closeCall()
+          }
         }
       }
 

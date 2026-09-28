@@ -130,6 +130,46 @@ Item {
   readonly property string nowPlaying: activePlayer && activePlayer.isPlaying
     ? Model.trackLine(activePlayer.trackTitle, activePlayer.trackArtist) : ""
 
+  // ---- Calls (Model.callState): the phone ringing, or a call missed ----
+  // KDE Connect never says a call ended, so time decides when ringing stops
+  // counting; `clock` is re-read when the call's state can next change.
+  readonly property bool showCalls: Model.layoutFlag(setting("showCalls", true))
+  property real clock: Date.now()
+  // The `at` of the last call the user closed. Memory only: after a restart
+  // the bridge has forgotten the call too.
+  property real callClosedAt: 0
+  readonly property var call: showCalls ? Model.callState(device, clock, callClosedAt) : null
+  readonly property var pendingCall: device && device.call ? device.call : null
+  onPendingCallChanged: clock = Date.now()
+
+  function closeCall() { if (call) callClosedAt = call.at }
+
+  // The phone's dialer on the number (a tel: link through KDE Connect's
+  // share): the call itself is the user's tap on the phone.
+  function callBack(number) {
+    var n = String(number || "").trim()
+    if (n !== "") run("dial", [n], "dial")
+  }
+
+  Timer {
+    // Wakes when the shown call runs out (plus a beat), not every second.
+    readonly property real due: Model.callExpiresIn(Model.callState(root.device, root.clock, root.callClosedAt), root.clock)
+    interval: Math.max(250, due + 250)
+    running: due >= 0
+    onTriggered: root.clock = Date.now()
+  }
+
+  // Demo mode rings (or misses) a made-up caller, over the demo snapshot.
+  function showDemoCall(kind) {
+    if (!demo) showDemo("")
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var d = Model.pickDevice(copy, "")
+    if (!d) return
+    d.call = Model.demoCall(kind, Date.now())
+    callClosedAt = 0
+    snapshot = copy
+  }
+
   // A short line about the last click: "Ringing Pixel 8",
   // "Sending 2 files", or the reason it failed. Clears itself.
   property string actionStatus: ""

@@ -116,6 +116,41 @@ test("section order: known sections once, the missing ones back at their default
   assert.deepEqual(rows.map(r => r.on), [true, false, true, true])
 })
 
+test("calls: ringing for RING_MS at most, missed until closed or MISSED_MS", () => {
+  const at = 1_000_000
+  const ringing = device({ call: { event: "ringing", number: "+15145550123", name: "Alex Rivera", at } })
+  const c = M.callState(ringing, at + 1000, 0)
+  assert.deepEqual([c.state, c.who, c.detail], ["ringing", "Alex Rivera", "+1 514-555-0123"])
+  assert.equal(M.callState(ringing, at + M.RING_MS + 1, 0), null, "no end signal: ringing runs out")
+  assert.equal(M.callState(ringing, at + 1000, at), null, "closed")
+  assert.equal(M.callState(device({ reachable: false, call: ringing.call }), at, 0), null, "away: nothing stale")
+  const missed = device({ call: { event: "missed", number: "+15145550123", name: "", at } })
+  const m = M.callState(missed, at + M.RING_MS + 1, 0)
+  assert.deepEqual([m.state, m.who, m.detail], ["missed", "+1 514-555-0123", ""])
+  assert.equal(M.callState(missed, at + M.MISSED_MS + 1, 0), null)
+  assert.equal(M.callState(device({ call: { event: "talking", at } }), at, 0), null)
+  assert.equal(M.callState(device({ call: { event: "ringing", number: "", name: "", at } }), at, 0).who, "Unknown number")
+  assert.equal(M.callExpiresIn(c, at + 1000), M.RING_MS - 1000)
+  assert.equal(M.callExpiresIn(null, at), -1)
+  assert.equal(M.callHeading(c), "INCOMING CALL")
+  assert.match(M.callHeading(m), /^MISSED CALL · \d\d:\d\d$/)
+})
+
+test("calls lead the bar text and the tooltip", () => {
+  const P = M.GLYPH.phone
+  const c = { state: "ringing", who: "Alex Rivera" }
+  assert.equal(M.barText(device(), ["percent"], { call: c }), [P, M.GLYPH.callRing, "63%"].join(" "))
+  assert.equal(M.barText(device(), [], { call: { state: "missed" } }), P + " " + M.GLYPH.callMissed)
+  assert.equal(M.barText(device({ reachable: false }), [], { call: c }), P)
+  assert.match(M.tooltip(snap(device()), device(), "", 0, c), /\nCall from Alex Rivera/)
+})
+
+test("settings rows: a Calls switch after the low-only one", () => {
+  const flags = M.settingsRows({}, [], {}, null, [], true, false).filter(r => r.kind === "barFlag")
+  assert.deepEqual(flags.map(r => [r.key, r.on]), [["batteryLowOnly", true], ["showCalls", false]])
+  assert.equal(M.settingsRows({}, [], {}, null, [], true).find(r => r.key === "showCalls").on, true, "on by default")
+})
+
 test("settings rows: bar indicators chosen first in order, the rest after, then the low-only switch", () => {
   const rows = M.settingsRows({}, [], {}, null, ["bubble", "percent"], false)
   const bar = rows.filter(r => r.kind === "bar")
