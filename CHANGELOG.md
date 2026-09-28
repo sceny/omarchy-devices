@@ -3,6 +3,15 @@
 Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 `manifest.json`.
 
+## Unreleased
+
+- Setup: a paired device that is away gets *Look again*, which asks KDE
+  Connect to search the network (what `kdeconnect-cli --refresh` does),
+  and the panel searches once by itself when it opens. The check says
+  where the device was last seen and whether that is this computer's
+  network, and after a search that found nothing, what to try on the
+  device (#69).
+
 ## 0.6.1 — 2026-09-28
 
 ### Docs
