@@ -38,7 +38,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - Moving the first section up in Layout did nothing: it swapped with the
   hidden Devices section.
 - A low battery turned the whole pill red; now only the battery glyph and
-  its % do.
+  its % do. Beside the battery glyph, the % joins it (a thin space apart),
+  so the two read as one.
 - A newly ticked bar indicator went to the end; it now goes to its natural
   place (connection, battery, %, counts, playing, bubble), so % follows
   the battery.

@@ -422,9 +422,15 @@ function barParts(device, indicators, state) {
       continue
     }
     if (!reachable) continue
-    if (key === "battery" && showBattery) add(batteryGlyph(device, st.lowPercent), low)
-    else if (key === "percent" && showBattery)
-      add(c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : ""), low)
+    if (key === "battery" && showBattery) { add(batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
+    else if (key === "percent" && showBattery) {
+      var pct = c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : "")
+      // Right after the battery glyph, the % is part of it: one piece, a
+      // thin space apart, not an indicator of its own.
+      var prev = parts[parts.length - 1]
+      if (prev.battery) prev.text += "\u2009" + pct
+      else add(pct, low)
+    }
     else if (key === "notifications" && st.notifications > 0) add(GLYPH.bell + " " + st.notifications)
     else if (key === "messages" && st.messages > 0) add(GLYPH.messages + " " + st.messages)
     else if (key === "playing" && st.playing) add(GLYPH.play)

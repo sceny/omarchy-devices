@@ -35,9 +35,9 @@ test("bar text: the glyph, then the chosen indicators in order; away, the glyph 
   const all = ["connection", "battery", "percent", "notifications", "messages", "playing", "bubble"]
   const st = { lowPercent: 15, notifications: 3, messages: 2, playing: true }
   assert.equal(M.barText(device(), all, st),
-    [P, M.GLYPH.wifi, M.batteryGlyph(device(), 15), "63%", M.GLYPH.bell + " 3", M.GLYPH.messages + " 2", M.GLYPH.play].join(" "))
+    [P, M.GLYPH.wifi, M.batteryGlyph(device(), 15) + "\u2009" + "63%", M.GLYPH.bell + " 3", M.GLYPH.messages + " 2", M.GLYPH.play].join(" "), "the % is part of the battery beside it")
   assert.equal(M.barText(device({ battery: { charge: 63, charging: true } }), ["battery", "percent"], st),
-    [P, M.batteryGlyph(device({ battery: { charge: 63, charging: true } }), 15), "63%"].join(" "), "one bolt: the battery glyph has it")
+    [P, M.batteryGlyph(device({ battery: { charge: 63, charging: true } }), 15) + "\u2009" + "63%"].join(" "), "one bolt: the battery glyph has it")
   assert.equal(M.barText(device(), ["messages", "notifications"], { notifications: 0, messages: 0 }), P, "counts hide at 0")
   assert.equal(M.barText(device({ links: ["Bluetooth"] }), ["connection"]), P + " " + M.GLYPH.bluetooth)
   assert.equal(M.barText(device({ reachable: false }), all, st), P + " " + M.GLYPH.wifiOff, "away: a crossed-out link, nothing stale")
@@ -48,7 +48,7 @@ test("bar: battery only when low; the default; the bubble", () => {
   const low = device({ battery: { charge: 9, charging: false } })
   assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: true, lowPercent: 15 }), P)
   assert.equal(M.barText(low, ["percent"], { lowOnly: true, lowPercent: 15 }), P + " 9%")
-  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: false, lowPercent: 15 }), P + " " + M.batteryGlyph(device(), 15) + " 63%", "unticked: always shown")
+  assert.equal(M.barText(device(), ["battery", "percent"], { lowOnly: false, lowPercent: 15 }), P + " " + M.batteryGlyph(device(), 15) + "\u2009" + "63%", "unticked: always shown")
   assert.deepEqual(M.normalizeBarIndicators(undefined), ["battery", "bubble"], "the default: battery when low, the bubble")
   assert.deepEqual(M.normalizeBarIndicators("not json"), ["battery", "bubble"])
   assert.deepEqual(M.normalizeBarIndicators([]), [], "an empty choice stays empty")
@@ -568,7 +568,9 @@ test("moving an item: where it lands, how far the others slide, how far it glide
 test("the pill in parts: only a low battery is urgent; a ticked indicator goes to its natural place", () => {
   const low = device({ battery: { charge: 9, charging: false } })
   const parts = M.barParts(low, ["bubble", "battery", "percent", "notifications"], { lowPercent: 15, notifications: 2 })
-  assert.deepEqual(parts.map(p => p.urgent), [false, true, true, false], "glyph, battery, %, bell")
+  assert.deepEqual(parts.map(p => p.urgent), [false, true, false], "glyph, battery with its %, bell")
+  assert.equal(parts[1].text, M.batteryGlyph(low, 15) + "\u2009" + "9%")
+  assert.deepEqual(M.barParts(low, ["percent", "battery"], { lowPercent: 15 }).map(p => p.text), [M.GLYPH.phone, "9%", M.batteryGlyph(low, 15)], "not beside it: apart")
   assert.equal(M.barText(low, ["percent"], { lowPercent: 15 }), parts[0].text + " 9%")
   assert.ok(M.barParts(device(), ["battery", "percent"], { lowPercent: 15 }).every(p => !p.urgent), "not low: nothing red")
   assert.deepEqual(M.toggleBarIndicator(["battery", "bubble"], "percent"), ["battery", "percent", "bubble"], "% right after the battery")
@@ -576,5 +578,5 @@ test("the pill in parts: only a low battery is urgent; a ticked indicator goes t
   assert.deepEqual(M.toggleBarIndicator(["bubble", "percent"], "battery"), ["battery", "bubble", "percent"], "before the first that comes after it")
   assert.deepEqual(M.toggleBarIndicator([], "playing"), ["playing"])
   const chip = M.chips(snap(low), M.readSettings({ barIndicators: ["battery", "percent"], batteryLowOnly: false }), {}).chips[0]
-  assert.deepEqual(chip.parts.map(p => p.urgent), [false, true, true])
+  assert.deepEqual(chip.parts.map(p => p.urgent), [false, true])
 })
