@@ -370,3 +370,120 @@ test("a group chat's unread count is taken apart from its name", () => {
   assert.deepEqual(M.chatTitle(chat("Team (B)")), { title: "Team (B)", count: "" }, "brackets without a number are part of the name")
   assert.deepEqual(M.chatTitle({ title: "Invoice (2 pages)" }), { title: "Invoice (2 pages)", count: "" }, "not a chat: left alone")
 })
+
+// ---- Many devices (docs/design/multi-device.md) ----
+
+const phone = (over = {}) => device({ id: "p1", name: "Pixel 8", ...over })
+const tablet = (over = {}) => device({ id: "t1", name: "Galaxy Tab", type: "tablet", battery: { charge: 80, charging: false }, ...over })
+
+test("today's settings are read as the defaults, and nothing new is invented", () => {
+  const old = { id: "sceny.devices", deviceId: "t1", barIndicators: ["percent"], batteryLowOnly: false, shortcuts: ["ring"], sectionOrder: ["media", "actions"] }
+  const s = M.readSettings(old)
+  assert.deepEqual(s.defaults.barIndicators, ["percent"])
+  assert.equal(s.defaults.batteryLowOnly, false)
+  assert.deepEqual(s.defaults.shortcuts, ["ring"])
+  assert.deepEqual(s.defaults.sectionOrder.slice(0, 2), ["devices", "media"], "lists merge as today")
+  assert.deepEqual(s.order, ["t1"], "the old followed device comes first")
+  assert.deepEqual(s.devices, {})
+  assert.deepEqual(M.readSettings(undefined).defaults.barIndicators, ["battery", "bubble"])
+  assert.deepEqual(M.readSettings({ deviceOrder: ["a", "a", "", "b"], deviceId: "z" }).order, ["a", "b"], "a stored order wins over deviceId")
+})
+
+test("device order: stored first, then the rest with the connected ones first", () => {
+  const s = M.readSettings({ deviceOrder: ["gone", "t1"] })
+  const snapshot = snap(device({ id: "x", reachable: false }), phone(), tablet(), device({ id: "u", paired: false }))
+  assert.deepEqual(M.orderedDevices(snapshot, s).map(d => d.id), ["t1", "p1", "x"])
+})
+
+test("a profile: identity is the device's own, the rest is its change or the default", () => {
+  const s = M.readSettings({ shortcuts: ["ring", "share"], devices: { t1: { nickname: "  Tab \n ", icon: "f04f6", bar: "never", shortcuts: ["share"], showInPanel: false } } })
+  const t = M.resolveProfile(s, tablet(), false)
+  assert.equal(t.nickname, "Tab", "spaces and line breaks folded")
+  assert.equal(t.icon, "F04F6")
+  assert.equal(t.bar, "never")
+  assert.equal(t.showInPanel, false)
+  assert.deepEqual(t.shortcuts, ["share"])
+  assert.deepEqual(t.custom, { shortcuts: true })
+  const p = M.resolveProfile(s, phone(), true)
+  assert.deepEqual([p.nickname, p.icon, p.bar, p.showInPanel], ["", "", "always", true], "first device: always")
+  assert.equal(M.resolveProfile(s, phone(), false).bar, "attention", "the others: with attention")
+  assert.deepEqual(p.shortcuts, ["ring", "share"])
+  assert.equal(M.resolveProfile(M.readSettings({ devices: { p1: { bar: "sideways", icon: "zz" } } }), phone(), true).bar, "always", "unknown values are ignored")
+  assert.equal(M.deviceTitle(tablet(), t), "Tab")
+  assert.equal(M.deviceTitle(phone(), p), "Pixel 8")
+  assert.equal(M.deviceIcon(tablet(), t), String.fromCodePoint(0xF04F6))
+  assert.equal(M.deviceIcon(phone(), p), M.GLYPH.phone)
+})
+
+test("attention: news, calls, low battery; away is never attention", () => {
+  const prof = { barIndicators: ["messages"] }
+  assert.equal(M.attention(phone(), prof, {}).any, false)
+  assert.equal(M.attention(phone(), prof, { notifications: 2 }).notifications, 2)
+  assert.equal(M.attention(phone(), { barIndicators: [] }, { messages: 3 }).messages, 0, "messages count only when the device counts them")
+  assert.equal(M.attention(phone(), prof, { messages: 3 }).any, true)
+  assert.equal(M.attention(phone(), prof, { call: { state: "ringing" } }).ringing, true)
+  assert.equal(M.attention(phone({ battery: { charge: 5, charging: false } }), prof, {}).lowBattery, true)
+  assert.equal(M.attention(phone({ reachable: false }), prof, { notifications: 4, call: { state: "ringing" } }).any, false)
+})
+
+test("the pill: a chip per device that shows, in order, each with its own icon and bubble", () => {
+  const s = M.readSettings({ deviceOrder: ["p1", "t1"], barIndicators: ["bubble"], devices: { t1: { nickname: "Tab" } } })
+  const snapshot = snap(phone(), tablet())
+  let r = M.chips(snapshot, s, {})
+  assert.deepEqual(r.chips.map(c => c.id), ["p1"], "the first: always; the tablet: only with attention")
+  assert.equal(r.resting, null)
+  r = M.chips(snapshot, s, { t1: { notifications: 2 } })
+  assert.deepEqual(r.chips.map(c => [c.id, c.bubble]), [["p1", 0], ["t1", 2]], "a count stays on its own device")
+  assert.equal(r.chips[1].text.startsWith(String.fromCodePoint(0xF04F6)), true, "the tablet's own icon")
+  const custom = M.readSettings({ deviceOrder: ["p1", "t1"], devices: { t1: { icon: "F0322" } } })
+  assert.equal(M.chips(snapshot, custom, { t1: { notifications: 1 } }).chips[1].glyph, String.fromCodePoint(0xF0322))
+})
+
+test("the pill never disappears", () => {
+  const never = M.readSettings({ deviceOrder: ["p1"], devices: { p1: { bar: "never" } } })
+  const one = snap(phone())
+  let r = M.chips(one, never, {})
+  assert.deepEqual(r.chips, [])
+  assert.deepEqual(r.resting, { glyph: M.GLYPH.phone, dimmed: true, ringing: false }, "the first device's icon, dimmed")
+  r = M.chips(snap(), M.readSettings({}), {})
+  assert.deepEqual(r.resting, { glyph: M.GLYPH.devices, dimmed: false, ringing: false }, "nothing paired: the generic glyph")
+  r = M.chips({ daemon: false, devices: [] }, M.readSettings({}), {})
+  assert.equal(r.resting.dimmed, true, "KDE Connect stopped: dimmed")
+  const attn = M.readSettings({ devices: { p1: { bar: "attention" } } })
+  r = M.chips(snap(phone({ reachable: false })), attn, { p1: { notifications: 3 } })
+  assert.deepEqual([r.chips.length, r.resting.dimmed], [0, true], "an away device with attention settings: resting, not news")
+  assert.equal(M.chips(snap(phone({ reachable: false })), M.readSettings({}), {}).chips[0].dimmed, true, "always: dimmed while away")
+})
+
+test("a ringing device always shows, whatever its choice; pairing marks the pill", () => {
+  const s = M.readSettings({ deviceOrder: ["p1", "t1"], devices: { t1: { bar: "never" } } })
+  const r = M.chips(snap(phone(), tablet()), s, { t1: { call: { state: "ringing" } } }, true)
+  assert.deepEqual(r.chips.map(c => [c.id, c.ringing]), [["p1", false], ["t1", true]])
+  assert.equal(r.pairing, true)
+  assert.equal(M.chips(snap(phone(), tablet()), s, { t1: { call: { state: "missed" } } }).chips.length, 1, "a missed call does not override Never")
+})
+
+test("the panel opens on the ringing device, else the first connected one shown in the panel", () => {
+  const s = M.readSettings({ deviceOrder: ["p1", "t1", "w1"], devices: { t1: { showInPanel: false } } })
+  const w = device({ id: "w1", name: "Work" })
+  assert.equal(M.openingDevice(snap(phone({ reachable: false }), tablet(), w), s, {}).id, "w1", "the away first and the hidden tablet are skipped")
+  assert.equal(M.openingDevice(snap(phone(), tablet(), w), s, {}).id, "p1")
+  assert.equal(M.openingDevice(snap(phone(), tablet(), w), s, { t1: { call: { state: "ringing" } } }).id, "t1", "a call wins, even hidden")
+  assert.equal(M.openingDevice(snap(phone({ reachable: false })), M.readSettings({}), {}).id, "p1", "none connected: the first")
+  assert.equal(M.openingDevice(snap(), M.readSettings({}), {}), null)
+})
+
+test("writing a profile: only what changed, the first device's always written down, the rest untouched", () => {
+  const entry = { id: "sceny.devices", shortcuts: ["ring"], deviceId: "p1" }
+  const e = M.withProfile(entry, "p1", { nickname: "S23" }, true)
+  assert.deepEqual(e.devices, { p1: { bar: "always", nickname: "S23" } })
+  assert.equal(e.deviceId, "p1", "kept for a downgrade")
+  assert.deepEqual(entry, { id: "sceny.devices", shortcuts: ["ring"], deviceId: "p1" }, "the entry given is not changed")
+  const back = M.withProfile(e, "p1", { nickname: null }, true)
+  assert.deepEqual(back.devices.p1, { bar: "always" }, "null goes back to the default")
+  assert.deepEqual(M.withProfile({}, "t1", { bar: "never" }, false).devices, { t1: { bar: "never" } })
+  assert.deepEqual(M.withOrder(e, ["t1", "p1"]).deviceOrder, ["t1", "p1"])
+  // Reordering after the first change keeps the old first device "always".
+  const reordered = M.readSettings(M.withOrder(e, ["t1", "p1"]))
+  assert.equal(M.resolveProfile(reordered, phone(), false).bar, "always")
+})

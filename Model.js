@@ -379,7 +379,8 @@ function normalizeBarIndicators(value) {
 // shown.
 function barText(device, indicators, state) {
   var st = state || {}
-  var text = deviceGlyph(device)
+  // `glyph`: the device's own icon when its user picked one (deviceIcon).
+  var text = st.glyph || deviceGlyph(device)
   var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
@@ -938,4 +939,211 @@ function demoConversation(nowMs, picture) {
     m(6, 8 * min, "I'll grab the folding ones from the car", true),
     m(7, 4 * min, "Perfect, see you at six! Bring the board game 🎲")
   ]
+}
+
+// ---- Many devices: profiles, order, attention, the pill's chips ----
+// (docs/design/multi-device.md). A device's profile is how the plugin shows
+// it; nothing about the device itself is stored.
+//
+// Storage, in this widget's shell.json entry: today's flat keys are the
+// defaults every device uses; `devices` maps a device id to what that device
+// changed, plus its identity; `deviceOrder` orders them. Nothing is written
+// on upgrade: old entries are read as they are (readSettings), and the new
+// keys appear only when the user changes something.
+
+// Settings a device can change away from the defaults, and how each is
+// cleaned. A device's change of a list is merged like the defaults are, so a
+// section or shortcut added in a later release still reaches it.
+var PROFILE_SETTINGS = {
+  barIndicators: function(v) { return normalizeBarIndicators(v) },
+  batteryLowOnly: function(v) { return layoutFlag(v) },
+  sectionOrder: function(v) { return normalizeSections(v) },
+  shortcuts: function(v) { return normalizeShortcuts(v) },
+  showShortcuts: function(v) { return layoutFlag(v) },
+  showMedia: function(v) { return layoutFlag(v) },
+  showNotifications: function(v) { return layoutFlag(v) },
+  showCalls: function(v) { return layoutFlag(v) },
+  collapsed: function(v) { return collapsedState(v) }
+}
+
+// Identity: the device's own, never taken from the defaults.
+// bar: "always" | "attention" | "never" | "own" (own pills come later;
+// until then an own pill shows as "always").
+var BAR_PLACES = ["always", "attention", "never", "own"]
+
+function plainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v) }
+
+// The widget's entry as the rest of the plugin reads it: { defaults,
+// devices, order, raw }. `defaults` holds every profile setting, cleaned;
+// `devices` maps an id to its stored profile (identity and changes);
+// `order` is the stored order, else the old `deviceId` alone.
+function readSettings(entry) {
+  var e = plainObject(entry) ? entry : {}
+  var defaults = {}
+  for (var key in PROFILE_SETTINGS) defaults[key] = PROFILE_SETTINGS[key](e[key])
+  var devices = plainObject(e.devices) ? e.devices : {}
+  var order = []
+  if (Array.isArray(e.deviceOrder)) {
+    for (var i = 0; i < e.deviceOrder.length; i++) {
+      var id = String(e.deviceOrder[i] || "")
+      if (id && order.indexOf(id) < 0) order.push(id)
+    }
+  } else if (e.deviceId) {
+    order.push(String(e.deviceId))
+  }
+  return { defaults: defaults, devices: devices, order: order, raw: e }
+}
+
+// Paired devices in the user's order: the stored order first (those still
+// paired), then the rest as KDE Connect lists them, the reachable ones
+// before the away ones. The first is where the panel opens when it is
+// connected, and the one that shows "always" by default.
+function orderedDevices(snapshot, settings) {
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  var paired = list.filter(function(d) { return d && d.paired === true })
+  var byId = {}
+  paired.forEach(function(d) { byId[d.id] = d })
+  var out = []
+  settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
+  var rest = paired.filter(function(d) { return byId[d.id] })
+  rest.sort(function(a, b) { return (b.reachable === true) - (a.reachable === true) })
+  return out.concat(rest)
+}
+
+// One device's effective profile: identity from its own stored profile
+// (with defaults of its own: the first device shows always, the others with
+// attention), every other setting its change or the default. `custom` says
+// which settings the device changed.
+function resolveProfile(settings, device, isFirst) {
+  var stored = device && plainObject(settings.devices[device.id]) ? settings.devices[device.id] : {}
+  var bar = BAR_PLACES.indexOf(String(stored.bar)) >= 0 ? String(stored.bar) : (isFirst ? "always" : "attention")
+  var p = {
+    id: device ? String(device.id) : "",
+    nickname: String(stored.nickname || "").replace(/\s+/g, " ").trim(),
+    icon: /^[0-9A-Fa-f]{4,6}$/.test(String(stored.icon || "")) ? String(stored.icon).toUpperCase() : "",
+    bar: bar,
+    showInPanel: stored.showInPanel !== false,
+    custom: {}
+  }
+  for (var key in PROFILE_SETTINGS) {
+    if (stored[key] !== undefined && stored[key] !== null) {
+      p[key] = PROFILE_SETTINGS[key](stored[key])
+      p.custom[key] = true
+    } else {
+      p[key] = settings.defaults[key]
+    }
+  }
+  return p
+}
+
+// The name to show: the nickname, else the name KDE Connect reports.
+function deviceTitle(device, profile) {
+  return profile && profile.nickname ? profile.nickname : deviceLabel(device)
+}
+
+// The icon to show: the one picked, else the one for the device's kind.
+function deviceIcon(device, profile) {
+  if (profile && profile.icon) return String.fromCodePoint(parseInt(profile.icon, 16))
+  return deviceGlyph(device)
+}
+
+// What a device wants the user to see (the attention table). `st` is what
+// the snapshot does not carry: { notifications, messages, call: { state },
+// lowPercent }. Away is not attention; nothing from an away device is.
+function attention(device, profile, st) {
+  var s = st || {}
+  var here = !!device && device.reachable === true
+  var countsMessages = !!profile && (profile.barIndicators || []).indexOf("messages") >= 0
+  var a = {
+    notifications: here ? Math.max(0, s.notifications || 0) : 0,
+    messages: here && countsMessages ? Math.max(0, s.messages || 0) : 0,
+    ringing: here && !!s.call && s.call.state === "ringing",
+    missed: here && !!s.call && s.call.state === "missed",
+    lowBattery: here && lowBattery(device, s.lowPercent === undefined ? 15 : s.lowPercent)
+  }
+  a.any = a.notifications > 0 || a.messages > 0 || a.ringing || a.missed || a.lowBattery
+  return a
+}
+
+// The pill: one chip per device that shows, in order, and a resting glyph
+// when none does, so the pill never disappears (principle 4).
+//
+// `states` maps a device id to its attention inputs (see `attention`) plus
+// `playing`. A ringing device always gets a chip while it rings, whatever
+// its choice: a call is the one thing that overrides it. `pairing`: a device
+// is asking to pair (shown as a mark on the first chip or the resting glyph).
+//
+// Returns { chips: [{ id, glyph, text, bubble, dimmed, ringing, marks }],
+//           resting: null | { glyph, dimmed, ringing }, pairing }.
+function chips(snapshot, settings, states, pairing) {
+  var daemon = !!(snapshot && snapshot.daemon)
+  var devices = orderedDevices(snapshot, settings)
+  var out = []
+  for (var i = 0; i < devices.length; i++) {
+    var d = devices[i]
+    var p = resolveProfile(settings, d, i === 0)
+    var st = (states && states[d.id]) || {}
+    var a = attention(d, p, st)
+    var place = p.bar === "own" ? "always" : p.bar
+    var shows = a.ringing || place === "always" || (place === "attention" && a.any)
+    if (!shows) continue
+    var glyph = deviceIcon(d, p)
+    out.push({
+      id: String(d.id),
+      glyph: glyph,
+      // The chip's text: its icon and its indicators, as today's pill.
+      text: barText(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing }),
+      bubble: barBubble(d, p.barIndicators, a.notifications),
+      dimmed: d.reachable !== true,
+      ringing: a.ringing,
+      marks: { missed: a.missed, lowBattery: a.lowBattery }
+    })
+  }
+  var resting = null
+  if (out.length === 0) {
+    if (!daemon || devices.length === 0) resting = { glyph: GLYPH.devices, dimmed: !daemon, ringing: false }
+    else resting = { glyph: deviceIcon(devices[0], resolveProfile(settings, devices[0], true)), dimmed: true, ringing: false }
+  }
+  return { chips: out, resting: resting, pairing: !!pairing }
+}
+
+// The device the panel opens on: the ringing one, else the first connected
+// one shown in the panel, else the first shown in the panel. `states` as
+// for chips. Returns the device, or null when nothing is paired.
+function openingDevice(snapshot, settings, states) {
+  var devices = orderedDevices(snapshot, settings)
+  var shown = devices.filter(function(d, i) { return resolveProfile(settings, d, i === 0).showInPanel })
+  for (var i = 0; i < devices.length; i++) {
+    var st = (states && states[devices[i].id]) || {}
+    if (devices[i].reachable === true && st.call && st.call.state === "ringing") return devices[i]
+  }
+  for (var j = 0; j < shown.length; j++) if (shown[j].reachable === true) return shown[j]
+  return shown.length > 0 ? shown[0] : (devices.length > 0 ? devices[0] : null)
+}
+
+// The entry with one device's profile changed: `changes` merges into its
+// stored profile (null removes a key: back to the default). The first
+// device's "always" is written down on its first change, so that reordering
+// later never changes how it shows. Other keys of the entry are untouched.
+function withProfile(entry, deviceId, changes, isFirst) {
+  var e = Object.assign({}, plainObject(entry) ? entry : {})
+  var devices = Object.assign({}, plainObject(e.devices) ? e.devices : {})
+  var p = Object.assign({}, plainObject(devices[deviceId]) ? devices[deviceId] : {})
+  if (isFirst && p.bar === undefined) p.bar = "always"
+  for (var key in changes) {
+    if (changes[key] === null || changes[key] === undefined) delete p[key]
+    else p[key] = changes[key]
+  }
+  devices[deviceId] = p
+  e.devices = devices
+  return e
+}
+
+// The entry with a new device order (ids). The old `deviceId` stays as it
+// was, for a downgrade.
+function withOrder(entry, ids) {
+  var e = Object.assign({}, plainObject(entry) ? entry : {})
+  e.deviceOrder = ids.map(String)
+  return e
 }
