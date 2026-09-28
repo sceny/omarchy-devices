@@ -491,10 +491,24 @@ function networkText(device) {
 var RING_MS = 45000
 var MISSED_MS = 30 * 60000
 
-// A ringing phone's beat, on the plugin's pace: a burst of `steps` shakes of
-// MOTION.outMs each, then a rest, like a ringtone's rings. The card's phone
-// shakes through the burst and the pill lights up for it.
-var RING_BEAT = { angle: 14, steps: 6, stepMs: MOTION.outMs, restMs: 900 }
+// A ringing phone's beat, on the plugin's pace, like a ringtone: two rings,
+// a short gap between them, then a rest. In one ring the three sound waves
+// light from the inside out, one every MOTION.outMs, then fade together over
+// MOTION.inMs, while the handset rocks. The pill glows for each ring
+// (ringPhases), so the bar and the card ring together.
+var RING_BEAT = { angle: 10, waveMs: MOTION.outMs, fadeMs: MOTION.inMs, rings: 2, gapMs: 160, restMs: 1000, restWave: 0.3 }
+
+function ringMs() { return 3 * RING_BEAT.waveMs + RING_BEAT.fadeMs }
+
+// The beat as lit and dark spans, for the pill: [{ lit, ms }], looping.
+function ringPhases() {
+  var out = []
+  for (var i = 0; i < RING_BEAT.rings; i++) {
+    out.push({ lit: true, ms: ringMs() })
+    out.push({ lit: false, ms: i < RING_BEAT.rings - 1 ? RING_BEAT.gapMs : RING_BEAT.restMs })
+  }
+  return out
+}
 
 function callState(device, nowMs, closedAt) {
   var c = device && device.reachable === true ? device.call : null

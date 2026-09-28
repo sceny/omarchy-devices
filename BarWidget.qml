@@ -80,9 +80,12 @@ BarWidget {
       messages: root.unreadMessages, playing: !!root.phone && root.phone.nowPlaying !== "", call: root.call })
     horizontalMargin: 8.75
     dimmed: !root.reachable
-    // A ringing phone lights the pill up in bursts, in step with the card's
-    // shaking phone (Service.ringLit); a low battery lights it steadily.
-    active: Model.lowBattery(root.device, root.lowPercent) || (!!root.phone && root.phone.ringLit)
+    // A ringing phone makes the pill glow ring, ring, rest, in the accent
+    // colour of the card's phone (Service.ringLit); a low battery lights it
+    // steadily, urgent.
+    readonly property bool ringLit: !!root.phone && root.phone.ringLit
+    active: Model.lowBattery(root.device, root.lowPercent) || ringLit
+    activeColor: ringLit ? Color.accent : (root.bar ? root.bar.urgent : Color.urgent)
     tooltipText: root.opened ? "" : Model.tooltip(root.phone ? root.phone.snapshot : null, root.device, root.phone ? root.phone.nowPlaying : "", root.unreadMessages, root.call)
 
     onPressed: function(b) {

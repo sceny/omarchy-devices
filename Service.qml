@@ -144,16 +144,18 @@ Item {
 
   function closeCall() { if (call) callClosedAt = call.at }
 
-  // On while the ring beat's burst is on (Model.RING_BEAT): the pill lights
-  // up in step with the card's shaking phone, and rests between.
+  // On for each ring of the beat (Model.ringPhases): the pill glows ring,
+  // ring, rest, in step with the card's waves.
   readonly property bool ringing: !!call && call.state === "ringing"
-  property bool ringLit: false
+  readonly property var ringPhases: Model.ringPhases()
+  property int ringPhase: 0
+  readonly property bool ringLit: ringing && ringPhases[ringPhase].lit
   Timer {
     running: root.ringing
     repeat: true
-    interval: root.ringLit ? Model.RING_BEAT.steps * Model.RING_BEAT.stepMs : Model.RING_BEAT.restMs
-    onRunningChanged: root.ringLit = running
-    onTriggered: root.ringLit = !root.ringLit
+    interval: root.ringPhases[root.ringPhase].ms
+    onRunningChanged: root.ringPhase = 0
+    onTriggered: root.ringPhase = (root.ringPhase + 1) % root.ringPhases.length
   }
 
   // The phone's dialer on the number (a tel: link through KDE Connect's

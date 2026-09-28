@@ -133,7 +133,10 @@ test("calls: ringing for RING_MS at most, missed until closed or MISSED_MS", () 
   assert.equal(M.callExpiresIn(c, at + 1000), M.RING_MS - 1000)
   assert.equal(M.callExpiresIn(null, at), -1)
   assert.equal(M.callHeading(c), "INCOMING CALL")
-  assert.equal(M.RING_BEAT.stepMs, M.MOTION.outMs, "the ring shakes on the plugin's pace")
+  assert.equal(M.RING_BEAT.waveMs, M.MOTION.outMs, "the waves light on the plugin's pace")
+  assert.equal(M.ringMs(), 3 * M.MOTION.outMs + M.MOTION.inMs)
+  assert.deepEqual(M.ringPhases().map(p => [p.lit, p.ms]),
+    [[true, M.ringMs()], [false, M.RING_BEAT.gapMs], [true, M.ringMs()], [false, M.RING_BEAT.restMs]])
   assert.match(M.callHeading(m), /^MISSED CALL · \d\d:\d\d$/)
 })
 

@@ -1136,32 +1136,24 @@ Panel {
           anchors.rightMargin: Style.space(8)
           spacing: Style.space(10)
 
+          // Ringing: the handset and its waves, moving on the ring beat.
+          RingingPhone {
+            visible: callCard.ringing
+            ringing: callCard.ringing && callCard.showing && root.opened
+            color: Color.accent
+            fontFamily: root.fontFamily
+            size: Style.font.display
+            motion: root.motion
+            Layout.alignment: Qt.AlignVCenter
+          }
           Text {
-            id: callGlyph
+            visible: !callCard.ringing
             textFormat: Text.PlainText
-            text: callCard.ringing ? Model.GLYPH.callRing : Model.GLYPH.callMissed
-            color: callCard.ringing ? Color.accent : root.urgent
+            text: Model.GLYPH.callMissed
+            color: root.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.display
             Layout.alignment: Qt.AlignVCenter
-            transformOrigin: Item.Center
-
-            // The phone shakes while it rings: a burst, then a rest
-            // (Model.RING_BEAT), and settles upright when it stops.
-            readonly property real swing: Model.RING_BEAT.angle
-            readonly property real step: Model.RING_BEAT.stepMs * root.motion
-            SequentialAnimation {
-              running: callCard.ringing && callCard.showing && root.opened
-              loops: Animation.Infinite
-              onRunningChanged: if (!running) callGlyph.rotation = 0
-              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              NumberAnimation { target: callGlyph; property: "rotation"; to: callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              NumberAnimation { target: callGlyph; property: "rotation"; to: callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing / 2; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              NumberAnimation { target: callGlyph; property: "rotation"; to: 0; duration: callGlyph.step; easing.type: Easing.OutCubic }
-              PauseAnimation { duration: Model.RING_BEAT.restMs * root.motion }
-            }
           }
 
           Column {
