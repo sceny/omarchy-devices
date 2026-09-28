@@ -350,8 +350,18 @@ Panel {
   // of its tab.
   property string pendingDevice: ""
   property int deviceDirection: 1
-  function switchDevice(id) {
+  // On the Messages page a tab switches whose texts are read: a device
+  // without text messages is not one to switch to there (its tab is dimmed
+  // and says so). `leaveMessages` (a chip in the bar: "show me this
+  // device") goes to its main page instead.
+  function hasTexts(d) { return !!d && !!d.can && d.can.sms === true }
+  function switchDevice(id, leaveMessages) {
     if (!phone || !id || (device && String(device.id) === String(id))) return
+    var target = phone.findDevice(id)
+    if (messagesOpen && target && !hasTexts(target)) {
+      if (leaveMessages === true) closeMessagesView()
+      else { phone.report(Model.deviceLabel(target) + " has no text messages", false); return }
+    }
     var from = -1, to = -1
     for (var i = 0; i < tabDevices.length; i++) {
       if (device && tabDevices[i].id === device.id) from = i
@@ -1323,12 +1333,16 @@ Panel {
                     + (news.lowBattery ? " " + String.fromCodePoint(0xF0083) : "")
                   selected: current
                   bordered: true
-                  opacity: modelData.reachable === true ? 1 : 0.5
+                  // Dimmed while away, and on the Messages page for a device
+                  // without text messages (switchDevice says why).
+                  readonly property bool textless: root.showMessages && !root.hasTexts(modelData)
+                  opacity: modelData.reachable === true && !textless ? 1 : 0.5
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
-                  tooltipText: Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
+                  tooltipText: textless ? Model.deviceLabel(modelData) + " has no text messages"
+                    : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
                 }

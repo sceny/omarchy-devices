@@ -58,7 +58,7 @@ BarWidget {
     } else if (id === "" || !phone || !phone.device || String(phone.device.id) === String(id)) {
       panel.close()
     } else if (panel.switchDevice) {
-      panel.switchDevice(id)
+      panel.switchDevice(id, true)
     }
   }
 
