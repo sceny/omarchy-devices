@@ -1111,8 +1111,9 @@ Panel {
         z: 11
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.top: parent.top
-        anchors.topMargin: Style.space(8) + (showing ? 0 : -Style.space(10))
-        width: parent.width - Style.space(16)
+        // Over the header, which it stands in for while it shows.
+        anchors.topMargin: showing ? 0 : -Style.space(10)
+        width: parent.width
         height: callRow.implicitHeight + Style.space(20)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background

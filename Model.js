@@ -48,8 +48,8 @@ var GLYPH = {
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
   volumeOff: "\u{F0581}",    // volume-off
-  callRing: "\u{F0F32}",     // phone-ring
-  callMissed: "\u{F03F9}",   // phone-missed
+  callRing: "\u{F03F6}",     // phone-in-talk: a phone with waves (checked by rendering)
+  callMissed: "\u{F03FA}",   // phone-missed
   callBack: "\u{F03F2}",     // phone
   callText: "\u{F0369}"      // message-text
 }
