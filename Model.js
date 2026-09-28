@@ -1,7 +1,7 @@
 .pragma library
 
 // Pure functions from a kdeconnect-bridge snapshot to what the bar and panel draw.
-// No QML here, so `node` can check them (see README).
+// No QML here, so `node` can check them (see docs/internals/development.md).
 
 var GLYPH = {
   phone: "\u{F011C}",        // cellphone
