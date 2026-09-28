@@ -68,14 +68,49 @@ Item {
 
   function setToText(t) { toField.text = t; refreshSuggestions() }
 
+  // Text back from a call: the caller's conversation when there is one, else
+  // a new message with the caller already picked. While the reader is still
+  // getting its conversations, the caller waits as the recipient and moves
+  // into their conversation if it arrives.
+  property string waitingCaller: ""
+  function textTo(number, who, typeHere) {
+    if (!sms) return
+    sms.start()
+    var tid = sms.threadForAddress(number)
+    if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); return }
+    startNew(false)
+    recipients = [{ title: who || Model.formatNumber(number), number: number }]
+    refreshSuggestions()
+    waitingCaller = sms.ready ? "" : number
+    if (typeHere) Qt.callLater(function() { composer.forceActiveFocus() })
+  }
+  Connections {
+    target: view.sms
+    function onModelRevisionChanged() {
+      if (view.waitingCaller === "") return
+      if (!view.newMode || view.recipients.length !== 1 || view.recipients[0].number !== view.waitingCaller) { view.waitingCaller = ""; return }
+      var tid = view.sms.threadForAddress(view.waitingCaller)
+      if (tid < 0) { if (view.sms.ready) view.waitingCaller = ""; return }
+      var draft = composer.text
+      var typing = composer.activeFocus
+      view.cancelNew()
+      view.openThread(tid, typing)
+      composer.text = draft
+    }
+  }
+
   function cancelNew() {
     newMode = false
     sendingNew = false
     recipients = []
+    waitingCaller = ""
   }
 
+  // With someone picked and nothing typed, no list: it finds the next
+  // person, it is not a list to browse.
   function refreshSuggestions() {
-    suggestions = sms ? sms.candidates(toField.text, 8) : []
+    var typed = toField.text.trim()
+    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
     suggestionCursor = 0
   }
 
@@ -108,6 +143,7 @@ Item {
     var next = recipients.slice()
     next.splice(i, 1)
     recipients = next
+    refreshSuggestions()
   }
   readonly property var openRow: {
     var rev = sms ? sms.modelRevision : 0
@@ -564,7 +600,11 @@ Item {
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               onEntered: view.suggestionCursor = suggestion.index
-              onClicked: view.addRecipient(suggestion.modelData)
+              // The user's own click: on to writing the message.
+              onClicked: {
+                view.addRecipient(suggestion.modelData)
+                if (view.newMode) composer.forceActiveFocus()
+              }
             }
             Column {
               id: suggestionText

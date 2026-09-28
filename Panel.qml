@@ -385,15 +385,9 @@ Panel {
     if (!c || !phone) return
     phone.closeCall()
     if (device && String(device.id) !== c.device) phone.view(c.device)
-    var tid = c.number !== "" ? threadForNotification({ app: "Messages", title: c.number }) : -1
-    if (tid < 0 && c.who !== "") tid = threadForNotification({ app: "Messages", title: c.who })
-    if (tid >= 0) { openMessagesView(tid, typeHere === true); return }
-    openMessagesView(-1)
-    Qt.callLater(function() {
-      if (!messagesView) return
-      messagesView.startNew(typeHere === true)
-      messagesView.setToText(c.number)
-    })
+    // Not the conversation left open: opening it would mark it seen.
+    openMessagesView(-1, false, true)
+    Qt.callLater(function() { if (messagesView) messagesView.textTo(c.number, c.who, typeHere === true) })
   }
   function callBack(c) {
     if (!c || !phone) return
@@ -743,7 +737,8 @@ Panel {
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
 
-  function openMessagesView(threadId, typeHere) {
+  // `fresh`: not back to the conversation left open (the caller picks one).
+  function openMessagesView(threadId, typeHere, fresh) {
     // A tablet without a SIM (or a computer) has no text messages.
     if (device && can.sms !== true) {
       if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false)
@@ -761,7 +756,7 @@ Panel {
       if (threadId !== undefined && threadId >= 0) sms.openThread(threadId)
       // Demo conversations are made up: the real last conversation is not
       // among them.
-      else if (device && !(phone && phone.demo) && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
+      else if (fresh !== true && device && !(phone && phone.demo) && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
         // Back to the conversation left open; the composer stays unfocused.
         var last = lastThreads[device.id]
         Qt.callLater(function() { if (messagesView) messagesView.openThread(last, false) })
@@ -1350,6 +1345,7 @@ Panel {
       onCloseRequested: {
         if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.stopEditing()
+        else if (root.messagesOpen && messagesView.newMode) messagesView.cancelNew()
         else if (root.messagesOpen) root.closeMessagesView()
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
