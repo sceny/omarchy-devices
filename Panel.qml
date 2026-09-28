@@ -242,7 +242,7 @@ Panel {
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
-  readonly property var editing: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
   readonly property var settingsRows: Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -2312,15 +2312,15 @@ Panel {
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 // The groups show what the page edits: a device's own
                 // profile on its page, else the defaults.
-                shortcutsShown: root.editing.showShortcuts
+                shortcutsShown: root.editedProfile.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.editing.showShortcuts, showMedia: root.editing.showMedia, showNotifications: root.editing.showNotifications })
-                order: root.editing.shortcuts
-                sectionOrder: root.editing.sectionOrder
-                barIndicators: root.editing.barIndicators
-                batteryLowOnly: root.editing.batteryLowOnly
+                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications })
+                order: root.editedProfile.shortcuts
+                sectionOrder: root.editedProfile.sectionOrder
+                barIndicators: root.editedProfile.barIndicators
+                batteryLowOnly: root.editedProfile.batteryLowOnly
                 scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
-                custom: root.editingDevice ? root.editing.custom : ({})
+                custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
