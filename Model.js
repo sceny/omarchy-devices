@@ -1245,10 +1245,10 @@ function settingsPageRows(ctx) {
   }
   var identity = ctx.identity && (scope === "device" || (scope === "root" && ctx.single))
   if (identity) {
-    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "Its name in the bar and the tabs; short names keep them narrow", value: ctx.identity.nickname })
+    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
     rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
     if (scope === "device") {
-      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Always, only with news (notifications, messages, a call, low battery), or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
+      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
       rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
     }
   }

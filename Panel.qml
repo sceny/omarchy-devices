@@ -1045,6 +1045,11 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
+    // Checks: a settings row pressed as a click would; a nickname entered as
+    // Enter in its field would; an icon picked (hex, "" for its kind).
+    function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
+    function nickname(text: string): string { settingsView.nicknameSet(text); return root.settingsInfo() }
+    function pickIcon(code: string): string { settingsView.iconSet(code); return root.settingsInfo() }
     function tabs(): string {
       var list = root.phone ? root.phone.ordered : []
       return JSON.stringify({ shown: root.manyDevices, viewed: root.device ? root.device.id : "",
@@ -1571,8 +1576,8 @@ Panel {
               var nick = root.heroProfile.nickname
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
-            meta: root.showSettings ? (root.editingDevice ? "Settings · " + Model.deviceTitle(root.scopeDevice, root.scopeProfile)
-                                                      : (root.settingsScope === "defaults" ? "Settings · Defaults for all devices" : "Settings"))
+            // On a device's page the title already names it.
+            meta: root.showSettings ? (root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
