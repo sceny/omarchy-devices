@@ -7,9 +7,9 @@
 Press `s` or the cog.
 
 - **This device:** its nickname and icon, used in the bar and the tabs.
-- **With several devices:** a list of them. Move one with the arrows or
-  Shift+K / Shift+J (the first opens with the panel and always shows in
-  the bar). Open one to set its nickname, icon, whether it shows in the
+- **With several devices:** a list of them. Drag one by its grip, or use
+  the arrows or Shift+K / Shift+J (the first opens with the panel and
+  always shows in the bar); dragging a tab in the panel moves it too. Open one to set its nickname, icon, whether it shows in the
   bar (always, only with news, never), whether it has a tab, and its own
   layout, bar and shortcuts; *Defaults for all devices* sets them for the
   rest. Devices asking to pair or in reach show there too.

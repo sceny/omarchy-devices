@@ -412,8 +412,10 @@ A device's row opens its page:
    Unpair
 ```
 
-- **Order:** Shift+K / Shift+J on a device row moves it (no arrows: the
-  arrow keys always move the cursor). The order is the tabs' and the chips'.
+- **Order:** drag a device row by its grip, or Shift+K / Shift+J on it (no
+  arrow keys: they always move the cursor). Dragging a tab sideways moves
+  it too. The order is the tabs' and the chips'. Every other order in
+  Settings (sections, bar indicators, shortcuts) drags the same way.
 - **Identity is never inherited:** nickname, icon, *In the bar* and *Show in
   panel* belong to the device only; the rest may be *Custom* or default.
 - **Custom** marks a changed setting; ↺ on it goes back to the default.
