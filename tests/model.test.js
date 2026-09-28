@@ -489,7 +489,8 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
   assert.deepEqual(kinds.slice(0, 2), ["nickname", "icon"])
-  assert.ok(kinds.includes("layout") && kinds.includes("shortcut") && kinds.includes("reset") && kinds.includes("kdeconnect"))
+  assert.ok(kinds.includes("editPage") && kinds.includes("bar") && kinds.includes("kdeconnect"))
+  assert.ok(!kinds.includes("layout") && !kinds.includes("shortcut") && !kinds.includes("reset"), "sections and shortcuts are edited on the page")
   assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
   assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
   const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A 3506" }), device({ id: "a", name: "Near", paired: false }))
@@ -506,6 +507,7 @@ test("settings rows: a device's page has identity, its groups, a reset per chang
   const rows = M.settingsPageRows({ scope: "device", single: false, identity: { nickname: "", icon: "", glyph: "x", bar: edit.bar, showInPanel: true }, edit, can: tablet().can })
   const kinds = rows.map(r => r.kind)
   assert.deepEqual(kinds.slice(0, 4), ["nickname", "icon", "barPlace", "showInPanel"])
+  assert.ok(kinds.includes("editPage") && !kinds.includes("layout") && !kinds.includes("shortcut"))
   assert.equal(rows.find(r => r.kind === "barPlace").value, "never")
   assert.deepEqual(rows.filter(r => r.kind === "resetGroup").map(r => r.key), ["shortcuts"])
   assert.equal(kinds[kinds.length - 1], "unpair")
@@ -579,4 +581,20 @@ test("the pill in parts: only a low battery is urgent; a ticked indicator goes t
   assert.deepEqual(M.toggleBarIndicator([], "playing"), ["playing"])
   const chip = M.chips(snap(low), M.readSettings({ barIndicators: ["battery", "percent"], batteryLowOnly: false }), {}).chips[0]
   assert.deepEqual(chip.parts.map(p => p.urgent), [false, true])
+})
+
+test("editing in place: the grid moves, and every shortcut shows", () => {
+  // Four tiles in two columns: the first to the last place, the others step back.
+  assert.deepEqual([0, 1, 2, 3].map(i => M.reorderSlot(i, 0, 3)), [3, 0, 1, 2])
+  assert.deepEqual([0, 1, 2, 3].map(i => M.reorderSlot(i, 3, 1)), [0, 2, 3, 1])
+  assert.deepEqual([0, 1, 2].map(i => M.reorderSlot(i, -1, -1)), [0, 1, 2])
+  assert.deepEqual(M.gridSlot(5, 4, 90, 70, 8), { x: 98, y: 78 })
+  assert.equal(M.gridTarget(0, 0, 0, 5, 4, 90, 70, 8), 0)
+  assert.equal(M.gridTarget(0, 100, 0, 5, 4, 90, 70, 8), 1, "one cell right")
+  assert.equal(M.gridTarget(0, 0, 80, 5, 4, 90, 70, 8), 4, "one row down")
+  assert.equal(M.gridTarget(0, -100, 500, 5, 4, 90, 70, 8), 4, "far below: the last slot, never past it")
+  const tiles = M.editShortcutTiles(["ring", "share"], { ring: true, share: true })
+  assert.deepEqual(tiles.slice(0, 2).map(t => [t.key, t.chosen, t.pos]), [["ring", true, 0], ["share", true, 1]])
+  assert.equal(tiles.length, M.SHORTCUTS.length, "every shortcut, the rest to add")
+  assert.ok(tiles.slice(2).every(t => !t.chosen && t.pos === -1))
 })

@@ -48,7 +48,10 @@ var GLYPH = {
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
   volumeOff: "\u{F0581}",    // volume-off
-  grip: "\u{F01DD}"          // drag-vertical: drag a row to move it
+  grip: "\u{F01DD}",         // drag-vertical: drag a row to move it
+  edit: "\u{F03EB}",         // pencil: edit the page in place
+  add: "\u{F0419}",          // plus-circle-outline: add a shortcut while editing
+  remove: "\u{F0376}"        // minus-circle: take one away while editing
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -1245,11 +1248,18 @@ function settingsPageRows(ctx) {
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
     var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly)
+    // A device's page (and the one-device page) edits its sections and
+    // shortcuts on the page itself (edit in place): here, a row that opens
+    // that. The defaults, with no page of their own, keep them here.
+    var onPage = scope === "device" || (scope === "root" && ctx.single)
+    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections and shortcuts",
+                            hint: "Edit them on the page: open, hide and drag them where they are" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.
       if (r.kind === "layout" && r.section === "devices") return
       if (r.kind === "kdeconnect" || r.kind === "reset") return
+      if (onPage && (r.kind === "layout" || r.kind === "shortcut")) return
       rows.push(r)
     })
     if (scope === "device") {
@@ -1259,7 +1269,7 @@ function settingsPageRows(ctx) {
                       hint: "This device changed it; the defaults apply again" })
       })
       rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
-    } else {
+    } else if (!onPage) {
       rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
     }
   }
@@ -1330,4 +1340,56 @@ function reorderShift(i, from, to, step) {
   if (to > from && i > from && i <= to) return -step
   if (to < from && i < from && i >= to) return step
   return 0
+}
+
+// ---- Moving an item in a grid (the shortcut tiles while editing) ----
+
+// Where item `i` sits while the one at `from` would land at `to`: the
+// items between them step one place towards `from`.
+function reorderSlot(i, from, to) {
+  if (from < 0 || to < 0 || i === from) return i === from ? to : i
+  if (to > from && i > from && i <= to) return i - 1
+  if (to < from && i < from && i >= to) return i + 1
+  return i
+}
+
+// A grid slot's top left, for `columns` cells of `cw` by `ch`, `gap` apart.
+function gridSlot(k, columns, cw, ch, gap) {
+  var c = Math.max(1, columns)
+  return { x: (k % c) * (cw + gap), y: Math.floor(k / c) * (ch + gap) }
+}
+
+// The slot nearest to where a dragged item's middle is (it started in slot
+// `from` and moved by dx, dy), among `count` slots.
+function gridTarget(from, dx, dy, count, columns, cw, ch, gap) {
+  var start = gridSlot(from, columns, cw, ch, gap)
+  var mx = start.x + cw / 2 + dx, my = start.y + ch / 2 + dy
+  var best = from, bestD = Infinity
+  for (var k = 0; k < count; k++) {
+    var s = gridSlot(k, columns, cw, ch, gap)
+    var ddx = s.x + cw / 2 - mx, ddy = s.y + ch / 2 - my
+    var d = ddx * ddx + ddy * ddy
+    if (d < bestD) { bestD = d; best = k }
+  }
+  return best
+}
+
+// ---- Editing the page in place ----
+
+// The shortcut tiles while editing: the chosen ones in their order (`pos`,
+// they move), then every other one dimmed, to be added (`pos` -1).
+function editShortcutTiles(order, can) {
+  var chosen = shortcutTiles(order, can).map(function(t, i) { return Object.assign({ chosen: true, pos: i }, t) })
+  var rest = []
+  for (var i = 0; i < SHORTCUTS.length; i++)
+    if (order.indexOf(SHORTCUTS[i].key) < 0)
+      rest.push(Object.assign({ chosen: false, pos: -1 }, shortcutTiles([SHORTCUTS[i].key], can)[0]))
+  return chosen.concat(rest)
+}
+
+// What a section says while editing when it has nothing to show now.
+var SECTION_EMPTY = {
+  actions: "No shortcuts: add some below",
+  media: "Shows while the device plays something",
+  notifications: "Shows while there are notifications"
 }
