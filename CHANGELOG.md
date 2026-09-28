@@ -18,7 +18,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   tabs, with its key, *Accept* and *Reject*; it pushes the rest down while
   it lasts.
 - The open-panel mark under the pill spans every chip (#67).
-- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`.
+- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`. Leaving a
+  demo (`live`) puts every setting back as it was when the demo began.
 - Settings for devices (#74): a nickname and an icon for each device, used
   in the bar and the tabs. With several devices, Settings lists them
   (drag to move, or Shift+K / Shift+J; pair, accept and reject there
