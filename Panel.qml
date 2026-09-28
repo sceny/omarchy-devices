@@ -485,6 +485,23 @@ Panel {
   // tabs), from where the dragged tab's middle is.
   property int tabDropIndex: -1
   property int tabDragFrom: -1
+  property real tabDragWidth: 0
+  property bool tabCommitting: false
+  // How far tab `i` slides aside for the dragged one (to show the gap).
+  function tabShift(i) {
+    if (tabDragFrom < 0 || tabDropIndex < 0 || i === tabDragFrom) return 0
+    var step = tabDragWidth + Style.space(4)
+    if (tabDropIndex > tabDragFrom && i > tabDragFrom && i <= tabDropIndex) return -step
+    if (tabDropIndex < tabDragFrom && i < tabDragFrom && i >= tabDropIndex) return step
+    return 0
+  }
+  // Where the dragged tab ends up, from its own place: the widths it passes.
+  function tabOffset(from, to) {
+    var x = 0
+    if (to > from) for (var i = from + 1; i <= to; i++) { var a = tabRepeaterItem(i); if (a) x += a.width + Style.space(4) }
+    if (to < from) for (var j = to; j < from; j++) { var b = tabRepeaterItem(j); if (b) x -= b.width + Style.space(4) }
+    return x
+  }
   function tabTarget(from, dx) {
     tabDragFrom = from
     var me = tabRepeaterItem(from)
@@ -1527,19 +1544,45 @@ Panel {
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
-                  tooltipText: tabDrag.active ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
+                  tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
                   onClicked: root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
                   // Drag a tab sideways to move its device in the order; a
                   // click still selects it (the drag starts past a threshold).
+                  // The other tabs slide aside to show where it goes; on
+                  // release it glides into the gap, and only then is the
+                  // order written (the row rebuilt where it already shows).
                   property real dragX: 0
-                  transform: Translate { x: tab.dragX }
-                  z: tabDrag.active ? 5 : 0
+                  readonly property bool moving: tabDrag.active || tabSettle.running
+                  transform: Translate {
+                    x: tab.moving ? tab.dragX : root.tabShift(tab.index)
+                    Behavior on x {
+                      enabled: !root.tabCommitting && !tab.moving
+                      NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                    }
+                  }
+                  z: tab.moving ? 5 : 0
+                  NumberAnimation {
+                    id: tabSettle
+                    target: tab
+                    property: "dragX"
+                    duration: Model.MOTION.inMs * root.motion
+                    easing.type: Easing.OutCubic
+                    onFinished: {
+                      var from = tab.index, to = root.tabDropIndex
+                      root.tabCommitting = true
+                      root.tabDropIndex = -1
+                      tab.dragX = 0
+                      // Rebuilds the tabs (this one with them): the last use of it.
+                      root.dropTab(from, to)
+                      root.tabCommitting = false
+                    }
+                  }
                   // Solid while dragged, so the tab it passes over never shows
                   // through; otherwise the kit's own fills (hover, selected).
-                  color: tabDrag.active ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+                  color: tab.moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
                     : hot ? Style.hoverFillFor(root.foreground, Color.accent)
                     : selected ? Style.selectedFillFor(root.foreground, Color.accent) : "transparent"
                   DragHandler {
@@ -1548,30 +1591,22 @@ Panel {
                     yAxis.enabled: false
                     grabPermissions: PointerHandler.CanTakeOverFromAnything
                     onTranslationChanged: if (active) { tab.dragX = translation.x; root.tabDropIndex = root.tabTarget(tab.index, tab.dragX) }
-                    onActiveChanged: if (!active) {
+                    onActiveChanged: {
+                      if (active) {
+                        root.tabDragFrom = tab.index
+                        root.tabDragWidth = tab.width
+                        root.tabDropIndex = tab.index
+                        return
+                      }
                       var to = root.tabTarget(tab.index, tab.dragX)
-                      tab.dragX = 0
-                      root.tabDropIndex = -1
-                      root.dropTab(tab.index, to)
+                      root.tabDropIndex = to
+                      tabSettle.from = tab.dragX
+                      tabSettle.to = root.tabOffset(tab.index, to)
+                      tabSettle.restart()
                     }
                   }
                 }
               }
-            }
-
-            // Where a dragged tab will land: a line between tabs.
-            Rectangle {
-              readonly property var at: root.tabDropIndex >= 0 ? tabRepeater.itemAt(root.tabDropIndex) : null
-              readonly property var from: root.tabDragFrom >= 0 ? tabRepeater.itemAt(root.tabDragFrom) : null
-              visible: !!at && root.tabDropIndex !== root.tabDragFrom
-              width: 2
-              radius: 1
-              height: tabRow.height
-              color: Color.accent
-              // Kept inside the row: at the very front or end it sits on the edge.
-              x: !at ? 0 : Math.max(0, Math.min(tabRow.width - width,
-                   root.tabDropIndex < root.tabDragFrom ? at.x - tabRow.spacing / 2 - 1 : at.x + at.width + tabRow.spacing / 2 - 1))
-              z: 6
             }
 
             // Keeps the selected tab in view when the row scrolls, clear of

@@ -471,19 +471,42 @@ Column {
     }
   }
 
-  // Drag to reorder: a row with a place in an order carries this grip. The
-  // row follows the pointer, a line shows where it will land, and on release
-  // it moves that many places: the same move as its arrows and Shift+K/J.
+  // ---- Drag to reorder ----
+  // The drag in progress, shared by the rows of its order: while a row is
+  // dragged, the rows between its place and where it would land slide over
+  // by one row (animated), so the gap shows where it goes. On release it
+  // glides into the gap, and only then is the new order written; the page
+  // is rebuilt in the places already on screen, so nothing jumps.
+  property string dragKind: ""
+  property int dragPos: -1
+  property int dragSteps: 0
+  property real dragPitch: 0
+  // True for the instant the order is written: shifts drop to 0 without
+  // animating, in the same frame the rows are rebuilt in their new places.
+  property bool dragCommitting: false
+
+  // How far a row of `kind` at `pos` makes room for the dragged one.
+  function rowShift(kind, pos) {
+    if (dragKind !== kind || pos < 0 || pos === dragPos) return 0
+    if (dragSteps > 0 && pos > dragPos && pos <= dragPos + dragSteps) return -dragPitch
+    if (dragSteps < 0 && pos < dragPos && pos >= dragPos + dragSteps) return dragPitch
+    return 0
+  }
+
+  // A row's grip: drag it to move the row (its arrows use the same glide).
   component Grip: Text {
     id: grip
     property Item row: null
+    property string kind: ""
     property int pos: 0
     property int count: 1
     property real gap: Style.space(6)
     property real dragY: 0
     readonly property real pitch: row ? row.height + gap : 1
     readonly property int steps: Math.max(-pos, Math.min(count - 1 - pos, Math.round(dragY / pitch)))
-    readonly property bool dragging: area.pressed && Math.abs(dragY) > 2
+    // Held, or gliding into place after the release.
+    readonly property bool active: area.pressed || settle.running
+    property int landing: 0
     signal moved(int delta)
 
     text: Model.GLYPH.grip
@@ -491,6 +514,47 @@ Column {
     font.family: root.fontFamily
     font.pixelSize: Style.font.icon
     Layout.alignment: Qt.AlignVCenter
+
+    onStepsChanged: if (area.pressed) root.dragSteps = steps
+
+    function begin() {
+      root.dragKind = kind
+      root.dragPos = pos
+      root.dragPitch = pitch
+      root.dragSteps = 0
+    }
+    // Glides to `delta` places away, then writes the move.
+    function glideTo(delta) {
+      landing = Math.max(-pos, Math.min(count - 1 - pos, delta))
+      root.dragSteps = landing
+      settle.from = dragY
+      settle.to = landing * pitch
+      settle.restart()
+    }
+    // The arrows: the same glide, from where the row is.
+    function animateMove(delta) {
+      if (active || delta === 0) return
+      begin()
+      dragY = 0
+      glideTo(delta)
+    }
+
+    NumberAnimation {
+      id: settle
+      target: grip
+      property: "dragY"
+      duration: Model.MOTION.inMs * root.motion
+      easing.type: Easing.OutCubic
+      onFinished: {
+        var d = grip.landing
+        root.dragCommitting = true
+        root.dragKind = ""
+        grip.dragY = 0
+        // Rebuilds the rows (this grip with them): the last use of it.
+        if (d !== 0) grip.moved(d)
+        root.dragCommitting = false
+      }
+    }
 
     MouseArea {
       id: area
@@ -502,24 +566,24 @@ Column {
       cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
       property real startY: 0
       // Scene coordinates: the pointer's place, however far the row moved.
-      onPressed: function(m) { startY = mapToItem(null, m.x, m.y).y; grip.dragY = 0 }
+      onPressed: function(m) { if (settle.running) return; startY = mapToItem(null, m.x, m.y).y; grip.dragY = 0; grip.begin() }
       onPositionChanged: function(m) { if (pressed) grip.dragY = mapToItem(null, m.x, m.y).y - startY }
-      onReleased: { var d = grip.steps; grip.dragY = 0; if (d !== 0) grip.moved(d) }
-      onCanceled: grip.dragY = 0
+      onReleased: grip.glideTo(grip.steps)
+      onCanceled: grip.glideTo(0)
     }
   }
 
-  // Where a dragged row will land: a line in the gap, drawn by the row.
-  component DropLine: Rectangle {
+  // The place a row takes while an order is being dragged: the dragged row
+  // follows the pointer (no animation), the others slide aside (animated).
+  component DragShift: Translate {
     property var grip: null
-    visible: !!grip && grip.dragging && grip.steps !== 0
-    width: parent ? parent.width : 0
-    height: 2
-    radius: 1
-    color: Color.accent
-    // Down: on the target row's lower edge (a group clips anything below its
-    // last row); up: in the gap above the target row.
-    y: grip ? grip.steps * grip.pitch - grip.dragY + (grip.steps > 0 ? parent.height - height : -grip.gap / 2 - 1) : 0
+    property string kind: ""
+    property int pos: -1
+    y: grip && grip.active ? grip.dragY : root.rowShift(kind, pos)
+    Behavior on y {
+      enabled: !root.dragCommitting && !!grip && !grip.active
+      NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+    }
   }
 
   // A row of the device list (a device, one asking to pair, one in reach),
@@ -533,10 +597,9 @@ Column {
     hasCursor: root.cursorIndex === rowIndex
     foreground: root.foreground
     implicitHeight: listContent.implicitHeight + Style.space(12)
-    transform: Translate { y: listGrip.dragY }
-    z: listGrip.dragging ? 10 : 0
-    color: listGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
-    DropLine { grip: listGrip }
+    transform: DragShift { grip: listGrip; kind: "device"; pos: listRow.row.kind === "device" ? (listRow.row.pos || 0) : -1 }
+    z: listGrip.active ? 10 : 0
+    color: listGrip.active ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
 
     MouseArea {
       anchors.fill: parent
@@ -559,6 +622,7 @@ Column {
         id: listGrip
         visible: listRow.row.kind === "device"
         row: listRow
+        kind: "device"
         pos: listRow.row.pos || 0
         count: listRow.row.count || 1
         gap: Style.space(4)
@@ -614,7 +678,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: listRow.row.first !== true
           onHovered: function(on) { if (on) root.hovered(listRow.rowIndex) }
-          onClicked: root.deviceMoveRequested(listRow.row.id, -1)
+          onClicked: listGrip.animateMove(-1)
         }
         PanelActionButton {
           iconText: Model.GLYPH.down
@@ -623,7 +687,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: listRow.row.last !== true
           onHovered: function(on) { if (on) root.hovered(listRow.rowIndex) }
-          onClicked: root.deviceMoveRequested(listRow.row.id, 1)
+          onClicked: listGrip.animateMove(1)
         }
       }
 
@@ -818,10 +882,9 @@ Column {
     hasCursor: root.cursorIndex === rowIndex
     foreground: root.foreground
     implicitHeight: layoutContent.implicitHeight + Style.space(12)
-    transform: Translate { y: layoutGrip.dragY }
-    z: layoutGrip.dragging ? 10 : 0
-    color: layoutGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
-    DropLine { grip: layoutGrip }
+    transform: DragShift { grip: layoutGrip; kind: "layout"; pos: layoutRow.row.kind === "layout" ? (layoutRow.row.pos || 0) : -1 }
+    z: layoutGrip.active ? 10 : 0
+    color: layoutGrip.active ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
 
     MouseArea {
       anchors.fill: parent
@@ -844,6 +907,7 @@ Column {
         id: layoutGrip
         visible: layoutRow.row.kind === "layout"
         row: layoutRow
+        kind: "layout"
         pos: layoutRow.row.pos || 0
         count: layoutRow.row.count || 1
         onMoved: function(delta) { root.sectionMoveRequested(layoutRow.row.section, delta) }
@@ -885,7 +949,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: layoutRow.row.first !== true
           onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
-          onClicked: root.sectionMoveRequested(layoutRow.row.section, -1)
+          onClicked: layoutGrip.animateMove(-1)
         }
         PanelActionButton {
           iconText: Model.GLYPH.down
@@ -894,7 +958,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: layoutRow.row.last !== true
           onHovered: function(on) { if (on) root.hovered(layoutRow.rowIndex) }
-          onClicked: root.sectionMoveRequested(layoutRow.row.section, 1)
+          onClicked: layoutGrip.animateMove(1)
         }
       }
 
@@ -918,10 +982,9 @@ Column {
     foreground: root.foreground
     opacity: shortcutRow.row.kind !== "shortcut" || root.shortcutsShown ? 1.0 : 0.55
     implicitHeight: shortcutContent.implicitHeight + Style.space(10)
-    transform: Translate { y: shortcutGrip.dragY }
-    z: shortcutGrip.dragging ? 10 : 0
-    color: shortcutGrip.dragging ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
-    DropLine { grip: shortcutGrip }
+    transform: DragShift { grip: shortcutGrip; kind: shortcutRow.row.kind; pos: shortcutRow.row.on === true ? (shortcutRow.row.pos || 0) : -1 }
+    z: shortcutGrip.active ? 10 : 0
+    color: shortcutGrip.active ? Qt.tint(root.panelBackground, fill) : (hasCursor ? fill : (current ? currentFill : "transparent"))
 
     MouseArea {
       anchors.fill: parent
@@ -947,6 +1010,7 @@ Column {
         opacity: shortcutRow.row.on === true ? 1 : 0
         enabled: shortcutRow.row.on === true
         row: shortcutRow
+        kind: shortcutRow.row.kind
         pos: Math.max(0, shortcutRow.row.pos || 0)
         count: shortcutRow.row.count || 1
         onMoved: function(delta) {
@@ -1011,7 +1075,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: shortcutRow.row.first !== true
           onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: shortcutRow.row.kind === "bar" ? root.barMoveRequested(shortcutRow.row.key, -1) : root.moveRequested(shortcutRow.row.key, -1)
+          onClicked: shortcutGrip.animateMove(-1)
         }
         PanelActionButton {
           iconText: Model.GLYPH.down
@@ -1020,7 +1084,7 @@ Column {
           fontFamily: root.fontFamily
           enabled: shortcutRow.row.last !== true
           onHovered: function(on) { if (on) root.hovered(shortcutRow.rowIndex) }
-          onClicked: shortcutRow.row.kind === "bar" ? root.barMoveRequested(shortcutRow.row.key, 1) : root.moveRequested(shortcutRow.row.key, 1)
+          onClicked: shortcutGrip.animateMove(1)
         }
       }
     }
