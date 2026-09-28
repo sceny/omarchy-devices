@@ -40,6 +40,7 @@ magick "$main" \
 magick "$tmp/base.png" \
   -stroke "$ACCENT" -strokewidth 3 -fill none \
   -draw "roundrectangle ${PILL_BOX} 6,6" \
+  -draw "line 1790,300 2018,300" \
   -draw "line 1690,428 2018,428" \
   -draw "line 1770,1128 2018,1128" \
   -stroke none \
@@ -54,10 +55,12 @@ magick "$tmp/base.png" \
   -font "$BOLD" -pointsize 24 -fill "$ACCENT" \
   -annotate +1600+222 'NOTIFICATIONS IN YOUR BAR ↗' \
   -annotate +112+470 'YOUR TEXTS' \
+  -annotate +1330+268 'SHORTCUTS' \
   -annotate +1330+382 'NOW PLAYING' \
   -annotate +1330+1080 'NOTIFICATIONS' \
   -font "$REGULAR" -pointsize 24 -fill "$FG" \
   -annotate +330+470 'every conversation, reply from the keyboard' \
+  -annotate +1330+302 'send files, clipboard, a link' \
   -annotate +1330+416 'cover, seek and volume' \
   -annotate +1330+1114 'reply, dismiss, and each chat' \
   -annotate +1330+1146 'the way the phone shows it' \
