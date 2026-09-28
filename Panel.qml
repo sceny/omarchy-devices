@@ -214,9 +214,98 @@ Panel {
     if (countedSetup && phone) phone.setupWanted = Math.max(0, phone.setupWanted - 1)
   }
   property int settingsIndex: 0
-  readonly property var settingsRows: Model.settingsRows(
-    { showDevices: showDevices, showShortcuts: showShortcuts, showMedia: showMedia, showNotifications: showNotifications },
-    shortcutOrder, device ? device.can : null, sectionOrder, barIndicators, batteryLowOnly)
+
+  // ---- Settings for devices ----
+  // What the settings page edits: "root" (the device list, or with one
+  // device the whole flat page), "defaults", or a device's id (its page).
+  property string settingsScope: "root"
+  readonly property var pairedDevices: phone ? phone.ordered : []
+  readonly property bool singleDevice: pairedDevices.length <= 1
+  readonly property var scopeDevice: {
+    var id = settingsScope === "root" && singleDevice && pairedDevices.length === 1 ? String(pairedDevices[0].id) : settingsScope
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === id) return pairedDevices[i]
+    return null
+  }
+  readonly property int scopeIndex: {
+    for (var i = 0; i < pairedDevices.length; i++) if (scopeDevice && pairedDevices[i].id === scopeDevice.id) return i
+    return -1
+  }
+  readonly property bool editingDevice: settingsScope !== "root" && settingsScope !== "defaults" && !!scopeDevice
+  readonly property var profilesRead: phone ? phone.profiles : Model.readSettings(settings)
+  readonly property var scopeProfile: scopeDevice ? Model.resolveProfile(profilesRead, scopeDevice, scopeIndex === 0) : null
+  // The profile the page's groups edit: the device's own on its page, else
+  // the defaults (with one device, the flat keys as always).
+  readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
+  readonly property var settingsRows: Model.settingsPageRows({
+    scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
+    single: singleDevice,
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
+    identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
+                               bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
+    edit: editProfile,
+    can: scopeDevice ? scopeDevice.can : (device ? device.can : null)
+  })
+
+  function openScope(scope) {
+    settingsScope = scope
+    settingsIndex = 0
+    iconPicking = false
+    if (panelFlick) panelFlick.contentY = 0
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+  // Esc and the back arrow on a device's page or the defaults: to the list.
+  function settingsInfo() {
+    return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
+      rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
+  }
+  function settingsBack() {
+    if (settingsScope !== "root") { openScope("root"); return true }
+    return false
+  }
+
+  // A change to what the page edits: the device's profile on its page, else
+  // the flat keys (the defaults).
+  function persistScoped(values) {
+    if (editingDevice) persistDeviceProfile(String(scopeDevice.id), values)
+    else persistSettings(values)
+  }
+  function persistDeviceProfile(id, values) {
+    var idx = -1
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === String(id)) idx = i
+    var entry = Model.withProfile(root.settings, String(id), values, idx === 0)
+    persistSettings({ devices: entry.devices })
+  }
+  // Identity is always the device's own, with one device too.
+  function setIdentity(values) {
+    if (scopeDevice) persistDeviceProfile(String(scopeDevice.id), values)
+  }
+  // A group's settings back to the defaults, on a device's page.
+  function resetGroup(group) {
+    var keys = Model.SETTING_GROUPS[group] || []
+    var values = {}
+    keys.forEach(function(k) { values[k] = null })
+    persistScoped(values)
+  }
+  function moveDevice(id, delta) {
+    var ids = Model.movedOrder(snapshot, profilesRead, id, delta)
+    var entry = Model.withDeviceOrder(root.settings, snapshot, ids)
+    persistSettings({ deviceOrder: entry.deviceOrder, devices: entry.devices || {} })
+    Qt.callLater(function() {
+      for (var i = 0; i < settingsRows.length; i++)
+        if (settingsRows[i].kind === "device" && settingsRows[i].id === String(id)) { settingsIndex = i; return }
+    })
+  }
+  function cycleBarPlace() {
+    var order = ["always", "attention", "never"]
+    var at = order.indexOf(scopeProfile ? (scopeProfile.bar === "own" ? "always" : scopeProfile.bar) : "always")
+    setIdentity({ bar: order[(at + 1) % order.length] })
+  }
+  property bool iconPicking: false
+  // The header names the device a settings page edits, else the viewed one.
+  readonly property var heroDevice: showSettings && editingDevice ? scopeDevice : device
+  readonly property var heroProfile: showSettings && editingDevice ? scopeProfile : profile
+  // The nickname field has focus (typing goes to it, not to the keys).
+  property bool nicknameFocused: false
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
@@ -417,7 +506,9 @@ Panel {
     var s = []
     for (var i = 0; i < sectionOrder.length; i++) {
       var key = sectionOrder[i]
-      if (key === "devices") { if (showDevices && devicesWanted) s.push(key) }
+      // The Devices section is gone: tabs switch, the pairing card and
+      // Settings' device list pair and unpair.
+      if (key === "devices") continue
       else if (!reachable) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -461,14 +552,14 @@ Panel {
 
   function toggleLayout(key) {
     var values = {}
-    values[key] = !Model.layoutFlag(setting(key, true))
-    persistSettings(values)
+    values[key] = !Model.layoutFlag(editProfile[key])
+    persistScoped(values)
   }
 
-  function toggleShortcutKey(key) { persistSettings({ shortcuts: Model.toggleShortcut(shortcutOrder, key) }) }
+  function toggleShortcutKey(key) { persistScoped({ shortcuts: Model.toggleShortcut(editProfile.shortcuts, key) }) }
 
   function moveShortcutKey(key, delta) {
-    persistSettings({ shortcuts: Model.moveShortcut(shortcutOrder, key, delta) })
+    persistScoped({ shortcuts: Model.moveShortcut(editProfile.shortcuts, key, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -477,7 +568,7 @@ Panel {
   }
 
   function moveSectionKey(section, delta) {
-    persistSettings({ sectionOrder: Model.moveShortcut(sectionOrder, section, delta) })
+    persistScoped({ sectionOrder: Model.moveShortcut(editProfile.sectionOrder, section, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -486,7 +577,7 @@ Panel {
   }
 
   function moveBarIndicator(key, delta) {
-    persistSettings({ barIndicators: Model.moveShortcut(barIndicators, key, delta) })
+    persistScoped({ barIndicators: Model.moveShortcut(editProfile.barIndicators, key, delta) })
     // Keep the cursor on the row that moved.
     Qt.callLater(function() {
       for (var i = 0; i < settingsRows.length; i++)
@@ -494,7 +585,7 @@ Panel {
     })
   }
 
-  function resetShortcuts() { persistSettings({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
+  function resetShortcuts() { persistScoped({ shortcuts: Model.DEFAULT_SHORTCUTS.slice() }) }
 
   // A settings row under a folded section is not there to land on.
   function settingsRowShown(i) {
@@ -503,6 +594,8 @@ Panel {
     if (row.kind === "layout") return !isCollapsed("layout")
     if (row.kind === "shortcut") return !isCollapsed("shortcuts")
     if (row.kind === "bar" || row.kind === "barFlag") return !isCollapsed("bar")
+    if (row.kind === "device" || row.kind === "request" || row.kind === "available") return !isCollapsed("devicesList")
+    if (["nickname", "icon", "barPlace", "showInPanel"].indexOf(row.kind) >= 0) return !isCollapsed("identity")
     return true
   }
   function nextSettingsRow(from, dy) {
@@ -521,9 +614,19 @@ Panel {
     settingsIndex = index
     if (row.kind === "layout") toggleLayout(row.key)
     else if (row.kind === "shortcut") toggleShortcutKey(row.key)
-    else if (row.kind === "bar") persistSettings({ barIndicators: Model.toggleBarIndicator(barIndicators, row.key) })
-    else if (row.kind === "barFlag") persistSettings({ batteryLowOnly: !batteryLowOnly })
+    else if (row.kind === "bar") persistScoped({ barIndicators: Model.toggleBarIndicator(editProfile.barIndicators, row.key) })
+    else if (row.kind === "barFlag") persistScoped({ batteryLowOnly: !editProfile.batteryLowOnly })
     else if (row.kind === "reset") resetShortcuts()
+    else if (row.kind === "device") openScope(row.id)
+    else if (row.kind === "defaults") openScope("defaults")
+    else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
+    else if (row.kind === "available" && phone && !row.waiting) phone.pairWith(row.id)
+    else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
+    else if (row.kind === "icon") iconPicking = !iconPicking
+    else if (row.kind === "barPlace") cycleBarPlace()
+    else if (row.kind === "showInPanel") setIdentity({ showInPanel: !scopeProfile.showInPanel })
+    else if (row.kind === "resetGroup") resetGroup(row.key)
+    else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
 
@@ -616,6 +719,8 @@ Panel {
     composerFocused = false
     settingsOpen = true
     settingsIndex = 0
+    settingsScope = "root"
+    iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -913,6 +1018,19 @@ Panel {
       if (root.opened) root.switchDevice(d.id); else root.openFromHotkey()
       return "ok"
     }
+    // Settings for devices: open a scope ("root", "defaults", or a device's
+    // id, nickname or name) as a click would, and what its page lists.
+    function settingsScope(key: string): string {
+      if (!root.settingsOpen) { root.openFromHotkey(); root.openSettings() }
+      if (key === "root" || key === "defaults") root.openScope(key)
+      else {
+        var d = root.phone ? root.phone.findDevice(key) : null
+        if (!d) return "no device " + key
+        root.openScope(String(d.id))
+      }
+      return root.settingsInfo()
+    }
+    function settingsRowsInfo(): string { return root.settingsInfo() }
     function tabs(): string {
       var list = root.phone ? root.phone.ordered : []
       return JSON.stringify({ shown: root.manyDevices, viewed: root.device ? root.device.id : "",
@@ -1039,7 +1157,7 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.replyFocused || root.composerFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
+      blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
 
       onMoveRequested: function(dx, dy) {
         if (root.messagesOpen) { if (dy !== 0) messagesView.moveCursor(dy); return }
@@ -1069,7 +1187,11 @@ Panel {
           if (n && n.dismissable) root.phone.dismiss(n)
         }
       }
-      onCloseRequested: root.messagesOpen ? root.closeMessagesView() : (root.settingsOpen ? root.closeSettings() : root.close())
+      onCloseRequested: {
+        if (root.messagesOpen) root.closeMessagesView()
+        else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+        else root.close()
+      }
       onTabRequested: function(direction) { root.switchPanel(direction) }
       // PgUp/PgDn scroll the open conversation. Keys has no page-key handlers
       // and a second Keys.onPressed here would replace the catcher's own, so
@@ -1104,6 +1226,8 @@ Panel {
             root.moveSectionKey(row.section, t === "K" ? -1 : 1)
           else if (root.cursorActive && row && row.kind === "bar" && row.on && (t === "K" || t === "J"))
             root.moveBarIndicator(row.key, t === "K" ? -1 : 1)
+          else if (root.cursorActive && row && row.kind === "device" && (t === "K" || t === "J"))
+            root.moveDevice(row.id, t === "K" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
@@ -1429,20 +1553,21 @@ Panel {
             width: parent.width
             // Nickname, then the full name when they differ.
             title: {
-              if (!root.device) return "Devices"
-              var nick = root.profile.nickname
-              return nick && nick !== root.device.name ? nick + " · " + root.device.name : String(root.device.name || "")
+              if (!root.heroDevice) return "Devices"
+              var nick = root.heroProfile.nickname
+              return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
-            meta: root.showSettings ? "Settings"
+            meta: root.showSettings ? (root.editingDevice ? "Settings · " + Model.deviceTitle(root.scopeDevice, root.scopeProfile)
+                                                      : (root.settingsScope === "defaults" ? "Settings · Defaults for all devices" : "Settings"))
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.reachable ? 1.0 : 0.45
+            iconOpacity: root.heroDevice && root.heroDevice.reachable === true ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: Model.deviceIcon(root.device, root.profile)
+                text: Model.deviceIcon(root.heroDevice, root.heroProfile)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
@@ -1454,7 +1579,11 @@ Panel {
                 tooltipText: root.showMain ? "Settings" : "Back"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                onClicked: root.messagesOpen ? root.closeMessagesView() : (root.settingsOpen ? root.closeSettings() : root.openSettings())
+                onClicked: {
+                  if (root.messagesOpen) root.closeMessagesView()
+                  else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+                  else root.openSettings()
+                }
               }
             }
           }
@@ -1991,17 +2120,39 @@ Panel {
 
               // ---- Settings, in place of everything above but the header ----
               SettingsView {
+                id: settingsView
                 visible: root.showSettings
                 width: parent.width
                 rows: root.settingsRows
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
-                shortcutsShown: root.showShortcuts
+                // The groups show what the page edits: a device's own
+                // profile on its page, else the defaults.
+                shortcutsShown: root.editProfile.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showDevices: root.showDevices, showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications })
-                order: root.shortcutOrder
-                sectionOrder: root.sectionOrder
-                barIndicators: root.barIndicators
-                batteryLowOnly: root.batteryLowOnly
+                flags: ({ showShortcuts: root.editProfile.showShortcuts, showMedia: root.editProfile.showMedia, showNotifications: root.editProfile.showNotifications })
+                order: root.editProfile.shortcuts
+                sectionOrder: root.editProfile.sectionOrder
+                barIndicators: root.editProfile.barIndicators
+                batteryLowOnly: root.editProfile.batteryLowOnly
+                scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
+                custom: root.editingDevice ? root.editProfile.custom : ({})
+                iconPicking: root.iconPicking
+                unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
+                deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
+                phone: root.phone
+                onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
+                onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
+                onNicknameSet: function(text) {
+                  var t = String(text || "").replace(/\s+/g, " ").trim()
+                  root.setIdentity({ nickname: t === "" ? null : t })
+                  keyCatcher.forceActiveFocus()
+                }
+                onIconSet: function(code) { root.setIdentity({ icon: code === "" ? null : code }); root.iconPicking = false }
+                onBarPlaceSet: function(place) { root.setIdentity({ bar: place }) }
+                onNicknameFocus: function(focused) {
+                  root.nicknameFocused = focused
+                  if (!focused) Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+                }
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }

@@ -1164,3 +1164,138 @@ function withOrder(entry, ids) {
   e.deviceOrder = ids.map(String)
   return e
 }
+
+// ---- Settings for devices (step 3) ----
+
+// Icons a device can take, all checked by rendering in the bar's Nerd Font.
+// `code` is what a profile stores (hex, no prefix).
+var ICON_CHOICES = [
+  { code: "F011C", label: "Phone" }, { code: "F011F", label: "Phone, older" },
+  { code: "F04F6", label: "Tablet" }, { code: "F0322", label: "Laptop" },
+  { code: "F0379", label: "Monitor" }, { code: "F0AAB", label: "Desktop" },
+  { code: "F0502", label: "TV" }, { code: "F02CB", label: "Headphones" },
+  { code: "F02DC", label: "Home" }, { code: "F00D6", label: "Work" },
+  { code: "F0A5E", label: "Family" }, { code: "F04CE", label: "Star" },
+  { code: "F02D1", label: "Heart" }, { code: "F0384", label: "Music" },
+  { code: "F06A9", label: "Robot" }
+]
+
+var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never" }
+
+// Which profile settings each settings group holds, for its Custom mark and
+// its "Use the defaults".
+var SETTING_GROUPS = {
+  layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
+  bar: ["barIndicators", "batteryLowOnly"],
+  shortcuts: ["shortcuts"]
+}
+
+function groupCustom(custom, group) {
+  var keys = SETTING_GROUPS[group] || []
+  for (var i = 0; i < keys.length; i++) if (custom && custom[keys[i]]) return true
+  return false
+}
+
+// The Devices list at the top of Settings: every paired device in order,
+// then devices asking to pair, then devices in reach that could be paired.
+function devicesListRows(snapshot, settings, lowPercent) {
+  var ordered = orderedDevices(snapshot, settings)
+  var rows = []
+  for (var i = 0; i < ordered.length; i++) {
+    var d = ordered[i]
+    var p = resolveProfile(settings, d, i === 0)
+    rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
+                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : "Away",
+                away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1 })
+  }
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  for (var j = 0; j < list.length; j++) {
+    var o = list[j]
+    if (!o || o.paired === true) continue
+    if (o.pairRequestedByPeer === true)
+      rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
+                  status: "Wants to pair" + (o.verificationKey ? " · key " + o.verificationKey : "") })
+    else if (o.reachable === true)
+      rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
+                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair", waiting: o.pairRequested === true })
+  }
+  return rows
+}
+
+// Every row of the settings page, in one list so keyboard and mouse share a
+// cursor. `ctx`:
+//   scope: "root" | "defaults" | "device"
+//   single: one paired device or none (Settings is one flat page)
+//   devices: devicesListRows(...)            (root)
+//   identity: { nickname, icon, glyph, bar, showInPanel } (single root, device)
+//   edit: the profile being edited (defaults, or the device's), with custom
+//   can: the device's capabilities, for shortcuts it cannot do
+function settingsPageRows(ctx) {
+  var rows = []
+  var scope = ctx.scope || "root"
+  if (scope === "root") {
+    if (!ctx.single) (ctx.devices || []).forEach(function(r) { rows.push(r) })
+    else (ctx.devices || []).forEach(function(r) { if (r.kind !== "device") rows.push(r) })
+  }
+  var identity = ctx.identity && (scope === "device" || (scope === "root" && ctx.single))
+  if (identity) {
+    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "Its name in the bar and the tabs; short names keep them narrow", value: ctx.identity.nickname })
+    rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
+    if (scope === "device") {
+      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Always, only with news (notifications, messages, a call, low battery), or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
+      rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
+    }
+  }
+  if (scope === "root" && !ctx.single) {
+    rows.push({ kind: "defaults", key: "defaults", label: "Defaults for all devices", hint: "Sections, bar and shortcuts for devices that did not change them, and for new ones" })
+  } else {
+    var e = ctx.edit
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
+                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly)
+    base.forEach(function(r) {
+      // The Devices section is gone from the main page (tabs, the pairing
+      // card and this list do its work); the kdeconnect row stays at root.
+      if (r.kind === "layout" && r.section === "devices") return
+      if (r.kind === "kdeconnect" || r.kind === "reset") return
+      rows.push(r)
+    })
+    if (scope === "device") {
+      ["layout", "bar", "shortcuts"].forEach(function(g) {
+        if (groupCustom(e.custom, g))
+          rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
+                      hint: "This device changed it; the defaults apply again" })
+      })
+      rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
+    } else {
+      rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
+    }
+  }
+  if (scope === "root") rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  return rows
+}
+
+// The entry with a new device order. A device whose place in the bar only
+// followed from its position (the first shows always, the others with news)
+// gets that place written down first, so moving devices never changes how
+// they show.
+function withDeviceOrder(entry, snapshot, ids) {
+  var before = readSettings(entry)
+  var ordered = orderedDevices(snapshot, before)
+  var e = plainObject(entry) ? entry : {}
+  var stored = plainObject(e.devices) ? e.devices : {}
+  var next = Object.assign({}, e)
+  for (var i = 0; i < ordered.length; i++) {
+    var id = String(ordered[i].id)
+    var nowFirst = ids.length > 0 && String(ids[0]) === id
+    var s = plainObject(stored[id]) ? stored[id] : {}
+    if (s.bar === undefined && (i === 0) !== nowFirst)
+      next = withProfile(next, id, { bar: i === 0 ? "always" : "attention" }, false)
+  }
+  return withOrder(next, ids)
+}
+
+// The order moved by one step for `id` (Shift+K / Shift+J, the arrows).
+function movedOrder(snapshot, settings, id, delta) {
+  var ids = orderedDevices(snapshot, settings).map(function(d) { return String(d.id) })
+  return moveShortcut(ids, String(id), delta)
+}
