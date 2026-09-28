@@ -1103,6 +1103,12 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
+    // Checks while editing, as a click or a drag would: a section's switch, a
+    // shortcut added or taken away, a section or a chosen tile moved (glide).
+    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
+    function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
+    function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
+    function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
     // Edit the page in place, and again to finish; what editing shows.
     function edit(): string {
       root.toggleEditing()
