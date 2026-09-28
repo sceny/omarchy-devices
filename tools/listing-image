@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# The marketplace and README image (preview.png), composed from two demo
+# screenshots of a 2560x1440 desktop: the panel's main page, and the
+# messages view with a conversation open. See docs/internals/development.md
+# (Screenshots) for taking them; demo data only.
+#
+#   tools/listing-image MAIN.png MESSAGES.png OUT.png
+#
+# The coordinates below are where the pill and the two cards sit in those
+# screenshots; measure again (the card border is the accent colour) if the
+# panel's size or the bar changes.
+set -euo pipefail
+
+main=$1 msgs=$2 out=$3
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+BG='#111C18' FG='#C1C497' ACCENT='#509475'
+BOLD=JetBrainsMono-NF-Bold REGULAR=JetBrainsMono-NF-Regular
+
+MSGS_CARD=1173x907+1382+40   # the messages view in MESSAGES.png
+PILL=108x34+2250+0           # the pill in the bar
+PILL_BOX="2244,3 2362,35"    # an outline around it
+
+# The messages card, a little smaller, with a soft shadow.
+magick "$msgs" -crop "$MSGS_CARD" +repage -resize 92% "$tmp/msgs.png"
+magick "$tmp/msgs.png" \( +clone -background black -shadow 70x24+0+18 \) \
+  +swap -background none -layers merge +repage "$tmp/msgs-shadow.png"
+
+# The pill, three times its size, on a card of its own.
+magick "$main" -crop "$PILL" +repage -filter Lanczos -resize 300% \
+  -bordercolor "$BG" -border 18 -bordercolor "$ACCENT" -border 3 "$tmp/pill.png"
+
+# The desktop, darkened towards the left so the words read over the
+# wallpaper; the bar and the panel stay as they are.
+magick "$main" \
+  \( -size 2020x1406 gradient:'rgba(0,0,0,0.78)'-'rgba(0,0,0,0.45)' -rotate -90 -resize 2020x1406! \) \
+  -geometry +0+34 -composite "$tmp/base.png"
+
+magick "$tmp/base.png" \
+  -stroke "$ACCENT" -strokewidth 3 -fill none \
+  -draw "roundrectangle ${PILL_BOX} 6,6" \
+  -draw "line 1690,428 2018,428" \
+  -draw "line 1770,1128 2018,1128" \
+  -stroke none \
+  "$tmp/pill.png" -geometry +1600+60 -composite \
+  "$tmp/msgs-shadow.png" -geometry +70+520 -composite \
+  -gravity NorthWest -fill "$FG" \
+  -font "$BOLD" -pointsize 72 -annotate +110+150 'Your phone,' \
+  -annotate +110+236 'in the Omarchy bar' \
+  -font "$REGULAR" -pointsize 30 -fill "$FG" \
+  -annotate +112+340 'Notifications, texts and media from your Android phone,' \
+  -annotate +112+382 'through KDE Connect.' \
+  -font "$BOLD" -pointsize 24 -fill "$ACCENT" \
+  -annotate +1600+222 'NOTIFICATIONS IN YOUR BAR ↗' \
+  -annotate +112+470 'YOUR TEXTS' \
+  -annotate +1330+382 'NOW PLAYING' \
+  -annotate +1330+1080 'NOTIFICATIONS' \
+  -font "$REGULAR" -pointsize 24 -fill "$FG" \
+  -annotate +330+470 'every conversation, reply from the keyboard' \
+  -annotate +1330+416 'cover, seek and volume' \
+  -annotate +1330+1114 'reply, dismiss, and each chat' \
+  -annotate +1330+1146 'the way the phone shows it' \
+  -strip "$out"

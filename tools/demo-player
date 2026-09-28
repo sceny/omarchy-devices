@@ -82,7 +82,8 @@ class Player:
     def position(self):
         if not self.playing:
             return self.paused_at
-        return min(LENGTH_US, int((time.monotonic() - self.started) * 1e6))
+        # Round and round the track, so it never runs past its end.
+        return int((time.monotonic() - self.started) * 1e6) % LENGTH_US
 
     def metadata(self):
         meta = {
