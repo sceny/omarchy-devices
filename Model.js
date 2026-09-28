@@ -491,6 +491,11 @@ function networkText(device) {
 var RING_MS = 45000
 var MISSED_MS = 30 * 60000
 
+// A ringing phone's beat, on the plugin's pace: a burst of `steps` shakes of
+// MOTION.outMs each, then a rest, like a ringtone's rings. The card's phone
+// shakes through the burst and the pill lights up for it.
+var RING_BEAT = { angle: 14, steps: 6, stepMs: MOTION.outMs, restMs: 900 }
+
 function callState(device, nowMs, closedAt) {
   var c = device && device.reachable === true ? device.call : null
   if (!c || (c.event !== "ringing" && c.event !== "missed")) return null

@@ -15,6 +15,10 @@
   and opens a link there; Ctrl+Enter sends it as a ping.
 - **Devices:** switch between paired devices, pair, accept or reject a
   request. Shown only when there is a choice.
+- **Calls:** while the phone rings, a card over the top names the caller;
+  a missed call stays until closed, with *Text back* and *Call back*
+  (the phone's dialer opens, ready: you tap call there). Answering is the
+  phone's.
 - A click that goes to the phone turns into a small ring until the phone
   answers.
 

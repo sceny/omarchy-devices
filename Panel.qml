@@ -1137,12 +1137,31 @@ Panel {
           spacing: Style.space(10)
 
           Text {
+            id: callGlyph
             textFormat: Text.PlainText
             text: callCard.ringing ? Model.GLYPH.callRing : Model.GLYPH.callMissed
             color: callCard.ringing ? Color.accent : root.urgent
             font.family: root.fontFamily
             font.pixelSize: Style.font.display
             Layout.alignment: Qt.AlignVCenter
+            transformOrigin: Item.Center
+
+            // The phone shakes while it rings: a burst, then a rest
+            // (Model.RING_BEAT), and settles upright when it stops.
+            readonly property real swing: Model.RING_BEAT.angle
+            readonly property real step: Model.RING_BEAT.stepMs * root.motion
+            SequentialAnimation {
+              running: callCard.ringing && callCard.showing && root.opened
+              loops: Animation.Infinite
+              onRunningChanged: if (!running) callGlyph.rotation = 0
+              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              NumberAnimation { target: callGlyph; property: "rotation"; to: callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              NumberAnimation { target: callGlyph; property: "rotation"; to: callGlyph.swing; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              NumberAnimation { target: callGlyph; property: "rotation"; to: -callGlyph.swing / 2; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              NumberAnimation { target: callGlyph; property: "rotation"; to: 0; duration: callGlyph.step; easing.type: Easing.OutCubic }
+              PauseAnimation { duration: Model.RING_BEAT.restMs * root.motion }
+            }
           }
 
           Column {

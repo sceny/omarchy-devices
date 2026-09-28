@@ -119,5 +119,8 @@ side are tracked apart.
 - A System UI notification reading "1 more notification" shows while the
   phone shows nothing: One UI's hidden summary, forwarded by the phone
   app (#52).
+- A call's answer or end never reaches the panel, nor does a ringer mute:
+  the telephony plugin signals only ringing and missed on D-Bus (#60, #61).
+  A declined call arrives as missed.
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.

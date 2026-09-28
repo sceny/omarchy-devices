@@ -144,6 +144,18 @@ Item {
 
   function closeCall() { if (call) callClosedAt = call.at }
 
+  // On while the ring beat's burst is on (Model.RING_BEAT): the pill lights
+  // up in step with the card's shaking phone, and rests between.
+  readonly property bool ringing: !!call && call.state === "ringing"
+  property bool ringLit: false
+  Timer {
+    running: root.ringing
+    repeat: true
+    interval: root.ringLit ? Model.RING_BEAT.steps * Model.RING_BEAT.stepMs : Model.RING_BEAT.restMs
+    onRunningChanged: root.ringLit = running
+    onTriggered: root.ringLit = !root.ringLit
+  }
+
   // The phone's dialer on the number (a tel: link through KDE Connect's
   // share): the call itself is the user's tap on the phone.
   function callBack(number) {
