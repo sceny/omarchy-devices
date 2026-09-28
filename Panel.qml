@@ -794,7 +794,7 @@ Panel {
         { key: "running", ok: true, label: "KDE Connect running", detail: "", fix: "", fixLabel: "" },
         { key: "firewall", ok: true, label: "Firewall lets devices in", detail: "", fix: "", fixLabel: "" },
         { key: "paired", ok: true, label: "A device is paired", detail: "", fix: "", fixLabel: "" },
-        { key: "reachable", ok: false, label: "Pixel 8 is connected", detail: "Not found on the network", fix: "search", fixLabel: "Look again" }
+        { key: "reachable", ok: false, label: "Pixel 8 is away", detail: "Not found on the network", fix: "search", fixLabel: "Look again" }
       ]
       return JSON.stringify(root.phone.shownSetupChecks[4])
     }
@@ -1612,7 +1612,7 @@ Panel {
                     if (!root.phone || !root.snapshot) return "Looking for your devices…"
                     if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
                     if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
-                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
+                    return "This computer and " + root.device.name + " have lost each other. The checks below say what is known and what to try."
                   }
                 }
 

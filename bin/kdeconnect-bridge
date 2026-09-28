@@ -493,7 +493,7 @@ def doctor():
     away = paired and not reachable
     label = "A paired device is connected"
     if len(paired) == 1:
-        label = "%s is connected" % (paired[0].get("name") or "The device")
+        label = "%s is %s" % (paired[0].get("name") or "The device", "away" if away else "connected")
     checks.append({"key": "reachable", "ok": len(reachable) > 0, "label": label,
                    "detail": "Not found on the network" if away else "",
                    "fix": "search" if away and running else "", "fixLabel": "Look again"})
