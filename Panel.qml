@@ -1449,9 +1449,29 @@ Panel {
             width: parent.width
             height: visible ? tabRow.implicitHeight : 0
 
+          // Settings for all devices sits on the devices' own line, at its
+          // end (as a phone picker and its settings do): the header below
+          // is only the viewed device's. With one device there is no tab
+          // row, and the gear stays in the header.
+          PanelActionButton {
+            id: tabsGear
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            visible: root.showMain
+            iconText: Model.GLYPH.settings
+            tooltipText: "Settings"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            onClicked: root.openSettings()
+          }
+
           Flickable {
             id: tabStrip
-            anchors.fill: parent
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: tabsGear.visible ? tabsGear.left : parent.right
+            anchors.rightMargin: tabsGear.visible ? Style.space(6) : 0
             contentWidth: tabRow.implicitWidth
             contentHeight: tabRow.implicitHeight
             clip: true
@@ -1602,8 +1622,8 @@ Panel {
               onClicked: tabStrip.page(arrow.dir)
             }
           }
-          TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: parent.left }
-          TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: parent.right }
+          TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: tabStrip.left }
+          TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: tabStrip.right }
           }
 
           PanelHero {
@@ -1631,8 +1651,11 @@ Panel {
                 font.pixelSize: Style.font.display
               }
             }
+            // The gear, only while there is no tab row to carry it; the
+            // back arrow on the other pages.
             trailingControl: Component {
               PanelActionButton {
+                visible: !(root.showMain && root.manyDevices)
                 iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
                 tooltipText: root.showMain ? "Settings" : "Back"
                 foreground: root.foreground
