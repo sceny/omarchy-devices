@@ -261,12 +261,13 @@ Panel {
     var order = settings && Array.isArray(settings.deviceOrder) ? settings.deviceOrder : null
     var demoIds = Object.keys(devs).filter(function(k) { return k.indexOf("demo") === 0 })
     var orderHasDemo = !!order && order.some(function(k) { return String(k).indexOf("demo") === 0 })
-    if (demoIds.length === 0 && !orderHasDemo) return
+    var emptyLeft = (settings && settings.devices !== undefined && Object.keys(devs).length === 0) || (!!order && order.length === 0)
+    if (demoIds.length === 0 && !orderHasDemo && !emptyLeft) return
     var next = Object.assign({}, devs)
     demoIds.forEach(function(k) { delete next[k] })
-    var values = { devices: next }
-    if (order) values.deviceOrder = order.filter(function(k) { return String(k).indexOf("demo") !== 0 })
-    persistSettings(values)
+    var left = order ? order.filter(function(k) { return String(k).indexOf("demo") !== 0 }) : []
+    // Nothing left: the keys go (undefined is not written), as before the demo.
+    persistSettings({ devices: Object.keys(next).length > 0 ? next : undefined, deviceOrder: left.length > 0 ? left : undefined })
   }
   function settingsInfo() {
     return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
