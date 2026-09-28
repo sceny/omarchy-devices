@@ -262,8 +262,28 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
   // Esc and the back arrow on a device's page or the defaults: to the list.
-  // Leaving demo: profiles and order written for demo devices (made-up ids)
-  // are removed, so a demo leaves nothing in the settings.
+  // A demo leaves nothing in the settings: entering it keeps a copy of this
+  // widget's entry (on the service, shared by every monitor's panel), and
+  // leaving it writes that copy back, undoing anything changed meanwhile,
+  // defaults included. Keys added during the demo go.
+  function enterDemo(kind) {
+    if (!phone) return
+    if (!phone.demo || phone.settingsBeforeDemo === null) phone.settingsBeforeDemo = JSON.parse(JSON.stringify(root.settings || {}))
+    phone.showDemo(kind)
+  }
+  function leaveDemo() {
+    var before = phone ? phone.settingsBeforeDemo : null
+    if (!before) { forgetDemoProfiles(); return }
+    phone.settingsBeforeDemo = null
+    if (JSON.stringify(before) === JSON.stringify(root.settings || {})) return
+    var values = {}
+    for (var k in root.settings) if (k !== "id") values[k] = before[k]
+    for (var b in before) if (b !== "id") values[b] = before[b]
+    persistSettings(values)
+  }
+
+  // Without a copy (a demo entered before this was kept): profiles and order
+  // written for demo devices (made-up ids) are removed.
   function forgetDemoProfiles() {
     var devs = settings && settings.devices && typeof settings.devices === "object" ? settings.devices : {}
     var order = settings && Array.isArray(settings.deviceOrder) ? settings.deviceOrder : null
@@ -1117,7 +1137,7 @@ Panel {
       root.phone.seek(p, seconds)
       return "ok"
     }
-    function demo(kind: string): string { if (root.phone) root.phone.showDemo(kind); return "demo " + kind }
+    function demo(kind: string): string { root.enterDemo(kind); return "demo " + kind }
     function openReply(index: int): string {
       var n = root.notifications[index]
       if (!n || !n.replyId) return "no replyable notification at " + index
@@ -1125,7 +1145,7 @@ Panel {
       root.openReply(n)
       return "ok"
     }
-    function live(): string { if (root.phone) root.phone.showLive(); root.forgetDemoProfiles(); return "live" }
+    function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
