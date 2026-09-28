@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The marketplace and README image (preview.png), composed from two demo
 # screenshots of a 2560x1440 desktop: the panel's main page, and the
-# messages view with a conversation open. See docs/internals/development.md
-# (Screenshots) for taking them; demo data only.
+# messages view with a conversation open. See
+# (docs/internals/screenshots.md) for taking them; demo data only.
 #
 #   tools/listing-image MAIN.png MESSAGES.png OUT.png
 #

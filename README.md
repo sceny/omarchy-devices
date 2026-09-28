@@ -44,5 +44,6 @@ without picking it up.
   media, motion
 - [Development](docs/internals/development.md): tests, demo mode, driving the
   panel, contributing
+- [Screenshots](docs/internals/screenshots.md): regenerating the listing image
 
 MIT, © Sceny. Not affiliated with KDE or Omarchy.
