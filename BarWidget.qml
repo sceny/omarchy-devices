@@ -144,10 +144,10 @@ BarWidget {
               required property var modelData
               textFormat: Text.PlainText
               text: modelData.text
-              // A ringing device's chip glows ring, ring, rest in the accent
-              // colour of the call card's phone (Service.ringLit); a low
-              // battery's parts are urgent.
-              color: chip.modelData.ringing && !!root.phone && root.phone.ringLit ? Color.accent
+              // A ringing device's call glyph glows ring, ring, rest in the
+              // accent colour of the call card's phone (Service.ringLit); a
+              // low battery's parts are urgent.
+              color: modelData.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
                 : modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
               font.family: button.fontFamily
               font.pixelSize: button.fontSize
