@@ -49,7 +49,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   *Calls* switch in each device's bar settings turns it off. KDE Connect
   does not say when a call is answered or ends, so a ringing card gives up
   after 45 s.
-- IPC: `demoCall ringing|missed|none`, `pressTextBack`, `closeCall`.
+- IPC: `demoCall ringing|missed|none`, `pressTextBack`, `closeCall`,
+  `demoTextTo`, `pressEscape`.
 
 ### Fixed
 - Moving the first section up in Layout did nothing: it swapped with the

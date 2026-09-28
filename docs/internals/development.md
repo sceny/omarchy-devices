@@ -28,6 +28,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card's Text back (nothing focused) and X
+"${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc on the panel
 "${IPC[@]}" slowMotion 10          # stretch every transition
 ```
 
