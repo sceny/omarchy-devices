@@ -5,6 +5,12 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 ## Unreleased
 
+- Fixed: opening a conversation showed only its latest message, with no
+  older ones to scroll to, after the plugin had asked the phone for every
+  conversation (at start, or after KDE Connect restarted). The count KDE
+  Connect sends after that is how many messages it holds, not how long
+  the conversation is; only the answer to a page the plugin asked for is
+  taken as that now.
 - Every click that goes to the device shows it is waiting: the clicked
   control (the dismiss X, a notification's action or reply button, a
   shortcut, the pairing buttons, next and previous) turns into a small

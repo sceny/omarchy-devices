@@ -103,6 +103,55 @@ class Resync(unittest.TestCase):
             bridge.GLib.timeout_add_seconds = saved
 
 
+class History(unittest.TestCase):
+    """How far a conversation goes is learnt only from the answer to a page
+    asked for: the daemon's count after any other batch (every thread's
+    latest message) is what it holds, not the conversation's length."""
+
+    def make(self):
+        sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
+        sms.path = "/dev"
+        sms.cache, sms.latest, sms.pending, sms.loaded, sms.settle = {}, {}, {}, {}, {}
+        sms.calls, sms.sent = [], []
+        sms.call = lambda method, args=None, sig=None, timeout=10000: sms.calls.append((method, args))
+        sms.out = sms.sent.append
+        sms.remember({"thread": 7, "uid": 1, "date": 100})
+        return sms
+
+    def loaded(self, sms, tid, count):
+        params = bridge.GLib.Variant("(xt)", (tid, count))
+        sms.on_signal(None, None, "/dev", None, "conversationLoaded", params)
+
+    def test_a_count_nobody_asked_for_does_not_end_the_history(self):
+        sms = self.make()
+        self.loaded(sms, 7, 1)          # every thread's latest message
+        self.assertEqual(sms.loaded, {})
+        saved = bridge.GLib.timeout_add_seconds
+        bridge.GLib.timeout_add_seconds = lambda sec, fn: 1
+        try:
+            sms.load(7, 0, 30)
+        finally:
+            bridge.GLib.timeout_add_seconds = saved
+        self.assertEqual(sms.calls, [("requestConversation", (7, 0, 30))], "the phone is asked for the page")
+        self.assertEqual(sms.sent, [], "no answer yet: one message is not the conversation")
+
+    def test_the_answer_to_a_page_says_how_far_it_goes(self):
+        sms = self.make()
+        sms.pending[7] = [(0, 30, 1)]
+        saved = bridge.GLib.source_remove
+        bridge.GLib.source_remove = lambda source: True
+        try:
+            for uid in range(2, 26):
+                sms.remember({"thread": 7, "uid": uid, "date": 100 + uid})
+            self.loaded(sms, 7, 25)
+        finally:
+            bridge.GLib.source_remove = saved
+        self.assertEqual(sms.loaded, {7: 25})
+        [page] = [e for e in sms.sent if e.get("ev") == "messages"]
+        self.assertEqual(len(page["messages"]), 25)
+        self.assertFalse(page["hasMore"], "all 25 are here")
+
+
 class DigitsKey(unittest.TestCase):
     def test_last_ten_digits(self):
         self.assertEqual(bridge.digits_key("+1 (514) 555-0123"), "5145550123")
