@@ -1423,7 +1423,6 @@ Panel {
           TabArrow { dir: -1; shown: tabStrip.moreLeft; anchors.left: parent.left }
           TabArrow { dir: 1; shown: tabStrip.moreRight; anchors.right: parent.right }
           }
-          }
 
           PanelHero {
             id: hero
