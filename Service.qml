@@ -148,14 +148,17 @@ Item {
   }
 
   // Demo mode rings (or misses) a made-up caller on the viewed device (or
-  // the first), over the demo snapshot.
+  // the first), over the demo snapshot. It replaces any other demo call.
   function showDemoCall(kind) {
     if (!demo) return
     var copy = JSON.parse(JSON.stringify(snapshot || {}))
     var id = device ? String(device.id) : ""
     var list = copy.devices || []
     var d = null
-    for (var i = 0; i < list.length; i++) if (String(list[i].id) === id) d = list[i]
+    for (var i = 0; i < list.length; i++) {
+      delete list[i].call
+      if (String(list[i].id) === id) d = list[i]
+    }
     if (!d) d = Model.pickDevice(copy, "")
     if (!d) return
     d.call = Model.demoCall(kind, Date.now())
