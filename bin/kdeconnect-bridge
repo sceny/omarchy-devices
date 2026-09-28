@@ -614,7 +614,7 @@ class Sms:
         self.cache = {}        # thread -> {uid: message}
         self.latest = {}       # thread -> newest message (summary source)
         self.pending = {}      # thread -> [(start, count, timeout_source)]
-        self.loaded = {}       # thread -> messages the daemon holds (conversationLoaded)
+        self.loaded = {}       # thread -> messages the daemon held when a page we asked for came in
         self.settle = {}       # thread -> quiet-period timer while a page loads
         self.contacts, self.contact_list = read_contacts(device_id)
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
@@ -724,9 +724,14 @@ class Sms:
             if (old is None and newest) or (old is not None and old != m):
                 self.out({"ev": "message", "message": m})
         elif signal == "conversationLoaded":
+            # Sent after every batch the daemon takes in, with how many
+            # messages it holds for the thread, not how long the conversation
+            # is: asking for every thread's latest message says 1 for each.
+            # Only the answer to a page asked for here says how far it goes.
             tid, count = params.unpack()
-            self.loaded[tid] = count
-            self.finish_loads(tid, count)
+            if tid in self.pending:
+                self.loaded[tid] = count
+                self.finish_loads(tid, count)
         elif signal == "conversationRemoved":
             tid = params.unpack()[0]
             self.cache.pop(tid, None)
