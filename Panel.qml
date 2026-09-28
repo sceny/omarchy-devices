@@ -1047,6 +1047,7 @@ Panel {
 
       Flickable {
         id: panelFlick
+        WheelScroll { flickable: panelFlick; motion: root.motion }
         anchors.fill: parent
         contentWidth: width
         contentHeight: column.implicitHeight
