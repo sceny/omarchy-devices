@@ -19,6 +19,7 @@ Press `s` or the cog.
   a row of icons.
 - **Bar:** what the pill shows beside the glyph, in order. With
   *Battery only when low* on, the battery stays hidden until it runs low.
+  *Calls* off, the device's calls stay out of the bar and the panel.
 - **Add a device** and **Setup:** the steps on the new device, and the
   KDE Connect checks with fixes.
 

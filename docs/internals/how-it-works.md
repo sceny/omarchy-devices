@@ -7,7 +7,7 @@ writes nothing outside its folder but caches in `~/.cache/sceny.devices/`.
 
 | File | Holds |
 |---|---|
-| `bin/kdeconnect-bridge` | Python over D-Bus (Gio). `watch` prints a JSON snapshot on start, after every KDE Connect signal (debounced 250 ms) and every 30 s. Action verbs (`ring`, `ping`, `clipboard`, `share`, `text`, `url`, `media`, `dismiss`, `reply`, `action`) run one call and print one line. `sms` speaks JSON lines. |
+| `bin/kdeconnect-bridge` | Python over D-Bus (Gio). `watch` prints a JSON snapshot on start, after every KDE Connect signal (debounced 250 ms) and every 30 s. Action verbs (`ring`, `ping`, `clipboard`, `share`, `text`, `url`, `media`, `dismiss`, `reply`, `action`, `dial`) run one call and print one line. `sms` speaks JSON lines. |
 | `Service.qml` | The watcher, the action runner, waiting on the device's answer, the MPRIS players. |
 | `SmsService.qml` | Text messages: threads and the open conversation, search, what was seen here. |
 | `Model.js` | Pure functions from data to what is drawn; tested with `node`. |
