@@ -7,9 +7,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 
 - Calls: while the phone rings, the pill glows green, ring by ring, with a
   ringing phone ahead of its indicators, and a card over the top of the
-  panel names the caller, its sound waves ringing, with *Text instead*. A missed call stays in the pill and on the
-  card until closed, with *Text back* and *Call back* (the phone's dialer,
-  ready on the number). A *Calls* switch in the Bar settings turns it off.
+  panel names the caller, its sound waves ringing, with *Text instead*.
+  A missed call stays in the pill and on the card until closed, with
+  *Text back* and *Call back* (the phone's dialer, ready on the number). A *Calls* switch in the Bar settings turns it off.
   KDE Connect does not say when a call is answered or ends, so a ringing
   card gives up after 45 s.
 
