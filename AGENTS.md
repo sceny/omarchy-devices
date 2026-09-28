@@ -12,7 +12,7 @@ A plugin for the Omarchy shell (Quickshell/QML), id `sceny.devices`: a bar
 widget and a panel over the phones and tablets paired with
 [KDE Connect](https://kdeconnect.kde.org/). Battery in the bar; in the panel,
 shortcuts, the device's media players, its notifications, and a full
-text-message view. The README is the user-facing description.
+text-message view. The README and `docs/` are the user-facing description.
 
 ## The boundary: KDE Connect is the source of truth
 
@@ -23,7 +23,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 - **A feature KDE Connect does not offer is not faked.** Ongoing notifications
   never leave the phone; messages cannot be marked read on the phone; RCS is
-  not in the SMS store. Say so in the UI or the README instead.
+  not in the SMS store. Say so in the UI or the docs
+  (`docs/troubleshooting.md`) instead.
 - **A KDE Connect fault is fixed at its source, not worked around.** When
   the panel shows what KDE Connect reports and KDE Connect is suspected,
   file two issues here (`diagnose-panel`, step 5): a KDE Connect issue
@@ -207,13 +208,16 @@ Keep them; change one only with the owner.
   into `main`, only while `main` is not frozen (*Releasing*, step 5);
   afterwards merge `main` into `develop`.
 - **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
-  and the README's process notes give steps, conditions and rules in the
+  and `docs/internals/` give steps, conditions and rules in the
   present tense; the reason for a rule is a present-tense consequence. How
   something came about goes in commit messages and `CHANGELOG.md`.
-- **The README has three parts, in this order:** for users (what it does,
-  screenshots, keyboard, what KDE Connect cannot do), getting started
-  (requirements, setup, install, update, remove), under the hood (how it
-  works, development). Nothing technical above getting started.
+- **Docs are for users first, and short.** The README is one screen: what
+  it does, the picture, the main keys, privacy, then links to the user guide
+  and the internals. User pages (`docs/`) are screenshot-first (demo data
+  only), with little text, a breadcrumb back to the README on each page, and
+  no history. Anything technical goes in `docs/internals/`, linked from the
+  README's last section. Cut words before adding them: a page that grows
+  past about 250 words is split or trimmed.
 
 ## Releasing
 
