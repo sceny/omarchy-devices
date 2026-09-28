@@ -23,20 +23,34 @@ Item {
   implicitWidth: size
   implicitHeight: size
 
+  // The handset as drawn (the glyph's ink, not its text box), so the waves
+  // centre on the handset itself.
+  TextMetrics {
+    id: ink
+    font: handset.font
+    text: handset.text
+  }
+  readonly property real handsetSize: size * 0.78
+  readonly property real centerX: handset.x + ink.tightBoundingRect.x + ink.tightBoundingRect.width / 2
+  readonly property real centerY: handset.y + handset.baselineOffset + ink.tightBoundingRect.y + ink.tightBoundingRect.height / 2
+
   Text {
     id: handset
     textFormat: Text.PlainText
     text: Model.GLYPH.callBack
     color: root.color
     font.family: root.fontFamily
-    font.pixelSize: root.size * 0.78
-    // Low and to the left, leaving the top right corner to the waves.
-    x: 0
-    y: root.size - height * 0.95
-    transformOrigin: Item.Center
+    font.pixelSize: root.handsetSize
+    // Left, its ink centred on the icon's middle line; the waves take the
+    // space up and to its right.
+    x: -ink.tightBoundingRect.x
+    y: root.size / 2 - baselineOffset - ink.tightBoundingRect.y - ink.tightBoundingRect.height / 2
+    // Rocks about its own middle.
+    transform: Rotation { id: rock; origin.x: root.centerX - handset.x; origin.y: root.centerY - handset.y }
   }
 
-  // The waves: quarter arcs around the handset's earpiece corner, inside out.
+  // The waves: arcs centred on the handset's middle, opening up and to the
+  // right (around -45°, where the handset leaves its corner empty).
   component Wave: Shape {
     property int ring: 0
     anchors.fill: parent
@@ -48,12 +62,12 @@ Item {
       fillColor: "transparent"
       capStyle: ShapePath.RoundCap
       PathAngleArc {
-        centerX: root.size * 0.42
-        centerY: root.size * 0.58
-        radiusX: root.size * (0.30 + 0.15 * ring)
+        centerX: root.centerX
+        centerY: root.centerY
+        radiusX: root.handsetSize * (0.40 + 0.17 * ring)
         radiusY: radiusX
-        startAngle: -80
-        sweepAngle: 70
+        startAngle: -45 - 32
+        sweepAngle: 64
       }
     }
   }
@@ -89,10 +103,10 @@ Item {
           NumberAnimation { target: wave2; property: "opacity"; to: Model.RING_BEAT.restWave; duration: root.fadeMs; easing.type: Easing.OutCubic }
         }
         SequentialAnimation {
-          NumberAnimation { target: handset; property: "rotation"; to: -Model.RING_BEAT.angle; duration: root.waveMs; easing.type: Easing.OutCubic }
-          NumberAnimation { target: handset; property: "rotation"; to: Model.RING_BEAT.angle; duration: root.waveMs; easing.type: Easing.OutCubic }
-          NumberAnimation { target: handset; property: "rotation"; to: -Model.RING_BEAT.angle / 2; duration: root.waveMs; easing.type: Easing.OutCubic }
-          NumberAnimation { target: handset; property: "rotation"; to: 0; duration: root.fadeMs; easing.type: Easing.OutCubic }
+          NumberAnimation { target: rock; property: "angle"; to: -Model.RING_BEAT.angle; duration: root.waveMs; easing.type: Easing.OutCubic }
+          NumberAnimation { target: rock; property: "angle"; to: Model.RING_BEAT.angle; duration: root.waveMs; easing.type: Easing.OutCubic }
+          NumberAnimation { target: rock; property: "angle"; to: -Model.RING_BEAT.angle / 2; duration: root.waveMs; easing.type: Easing.OutCubic }
+          NumberAnimation { target: rock; property: "angle"; to: 0; duration: root.fadeMs; easing.type: Easing.OutCubic }
         }
       }
       PauseAnimation { duration: Model.RING_BEAT.gapMs * root.motion }
@@ -101,7 +115,7 @@ Item {
   }
 
   function settle() {
-    handset.rotation = 0
+    rock.angle = 0
     wave0.opacity = wave1.opacity = wave2.opacity = Model.RING_BEAT.restWave
   }
 }

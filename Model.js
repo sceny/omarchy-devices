@@ -516,12 +516,14 @@ function callState(device, nowMs, closedAt) {
   var at = Number(c.at) || 0
   if (closedAt && at <= closedAt) return null
   var age = nowMs - at
-  if (c.event === "ringing" && age > RING_MS) return null
+  var hold = c.hold === true
+  // A demo call (`hold`) rings until closed, so the ring can be watched.
+  if (c.event === "ringing" && age > RING_MS && !hold) return null
   if (c.event === "missed" && age > MISSED_MS) return null
   var number = String(c.number || "").trim()
   var name = String(c.name || "").trim()
   return {
-    state: c.event, at: at, number: number,
+    state: c.event, at: at, number: number, hold: hold,
     who: name || (number ? formatNumber(number) : "Unknown number"),
     // The number under the name, when there is a name to put it under.
     detail: name && number ? formatNumber(number) : ""
@@ -537,14 +539,15 @@ function callHeading(call) {
 // How long until the call's state can change on its own (ringing runs out,
 // missed expires), for the timer that re-reads it; -1 when nothing will.
 function callExpiresIn(call, nowMs) {
-  if (!call) return -1
+  if (!call || (call.hold && call.state === "ringing")) return -1
   return Math.max(0, call.at + (call.state === "ringing" ? RING_MS : MISSED_MS) - nowMs)
 }
 
-// A made-up call for demo mode: a fictional name and a 555 number.
+// A made-up call for demo mode: a fictional name and a 555 number. It rings
+// until closed (`hold`), so the ring can be watched at its own speed.
 function demoCall(kind, nowMs) {
   if (kind !== "ringing" && kind !== "missed") return null
-  return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0) }
+  return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0), hold: true }
 }
 
 // Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
