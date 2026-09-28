@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "sceny.devices",
   "name": "Devices",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "author": "sceny",
   "license": "MIT",
   "description": "Your phones and tablets in the Omarchy bar through KDE Connect: battery, shortcuts, a media carousel with seek and volume, notifications with reply and dismiss, and a full text-message view.",

@@ -12,7 +12,7 @@ A plugin for the Omarchy shell (Quickshell/QML), id `sceny.devices`: a bar
 widget and a panel over the phones and tablets paired with
 [KDE Connect](https://kdeconnect.kde.org/). Battery in the bar; in the panel,
 shortcuts, the device's media players, its notifications, and a full
-text-message view. The README is the user-facing description.
+text-message view. The README and `docs/` are the user-facing description.
 
 ## The boundary: KDE Connect is the source of truth
 
@@ -23,7 +23,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 - **A feature KDE Connect does not offer is not faked.** Ongoing notifications
   never leave the phone; messages cannot be marked read on the phone; RCS is
-  not in the SMS store. Say so in the UI or the README instead.
+  not in the SMS store. Say so in the UI or the docs
+  (`docs/troubleshooting.md`) instead.
 - **A KDE Connect fault is fixed at its source, not worked around.** When
   the panel shows what KDE Connect reports and KDE Connect is suspected,
   file two issues here (`diagnose-panel`, step 5): a KDE Connect issue
@@ -170,7 +171,10 @@ Keep them; change one only with the owner.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
   green, the change checked in a running shell (check the branch out in the
-  installed clone), squash-merge, delete the branch.
+  installed clone), squash-merge, delete the branch. `Closes #n` in a pull
+  request into `develop` closes nothing (GitHub acts on it only for the
+  default branch): close the issue by hand after the merge, with a comment
+  naming the pull request.
 - **Without a running Omarchy shell** (a cloud session, a machine without
   Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
   request that the change is not checked in a running shell, and leave the
@@ -204,17 +208,29 @@ Keep them; change one only with the owner.
   into `main`, only while `main` is not frozen (*Releasing*, step 5);
   afterwards merge `main` into `develop`.
 - **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
-  and the README's process notes give steps, conditions and rules in the
+  and `docs/internals/` give steps, conditions and rules in the
   present tense; the reason for a rule is a present-tense consequence. How
   something came about goes in commit messages and `CHANGELOG.md`.
-- **The README has three parts, in this order:** for users (what it does,
-  screenshots, keyboard, what KDE Connect cannot do), getting started
-  (requirements, setup, install, update, remove), under the hood (how it
-  works, development). Nothing technical above getting started.
+- **Docs are for users first, and short.** The README is one screen: what
+  it does, the picture, the main keys, privacy, then links to the user guide
+  and the internals. User pages (`docs/`) are screenshot-first (demo data
+  only), with little text, a breadcrumb back to the README on each page, and
+  no history. Anything technical goes in `docs/internals/`, linked from the
+  README's last section. Cut words before adding them: a page that grows
+  past about 250 words is split or trimmed.
 
 ## Releasing
 
-1. **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
+When the owner says to release, run every step below to the end without
+stopping to ask: the owner approved the whole process, the marketplace
+request included. Stop only when a check fails or the freeze check finds
+`main` frozen, and report that.
+
+0. **Check the freeze** (*Workflow*). A marketplace issue still open means
+   `main` is frozen: say so and release nothing.
+1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
+   alone raise Z (`0.6.0` → `0.6.1`).
+   **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
    `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the
    entries by area (Bar, Panel, Messages, Fixed), and add an *Upgrading*
    group when a setting or a default changes. Set `"version": "X.Y.Z"` in
@@ -237,10 +253,12 @@ Keep them; change one only with the owner.
    git fetch origin && git switch develop && git merge --ff-only origin/main && git push
    ```
 
-4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`),
-   by hand, not from CI: every update needs a maintainer's approval anyway,
-   and the request carries the owner's acknowledgment. Show the owner the
-   exact title and body and file it only on their explicit approval.
+4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`)
+   as soon as the release is published, with the text below as it stands:
+   the owner approved it for every release. It is filed from a session,
+   not from CI (CI cannot open issues in another repository). The
+   *Standard installation* box stays unticked: Devices needs KDE Connect
+   set up separately, which is why the marketplace lists it `manual-setup`.
    - Not listed yet: the plugin submission issue form (the marketplace's
      `SUBMISSION.md`).
    - Listed: the *Verify and publish a newer upstream commit* form, with the
@@ -287,6 +305,9 @@ Keep them; change one only with the owner.
 
    Status notes (bot reports matched, the maintainer's requests) go on that
    issue as comments, never into commits.
+
+   Then report to the owner: the release link, the marketplace issue, the
+   tracking issue, and that `main` is frozen.
 5. **Freeze `main` while the marketplace issue is open** (the check is in
    *Workflow*). The marketplace checks, reviews and publishes one exact
    commit, and refuses to publish when `main` moved after its checks. Merge
