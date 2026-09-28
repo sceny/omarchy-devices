@@ -170,13 +170,14 @@ Column {
       }
   }
 
-  // ---- Defaults for all devices (the list's page) ----
+  // ---- Defaults for all devices (the list's page); on a device's page,
+  //      its sections and shortcuts, edited on the page itself ----
   Repeater {
     model: root.rows
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "defaults"
+      visible: modelData.kind === "defaults" || modelData.kind === "editPage"
       width: root.width
       row: modelData
       rowIndex: index
@@ -632,7 +633,7 @@ Column {
       }
 
       Text {
-        visible: listRow.row.kind === "device" || listRow.row.kind === "defaults"
+        visible: listRow.row.kind === "device" || listRow.row.kind === "defaults" || listRow.row.kind === "editPage"
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily

@@ -242,7 +242,7 @@ Panel {
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
-  readonly property var editing: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
   readonly property var settingsRows: Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -368,6 +368,42 @@ Panel {
   // it is sent, like a message draft; the composer itself opens closed.
   property bool composing: false
   property bool composerFocused: false
+
+  // ---- Editing the page in place (docs/design/multi-device.md) ----
+  // The viewed device's page edits itself: each section becomes a bar with
+  // a grip and its switch, every shortcut shows (drag the chosen ones,
+  // click to add or take away), and Done ends it. Changes go to the viewed
+  // device's profile (with one device, the flat keys). Fresh on every open.
+  property bool editing: false
+  function startEditing() {
+    if (!showMain) { settingsOpen = false; messagesOpen = false }
+    composing = false
+    composerFocused = false
+    replyingTo = ""
+    editing = true
+    cursorActive = false
+    if (panelFlick) panelFlick.contentY = 0
+  }
+  function stopEditing() { editing = false; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
+  function toggleEditing() { if (editing) stopEditing(); else startEditing() }
+
+  // Right-click on the main page: a small menu (Edit page, Settings), as a
+  // right-click on the Plasma desktop offers Enter Edit Mode. `menuAt` is
+  // where it opens, in the panel's coordinates.
+  property bool pageMenuOpen: false
+  property point menuAt: Qt.point(0, 0)
+  function openPageMenu(x, y) { menuAt = Qt.point(x, y); pageMenuOpen = true }
+  function closePageMenu() { pageMenuOpen = false }
+  // A section's Layout switch, from the page.
+  function sectionFlag(key) { var l = Model.layoutBySection(key); return l ? l.key : "" }
+  function toggleSectionShown(key) {
+    var flag = sectionFlag(key)
+    if (flag === "") return
+    var values = {}
+    values[flag] = !profile[flag]
+    persistProfile(values)
+  }
+  function toggleShortcutOnPage(key) { persistProfile({ shortcuts: Model.toggleShortcut(shortcutOrder, key) }) }
 
   // One cursor for keyboard and mouse, as in the stock panels.
   property bool cursorActive: false
@@ -501,6 +537,7 @@ Panel {
   }
   function applyDevice() {
     if (!phone || pendingDevice === "") return
+    editing = false
     phone.view(pendingDevice)
     pendingDevice = ""
     browsedName = ""
@@ -543,6 +580,8 @@ Panel {
   // The sections drawn under the header, in the chosen order: switched on
   // in Layout and with something in them, while the device is here.
   readonly property var drawnSections: {
+    // Editing: every section, on or off, with something in it or not.
+    if (editing) return Model.visibleSections(sectionOrder)
     var s = []
     for (var i = 0; i < sectionOrder.length; i++) {
       var key = sectionOrder[i]
@@ -667,6 +706,7 @@ Panel {
     else if (row.kind === "barPlace") cycleBarPlace()
     else if (row.kind === "showInPanel") setIdentity({ showInPanel: !scopeProfile.showInPanel })
     else if (row.kind === "resetGroup") resetGroup(row.key)
+    else if (row.kind === "editPage") { if (editingDevice && scopeDevice) phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
   }
@@ -681,6 +721,7 @@ Panel {
     replyFocused = false
     composing = false
     composerFocused = false
+    editing = false
     settingsOpen = false
     messagesOpen = true
     if (sms) {
@@ -753,6 +794,7 @@ Panel {
   }
 
   function openSettings() {
+    editing = false
     messagesOpen = false
     replyingTo = ""
     replyFocused = false
@@ -907,6 +949,8 @@ Panel {
 
   function activateCursor() {
     ensureCursor()
+    // Editing: Enter shows or hides the section under the cursor.
+    if (editing) { toggleSectionShown(focusSection); return }
     // A folded section opens on Enter; its content is not there to act on.
     if ((focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
@@ -945,6 +989,8 @@ Panel {
   }
 
   function onOpened() {
+    editing = false
+    pageMenuOpen = false
     // The device asked for (a chip, IPC), else the first connected one.
     if (phone) phone.viewOnOpen()
     deviceSwap.stop()
@@ -1066,6 +1112,19 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
+    // Checks while editing, as a click or a drag would: a section's switch, a
+    // shortcut added or taken away, a section or a chosen tile moved (glide).
+    // The right-click menu, opened as a right-click at x, y would.
+    function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
+    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
+    function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
+    function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
+    function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
+    // Edit the page in place, and again to finish; what editing shows.
+    function edit(): string {
+      root.toggleEditing()
+      return JSON.stringify({ editing: root.editing, sections: root.drawnSections, shortcuts: root.shortcutOrder })
+    }
     // Checks: a settings row pressed as a click would; a nickname entered as
     // Enter in its field would; an icon picked (hex, "" for its kind).
     function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
@@ -1168,6 +1227,7 @@ Panel {
     function status(): string {
       return JSON.stringify({
         opened: root.opened,
+        editing: root.editing,
         daemon: root.phone ? root.phone.daemon : false,
         device: root.device ? root.device.name : null,
         reachable: root.reachable,
@@ -1241,7 +1301,9 @@ Panel {
         }
       }
       onCloseRequested: {
-        if (root.messagesOpen) root.closeMessagesView()
+        if (root.pageMenuOpen) root.closePageMenu()
+        else if (root.editing) root.stopEditing()
+        else if (root.messagesOpen) root.closeMessagesView()
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
       }
@@ -1280,6 +1342,13 @@ Panel {
           return
         }
         if (t === "s") { root.openSettings(); return }
+        // E: edit this page in place, and again to finish.
+        if (t === "E") { root.toggleEditing(); return }
+        // Editing: Shift+K / Shift+J move the section under the cursor.
+        if (root.editing && (t === "K" || t === "J") && root.cursorActive) {
+          sectionMove.step(root.drawnSections.indexOf(root.focusSection), t === "K" ? -1 : 1)
+          return
+        }
         // Tabs (with two or more devices): 1-9, and Shift+H / Shift+L.
         if (root.manyDevices && t >= "1" && t <= "9") { root.tabAt(Number(t) - 1); return }
         if (root.manyDevices && (t === "H" || t === "L")) { root.tabStep(t === "H" ? -1 : 1); return }
@@ -1301,6 +1370,55 @@ Panel {
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
           root.openReply(root.notifications[root.notifIndex])
+      }
+
+      // ---- The page menu (right-click): Edit page, Settings ----
+      MouseArea {
+        anchors.fill: parent
+        z: 20
+        visible: root.pageMenuOpen
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
+        onPressed: root.closePageMenu()
+      }
+      BorderSurface {
+        id: pageMenu
+        z: 21
+        visible: root.pageMenuOpen
+        x: Math.min(root.menuAt.x, parent.width - width - Style.space(6))
+        y: Math.min(root.menuAt.y, parent.height - height - Style.space(6))
+        width: menuColumn.implicitWidth + Style.space(8)
+        height: menuColumn.implicitHeight + Style.space(8)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+        Column {
+          id: menuColumn
+          anchors.centerIn: parent
+          // As wide as its widest entry (the entries fill it).
+          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth)
+          Button {
+            id: menuEdit
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.edit
+            text: "Edit page"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.startEditing() }
+          }
+          Button {
+            id: menuSettings
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.settings
+            text: "Settings"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+        }
       }
 
       BorderSurface {
@@ -1354,6 +1472,18 @@ Panel {
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
+        // Right-click anywhere on the main page opens its menu; other buttons
+        // pass through to the page.
+        MouseArea {
+          x: column.x
+          width: column.width
+          height: column.height
+          z: 50
+          enabled: root.showMain && !root.editing
+          acceptedButtons: Qt.RightButton
+          onClicked: function(m) { var p = mapToItem(keyCatcher, m.x, m.y); root.openPageMenu(p.x, p.y) }
+        }
+
         Column {
           id: column
           // Inside the page margins (pageGutter), on every page.
@@ -1653,6 +1783,8 @@ Panel {
           PanelHero {
             id: hero
             width: parent.width
+            // The pointer on the header reveals ✎ (edit this page).
+            HoverHandler { id: heroHover }
             // Nickname, then the full name when they differ.
             title: {
               if (!root.heroDevice) return "Devices"
@@ -1675,19 +1807,36 @@ Panel {
                 font.pixelSize: Style.font.display
               }
             }
-            // The gear, only while there is no tab row to carry it; the
-            // back arrow on the other pages.
+            // Edit this page (✎, then ✓ Done), and the gear (only while there
+            // is no tab row to carry it) or the back arrow on other pages.
             trailingControl: Component {
-              PanelActionButton {
-                visible: !(root.showMain && root.manyDevices)
-                iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                tooltipText: root.showMain ? "Settings" : "Back"
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-                onClicked: {
-                  if (root.messagesOpen) root.closeMessagesView()
-                  else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
-                  else root.openSettings()
+              Row {
+                spacing: Style.space(2)
+                // ✎ shows only while the pointer is on the header (or while
+                // editing, as ✓): no noise at rest. It keeps its room either
+                // way, so the gear beside it never moves.
+                PanelActionButton {
+                  visible: root.showMain && !!root.device
+                  opacity: root.editing || heroHover.hovered ? 1 : 0
+                  enabled: opacity > 0.5
+                  Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+                  iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
+                  tooltipText: root.editing ? "Done" : "Edit this page"
+                  foreground: root.editing ? Color.accent : root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.toggleEditing()
+                }
+                PanelActionButton {
+                  visible: !(root.showMain && root.manyDevices)
+                  iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
+                  tooltipText: root.showMain ? "Settings" : "Back"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: {
+                    if (root.messagesOpen) root.closeMessagesView()
+                    else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+                    else root.openSettings()
+                  }
                 }
               }
             }
@@ -1727,6 +1876,19 @@ Panel {
                 }
                 visible: root.showMain && root.drawnSections.length > 0
                 width: parent.width
+
+                // Editing: the sections' order, moved by their grips (Reorder).
+                Reorder {
+                  id: sectionMove
+                  count: root.editing ? root.drawnSections.length : 0
+                  gap: sectionsBox.gap
+                  motion: root.motion
+                  extentOf: function(i) { var k = root.drawnSections[i]; return sectionsBox.items[k] ? sectionsBox.items[k].height : 0 }
+                  onMoved: function(a, b) {
+                    var key = root.drawnSections[a]
+                    root.persistProfile({ sectionOrder: Model.moveShortcut(Model.visibleSections(root.sectionOrder), key, b - a) })
+                  }
+                }
                 height: {
                   var h = 0
                   for (var i = 0; i < root.drawnSections.length; i++) h += items[root.drawnSections[i]].height + (i > 0 ? gap : 0)
@@ -1739,13 +1901,18 @@ Panel {
                 Column {
                   id: actionsColumn
                   y: sectionsBox.topOf("actions")
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("actions") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("actions") ? 10 : 0
                   visible: root.showMain && root.drawnSections.indexOf("actions") >= 0
                   width: parent.width
                   spacing: Style.space(8)
 
                   PanelSeparator { visible: root.separatedAbove("actions"); foreground: root.foreground }
 
+                  EditBar { section: "actions"; item: actionsColumn }
+
                   RowLayout {
+                    visible: !root.editing
                     width: parent.width
                     spacing: Style.space(4)
 
@@ -1787,7 +1954,7 @@ Panel {
                   FoldBody {
                     motion: root.motion
                     animate: root.settled
-                    open: !root.isCollapsed("actions")
+                    open: !root.isCollapsed("actions") && !root.editing
 
                     Grid {
                       id: actionGrid
@@ -1803,6 +1970,44 @@ Panel {
                           width: (actionGrid.width - actionGrid.spacing * (root.actionColumns - 1)) / root.actionColumns
                           action: modelData
                           tileIndex: index
+                        }
+                      }
+                    }
+                  }
+
+                  // ---- Editing: every shortcut; drag the chosen ones, click to
+                  //      add or take one away ----
+                  FoldBody {
+                    motion: root.motion
+                    animate: root.settled
+                    open: root.editing
+
+                    Grid {
+                      id: editGrid
+                      width: parent.width
+                      columns: 4
+                      spacing: Style.space(8)
+                      readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+
+                      Reorder {
+                        id: tileMove
+                        columns: editGrid.columns
+                        cellWidth: editGrid.cellWidth
+                        cellHeight: editGrid.children.length > 1 ? editGrid.children[1].height : 0
+                        gap: editGrid.spacing
+                        count: root.shortcutOrder.length
+                        motion: root.motion
+                        onMoved: function(a, b) {
+                          root.persistProfile({ shortcuts: Model.moveShortcut(root.shortcutOrder, root.shortcutOrder[a], b - a) })
+                        }
+                      }
+
+                      Repeater {
+                        model: root.editing ? Model.editShortcutTiles(root.shortcutOrder, root.can) : []
+                        EditTile {
+                          required property var modelData
+                          width: editGrid.cellWidth
+                          tile: modelData
                         }
                       }
                     }
@@ -1874,13 +2079,18 @@ Panel {
                 Column {
                   id: mediaColumn
                   y: sectionsBox.topOf("media")
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("media") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("media") ? 10 : 0
                   visible: root.showMain && root.drawnSections.indexOf("media") >= 0
                   width: parent.width
                   spacing: Style.space(8)
 
                   PanelSeparator { visible: root.separatedAbove("media"); foreground: root.foreground }
 
+                  EditBar { section: "media"; item: mediaColumn }
+
                   RowLayout {
+                    visible: !root.editing
                     width: parent.width
                     spacing: Style.space(4)
 
@@ -1977,7 +2187,7 @@ Panel {
                     motion: root.motion
 
                     animate: root.settled
-                    open: !root.isCollapsed("media")
+                    open: !root.isCollapsed("media") && !root.editing
                     spacing: Style.space(8)
 
                     // One card wide; the strip of all cards slides behind it.
@@ -2073,13 +2283,18 @@ Panel {
                 Column {
                   id: notificationsColumn
                   y: sectionsBox.topOf("notifications")
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("notifications") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("notifications") ? 10 : 0
                   visible: root.showMain && root.drawnSections.indexOf("notifications") >= 0
                   width: parent.width
                   spacing: Style.space(8)
 
                   PanelSeparator { visible: root.separatedAbove("notifications"); foreground: root.foreground }
 
+                  EditBar { section: "notifications"; item: notificationsColumn }
+
                   FoldToggle {
+                    visible: !root.editing
 
                     foreground: root.foreground
 
@@ -2100,7 +2315,7 @@ Panel {
                     motion: root.motion
 
                     animate: root.settled
-                    open: !root.isCollapsed("notifications")
+                    open: !root.isCollapsed("notifications") && !root.editing
                     spacing: Style.space(8)
 
                     Column {
@@ -2184,15 +2399,15 @@ Panel {
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 // The groups show what the page edits: a device's own
                 // profile on its page, else the defaults.
-                shortcutsShown: root.editing.showShortcuts
+                shortcutsShown: root.editedProfile.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.editing.showShortcuts, showMedia: root.editing.showMedia, showNotifications: root.editing.showNotifications })
-                order: root.editing.shortcuts
-                sectionOrder: root.editing.sectionOrder
-                barIndicators: root.editing.barIndicators
-                batteryLowOnly: root.editing.batteryLowOnly
+                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications })
+                order: root.editedProfile.shortcuts
+                sectionOrder: root.editedProfile.sectionOrder
+                barIndicators: root.editedProfile.barIndicators
+                batteryLowOnly: root.editedProfile.batteryLowOnly
                 scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
-                custom: root.editingDevice ? root.editing.custom : ({})
+                custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
@@ -2229,6 +2444,155 @@ Panel {
           }
         }
       }
+    }
+  }
+
+  // Editing: a section as one bar, its grip, its name and what it holds
+  // now (or when it would show), and its switch. Dimmed while switched off.
+  component EditBar: FoldBody {
+    id: editBar
+    property string section: ""
+    property Item item: null
+    readonly property int place: root.drawnSections.indexOf(section)
+    readonly property string flag: root.sectionFlag(section)
+    readonly property bool on: flag !== "" && root.profile[flag] === true
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : "NOTIFICATIONS")
+    readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
+      : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
+      : (root.notifications.length > 0 ? Model.notificationsSummary(root.notifications) : "")
+    open: root.editing
+    motion: root.motion
+    animate: root.settled
+
+    CursorSurface {
+      width: parent.width
+      implicitHeight: barRow.implicitHeight + Style.space(12)
+      hasCursor: root.cursorActive && root.focusSection === editBar.section
+      foreground: root.foreground
+      // Solid while it moves, so what it passes over never shows through.
+      color: sectionMove.from >= 0 && sectionMove.from === editBar.place ? Qt.tint(root.bar ? root.bar.background : Color.background, fill)
+        : (hasCursor ? fill : "transparent")
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: { root.cursorActive = true; root.focusSection = editBar.section }
+        onClicked: root.toggleSectionShown(editBar.section)
+      }
+
+      RowLayout {
+        id: barRow
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(8)
+        anchors.rightMargin: Style.space(8)
+        spacing: Style.space(10)
+
+        ReorderGrip {
+          order: sectionMove
+          index: editBar.place
+          item: editBar.item
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+        ColumnLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(1)
+          opacity: editBar.on ? 1 : 0.5
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            text: editBar.title
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          Text {
+            textFormat: Text.PlainText
+            Layout.fillWidth: true
+            text: !editBar.on ? "Hidden" : (editBar.now !== "" ? editBar.now.replace(/\s+/g, " ") : (Model.SECTION_EMPTY[editBar.section] || ""))
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+            elide: Text.ElideRight
+          }
+        }
+        ToggleSwitch {
+          Layout.alignment: Qt.AlignVCenter
+          checked: editBar.on
+          cursorRing: false
+          foreground: root.foreground
+          onToggled: root.toggleSectionShown(editBar.section)
+        }
+      }
+    }
+  }
+
+  // Editing: a shortcut tile. A chosen one (a − on its corner) drags to
+  // another place and a click takes it away; the others (dimmed, a +) are
+  // added with a click.
+  component EditTile: BorderSurface {
+    id: editTile
+    property var tile: ({})
+    readonly property bool moving: tileMove.from >= 0 && tile.chosen === true && tileMove.from === tile.pos
+    implicitHeight: editColumn.implicitHeight + Style.space(18)
+    radius: Style.cornerRadius
+    borderSpec: Border.controlSpec(tileMouse.containsMouse || moving ? "hover-cursor" : "normal", root.foreground, Color.accent)
+    color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+      : (tileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+    opacity: tile.chosen === true ? 1 : 0.45
+    transform: ReorderShift { order: tileMove; index: editTile.tile.chosen === true ? editTile.tile.pos : -1 }
+    z: moving ? 10 : 0
+
+    Column {
+      id: editColumn
+      anchors.centerIn: parent
+      spacing: Style.space(4)
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: editTile.tile.glyph || ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.heading + 2
+      }
+      Text {
+        textFormat: Text.PlainText
+        anchors.horizontalCenter: parent.horizontalCenter
+        text: editTile.tile.label || ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+    Text {
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.margins: Style.space(3)
+      text: editTile.tile.chosen === true ? Model.GLYPH.remove : Model.GLYPH.add
+      color: editTile.tile.chosen === true ? root.foreground : Color.accent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+    }
+
+    MouseArea {
+      id: tileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: editTile.tile.chosen === true ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor
+      onClicked: root.toggleShortcutOnPage(editTile.tile.key)
+    }
+    DragHandler {
+      target: null
+      enabled: editTile.tile.chosen === true
+      grabPermissions: PointerHandler.CanTakeOverFromAnything
+      onActiveChanged: {
+        if (active) tileMove.begin(editTile.tile.pos, editTile.width)
+        else if (tileMove.from === editTile.tile.pos) tileMove.release()
+      }
+      onTranslationChanged: if (active) tileMove.dragBy(translation.x, translation.y)
     }
   }
 

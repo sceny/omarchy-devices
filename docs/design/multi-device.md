@@ -440,6 +440,26 @@ A device's row opens its page:
 - **Used wherever the device appears:** tab, chip, cards, toasts, the OSD,
   Settings (with the full name beside it), tooltips.
 
+### 8.4 Editing a device's page in place *(Decided)*
+
+A device's sections and shortcuts are edited on its own page, not in
+Settings: ✎ on the device's header turns the page into its editor. ✎ shows
+only while the pointer is on that header, so the page has no chrome at rest;
+a right-click on the page (KDE's *Enter Edit Mode* idiom) and `E` open it
+too.
+
+- Each section becomes a bar: its grip, its name, what it holds now (or
+  when it would show), and its switch. Every section shows while editing,
+  on or off, with something in it or not.
+- Every shortcut shows: the chosen ones in order, with a −, dragged within
+  the grid; the others dimmed, with a +. A click adds or takes one away.
+- Moves glide like every order (`Reorder`, in a grid for the tiles).
+- ✓ Done, `E` or Esc ends it; it is off on every open and on changing
+  device. Changes go to the viewed device's profile.
+- Settings keeps what has no place on the page: a device's page shows
+  *Sections and shortcuts ›*, which opens this editor. *Defaults for all
+  devices* keeps the sections and shortcuts, having no page of its own.
+
 ## 9. Starting points by device kind *(Open; later)*
 
 A new device's defaults can depend on its kind (phone: calls and messages;

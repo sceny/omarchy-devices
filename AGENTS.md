@@ -155,9 +155,19 @@ Keep them; change one only with the owner.
   (`sectionsBox`), so a new order keeps the media cards and a half-typed
   text. `stackBefore`/`stackAfter` are not callable from QML; do not reach
   for them. A separator goes between sections, never under the header.
-- **A section shows when its Layout switch is on and it has something:**
-  Now playing while a player exists, Notifications while there are any (no
-  empty state). There is no Devices section: tabs switch devices, the
+- **A section shows when its switch is on and it has something:** Now
+  playing while a player exists, Notifications while there are any (no
+  empty state).
+- **A device's page is edited in place** (✎, shown only while the pointer
+  is on the device's header so the page has no chrome at rest; a
+  right-click on the page, KDE's *Enter Edit Mode* idiom; or `E`): every
+  section becomes a bar with its grip and switch, every shortcut shows
+  (drag the chosen ones, click to add or take away), and ✓ Done, `E` or
+  Esc ends it. It edits the viewed device's profile (with one device, the
+  flat keys), and is off on every open. Settings keeps only what has no
+  place on the page (nickname, icon, place in the bar, the device list);
+  *Defaults for all devices* keeps the sections and shortcuts, since the
+  defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
 - **Each device's settings are its own** (`docs/design/multi-device.md`):

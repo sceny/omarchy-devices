@@ -5,18 +5,19 @@
 ![The panel: shortcuts, Now playing and notifications (demo data)](images/panel.png)
 
 - **Notifications:** reply, dismiss, and the app's own buttons where KDE
-  Connect passes them on. A chat shows the latest message folded, the whole
-  conversation on *Show all*. A text-message notification opens its
-  conversation.
+  Connect passes them on. A chat shows its latest message; *Show all* the
+  rest.
 - **Now playing:** the active player first; the others are a swipe, `h`/`l`
   or the arrows away.
 - **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
   Play/Pause, KDE Connect. *Send text* puts text on the phone's clipboard
   and opens a link there; Ctrl+Enter sends it as a ping.
-- **Several devices:** a tab each at the top, and a chip each in the bar
-  (the first always, the others when they have news). A device asking to
-  pair shows a card with Accept and Reject. Pair, order and unpair them in
-  [Settings](settings.md).
+- **Several devices:** a tab each, and a chip each in the bar (the first
+  always, the others with news). A device asking to pair shows a card.
+  Pair, order and unpair in [Settings](settings.md).
+- **Edit the page** (✎ on hovering the device's name, right-click the
+  page, or `E`): drag or switch off sections; drag, add or take away
+  shortcuts. ✓ when done. Each device keeps its own.
 - A click that goes to the phone turns into a small ring until the phone
   answers.
 
@@ -29,5 +30,5 @@
 | Enter | Activate; play/pause on the player |
 | `[` `]` · `,` `.` · `-` `=` | Skip track · seek 10 s · volume |
 | `r` · `x` · `e` | Reply · dismiss · show all |
-| `s` | Settings |
+| `s` · `E` | Settings · edit this page |
 | Esc | Back, then close |
