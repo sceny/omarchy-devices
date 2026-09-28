@@ -1050,6 +1050,12 @@ Panel {
     function pressSetting(index: int): string { root.activateSetting(index); return root.settingsInfo() }
     function nickname(text: string): string { settingsView.nicknameSet(text); return root.settingsInfo() }
     function pickIcon(code: string): string { settingsView.iconSet(code); return root.settingsInfo() }
+    function moveDevice(key: string, delta: int): string {
+      var d = root.phone ? root.phone.findDevice(key) : null
+      if (!d) return "no device " + key
+      root.moveDevice(String(d.id), delta)
+      return JSON.stringify(root.pairedDevices.map(function(x) { return x.id }))
+    }
     function tabs(): string {
       var list = root.phone ? root.phone.ordered : []
       return JSON.stringify({ shown: root.manyDevices, viewed: root.device ? root.device.id : "",
