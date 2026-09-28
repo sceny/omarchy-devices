@@ -28,6 +28,13 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   *Defaults for all devices* sets the rest. Unpair is on the device's page.
 - The Devices section is gone from the main page: tabs, the pairing card
   and Settings do its work.
+- Drag to reorder: every order has a grip to drag by (devices, sections,
+  bar indicators, shortcuts), and the tabs can be dragged sideways. The
+  arrows and Shift+K / Shift+J still work.
+
+### Fixed
+- Moving the first section up in Layout did nothing: it swapped with the
+  hidden Devices section.
 
 ## 0.6.1 — 2026-09-28
 
