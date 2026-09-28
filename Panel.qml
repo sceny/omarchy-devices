@@ -1326,9 +1326,10 @@ Panel {
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
         // Room for the scroll bar: while the page is taller than the panel,
-        // it is laid out narrower by the bar and a gap, so nothing sits
-        // under the bar.
-        readonly property real gutter: contentHeight > height ? pageScrollBar.implicitWidth + Style.space(6) : 0
+        // it is laid out narrower by the bar (about 7 px drawn at the right
+        // edge; its implicit width counts padding it does not draw) and a
+        // gap, so nothing sits under the bar.
+        readonly property real gutter: contentHeight > height ? Style.space(14) : 0
 
         Column {
           id: column
