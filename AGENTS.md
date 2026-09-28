@@ -50,6 +50,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
+| `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
 
 ## Rules: what the owner decided, so nobody undoes it
@@ -136,6 +137,12 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
+- **Orders move with a glide, never a jump.** Every order (devices,
+  sections, bar indicators, shortcuts, tabs) moves through `Reorder`:
+  while an item moves, the others slide aside to show where it lands; it
+  glides in at `Model.MOTION`, and only then is the order written. A drag,
+  the arrows and Shift+K / Shift+J all look the same. A new order uses
+  these components, not a copy.
 - **Sections fold with an animation, never a jump:** content grows or
   shrinks (`FoldBody`), the chevron turns, the one-line summary fades, all
   at `Model.MOTION`. Folded Now playing keeps the cover and a play button;

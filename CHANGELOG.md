@@ -29,8 +29,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - The Devices section is gone from the main page: tabs, the pairing card
   and Settings do its work.
 - Drag to reorder: every order has a grip to drag by (devices, sections,
-  bar indicators, shortcuts), and the tabs can be dragged sideways. The
-  arrows and Shift+K / Shift+J still work.
+  bar indicators, shortcuts), and the tabs can be dragged sideways. While
+  one moves, the others slide aside to show where it will land; on release
+  it glides into place. The arrows and Shift+K / Shift+J glide the same
+  way.
 
 ### Fixed
 - Moving the first section up in Layout did nothing: it swapped with the
