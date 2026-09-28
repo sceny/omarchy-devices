@@ -371,6 +371,7 @@ Item {
 
         ListView {
           id: threadList
+          WheelScroll { flickable: threadList; motion: view.motion }
           Layout.fillWidth: true
           Layout.fillHeight: true
           clip: true
@@ -543,6 +544,7 @@ Item {
 
         ListView {
           id: suggestionList
+          WheelScroll { flickable: suggestionList; motion: view.motion }
           Layout.fillWidth: true
           Layout.fillHeight: true
           visible: view.newMode
@@ -652,6 +654,7 @@ Item {
 
         ListView {
           id: messageList
+          WheelScroll { flickable: messageList; motion: view.motion }
           visible: !view.newMode
           Layout.fillWidth: true
           Layout.fillHeight: true
