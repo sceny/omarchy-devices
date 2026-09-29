@@ -1004,6 +1004,8 @@ function shortcutsSummary(order) {
 // The doctor's checks that are about this computer (the Connection page);
 // its paired and connected checks are the devices' own pages' business.
 var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+// Short names: the status beside each says the rest ("Running", "Closed").
+var CHECK_NAMES = { installed: "KDE Connect", running: "Service", firewall: "Firewall", network: "Network" }
 
 function computerChecks(checks) {
   return (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
@@ -1029,7 +1031,7 @@ function connectionSummary(checks, ignored) {
 function connectionRows(checks, ignored, devices) {
   var skip = ignored || []
   var rows = computerChecks(checks).map(function(c) {
-    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: c.label,
+    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
              status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
   })
