@@ -286,3 +286,59 @@ class Calls(unittest.TestCase):
     def test_other_events_are_ignored(self):
         self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
         self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))
+
+
+class LastSeen(unittest.TestCase):
+    """Where a paired device was last connected, kept for its away page."""
+
+    def dev(self, reachable, address="192.168.1.20"):
+        return {"id": "p1", "paired": True, "reachable": reachable, "links": ["LAN"], "addresses": [address]}
+
+    def test_connected_then_away(self):
+        seen = {}
+        self.assertTrue(bridge.note_seen(seen, [self.dev(True)], 1000), "first sight is written")
+        self.assertFalse(bridge.note_seen(seen, [self.dev(True)], 2000), "the same place a second later is not")
+        self.assertEqual(seen["p1"]["at"], 2000, "but its time moves on in memory")
+        self.assertTrue(bridge.note_seen(seen, [self.dev(False)], 3000), "leaving is written")
+        snap = bridge.with_seen({"devices": [self.dev(False)]}, seen)
+        self.assertEqual(snap["devices"][0]["lastSeen"], {"link": "LAN", "address": "192.168.1.20", "at": 2000})
+
+    def test_a_connected_device_is_written_every_few_minutes(self):
+        seen = {}
+        bridge.note_seen(seen, [self.dev(True)], 0)
+        self.assertFalse(bridge.note_seen(seen, [self.dev(True)], bridge.SEEN_SAVE_MS - 1))
+        self.assertTrue(bridge.note_seen(seen, [self.dev(True)], bridge.SEEN_SAVE_MS))
+
+    def test_a_new_address_is_written(self):
+        seen = {}
+        bridge.note_seen(seen, [self.dev(True)], 0)
+        self.assertTrue(bridge.note_seen(seen, [self.dev(True, "10.0.0.5")], 10))
+
+    def test_connected_or_unknown_carries_nothing(self):
+        seen = {}
+        bridge.note_seen(seen, [self.dev(True)], 0)
+        self.assertIsNone(bridge.with_seen({"devices": [self.dev(True)]}, seen)["devices"][0]["lastSeen"])
+        self.assertIsNone(bridge.with_seen({"devices": [dict(self.dev(False), id="other")]}, seen)["devices"][0]["lastSeen"])
+
+    def test_the_file_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "last-seen.json")
+            bridge.save_seen(path, {"p1": {"link": "LAN", "address": "192.168.1.20", "at": 5}})
+            self.assertEqual(bridge.load_seen(path)["p1"]["at"], 5)
+            self.assertEqual(bridge.load_seen(os.path.join(d, "missing.json")), {})
+
+
+class Search(unittest.TestCase):
+    """Look again: the daemon's discovery broadcast, and nothing else."""
+
+    def test_search_asks_the_daemon_to_announce_itself(self):
+        calls = []
+        saved = (bridge.bus, bridge.call)
+        bridge.bus = lambda: object()
+        bridge.call = lambda conn, path, iface, method, *rest: calls.append((path, iface, method, rest))
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                self.assertEqual(bridge.fix("search"), bridge.EXIT_OK)
+        finally:
+            bridge.bus, bridge.call = saved
+        self.assertEqual(calls, [(bridge.ROOT, bridge.IFACE + ".daemon", "forceOnNetworkChange", ())])

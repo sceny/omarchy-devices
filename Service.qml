@@ -47,6 +47,8 @@ Item {
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    searchedAt = 0
+    runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
   // The settings read as defaults plus per-device profiles (Model.readSettings),
@@ -461,9 +463,50 @@ Item {
   property var setupChecks: []
   property int setupWanted: 0          // panels showing the checks right now
   property var setupFixing: ({})
+  // This computer's network ("192.168.1.0/24"), from the doctor.
+  property string setupNetwork: ""
+
+  // ---- Reconnect: look for devices again (Model.awayState) ----
+  // When the last search started (Reconnect, the panel opening on an away
+  // device, the Connection page), and a clock for "12 min ago" and for
+  // when the search has run out.
+  property real searchedAt: 0
+  property real awayClock: Date.now()
+
+  // `quiet`: a search the panel makes by itself, with no toast.
+  function searchDevices(quiet) {
+    if (!daemon) return
+    searchedAt = Date.now()
+    awayClock = searchedAt
+    searchRecheck.restart()
+    // Demo: the page goes through looking and not found; nothing is sent.
+    if (demo) return
+    if (quiet) Quickshell.execDetached([bridge, "fix", "search"])
+    else fixSetup("search")
+  }
+
+  // Opening a panel on a paired device that is away looks for it once, at
+  // most once a minute: a lost link is usually found again this way.
+  function searchIfAway() {
+    if (device && device.paired && device.reachable !== true && Date.now() - searchedAt > 60000) searchDevices(true)
+  }
+
+  Timer {
+    id: searchRecheck
+    interval: Model.SEARCH_MS + 100
+    onTriggered: { root.awayClock = Date.now(); if (!root.demo) root.runDoctor() }
+  }
+  // "12 min ago" stays right while a panel is open.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.setupWanted > 0
+    onTriggered: root.awayClock = Date.now()
+  }
 
   function runDoctor() {
-    if (doctorProc.running) return
+    // Demo checks (demoSetup, demoAway) stay until live again.
+    if (doctorProc.running || demo) return
     doctorProc.running = true
   }
 
@@ -488,7 +531,11 @@ Item {
     stdout: StdioCollector {
       id: doctorOut
       onStreamFinished: {
-        try { root.setupChecks = JSON.parse(text).checks || [] } catch (e) {}
+        try {
+          var report = JSON.parse(text)
+          root.setupChecks = report.checks || []
+          root.setupNetwork = String(report.network || "")
+        } catch (e) {}
       }
     }
   }
