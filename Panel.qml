@@ -3309,25 +3309,14 @@ Panel {
         font.pixelSize: Style.font.heading
       }
     }
-    Text {
-      visible: tile.photo.kind === "screenshot"
-      anchors.left: parent.left
-      anchors.bottom: parent.bottom
-      anchors.margins: Style.space(5)
-      text: "\u{F0A0B}"
-      color: "white"
-      style: Text.Outline
-      styleColor: "#80000000"
-      font.family: root.fontFamily
-      font.pixelSize: Style.font.caption
-    }
-
     // The file itself, for a drop into another window.
     Drag.active: tileDrag.active
     Drag.dragType: Drag.Automatic
     Drag.supportedActions: Qt.CopyAction
     Drag.mimeData: ({ "text/uri-list": tile.url })
     DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
+    // Hover without taking it from the buttons: ↗ shows only on this tile.
+    HoverHandler { id: tileHover }
 
     MouseArea {
       id: tileMouse
@@ -3340,8 +3329,8 @@ Panel {
     PanelActionButton {
       anchors.top: parent.top
       anchors.right: parent.right
-      visible: tileMouse.containsMouse || openTile.hovered
       id: openTile
+      visible: tileHover.hovered
       iconText: "\u{F03CC}"
       tooltipText: "Open"
       foreground: "white"
@@ -3349,7 +3338,7 @@ Panel {
       onClicked: if (!tile.photo.demo) Qt.openUrlExternally(tile.url)
     }
     PanelToolTip {
-      visible: tileMouse.containsMouse && !openTile.hovered
+      visible: tileMouse.containsMouse
       text: (tile.photo.kind === "screenshot" ? "Screenshot" : "Photo") + " · " + Model.threadTime(tile.photo.at, Date.now()) + " · click to copy, drag into a window"
     }
   }
