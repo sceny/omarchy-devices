@@ -91,7 +91,16 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   word, as KDE Connect shows it. Pairing actions no longer toast when they
   work.
 
+- Text someone from a key (#66): IPC `textSomeone` opens a new message
+  with the contact picker showing and nothing focused; the arrows and
+  Enter pick someone, and typing a letter names them. The messages guide
+  gives a Hyprland binding (*Super+Shift+T* is free) and an Omarchy menu
+  entry to paste; the plugin writes neither. The launcher cannot list
+  conversations: Omarchy's menu takes no providers from plugins.
+
 ### Fixed
+- Demo mode's new-message picker listed the phone's real synced contacts;
+  it now lists the demo's made-up people only.
 - A device joining could swap two others in the order (the first device:
   the one always in the bar, opened first).
 - Settings pages without buttons ended in an empty band (Add a device,
