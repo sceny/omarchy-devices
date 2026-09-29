@@ -23,6 +23,28 @@ BarWidget {
     : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, parts: [{ text: pill.resting.glyph, urgent: false }],
          bubble: 0, dimmed: pill.resting.dimmed, ringing: false, marks: {} }]
 
+  // The chips by id, kept in step with `items`: a Repeater over a plain
+  // list rebuilds every chip on any change, and a rebuilt chip places its
+  // parts at once instead of sliding them. Here a chip lives as long as its
+  // device is in the pill.
+  ListModel { id: chipModel }
+  function syncChips() {
+    var ids = items.map(function(c) { return String(c.id) })
+    for (var i = chipModel.count - 1; i >= 0; i--) if (ids.indexOf(chipModel.get(i).cid) < 0) chipModel.remove(i)
+    for (var j = 0; j < ids.length; j++) {
+      var at = -1
+      for (var k = 0; k < chipModel.count; k++) if (chipModel.get(k).cid === ids[j]) { at = k; break }
+      if (at < 0) chipModel.insert(j, { cid: ids[j] })
+      else if (at !== j) chipModel.move(at, j, 1)
+    }
+  }
+  onItemsChanged: syncChips()
+  Component.onCompleted: syncChips()
+  function itemById(cid) {
+    for (var i = 0; i < items.length; i++) if (String(items[i].id) === cid) return items[i]
+    return null
+  }
+
   function syncService() {
     if (root.phone && "settings" in root.phone) root.phone.settings = root.settings
   }
@@ -106,12 +128,13 @@ BarWidget {
     columns: root.vertical ? 1 : Math.max(1, root.items.length)
 
     Repeater {
-      model: root.items
+      model: chipModel
 
       Item {
         id: chip
-        required property var modelData
+        required property string cid
         required property int index
+        readonly property var modelData: root.itemById(cid) || ({ id: cid, glyph: "", parts: [], bubble: 0, marks: {} })
         readonly property var dev: root.deviceById(modelData.id)
         // On a vertical bar, the glyph alone.
         readonly property var parts: root.vertical ? [{ key: "glyph", text: chip.modelData.glyph, urgent: false }] : (chip.modelData.parts || [])
