@@ -1274,7 +1274,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // its "Use the defaults".
 var SETTING_GROUPS = {
   layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
-  bar: ["barIndicators", "batteryLowOnly"],
+  bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
 
@@ -1342,18 +1342,18 @@ function settingsPageRows(ctx) {
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
     var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
-    // A device's page (and the one-device page) edits its sections and
-    // shortcuts on the page itself (edit in place): here, a row that opens
-    // that. The defaults, with no page of their own, keep them here.
+    // A device's page (and the one-device page) edits its sections,
+    // shortcuts and bar on the page itself (edit in place): here, a row
+    // that opens that. The defaults, with no page of their own, keep them.
     var onPage = scope === "device" || (scope === "root" && ctx.single)
-    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections and shortcuts",
-                            hint: "Edited on the page itself (✎)" })
+    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
+                            hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.
       if (r.kind === "layout" && r.section === "devices") return
       if (r.kind === "kdeconnect" || r.kind === "reset") return
-      if (onPage && (r.kind === "layout" || r.kind === "shortcut")) return
+      if (onPage && (r.kind === "layout" || r.kind === "shortcut" || r.kind === "bar" || r.kind === "barFlag")) return
       rows.push(r)
     })
     if (scope === "device") {
@@ -1479,6 +1479,20 @@ function editShortcutTiles(order, can) {
     if (order.indexOf(SHORTCUTS[i].key) < 0)
       rest.push(Object.assign({ chosen: false, pos: -1 }, shortcutTiles([SHORTCUTS[i].key], can)[0]))
   return chosen.concat(rest)
+}
+
+// Editing: every bar indicator as a tile, the chosen ones in their order
+// (with their place, for moving), then the rest.
+function editBarTiles(order) {
+  var chosen = normalizeBarIndicators(order)
+  var out = chosen.map(function(k, i) {
+    var ind = barIndicatorByKey(k)
+    return { key: k, glyph: ind.glyph, label: ind.label, chosen: true, pos: i }
+  })
+  for (var i = 0; i < BAR_INDICATORS.length; i++)
+    if (chosen.indexOf(BAR_INDICATORS[i].key) < 0)
+      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, label: BAR_INDICATORS[i].label, chosen: false, pos: -1 })
+  return out
 }
 
 // What a section says while editing when it has nothing to show now.

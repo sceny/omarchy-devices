@@ -45,10 +45,15 @@ BarWidget {
 
   // A chip opens the panel on its device; on the device already shown it
   // closes it; on another while open it switches to it. The resting glyph
-  // (no device) opens on the usual one.
+  // (no device) opens on the usual one. A right-click edits the device's
+  // page, its chip first: one action, as Omarchy's own widgets do.
   function chipPressed(button, id) {
     var panel = panelLoader.item
     if (!panel) return
+    if (button === Qt.RightButton) {
+      if (panel.editFromBar) panel.editFromBar(id)
+      return
+    }
     if (button === Qt.MiddleButton) {
       if (phone && id !== "") phone.requestView(id)
       if (panel.openMessagesFromHotkey) panel.openMessagesFromHotkey()
