@@ -18,7 +18,7 @@ Column {
   property bool shortcutsShown: true
   property var setupFixing: ({})
   // This computer's network, for Add a device's steps.
-  property string network: 
+  property string network: ""
   // Folding, like the main page's sections, and remembered the same way.
   property var collapsed: ({})
   property var flags: ({})
