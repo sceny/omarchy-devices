@@ -259,9 +259,10 @@ Panel {
     if (on) next.push(key)
     persistSettings({ ignoredChecks: next.length > 0 ? next : undefined })
   }
-  // Nothing to show on the main page without it: KDE Connect down, or
-  // nothing paired. The panel opens on Connection then.
-  readonly property bool needsConnection: !!phone && !!snapshot && (!phone.daemon || pairedDevices.length === 0)
+  // Nothing to show on the main page without them: KDE Connect down (the
+  // panel opens on Connection, what is broken), or nothing paired (it opens
+  // on Add a device, what to do next).
+  readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? "connection" : (pairedDevices.length === 0 ? "addDevice" : ""))
   // The viewed device away: where it was and what Reconnect found.
   readonly property var awayInfo: Model.awayState(device, phone ? phone.setupNetwork : "", phone ? phone.searchedAt : 0,
                                                   phone ? phone.awayClock : Date.now())
@@ -269,17 +270,21 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("connection")
   }
-  // While the page shows, it looks for new devices (and away ones).
+  function openAddDevice() {
+    if (!settingsOpen) openSettings()
+    openScope("addDevice")
+  }
+  // While Add a device shows, it looks for new devices.
   Timer {
-    running: root.opened && root.showSettings && root.settingsScope === "connection"
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice"
     interval: 30000
     repeat: true
     triggeredOnStart: true
     onTriggered: if (root.phone) root.phone.searchDevices(true)
   }
 
-  readonly property var settingsRows: settingsScope === "connection"
-    ? Model.connectionRows(setupChecks, ignoredChecks, Model.devicesListRows(snapshot, profilesRead, lowPercent))
+  readonly property var settingsRows: settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+    : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
@@ -822,7 +827,7 @@ Panel {
     else if (row.kind === "editPage") { if (editingDevice && scopeDevice) phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
-    else if (row.kind === "connection" || row.kind === "addDevice") openScope("connection")
+    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
     else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
   }
 
@@ -1121,7 +1126,7 @@ Panel {
     settingsOpen = false
     messagesOpen = false
     // Nothing paired, or KDE Connect down: straight to Connection.
-    if (needsConnection) { settingsOpen = true; settingsScope = "connection"; settingsIndex = 0 }
+    if (openingScope !== "") { settingsOpen = true; settingsScope = openingScope; settingsIndex = 0 }
     snapPage()
     replyingTo = ""
     replyFocused = false
@@ -1163,6 +1168,7 @@ Panel {
     function page(name: string): string {
       if (name === "settings") root.openSettings()
       else if (name === "connection") root.openConnection()
+      else if (name === "addDevice") root.openAddDevice()
       else if (name === "messages") root.openMessagesView(-1)
       else { root.settingsOpen = false; root.messagesOpen = false }
       return root.targetPage
@@ -2090,7 +2096,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection"
+            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -2867,13 +2873,14 @@ Panel {
                   }
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
-                    text: root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection"
+                    readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground
                     fontFamily: root.fontFamily
                     fontSize: Style.font.bodySmall
-                    onClicked: root.openConnection()
+                    onClicked: adding ? root.openAddDevice() : root.openConnection()
                   }
                 }
               }
@@ -2917,7 +2924,7 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" || root.settingsScope === "connection" ? root.settingsScope : "root")
+                scopeKind: root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)

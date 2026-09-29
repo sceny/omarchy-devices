@@ -669,13 +669,14 @@ test("connection: this computer's checks, ignored ones, requests and devices to 
     { key: "paired", ok: true, label: "A device is paired" }
   ]
   const devices = [{ kind: "device", id: "p1" }, { kind: "available", id: "a" }, { kind: "request", id: "n" }]
-  const rows = M.connectionRows(checks, [], devices)
-  assert.deepEqual(rows.map(r => r.kind + ":" + (r.key || r.id)), ["check:installed", "check:running", "check:firewall", "check:network", "request:n", "available:a"])
+  const rows = M.connectionRows(checks, [])
+  assert.deepEqual(rows.map(r => r.kind + ":" + r.key), ["check:installed", "check:running", "check:firewall", "check:network"], "this computer only")
+  assert.deepEqual(M.addDeviceRows(devices).map(r => r.kind + ":" + r.id), ["request:n", "available:a"], "adding: requests first, then devices in reach")
   assert.equal(rows[2].fix, "firewall")
   assert.equal(M.connectionIssues(checks, []), 1)
   assert.equal(M.connectionSummary(checks, []), "1 to fix")
   assert.equal(M.connectionIssues(checks, ["firewall"]), 0, "ignored: no dot")
-  assert.ok(M.connectionRows(checks, ["firewall"], [])[2].ignored)
+  assert.ok(M.connectionRows(checks, ["firewall"])[2].ignored)
   assert.equal(M.connectionSummary([], []), "Checking…")
 })
 

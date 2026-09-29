@@ -69,7 +69,7 @@ Column {
     return false
   }
   readonly property bool hasGroups: firstIndex("layout") >= 0
-  readonly property bool hasList: scopeKind !== "connection" && hasKind(["device", "request", "available"])
+  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && hasKind(["device", "request", "available"])
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
   function groupTitle(title, group) {
     return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
@@ -371,7 +371,9 @@ Column {
     }
   }
 
-  // ---- Connection: this computer, pairing requests, adding a device ----
+  // ---- Connection: this computer (checking what exists). Add a device:
+  //      requests to pair, the steps on it, devices in reach (making a new
+  //      pairing) ----
   PanelSectionHeader {
     visible: root.scopeKind === "connection"
     text: "THIS COMPUTER"
@@ -398,15 +400,14 @@ Column {
     }
   }
 
-  Item { visible: root.firstIndex("request") >= 0 && root.scopeKind === "connection"; width: 1; height: Style.space(6) }
   PanelSectionHeader {
-    visible: root.firstIndex("request") >= 0 && root.scopeKind === "connection"
+    visible: root.firstIndex("request") >= 0 && root.scopeKind === "addDevice"
     text: "PAIRING REQUESTS"
     foreground: root.foreground
     fontFamily: root.fontFamily
   }
   Repeater {
-    model: root.scopeKind === "connection" ? root.rows : []
+    model: root.scopeKind === "addDevice" ? root.rows : []
     ListRow {
       required property var modelData
       required property int index
@@ -417,22 +418,22 @@ Column {
     }
   }
 
-  Item { visible: root.scopeKind === "connection"; width: 1; height: Style.space(6) }
+  Item { visible: root.scopeKind === "addDevice" && root.firstIndex("request") >= 0; width: 1; height: Style.space(6) }
   PanelSectionHeader {
-    visible: root.scopeKind === "connection"
-    text: "ADD A DEVICE"
+    visible: root.scopeKind === "addDevice"
+    text: "ON THE DEVICE"
     foreground: root.foreground
     fontFamily: root.fontFamily
   }
   SetupChecks {
-    visible: root.scopeKind === "connection"
+    visible: root.scopeKind === "addDevice"
     width: root.width
     network: root.network
     foreground: root.foreground
     fontFamily: root.fontFamily
   }
   Text {
-    visible: root.scopeKind === "connection"
+    visible: root.scopeKind === "addDevice"
     width: root.width
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
@@ -442,7 +443,7 @@ Column {
     font.pixelSize: Style.font.caption
   }
   Repeater {
-    model: root.scopeKind === "connection" ? root.rows : []
+    model: root.scopeKind === "addDevice" ? root.rows : []
     ListRow {
       required property var modelData
       required property int index

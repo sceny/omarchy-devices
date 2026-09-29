@@ -1026,15 +1026,22 @@ function connectionSummary(checks, ignored) {
 
 // The Connection page's rows, in one list for the keyboard: this computer's
 // checks (status icon, name, short status, one action; a failing one can be
-// ignored), then devices asking to pair, then devices in reach to pair with
-// (`devices`: devicesListRows).
-function connectionRows(checks, ignored, devices) {
+// ignored). It checks what exists; Add a device (addDeviceRows) makes a new
+// pairing.
+function connectionRows(checks, ignored) {
   var skip = ignored || []
   var rows = computerChecks(checks).map(function(c) {
     return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
              status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
   })
+  return rows
+}
+
+// The Add a device page's rows: devices asking to pair, then devices in
+// reach to pair with (`devices`: devicesListRows).
+function addDeviceRows(devices) {
+  var rows = []
   ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
   ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
   return rows
@@ -1464,8 +1471,8 @@ function settingsPageRows(ctx) {
     }
   }
   if (scope === "root") {
-    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "This computer, pairing requests" })
-    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "Install the app on it, then pair from it" })
+    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
+    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
     rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
   }
   return rows

@@ -20,8 +20,10 @@ Press `s` or the cog.
 - **Bar:** edited on the page (right-click the device's chip);
   *Defaults for all devices* keeps it for devices that did not change it.
 - **Connection:** this computer (KDE Connect, the firewall, the network)
-  with fixes, pairing requests, and the steps to add a device. A red dot
-  on the cog means a check fails; *Ignore* one you will not fix.
+  with fixes. A red dot on the cog means a check fails; *Ignore* one you
+  will not fix.
+- **Add a device:** requests to pair, the steps on the new device, and
+  devices in reach to pair with.
 
 ## What is kept
 

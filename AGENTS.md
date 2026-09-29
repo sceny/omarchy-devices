@@ -193,11 +193,14 @@ Keep them; change one only with the owner.
   quick log check has already passed (an attached handler that does not
   exist, such as `Keys.onPageUpPressed`, does exactly that).
 
-- **Connection is a Settings page** (`settingsScope` `connection`): this
-  computer's checks (status icon, name, short status, one action; *Ignore*
-  stops a check lighting the gear's dot, kept in `ignoredChecks`),
-  pairing requests, and adding a device. The panel opens on it while
-  nothing is paired or KDE Connect is down. An away device's page offers
+- **Connection and Add a device are two Settings pages:** one checks what
+  exists, the other makes a new pairing. Connection (`settingsScope`
+  `connection`): this computer's checks (status icon, name, short status,
+  one action; *Ignore* stops a check lighting the gear's dot, kept in
+  `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
+  device (`addDevice`): requests to pair, the steps on the device, devices
+  in reach (it searches while open); the panel opens on it while nothing
+  is paired. An away device's page offers
   *Reconnect* in place (a search, `fix search`; it never leaves the
   page), and opening the panel on it searches once a minute at most.
   Last seen comes from the bridge's cache (`last-seen.json`); causes are
