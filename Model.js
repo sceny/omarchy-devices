@@ -367,13 +367,13 @@ function lowBattery(device, threshold) {
 // What the pill can show beside the glyph. "bubble" is not text: a count
 // drawn on the glyph itself (BarWidget), so it costs no width.
 var BAR_INDICATORS = [
-  { key: "connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
-  { key: "battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
-  { key: "percent", glyph: "%", label: "Battery %", hint: "The charge as a number" },
-  { key: "notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
-  { key: "messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
-  { key: "playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
-  { key: "bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
+  { key: "connection", tile: "Link", sample: GLYPH.wifi, glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
+  { key: "battery", tile: "Battery", sample: "\u{F007E}", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
+  { key: "percent", tile: "Percent", sample: "80%", glyph: "%", label: "Battery %", hint: "The charge as a number" },
+  { key: "notifications", tile: "Alerts", sample: GLYPH.bell + " 3", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
+  { key: "messages", tile: "Texts", sample: GLYPH.messages + " 2", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
+  { key: "playing", tile: "Playing", sample: GLYPH.play, glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
+  { key: "bubble", tile: "Bubble", sample: "3", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
 ]
 
 function barIndicatorByKey(key) {
@@ -414,38 +414,44 @@ function barText(device, indicators, state) {
 // The pill's text in parts, each drawn on its own so that only what is
 // urgent turns red: a low battery's glyph and percent, not the whole chip.
 // [{ text, urgent }], the device's glyph first.
+// Every part a chip can have, by key: a part keeps its key as the order
+// changes, so the bar slides it to its new place instead of redrawing.
+var BAR_PART_KEYS = ["glyph", "call", "connection", "battery", "percent", "notifications", "messages", "playing"]
+
 function barParts(device, indicators, state) {
   var st = state || {}
   // `glyph`: the device's own icon when its user picked one (deviceIcon).
-  var parts = [{ text: st.glyph || deviceGlyph(device), urgent: false }]
+  var parts = [{ key: "glyph", text: st.glyph || deviceGlyph(device), urgent: false }]
   var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
-  function add(text, urgent) { parts.push({ text: text, urgent: !!urgent }) }
+  function add(key, text, urgent) { parts.push({ key: key, text: text, urgent: !!urgent }) }
   // A call is news, not an indicator: it leads whatever else is chosen.
-  if (st.call && reachable) parts.push({ text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
+  if (st.call && reachable) parts.push({ key: "call", text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
       if (!device) continue
-      if (!reachable) add(GLYPH.wifiOff)
-      else add(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
+      if (!reachable) add(key, GLYPH.wifiOff)
+      else add(key, device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
       continue
     }
     if (!reachable) continue
-    if (key === "battery" && showBattery) { add(batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
+    if (key === "battery" && showBattery) { add(key, batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
     else if (key === "percent" && showBattery) {
       var pct = c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : "")
       // Right after the battery glyph, the % is part of it: one piece, a
-      // thin space apart, not an indicator of its own.
+      // thin space apart, not an indicator of its own. `glyph` and `suffix`
+      // draw it: a glyph's ink can run past its advance (the charging bolt),
+      // so the bar spaces the % from the ink, not from a character.
       var prev = parts[parts.length - 1]
-      if (prev.battery) prev.text += "\u2009" + pct
-      else add(pct, low)
+      if (prev.battery) { prev.glyph = prev.text; prev.suffix = pct; prev.text += "\u2009" + pct }
+      else add(key, pct, low)
     }
-    else if (key === "notifications" && st.notifications > 0) add(GLYPH.bell + " " + st.notifications)
-    else if (key === "messages" && st.messages > 0) add(GLYPH.messages + " " + st.messages)
-    else if (key === "playing" && st.playing) add(GLYPH.play)
+    else if (key === "notifications" && st.notifications > 0) add(key, GLYPH.bell + " " + st.notifications)
+    else if (key === "messages" && st.messages > 0) add(key, GLYPH.messages + " " + st.messages)
+    else if (key === "playing" && st.playing) add(key, GLYPH.play)
   }
   return parts
 }
@@ -792,6 +798,8 @@ function demoSnapshot(live, kind) {
   // A neutral name, so a screenshot of demo mode shows no real device.
   dev.name = "Pixel 8"
   dev.reachable = kind !== "away"
+  // "charging": the battery filling, for its glyph and % in the bar.
+  if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
   dev.can = { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true, ping: true }
   dev.network = { type: "5G", strength: 3 }
@@ -1274,7 +1282,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // its "Use the defaults".
 var SETTING_GROUPS = {
   layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
-  bar: ["barIndicators", "batteryLowOnly"],
+  bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
 
@@ -1342,18 +1350,18 @@ function settingsPageRows(ctx) {
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
     var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
-    // A device's page (and the one-device page) edits its sections and
-    // shortcuts on the page itself (edit in place): here, a row that opens
-    // that. The defaults, with no page of their own, keep them here.
+    // A device's page (and the one-device page) edits its sections,
+    // shortcuts and bar on the page itself (edit in place): here, a row
+    // that opens that. The defaults, with no page of their own, keep them.
     var onPage = scope === "device" || (scope === "root" && ctx.single)
-    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections and shortcuts",
-                            hint: "Edited on the page itself (✎)" })
+    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
+                            hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.
       if (r.kind === "layout" && r.section === "devices") return
       if (r.kind === "kdeconnect" || r.kind === "reset") return
-      if (onPage && (r.kind === "layout" || r.kind === "shortcut")) return
+      if (onPage && (r.kind === "layout" || r.kind === "shortcut" || r.kind === "bar" || r.kind === "barFlag")) return
       rows.push(r)
     })
     if (scope === "device") {
@@ -1479,6 +1487,21 @@ function editShortcutTiles(order, can) {
     if (order.indexOf(SHORTCUTS[i].key) < 0)
       rest.push(Object.assign({ chosen: false, pos: -1 }, shortcutTiles([SHORTCUTS[i].key], can)[0]))
   return chosen.concat(rest)
+}
+
+// Editing: every bar indicator as it looks in the bar (a sample), the
+// chosen ones in their order (with their place, for moving), then the rest.
+function editBarTiles(order) {
+  var chosen = normalizeBarIndicators(order)
+  var out = chosen.map(function(k, i) {
+    var ind = barIndicatorByKey(k)
+    return { key: k, glyph: ind.glyph, sample: ind.sample, label: ind.tile, hint: ind.label, chosen: true, pos: i }
+  })
+  for (var i = 0; i < BAR_INDICATORS.length; i++)
+    if (chosen.indexOf(BAR_INDICATORS[i].key) < 0)
+      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, sample: BAR_INDICATORS[i].sample, label: BAR_INDICATORS[i].tile,
+                 hint: BAR_INDICATORS[i].label, chosen: false, pos: -1 })
+  return out
 }
 
 // What a section says while editing when it has nothing to show now.

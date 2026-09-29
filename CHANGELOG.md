@@ -52,7 +52,23 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - IPC: `demoCall ringing|missed|none`, `pressTextBack`, `closeCall`,
   `demoTextTo`, `pressEscape`.
 
+- The bar joins edit in place (#84): editing a device's page starts with
+  its chip, drawn as the bar shows it, a little larger: drag an
+  indicator to move it, click to add or take one away; then the
+  *Battery only when low* and *Calls* switches; the pill in the bar
+  changes as you go. A right-click on a device's chip opens it. The bar
+  leaves a device's Settings; *Defaults for all devices* keeps it.
+- The pill in the bar moves as its indicators do: a new order slides
+  each one to its place, and one that comes or goes fades, at the panel's
+  pace.
+- Editing a page: changes show at once; ✓ (or `E`) keeps them, and Esc
+  now undoes everything since editing began.
+- IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
+
 ### Fixed
+- *Bar: use the defaults* left a device's *Calls* switch as it was.
+- While charging, the % beside the battery overlapped its bolt; it now
+  starts past the glyph's ink.
 - New message: after picking someone, every contact stayed listed; the
   list now shows only while typing a name, and a click on a contact goes
   on to the message. In messages, Esc undoes one thing at a time: the

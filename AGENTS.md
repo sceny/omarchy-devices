@@ -137,7 +137,9 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
-- **Orders move with a glide, never a jump.** Every order (devices,
+- **Orders move with a glide, never a jump.** The pill in the bar slides
+  its parts to a new order too (a slot per kind, `Model.BAR_PART_KEYS`).
+  Every order (devices,
   sections, bar indicators, shortcuts, tabs) moves through `Reorder`:
   while an item moves, the others slide aside to show where it lands; it
   glides in at `Model.MOTION`, and only then is the order written. A drag
@@ -160,14 +162,18 @@ Keep them; change one only with the owner.
   empty state).
 - **A device's page is edited in place** (✎, shown only while the pointer
   is on the device's header so the page has no chrome at rest; a
-  right-click on the page, KDE's *Enter Edit Mode* idiom; or `E`): every
+  right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
+  the device's chip in the bar, one action as Omarchy's own widgets do; or
+  `E`): the Bar strip leads (the chip drawn as the bar shows it, a little
+  larger, so it reads as the bar; *Battery only when low*, *Calls*; the
+  real pill is the preview), every
   section becomes a bar with its grip and switch, every shortcut shows
-  (drag the chosen ones, click to add or take away), and ✓ Done, `E` or
-  Esc ends it. It edits the viewed device's profile (with one device, the
+  (drag the chosen ones, click to add or take away), and changes show at once (page and pill);
+  ✓ Done or `E` keeps them and Esc puts back what was there when it began. It edits the viewed device's profile (with one device, the
   flat keys), and is off on every open. Settings keeps only what has no
   place on the page (nickname, icon, place in the bar, the device list);
-  *Defaults for all devices* keeps the sections and shortcuts, since the
-  defaults have no page of their own. There is no Devices section: tabs switch devices, the
+  *Defaults for all devices* keeps the sections, shortcuts and bar,
+  since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
 - **Each device's settings are its own** (`docs/design/multi-device.md`):

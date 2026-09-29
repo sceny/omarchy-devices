@@ -20,6 +20,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status                 # what the panel shows
 "${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|down|none
 "${IPC[@]}" demo many              # several devices (tabs, chips); many-pair adds a pairing request
+"${IPC[@]}" demo charging          # the demo phone charging
 "${IPC[@]}" view "Galaxy Tab S9"   # view a device (id, nickname or name); openOn opens on it; tabs
 "${IPC[@]}" settingsScope "Galaxy Tab S9"   # a device's settings page; also root, defaults
 "${IPC[@]}" live                   # back to the phone
@@ -29,6 +30,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card's Text back (nothing focused) and X
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc on the panel
+"${IPC[@]}" rightClickChip <device> ; "${IPC[@]}" edit   # edit the page (and again to end); then editBar <key>, editBarFlag <key>, editMoveBar <key> -1, editSection <key>, editShortcut <key>
 "${IPC[@]}" slowMotion 10          # stretch every transition
 ```
 

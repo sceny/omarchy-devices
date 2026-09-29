@@ -442,11 +442,17 @@ A device's row opens its page:
 
 ### 8.4 Editing a device's page in place *(Decided)*
 
-A device's sections and shortcuts are edited on its own page, not in
-Settings: ✎ on the device's header turns the page into its editor. ✎ shows
-only while the pointer is on that header, so the page has no chrome at rest;
-a right-click on the page (KDE's *Enter Edit Mode* idiom) and `E` open it
-too.
+A device's bar chip, sections and shortcuts are edited on its own page,
+not in Settings: ✎ on the device's header turns the page into its editor.
+✎ shows only while the pointer is on that header, so the page has no chrome
+at rest; a right-click on the page (KDE's *Enter Edit Mode* idiom), a
+right-click on the device's chip in the bar, and `E` open it too.
+
+- The Bar strip leads the page: the chip drawn as the bar shows it, a
+  little larger, one cell per indicator with a sample and a caption
+  (chosen ones in order, dragged within the row; a divider; the others
+  dimmed, added with a click), then *Battery only when low* and *Calls*. It does not move. The
+  real pill changes as it is edited: the bar is the preview.
 
 - Each section becomes a bar: its grip, its name, what it holds now (or
   when it would show), and its switch. Every section shows while editing,
@@ -454,11 +460,14 @@ too.
 - Every shortcut shows: the chosen ones in order, with a −, dragged within
   the grid; the others dimmed, with a +. A click adds or takes one away.
 - Moves glide like every order (`Reorder`, in a grid for the tiles).
-- ✓ Done, `E` or Esc ends it; it is off on every open and on changing
-  device. Changes go to the viewed device's profile.
+- Changes show at once, on the page and in the bar's pill. ✓ Done or `E`
+  keeps them; Esc puts back what was there when editing began. It is off
+  on every open and on changing device (both keep). Changes go to the
+  viewed device's profile.
 - Settings keeps what has no place on the page: a device's page shows
-  *Sections and shortcuts ›*, which opens this editor. *Defaults for all
-  devices* keeps the sections and shortcuts, having no page of its own.
+  *Sections, shortcuts and bar ›*, which opens this editor. *Defaults for
+  all devices* keeps the sections, shortcuts and bar, having no page of
+  its own.
 
 ## 9. Starting points by device kind *(Open; later)*
 

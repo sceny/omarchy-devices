@@ -401,17 +401,58 @@ Panel {
   // click to add or take away), and Done ends it. Changes go to the viewed
   // device's profile (with one device, the flat keys). Fresh on every open.
   property bool editing: false
+  // Edits show at once (the page, the pill); Esc puts back what was there
+  // when editing began, ✓ and E keep them. What editing can change: the
+  // profiles (several devices) or the flat keys (one device).
+  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications",
+                                   "shortcuts", "barIndicators", "batteryLowOnly", "showCalls"]
+  property var editBefore: null
   function startEditing() {
     if (!showMain) { settingsOpen = false; messagesOpen = false }
     composing = false
     composerFocused = false
     replyingTo = ""
+    var before = {}
+    for (var i = 0; i < editKeys.length; i++) before[editKeys[i]] = root.settings ? root.settings[editKeys[i]] : undefined
+    editBefore = JSON.parse(JSON.stringify(before))
     editing = true
     cursorActive = false
     if (panelFlick) panelFlick.contentY = 0
   }
-  function stopEditing() { editing = false; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
+  function stopEditing() { editing = false; editBefore = null; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
+  function cancelEditing() {
+    var before = editBefore
+    stopEditing()
+    if (!before) return
+    var values = {}, changed = false
+    for (var i = 0; i < editKeys.length; i++) {
+      var k = editKeys[i]
+      if (JSON.stringify(before[k]) === JSON.stringify(root.settings ? root.settings[k] : undefined)) continue
+      values[k] = before[k]
+      changed = true
+    }
+    if (!changed) return
+    persistSettings(values)
+    if (phone) phone.report("Changes undone", false)
+  }
   function toggleEditing() { if (editing) stopEditing(); else startEditing() }
+  // A right-click on a chip in the bar: the panel on that device, editing
+  // its page (the bar strip leads it). Switching device ends editing, so a
+  // switch carries it over.
+  property bool editOnArrival: false
+  function editFromBar(id) {
+    var key = String(id || "")
+    if (!opened) {
+      if (phone && key !== "") phone.requestView(key)
+      openFromHotkey()
+      startEditing()
+    } else if (key === "" || !device || String(device.id) === key) {
+      startEditing()
+    } else {
+      editOnArrival = true
+      switchDevice(key, true)
+    }
+  }
 
   // Right-click on the main page: a small menu (Edit page, Settings), as a
   // right-click on the Plasma desktop offers Enter Edit Mode. `menuAt` is
@@ -430,6 +471,14 @@ Panel {
     persistProfile(values)
   }
   function toggleShortcutOnPage(key) { persistProfile({ shortcuts: Model.toggleShortcut(shortcutOrder, key) }) }
+  // The viewed device's chip in the bar, from the page.
+  readonly property var barOrder: Model.normalizeBarIndicators(profile.barIndicators)
+  function toggleBarOnPage(key) { persistProfile({ barIndicators: Model.toggleBarIndicator(barOrder, key) }) }
+  function toggleBarFlagOnPage(key) {
+    var values = {}
+    values[key] = profile[key] !== true
+    persistProfile(values)
+  }
 
   // One cursor for keyboard and mouse, as in the stock panels.
   property bool cursorActive: false
@@ -565,6 +614,7 @@ Panel {
     if (!phone || pendingDevice === "") return
     editing = false
     phone.view(pendingDevice)
+    if (editOnArrival) { editOnArrival = false; startEditing() }
     pendingDevice = ""
     browsedName = ""
     replyingTo = ""
@@ -1139,8 +1189,6 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
-    // Checks while editing, as a click or a drag would: a section's switch, a
-    // shortcut added or taken away, a section or a chosen tile moved (glide).
     // Demo only: a made-up caller ringing, or a call missed, on the viewed
     // device; "none" ends it.
     function demoCall(kind: string): string {
@@ -1165,14 +1213,26 @@ Panel {
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, open: root.opened }) }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
+    // Checks while editing, as a click or a drag would: a section's switch, a
+    // shortcut or bar indicator added or taken away, a section or a chosen
+    // tile moved (glide), a bar switch.
     function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
     function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
     function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
     function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
+    // A right-click on a device's chip (id, nickname or name; "" the first).
+    function rightClickChip(key: string): string {
+      var d = key === "" ? null : (root.phone ? root.phone.findDevice(key) : null)
+      root.editFromBar(d ? String(d.id) : "")
+      return JSON.stringify({ editing: root.editing, device: root.device ? String(root.device.id) : "" })
+    }
+    function editBar(key: string): string { root.toggleBarOnPage(key); return JSON.stringify(root.barOrder) }
+    function editBarFlag(key: string): string { root.toggleBarFlagOnPage(key); return JSON.stringify({ batteryLowOnly: root.profile.batteryLowOnly, showCalls: root.profile.showCalls }) }
+    function editMoveBar(key: string, delta: int): string { barMove.step(root.barOrder.indexOf(key), delta); return "ok" }
     // Edit the page in place, and again to finish; what editing shows.
     function edit(): string {
       root.toggleEditing()
-      return JSON.stringify({ editing: root.editing, sections: root.drawnSections, shortcuts: root.shortcutOrder })
+      return JSON.stringify({ editing: root.editing, sections: root.drawnSections, shortcuts: root.shortcutOrder, bar: root.barOrder })
     }
     // Checks: a settings row pressed as a click would; a nickname entered as
     // Enter in its field would; an icon picked (hex, "" for its kind).
@@ -1354,7 +1414,7 @@ Panel {
       }
       onCloseRequested: {
         if (root.pageMenuOpen) root.closePageMenu()
-        else if (root.editing) root.stopEditing()
+        else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
@@ -1996,7 +2056,7 @@ Panel {
                   enabled: opacity > 0.5
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
-                  tooltipText: root.editing ? "Done" : "Edit this page"
+                  tooltipText: root.editing ? "Done: keep the changes (Esc undoes them)" : "Edit this page"
                   foreground: root.editing ? Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
@@ -2033,6 +2093,175 @@ Panel {
               x: pageHost.slide
               width: parent.width
               spacing: Style.space(12)
+              // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag
+              //      the chosen ones, click to add or take one away. The pill
+              //      in the bar changes as they do: it is the preview ----
+              FoldBody {
+                id: barEdit
+                open: root.editing && root.showMain
+                motion: root.motion
+                animate: root.settled
+                spacing: Style.space(8)
+
+                // Lined up with the section bars below: the chip's glyph
+                // where their grips are (the bar is not a section; it does
+                // not move).
+                RowLayout {
+                  x: Style.space(8)
+                  width: parent.width - Style.space(16)
+                  spacing: Style.space(10)
+                  Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    text: Model.deviceIcon(root.device, root.profile)
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                  }
+                Column {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+                  Text {
+                    textFormat: Text.PlainText
+                    text: "BAR"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.bold: true
+                  }
+                  Text {
+                    width: parent.width
+                    textFormat: Text.PlainText
+                    text: "What its chip shows beside the glyph, in order"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    elide: Text.ElideRight
+                  }
+                }
+                }
+
+                // The chip, drawn a little larger than in the bar: its glyph
+                // (it does not move), then one cell per indicator as the bar
+                // shows it, the chosen ones in order, a divider, the rest.
+                BorderSurface {
+                  width: parent.width
+                  implicitHeight: flagsRow.y + flagsRow.height + Style.space(6)
+                  radius: Style.cornerRadius
+                  color: "transparent"
+                  borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+
+                  Text {
+                    id: chipGlyph
+                    x: Style.space(10)
+                    y: barGrid.y + Style.space(3)
+                    text: Model.deviceIcon(root.device, root.profile)
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body + 2
+                  }
+
+                  Grid {
+                    id: barGrid
+                    x: chipGlyph.x + chipGlyph.implicitWidth + Style.space(8)
+                    y: Style.space(5)
+                    width: parent.width - x - Style.space(6)
+                    columns: 7
+                    spacing: Style.space(2)
+                    readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+
+                    Reorder {
+                      id: barMove
+                      columns: barGrid.columns
+                      cellWidth: barGrid.cellWidth
+                      cellHeight: barGrid.children.length > 1 ? barGrid.children[1].height : 0
+                      gap: barGrid.spacing
+                      count: root.barOrder.length
+                      motion: root.motion
+                      onMoved: function(a, b) {
+                        root.persistProfile({ barIndicators: Model.moveShortcut(root.barOrder, root.barOrder[a], b - a) })
+                      }
+                    }
+
+                    Repeater {
+                      model: root.editing ? Model.editBarTiles(root.barOrder) : []
+                      BarTile {
+                        required property var modelData
+                        width: barGrid.cellWidth
+                        tile: modelData
+                      }
+                    }
+                  }
+
+                  // Between what the chip shows and what it could.
+                  Rectangle {
+                    readonly property int shown: root.barOrder.length
+                    visible: shown > 0 && shown < 7
+                    x: barGrid.x + shown * (barGrid.cellWidth + barGrid.spacing) - barGrid.spacing / 2 - width / 2
+                    y: barGrid.y + Style.space(2)
+                    width: 1
+                    height: barGrid.height - Style.space(4)
+                    color: root.dim
+                    opacity: 0.5
+                  }
+
+                  // Under a rule, inside the box: how the chip behaves. Compact,
+                  // so they read as the bar's, not as sections of their own.
+                  Rectangle {
+                    id: flagsRule
+                    x: Style.space(8)
+                    y: barGrid.y + barGrid.height + Style.space(5)
+                    width: parent.width - Style.space(16)
+                    height: 1
+                    color: root.dim
+                    opacity: 0.3
+                  }
+                  RowLayout {
+                    id: flagsRow
+                    x: Style.space(10)
+                    y: flagsRule.y + Style.space(5)
+                    width: parent.width - Style.space(20)
+                    spacing: Style.space(16)
+                    Repeater {
+                      model: [
+                        { key: "batteryLowOnly", label: "Battery only when low", hint: "Off, the battery and its % always show" },
+                        { key: "showCalls", label: "Calls", hint: "A ringing phone on the chip while it rings, and the call card" }
+                      ]
+                      RowLayout {
+                        id: flagItem
+                        required property var modelData
+                        spacing: Style.space(8)
+                        Text {
+                          textFormat: Text.PlainText
+                          text: flagItem.modelData.label
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          MouseArea {
+                            id: flagMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleBarFlagOnPage(flagItem.modelData.key)
+                          }
+                          PanelToolTip {
+                            visible: flagMouse.containsMouse
+                            text: flagItem.modelData.hint
+                          }
+                        }
+                        ToggleSwitch {
+                          checked: root.profile[flagItem.modelData.key] === true
+                          cursorRing: false
+                          foreground: root.foreground
+                          onToggled: root.toggleBarFlagOnPage(flagItem.modelData.key)
+                        }
+                      }
+                    }
+                    Item { Layout.fillWidth: true }
+                  }
+                }
+
+              }
+
               // ---- The sections, in the order chosen in settings. They are fixed
               //      items placed by that order, so a new order rebuilds
               //      nothing: the media cards and a half-typed text keep their state ----
@@ -2183,6 +2412,8 @@ Panel {
                           required property var modelData
                           width: editGrid.cellWidth
                           tile: modelData
+                          order: tileMove
+                          onToggle: function(key) { root.toggleShortcutOnPage(key) }
                         }
                       }
                     }
@@ -2713,20 +2944,23 @@ Panel {
     }
   }
 
-  // Editing: a shortcut tile. A chosen one (a − on its corner) drags to
-  // another place and a click takes it away; the others (dimmed, a +) are
-  // added with a click.
+  // Editing: a tile (a shortcut, a bar indicator). A chosen one (a − on its
+  // corner) drags to another place and a click takes it away; the others
+  // (dimmed, a +) are added with a click.
   component EditTile: BorderSurface {
     id: editTile
     property var tile: ({})
-    readonly property bool moving: tileMove.from >= 0 && tile.chosen === true && tileMove.from === tile.pos
+    // The order its chosen tiles move in (a Reorder), and what a click does.
+    property var order: null
+    signal toggle(string key)
+    readonly property bool moving: !!order && order.from >= 0 && tile.chosen === true && order.from === tile.pos
     implicitHeight: editColumn.implicitHeight + Style.space(18)
     radius: Style.cornerRadius
     borderSpec: Border.controlSpec(tileMouse.containsMouse || moving ? "hover-cursor" : "normal", root.foreground, Color.accent)
     color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
       : (tileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
     opacity: tile.chosen === true ? 1 : 0.45
-    transform: ReorderShift { order: tileMove; index: editTile.tile.chosen === true ? editTile.tile.pos : -1 }
+    transform: ReorderShift { order: editTile.order; index: editTile.tile.chosen === true ? editTile.tile.pos : -1 }
     z: moving ? 10 : 0
 
     Column {
@@ -2743,6 +2977,8 @@ Panel {
       Text {
         textFormat: Text.PlainText
         anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, editTile.width - Style.space(8))
+        elide: Text.ElideRight
         text: editTile.tile.label || ""
         color: root.foreground
         font.family: root.fontFamily
@@ -2764,17 +3000,105 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: editTile.tile.chosen === true ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor
-      onClicked: root.toggleShortcutOnPage(editTile.tile.key)
+      onClicked: editTile.toggle(editTile.tile.key)
     }
     DragHandler {
       target: null
       enabled: editTile.tile.chosen === true
       grabPermissions: PointerHandler.CanTakeOverFromAnything
       onActiveChanged: {
-        if (active) tileMove.begin(editTile.tile.pos, editTile.width)
-        else if (tileMove.from === editTile.tile.pos) tileMove.release()
+        if (active) editTile.order.begin(editTile.tile.pos, editTile.width)
+        else if (editTile.order.from === editTile.tile.pos) editTile.order.release()
       }
-      onTranslationChanged: if (active) tileMove.dragBy(translation.x, translation.y)
+      onTranslationChanged: if (active) editTile.order.dragBy(translation.x, translation.y)
+    }
+  }
+
+  // Editing the bar: an indicator as the bar shows it, with a small caption.
+  // A chosen one drags to another place (barMove) and a click takes it away;
+  // the others (dimmed) are added with a click.
+  component BarTile: Rectangle {
+    id: barTile
+    property var tile: ({})
+    readonly property bool moving: barMove.from >= 0 && tile.chosen === true && barMove.from === tile.pos
+    implicitHeight: tileColumn.implicitHeight + Style.space(6)
+    radius: Style.cornerRadius
+    color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+      : (barTileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+    opacity: tile.chosen === true ? 1 : 0.4
+    transform: ReorderShift { order: barMove; index: barTile.tile.chosen === true ? barTile.tile.pos : -1 }
+    z: moving ? 10 : 0
+
+    Column {
+      id: tileColumn
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.top: parent.top
+      anchors.topMargin: Style.space(3)
+      spacing: Style.space(2)
+      Item {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.max(sampleText.implicitWidth, bubbleDot.width)
+        height: sampleText.implicitHeight
+        Text {
+          id: sampleText
+          anchors.centerIn: parent
+          visible: barTile.tile.key !== "bubble"
+          text: barTile.tile.sample || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body + 2
+        }
+        // The bubble is a count on the device glyph: drawn as the bar does.
+        Rectangle {
+          id: bubbleDot
+          visible: barTile.tile.key === "bubble"
+          anchors.centerIn: parent
+          height: Math.round(sampleText.implicitHeight * 0.62)
+          width: height
+          radius: height / 2
+          color: Color.urgent
+          Text {
+            anchors.centerIn: parent
+            text: barTile.tile.sample || ""
+            color: "white"
+            font.family: root.fontFamily
+            font.pixelSize: Math.max(6, parent.height * 0.72)
+            font.bold: true
+          }
+        }
+      }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, barTile.width - Style.space(2))
+        elide: Text.ElideRight
+        textFormat: Text.PlainText
+        text: barTile.tile.label || ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption - 1
+      }
+    }
+
+    MouseArea {
+      id: barTileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: barTile.tile.chosen === true ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor
+      onClicked: root.toggleBarOnPage(barTile.tile.key)
+    }
+    PanelToolTip {
+      visible: barTileMouse.containsMouse && barMove.from < 0
+      text: (barTile.tile.hint || "") + (barTile.tile.chosen === true ? " · click to take away, drag to move" : " · click to add")
+    }
+    DragHandler {
+      target: null
+      enabled: barTile.tile.chosen === true
+      grabPermissions: PointerHandler.CanTakeOverFromAnything
+      onActiveChanged: {
+        if (active) barMove.begin(barTile.tile.pos, barTile.width)
+        else if (barMove.from === barTile.tile.pos) barMove.release()
+      }
+      onTranslationChanged: if (active) barMove.dragBy(translation.x, translation.y)
     }
   }
 
