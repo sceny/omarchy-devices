@@ -53,7 +53,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   `demoTextTo`, `pressEscape`.
 
 - The bar joins edit in place (#84): editing a device's page starts with
-  its chip, the indicators as tiles to drag, add or take away, and the
+  its chip, drawn as the bar shows it, a little larger: drag an
+  indicator to move it, click to add or take one away; then the
   *Battery only when low* and *Calls* switches; the pill in the bar
   changes as you go. A right-click on a device's chip opens it. The bar
   leaves a device's Settings; *Defaults for all devices* keeps it.

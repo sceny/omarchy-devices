@@ -162,8 +162,9 @@ Keep them; change one only with the owner.
   is on the device's header so the page has no chrome at rest; a
   right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
   the device's chip in the bar, one action as Omarchy's own widgets do; or
-  `E`): the Bar strip leads (the chip's indicators as tiles, *Battery only
-  when low*, *Calls*; the real pill is the preview), every
+  `E`): the Bar strip leads (the chip drawn as the bar shows it, a little
+  larger, so it reads as the bar; *Battery only when low*, *Calls*; the
+  real pill is the preview), every
   section becomes a bar with its grip and switch, every shortcut shows
   (drag the chosen ones, click to add or take away), and ✓ Done, `E` or
   Esc ends it. It edits the viewed device's profile (with one device, the

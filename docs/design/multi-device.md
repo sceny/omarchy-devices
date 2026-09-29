@@ -448,9 +448,10 @@ not in Settings: ✎ on the device's header turns the page into its editor.
 at rest; a right-click on the page (KDE's *Enter Edit Mode* idiom), a
 right-click on the device's chip in the bar, and `E` open it too.
 
-- The Bar strip leads the page: the chip's indicators as tiles (chosen
-  ones in order with a −, dragged within the grid; the others dimmed with
-  a +), then *Battery only when low* and *Calls*. It does not move. The
+- The Bar strip leads the page: the chip drawn as the bar shows it, a
+  little larger, one cell per indicator with a sample and a caption
+  (chosen ones in order, dragged within the row; a divider; the others
+  dimmed, added with a click), then *Battery only when low* and *Calls*. It does not move. The
   real pill changes as it is edited: the bar is the preview.
 
 - Each section becomes a bar: its grip, its name, what it holds now (or
