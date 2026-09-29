@@ -2117,35 +2117,68 @@ Panel {
                 }
                 }
 
-                Grid {
-                  id: barGrid
+                // The chip, drawn a little larger than in the bar: its glyph
+                // (it does not move), then one cell per indicator as the bar
+                // shows it, the chosen ones in order, a divider, the rest.
+                BorderSurface {
                   width: parent.width
-                  columns: 4
-                  spacing: Style.space(8)
-                  readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+                  implicitHeight: barGrid.height + Style.space(10)
+                  radius: Style.cornerRadius
+                  color: "transparent"
+                  borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
 
-                  Reorder {
-                    id: barMove
-                    columns: barGrid.columns
-                    cellWidth: barGrid.cellWidth
-                    cellHeight: barGrid.children.length > 1 ? barGrid.children[1].height : 0
-                    gap: barGrid.spacing
-                    count: root.barOrder.length
-                    motion: root.motion
-                    onMoved: function(a, b) {
-                      root.persistProfile({ barIndicators: Model.moveShortcut(root.barOrder, root.barOrder[a], b - a) })
+                  Text {
+                    id: chipGlyph
+                    x: Style.space(10)
+                    y: barGrid.y + Style.space(3)
+                    text: Model.deviceIcon(root.device, root.profile)
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body + 2
+                  }
+
+                  Grid {
+                    id: barGrid
+                    x: chipGlyph.x + chipGlyph.implicitWidth + Style.space(8)
+                    y: Style.space(5)
+                    width: parent.width - x - Style.space(6)
+                    columns: 7
+                    spacing: Style.space(2)
+                    readonly property real cellWidth: (width - spacing * (columns - 1)) / columns
+
+                    Reorder {
+                      id: barMove
+                      columns: barGrid.columns
+                      cellWidth: barGrid.cellWidth
+                      cellHeight: barGrid.children.length > 1 ? barGrid.children[1].height : 0
+                      gap: barGrid.spacing
+                      count: root.barOrder.length
+                      motion: root.motion
+                      onMoved: function(a, b) {
+                        root.persistProfile({ barIndicators: Model.moveShortcut(root.barOrder, root.barOrder[a], b - a) })
+                      }
+                    }
+
+                    Repeater {
+                      model: root.editing ? Model.editBarTiles(root.barOrder) : []
+                      BarTile {
+                        required property var modelData
+                        width: barGrid.cellWidth
+                        tile: modelData
+                      }
                     }
                   }
 
-                  Repeater {
-                    model: root.editing ? Model.editBarTiles(root.barOrder) : []
-                    EditTile {
-                      required property var modelData
-                      width: barGrid.cellWidth
-                      tile: modelData
-                      order: barMove
-                      onToggle: function(key) { root.toggleBarOnPage(key) }
-                    }
+                  // Between what the chip shows and what it could.
+                  Rectangle {
+                    readonly property int shown: root.barOrder.length
+                    visible: shown > 0 && shown < 7
+                    x: barGrid.x + shown * (barGrid.cellWidth + barGrid.spacing) - barGrid.spacing / 2 - width / 2
+                    y: barGrid.y + Style.space(2)
+                    width: 1
+                    height: barGrid.height - Style.space(4)
+                    color: root.dim
+                    opacity: 0.5
                   }
                 }
 
@@ -2955,6 +2988,94 @@ Panel {
         else if (editTile.order.from === editTile.tile.pos) editTile.order.release()
       }
       onTranslationChanged: if (active) editTile.order.dragBy(translation.x, translation.y)
+    }
+  }
+
+  // Editing the bar: an indicator as the bar shows it, with a small caption.
+  // A chosen one drags to another place (barMove) and a click takes it away;
+  // the others (dimmed) are added with a click.
+  component BarTile: Rectangle {
+    id: barTile
+    property var tile: ({})
+    readonly property bool moving: barMove.from >= 0 && tile.chosen === true && barMove.from === tile.pos
+    implicitHeight: tileColumn.implicitHeight + Style.space(6)
+    radius: Style.cornerRadius
+    color: moving ? Qt.tint(root.bar ? root.bar.background : Color.background, Style.hoverFillFor(root.foreground, Color.accent))
+      : (barTileMouse.containsMouse ? Style.hoverFillFor(root.foreground, Color.accent) : "transparent")
+    opacity: tile.chosen === true ? 1 : 0.4
+    transform: ReorderShift { order: barMove; index: barTile.tile.chosen === true ? barTile.tile.pos : -1 }
+    z: moving ? 10 : 0
+
+    Column {
+      id: tileColumn
+      anchors.horizontalCenter: parent.horizontalCenter
+      anchors.top: parent.top
+      anchors.topMargin: Style.space(3)
+      spacing: Style.space(2)
+      Item {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.max(sampleText.implicitWidth, bubbleDot.width)
+        height: sampleText.implicitHeight
+        Text {
+          id: sampleText
+          anchors.centerIn: parent
+          visible: barTile.tile.key !== "bubble"
+          text: barTile.tile.sample || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body + 2
+        }
+        // The bubble is a count on the device glyph: drawn as the bar does.
+        Rectangle {
+          id: bubbleDot
+          visible: barTile.tile.key === "bubble"
+          anchors.centerIn: parent
+          height: Math.round(sampleText.implicitHeight * 0.62)
+          width: height
+          radius: height / 2
+          color: Color.urgent
+          Text {
+            anchors.centerIn: parent
+            text: barTile.tile.sample || ""
+            color: "white"
+            font.family: root.fontFamily
+            font.pixelSize: Math.max(6, parent.height * 0.72)
+            font.bold: true
+          }
+        }
+      }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, barTile.width - Style.space(2))
+        elide: Text.ElideRight
+        textFormat: Text.PlainText
+        text: barTile.tile.label || ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption - 1
+      }
+    }
+
+    MouseArea {
+      id: barTileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: barTile.tile.chosen === true ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.PointingHandCursor
+      onClicked: root.toggleBarOnPage(barTile.tile.key)
+    }
+    PanelToolTip {
+      visible: barTileMouse.containsMouse && barMove.from < 0
+      text: (barTile.tile.hint || "") + (barTile.tile.chosen === true ? " · click to take away, drag to move" : " · click to add")
+    }
+    DragHandler {
+      target: null
+      enabled: barTile.tile.chosen === true
+      grabPermissions: PointerHandler.CanTakeOverFromAnything
+      onActiveChanged: {
+        if (active) barMove.begin(barTile.tile.pos, barTile.width)
+        else if (barMove.from === barTile.tile.pos) barMove.release()
+      }
+      onTranslationChanged: if (active) barMove.dragBy(translation.x, translation.y)
     }
   }
 

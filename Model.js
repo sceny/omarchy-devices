@@ -367,13 +367,13 @@ function lowBattery(device, threshold) {
 // What the pill can show beside the glyph. "bubble" is not text: a count
 // drawn on the glyph itself (BarWidget), so it costs no width.
 var BAR_INDICATORS = [
-  { key: "connection", tile: "Connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
-  { key: "battery", tile: "Battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
-  { key: "percent", tile: "Battery %", glyph: "%", label: "Battery %", hint: "The charge as a number" },
-  { key: "notifications", tile: "Notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
-  { key: "messages", tile: "Messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
-  { key: "playing", tile: "Playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
-  { key: "bubble", tile: "Bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
+  { key: "connection", tile: "Link", sample: GLYPH.wifi, glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
+  { key: "battery", tile: "Battery", sample: "\u{F007E}", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
+  { key: "percent", tile: "Percent", sample: "80%", glyph: "%", label: "Battery %", hint: "The charge as a number" },
+  { key: "notifications", tile: "Alerts", sample: GLYPH.bell + " 3", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
+  { key: "messages", tile: "Texts", sample: GLYPH.messages + " 2", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
+  { key: "playing", tile: "Playing", sample: GLYPH.play, glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
+  { key: "bubble", tile: "Bubble", sample: "3", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
 ]
 
 function barIndicatorByKey(key) {
@@ -1481,17 +1481,18 @@ function editShortcutTiles(order, can) {
   return chosen.concat(rest)
 }
 
-// Editing: every bar indicator as a tile, the chosen ones in their order
-// (with their place, for moving), then the rest.
+// Editing: every bar indicator as it looks in the bar (a sample), the
+// chosen ones in their order (with their place, for moving), then the rest.
 function editBarTiles(order) {
   var chosen = normalizeBarIndicators(order)
   var out = chosen.map(function(k, i) {
     var ind = barIndicatorByKey(k)
-    return { key: k, glyph: ind.glyph, label: ind.tile, chosen: true, pos: i }
+    return { key: k, glyph: ind.glyph, sample: ind.sample, label: ind.tile, hint: ind.label, chosen: true, pos: i }
   })
   for (var i = 0; i < BAR_INDICATORS.length; i++)
     if (chosen.indexOf(BAR_INDICATORS[i].key) < 0)
-      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, label: BAR_INDICATORS[i].tile, chosen: false, pos: -1 })
+      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, sample: BAR_INDICATORS[i].sample, label: BAR_INDICATORS[i].tile,
+                 hint: BAR_INDICATORS[i].label, chosen: false, pos: -1 })
   return out
 }
 
