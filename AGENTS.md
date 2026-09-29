@@ -137,7 +137,9 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
-- **Orders move with a glide, never a jump.** Every order (devices,
+- **Orders move with a glide, never a jump.** The pill in the bar slides
+  its parts to a new order too (a slot per kind, `Model.BAR_PART_KEYS`).
+  Every order (devices,
   sections, bar indicators, shortcuts, tabs) moves through `Reorder`:
   while an item moves, the others slide aside to show where it lands; it
   glides in at `Model.MOTION`, and only then is the order written. A drag
