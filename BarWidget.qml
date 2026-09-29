@@ -20,7 +20,7 @@ BarWidget {
   readonly property var pill: phone ? phone.pill : ({ chips: [], resting: { glyph: Model.GLYPH.devices, dimmed: true, ringing: false }, pairing: false })
   // What is drawn: the chips, or the resting glyph as one chip of no device.
   readonly property var items: pill.chips.length > 0 ? pill.chips
-    : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, parts: [{ text: pill.resting.glyph, urgent: false }],
+    : [{ id: "", glyph: pill.resting.glyph, text: pill.resting.glyph, parts: [{ key: "glyph", text: pill.resting.glyph, urgent: false }],
          bubble: 0, dimmed: pill.resting.dimmed, ringing: false, marks: {} }]
 
   // The chips by id, kept in step with `items`: a Repeater over a plain
@@ -167,7 +167,9 @@ BarWidget {
         // row being redrawn.
         Item {
           id: partsRow
-          readonly property var keys: chip.parts.map(function(p) { return p.key })
+          // A part without a key would have no slot and not show: the first
+          // is always the glyph.
+          readonly property var keys: chip.parts.map(function(p, i) { return p.key || (i === 0 ? "glyph" : "") })
           readonly property real spacing: glyphMetrics.spaceWidth
           // Bumped as slots are built, so widths read before they exist are read again.
           property int built: 0
