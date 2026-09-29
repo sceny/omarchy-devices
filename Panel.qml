@@ -2087,7 +2087,6 @@ Panel {
                   width: parent.width - Style.space(16)
                   spacing: Style.space(10)
                   Text {
-                    id: barGlyph
                     Layout.alignment: Qt.AlignVCenter
                     text: Model.deviceIcon(root.device, root.profile)
                     color: root.dim
@@ -2122,7 +2121,7 @@ Panel {
                 // shows it, the chosen ones in order, a divider, the rest.
                 BorderSurface {
                   width: parent.width
-                  implicitHeight: barGrid.height + Style.space(10)
+                  implicitHeight: flagsRow.y + flagsRow.height + Style.space(6)
                   radius: Style.cornerRadius
                   color: "transparent"
                   borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
@@ -2180,63 +2179,63 @@ Panel {
                     color: root.dim
                     opacity: 0.5
                   }
-                }
 
-                Repeater {
-                  model: [
-                    { key: "batteryLowOnly", label: "Battery only when low", hint: "Off, the battery and its % always show" },
-                    { key: "showCalls", label: "Calls", hint: "A ringing phone on the chip, and the call card" }
-                  ]
-                  Item {
-                    id: flagRow
-                    required property var modelData
-                    width: parent.width
-                    implicitHeight: flagLine.implicitHeight + Style.space(6)
-                    MouseArea {
-                      anchors.fill: parent
-                      cursorShape: Qt.PointingHandCursor
-                      onClicked: root.toggleBarFlagOnPage(flagRow.modelData.key)
-                    }
-                    RowLayout {
-                      id: flagLine
-                      anchors.left: parent.left
-                      anchors.right: parent.right
-                      // Under the BAR title.
-                      anchors.leftMargin: Style.space(18) + barGlyph.width
-                      anchors.rightMargin: Style.space(8)
-                      anchors.verticalCenter: parent.verticalCenter
-                      spacing: Style.space(10)
-                      ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: Style.space(1)
+                  // Under a rule, inside the box: how the chip behaves. Compact,
+                  // so they read as the bar's, not as sections of their own.
+                  Rectangle {
+                    id: flagsRule
+                    x: Style.space(8)
+                    y: barGrid.y + barGrid.height + Style.space(5)
+                    width: parent.width - Style.space(16)
+                    height: 1
+                    color: root.dim
+                    opacity: 0.3
+                  }
+                  RowLayout {
+                    id: flagsRow
+                    x: Style.space(10)
+                    y: flagsRule.y + Style.space(5)
+                    width: parent.width - Style.space(20)
+                    spacing: Style.space(16)
+                    Repeater {
+                      model: [
+                        { key: "batteryLowOnly", label: "Battery only when low", hint: "Off, the battery and its % always show" },
+                        { key: "showCalls", label: "Calls", hint: "A ringing phone on the chip while it rings, and the call card" }
+                      ]
+                      RowLayout {
+                        id: flagItem
+                        required property var modelData
+                        spacing: Style.space(8)
                         Text {
-                          Layout.fillWidth: true
                           textFormat: Text.PlainText
-                          text: flagRow.modelData.label
+                          text: flagItem.modelData.label
                           color: root.foreground
                           font.family: root.fontFamily
-                          font.pixelSize: Style.font.bodySmall
-                        }
-                        Text {
-                          Layout.fillWidth: true
-                          textFormat: Text.PlainText
-                          text: flagRow.modelData.hint
-                          color: root.dim
-                          font.family: root.fontFamily
                           font.pixelSize: Style.font.caption
-                          elide: Text.ElideRight
+                          MouseArea {
+                            id: flagMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.toggleBarFlagOnPage(flagItem.modelData.key)
+                          }
+                          PanelToolTip {
+                            visible: flagMouse.containsMouse
+                            text: flagItem.modelData.hint
+                          }
                         }
-                      }
-                      ToggleSwitch {
-                        Layout.alignment: Qt.AlignVCenter
-                        checked: root.profile[flagRow.modelData.key] === true
-                        cursorRing: false
-                        foreground: root.foreground
-                        onToggled: root.toggleBarFlagOnPage(flagRow.modelData.key)
+                        ToggleSwitch {
+                          checked: root.profile[flagItem.modelData.key] === true
+                          cursorRing: false
+                          foreground: root.foreground
+                          onToggled: root.toggleBarFlagOnPage(flagItem.modelData.key)
+                        }
                       }
                     }
+                    Item { Layout.fillWidth: true }
                   }
                 }
+
               }
 
               // ---- The sections, in the order chosen in settings. They are fixed
