@@ -1004,6 +1004,30 @@ function setupSummary(checks) {
   return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
 }
 
+// ---- Installing the app: its store pages, and a QR code for the phone ----
+
+var APP_LINKS = {
+  play: "https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp",
+  fdroid: "https://f-droid.org/packages/org.kde.kdeconnect_tp/"
+}
+
+// qrencode's text output (`qrencode -t ASCII -m 0 <url>`: a line per row,
+// two characters per module, "#" dark) as { size, dark: [row][col] }, or
+// null when it is not a square grid.
+function qrGrid(text) {
+  var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
+  var size = lines.length
+  if (size < 21) return null
+  var dark = []
+  for (var r = 0; r < size; r++) {
+    if (lines[r].length !== size * 2) return null
+    var row = []
+    for (var c = 0; c < size; c++) row.push(lines[r].charAt(2 * c) === "#")
+    dark.push(row)
+  }
+  return { size: size, dark: dark }
+}
+
 // ---- Demo messages: made-up conversations for screenshots and checks ----
 // Fictional names and 555 numbers only; demo mode never sends anything. The
 // clock is today at 18:40, so a screenshot reads like an evening at any hour.

@@ -662,3 +662,17 @@ test("editing the bar: the chosen indicators in order with their place, then the
   const s = M.readSettings({ devices: { t1: { showCalls: false } } })
   assert.ok(M.groupCustom(M.resolveProfile(s, tablet(), false).custom, "bar"), "a device's Calls switch marks its bar custom")
 })
+
+test("the app's QR code: qrencode's text read as a square grid", () => {
+  // A made-up 21 x 21 grid: a finder pattern's top row, dark and light.
+  const row = (n) => Array.from({ length: 21 }, (_, c) => (c + n) % 2 === 0 ? "##" : "  ").join("")
+  const text = Array.from({ length: 21 }, (_, r) => row(r)).join("\n") + "\n"
+  const grid = M.qrGrid(text)
+  assert.equal(grid.size, 21)
+  assert.equal(grid.dark[0][0], true)
+  assert.equal(grid.dark[0][1], false)
+  assert.equal(grid.dark[1][0], false)
+  assert.equal(M.qrGrid(""), null, "nothing: no code")
+  assert.equal(M.qrGrid(text.replace("##", "#")), null, "a ragged row: no code")
+  assert.match(M.APP_LINKS.play, /^https:\/\/play\.google\.com\/.*org\.kde\.kdeconnect_tp$/)
+})

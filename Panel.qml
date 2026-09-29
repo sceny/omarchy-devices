@@ -2773,6 +2773,8 @@ Panel {
                   checks: root.phone ? root.phone.setupChecks : []
                   busyFixes: root.phone ? root.phone.setupFixing : ({})
                   showPhoneSteps: !root.device
+                  // No device paired yet: a QR code for the app (#64).
+                  showQr: !root.device
                   foreground: root.foreground
                   urgent: root.urgent
                   fontFamily: root.fontFamily
