@@ -43,7 +43,9 @@ Item {
     smsService.showDemo()
   }
 
+  function showLiveFiles() { dismissedFiles = ({}) }
   function showLive() {
+    showLiveFiles()
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
@@ -617,6 +619,72 @@ Item {
     id: statusTimer
     interval: 3500
     onTriggered: { root.actionStatus = ""; root.actionFailed = false }
+  }
+
+  // ---- Files: the viewed device's newest photos (#65), files it sent (#37) ----
+  // Photos are asked for when a panel opens on the device (at most every
+  // 20 s): the bridge mounts its storage (KDE Connect's sftp) and lists
+  // them. Per device: { loading, ok, missing, error, photos, at }.
+  property var photoState: ({})
+  readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
+  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture) }
+    : (device ? photoState[String(device.id)] || null : null)
+  readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
+  function setPhotoState(id, value) {
+    var next = Object.assign({}, photoState)
+    next[id] = value
+    photoState = next
+  }
+  function refreshPhotos(force) {
+    if (demo || !device || device.reachable !== true || !(device.can && device.can.files)) return
+    var id = String(device.id)
+    var st = photoState[id]
+    if (st && st.loading) return
+    // A good list is reused for 20 s; a failed look (no sshfs, storage not
+    // allowed) is tried again on the next open.
+    if (!force && st && st.ok && Date.now() - st.at < 20000) return
+    setPhotoState(id, Object.assign({}, st || { photos: [] }, { loading: true, at: Date.now() }))
+    var proc = photosComponent.createObject(root, { deviceId: id, command: [bridge, "photos", id] })
+    proc.running = true
+  }
+  Component {
+    id: photosComponent
+    Process {
+      id: photosProc
+      property string deviceId: ""
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var r = null
+          try { r = JSON.parse(text) } catch (e) { r = { ok: false, error: "Could not read its storage" } }
+          root.setPhotoState(photosProc.deviceId, Object.assign({ photos: [] }, r, { loading: false, at: Date.now() }))
+          photosProc.destroy()
+        }
+      }
+    }
+  }
+
+  // Received files: from the snapshot, less the ones dismissed here (they
+  // leave the bridge's list at its next snapshot).
+  property var dismissedFiles: ({})
+  readonly property var received: {
+    if (demo) return Model.demoReceived().filter(function(r) { return !dismissedFiles[r.path] })
+    var list = device && device.received ? device.received : []
+    return list.filter(function(r) { return !dismissedFiles[r.path] })
+  }
+  function dismissReceived(entry) {
+    if (!entry || !device) return
+    var next = Object.assign({}, dismissedFiles)
+    next[entry.path] = true
+    dismissedFiles = next
+    if (!demo) Quickshell.execDetached([bridge, "received-dismiss", String(device.id), entry.path])
+  }
+  // The file on the clipboard (an image as image data).
+  function copyFile(path) {
+    if (demo) { report("Copied", false); return }
+    if (isBusy("copy")) return
+    setBusy("copy", true)
+    var proc = actionComponent.createObject(root, { key: "copy", command: [bridge, "copy-file", path] })
+    proc.running = true
   }
 
   Component {

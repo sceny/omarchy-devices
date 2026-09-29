@@ -103,17 +103,17 @@ test("send text: a lone web address is a link, anything else is text", () => {
 })
 
 test("section order: known sections once, the missing ones back at their default position", () => {
-  const all = ["devices", "actions", "media", "notifications"]
+  const all = ["devices", "actions", "media", "notifications", "files"]
   assert.deepEqual(M.normalizeSections(undefined), all)
   assert.deepEqual(M.normalizeSections([]), all, "an empty list is not a choice: sections hide by their switch")
   assert.deepEqual(M.normalizeSections(["actions", "media", "notifications"]), all, "an order saved before Devices moved: Devices first")
-  assert.deepEqual(M.normalizeSections(["notifications", "devices", "actions", "media"]), ["notifications", "devices", "actions", "media"])
-  assert.deepEqual(M.normalizeSections(["media", "bogus", "media", "devices"]), ["media", "actions", "devices", "notifications"])
-  assert.deepEqual(M.normalizeSections('["notifications"]'), ["devices", "actions", "media", "notifications"], "a hand-edited string; the rest back at their default position")
+  assert.deepEqual(M.normalizeSections(["notifications", "devices", "actions", "media"]), ["notifications", "devices", "actions", "media", "files"], "a saved order gains Files at the end")
+  assert.deepEqual(M.normalizeSections(["media", "bogus", "media", "devices"]), ["media", "actions", "devices", "notifications", "files"])
+  assert.deepEqual(M.normalizeSections('["notifications"]'), ["devices", "actions", "media", "notifications", "files"], "a hand-edited string; the rest back at their default position")
   const rows = M.settingsRows({ showMedia: false }, [], {}, ["notifications", "media", "devices", "actions"]).filter(r => r.kind === "layout")
-  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "actions"], "the Devices section is not on the page")
-  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, true]])
-  assert.deepEqual(rows.map(r => r.on), [true, false, true])
+  assert.deepEqual(rows.map(r => r.section), ["notifications", "media", "actions", "files"], "the Devices section is not on the page")
+  assert.deepEqual(rows.map(r => [r.first, r.last]), [[true, false], [false, false], [false, false], [false, true]])
+  assert.deepEqual(rows.map(r => r.on), [true, false, true, true])
 })
 
 test("settings rows: bar indicators chosen first in order, the rest after, then the low-only switch", () => {
@@ -163,7 +163,7 @@ test("shortcuts: stored order is cleaned, toggled, moved; empty stays empty", ()
 
 test("settings rows: layout switches, chosen shortcuts in order, then the rest", () => {
   const rows = M.settingsRows({ showMedia: false }, ["messages", "ring"], { ring: true, sms: true })
-  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, false, true])
+  assert.deepEqual(rows.filter(r => r.kind === "layout").map(r => r.on), [true, false, true, true])
   const s = rows.filter(r => r.kind === "shortcut")
   assert.deepEqual(s.slice(0, 2).map(r => r.key), ["messages", "ring"])
   assert.equal(s[0].first, true)
@@ -265,10 +265,10 @@ test("demo devices cover requests, away and available", () => {
 
 test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({}), "Everything shown")
-  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications", "the Devices section is gone from the page")
-  assert.equal(M.layoutSummary({ showDevices: false, showShortcuts: false, showMedia: false, showNotifications: false }), "Everything hidden")
-  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Shortcuts, Now playing", "a new order is never hidden")
-  assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications")
+  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications, Files", "the Devices section is gone from the page")
+  assert.equal(M.layoutSummary({ showDevices: false, showShortcuts: false, showMedia: false, showNotifications: false, showFiles: false }), "Everything hidden")
+  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Shortcuts, Now playing, Files", "a new order is never hidden")
+  assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications, Files")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
   assert.equal(M.setupSummary([]), "Checking…")
@@ -539,13 +539,13 @@ test("moving devices never changes how they show in the bar", () => {
 test("orders: the shown order only, a place and a count per row, and a move onto another row", () => {
   const rows = M.settingsRows({}, ["ring", "share"], null, ["devices", "actions", "media", "notifications"], ["bubble"], true)
   const layout = rows.filter(r => r.kind === "layout")
-  assert.deepEqual(layout.map(r => [r.section, r.pos, r.count, r.first]), [["actions", 0, 3, true], ["media", 1, 3, false], ["notifications", 2, 3, false]],
+  assert.deepEqual(layout.map(r => [r.section, r.pos, r.count, r.first]), [["actions", 0, 4, true], ["media", 1, 4, false], ["notifications", 2, 4, false], ["files", 3, 4, false]],
     "the hidden Devices section takes no place")
   assert.deepEqual(rows.filter(r => r.kind === "shortcut" && r.on).map(r => [r.key, r.pos, r.count]), [["ring", 0, 2], ["share", 1, 2]])
   assert.deepEqual(M.moveTo(["a", "b", "c", "d"], "d", "b"), ["a", "d", "b", "c"], "up: before the target")
   assert.deepEqual(M.moveTo(["a", "b", "c", "d"], "a", "c"), ["b", "c", "a", "d"], "down: after the target")
   assert.deepEqual(M.moveTo(["a", "b"], "a", "z"), ["a", "b"])
-  assert.deepEqual(M.moveShortcut(M.visibleSections(["devices", "actions", "media"]), "media", -1), ["media", "actions", "notifications"])
+  assert.deepEqual(M.moveShortcut(M.visibleSections(["devices", "actions", "media"]), "media", -1), ["media", "actions", "notifications", "files"])
 })
 
 test("moving an item: where it lands, how far the others slide, how far it glides", () => {
@@ -661,4 +661,21 @@ test("editing the bar: the chosen indicators in order with their place, then the
   assert.deepEqual(tiles.slice(2).map(t => t.key), ["connection", "percent", "notifications", "messages", "playing"])
   const s = M.readSettings({ devices: { t1: { showCalls: false } } })
   assert.ok(M.groupCustom(M.resolveProfile(s, tablet(), false).custom, "bar"), "a device's Calls switch marks its bar custom")
+})
+
+test("files: a section of its own, joining saved orders at the end; sizes, images, summaries, demo", () => {
+  assert.deepEqual(M.normalizeSections(["devices", "notifications", "actions", "media"]), ["devices", "notifications", "actions", "media", "files"], "a saved order: Files last")
+  assert.deepEqual(M.visibleSections(["devices", "files", "actions", "media", "notifications"]), ["files", "actions", "media", "notifications"])
+  assert.equal(M.layoutBySection("files").key, "showFiles")
+  assert.equal(M.sizeText(900), "900 B")
+  assert.equal(M.sizeText(2150), "2 KB")
+  assert.equal(M.sizeText(3.4 * 1024 * 1024), "3.4 MB")
+  assert.ok(M.isImage("IMG_1.JPG") && !M.isImage("notes.txt"))
+  assert.equal(M.folderUrl("/home/u/Downloads/a b.pdf"), "file:///home/u/Downloads")
+  assert.equal(M.filesSummary([{}, {}], [{}]), "2 photos · 1 received")
+  assert.equal(M.filesSummary([], []), "Nothing new")
+  const photos = M.demoPhotos("/x/picture.jpg", 0)
+  assert.equal(photos.length, 4)
+  assert.ok(photos.every(p => p.demo && p.clip.length === 4))
+  assert.ok(M.demoReceived(0).every(r => r.path.startsWith("/demo/")), "made up: nothing real")
 })

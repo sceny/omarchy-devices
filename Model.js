@@ -37,6 +37,7 @@ var GLYPH = {
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
   file: "\u{F021F}",         // file-image
+  document: "\u{F0219}",     // file-document: a received file that is not a picture
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
   check: "\u{F012C}",
@@ -131,10 +132,13 @@ var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
-  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
+  { key: "showFiles", section: "files", label: "Files", hint: "Its newest photos and screenshots, and files it sent" }
 ]
 
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications"]
+// A section added in a release joins a saved order at its default place
+// (normalizeSections), so Files comes last for everyone who had an order.
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "files"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -1073,6 +1077,7 @@ var PROFILE_SETTINGS = {
   showShortcuts: function(v) { return layoutFlag(v) },
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
+  showFiles: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   collapsed: function(v) { return collapsedState(v) }
 }
@@ -1281,7 +1286,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
+  layout: ["showShortcuts", "showMedia", "showNotifications", "showFiles", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1348,7 +1353,7 @@ function settingsPageRows(ctx) {
   } else {
     // A panel torn down mid-reload can ask with nothing to edit.
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showFiles: e.showFiles },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
     // A device's page (and the one-device page) edits its sections,
     // shortcuts and bar on the page itself (edit in place): here, a row
@@ -1508,5 +1513,57 @@ function editBarTiles(order) {
 var SECTION_EMPTY = {
   actions: "No shortcuts: add some below",
   media: "Shows while the device plays something",
-  notifications: "Shows while there are notifications"
+  notifications: "Shows while there are notifications",
+  files: "Shows its newest photos, and files it sends"
+}
+
+// ---- Files: the device's newest photos (#65) and files it sent (#37) ----
+
+// "12 KB", "3.4 MB".
+function sizeText(bytes) {
+  var b = Number(bytes) || 0
+  if (b < 1024) return b + " B"
+  if (b < 1024 * 1024) return Math.round(b / 1024) + " KB"
+  var mb = b / (1024 * 1024)
+  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB"
+}
+
+var IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+function isImage(name) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(String(name || ""))
+  return !!m && IMAGE_EXTENSIONS.indexOf(m[1].toLowerCase()) >= 0
+}
+
+// The folder a file is in, as a file:// URL (Show in folder).
+function folderUrl(path) {
+  var p = String(path || "")
+  var at = p.lastIndexOf("/")
+  return at > 0 ? "file://" + encodeURI(p.slice(0, at)) : ""
+}
+
+function filesSummary(photos, received) {
+  var parts = []
+  var p = (photos || []).length, r = (received || []).length
+  if (p > 0) parts.push(p === 1 ? "1 photo" : p + " photos")
+  if (r > 0) parts.push(r + " received")
+  return parts.length > 0 ? parts.join(" · ") : "Nothing new"
+}
+
+// Demo: photos from the one local demo picture, each a different part of it
+// (`clip`: x, y, w, h as fractions), so a screenshot shows four of them;
+// and two received files that exist nowhere (demo only opens nothing).
+function demoPhotos(picture, nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
+  return clips.map(function(c, i) {
+    return { name: "PXL_2026092" + i + ".jpg", path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
+             kind: i === 2 ? "screenshot" : "camera", clip: c, demo: true }
+  })
+}
+function demoReceived(nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  return [
+    { path: "/demo/Boarding pass.pdf", name: "Boarding pass.pdf", size: 184320, at: now - 25 * 60000 },
+    { path: "/demo/Recipe notes.txt", name: "Recipe notes.txt", size: 2150, at: now - 26 * 3600000 }
+  ]
 }

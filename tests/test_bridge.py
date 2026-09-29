@@ -286,3 +286,76 @@ class Calls(unittest.TestCase):
     def test_other_events_are_ignored(self):
         self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
         self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))
+
+
+class Received(unittest.TestCase):
+    """Files the device sends: newest first, once each, gone when their
+    file is gone; text and links are not files."""
+
+    def test_a_file_arrives_and_leaves(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = os.path.join(d, "report one.pdf")
+            open(a, "w").write("x" * 10)
+            entries = []
+            self.assertTrue(bridge.note_received(entries, "file://" + a.replace(" ", "%20"), 5))
+            self.assertEqual(entries[0], {"path": a, "name": "report one.pdf", "size": 10, "at": 5})
+            self.assertFalse(bridge.note_received(entries, "https://example.org", 6), "a link is not a file")
+            self.assertFalse(bridge.note_received(entries, "file:///nowhere/at/all.txt", 6), "nothing there")
+            self.assertTrue(bridge.note_received(entries, "file://" + a, 7))
+            self.assertEqual(len(entries), 1, "the same file once")
+            self.assertEqual(entries[0]["at"], 7)
+            os.remove(a)
+            self.assertTrue(bridge.prune_received(entries))
+            self.assertEqual(entries, [])
+
+    def test_the_list_is_capped(self):
+        with tempfile.TemporaryDirectory() as d:
+            entries = []
+            for i in range(bridge.RECEIVED_MAX + 3):
+                p = os.path.join(d, "f%d" % i)
+                open(p, "w").close()
+                bridge.note_received(entries, "file://" + p, i)
+            self.assertEqual(len(entries), bridge.RECEIVED_MAX)
+            self.assertEqual(entries[0]["name"], "f%d" % (bridge.RECEIVED_MAX + 2), "newest first")
+
+    def test_the_file_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "received.json")
+            bridge.save_received(path, [{"path": "/x", "name": "x", "size": 1, "at": 2}])
+            self.assertEqual(bridge.load_received(path)[0]["name"], "x")
+            self.assertEqual(bridge.load_received(os.path.join(d, "none.json")), [])
+
+
+class Photos(unittest.TestCase):
+    """The newest images in the camera and screenshot folders of a mounted
+    device (a made-up tree here)."""
+
+    def test_newest_across_camera_and_screenshots(self):
+        with tempfile.TemporaryDirectory() as root:
+            cam = os.path.join(root, "DCIM", "Camera")
+            shots = os.path.join(root, "Pictures", "Screenshots")
+            os.makedirs(cam)
+            os.makedirs(shots)
+            for i, (folder, name) in enumerate([(cam, "a.jpg"), (shots, "b.png"), (cam, "c.JPG"), (cam, "notes.txt"), (cam, ".hidden.jpg")]):
+                p = os.path.join(folder, name)
+                open(p, "w").close()
+                os.utime(p, (1000 + i, 1000 + i))
+            folders = bridge.photo_folders([root])
+            self.assertEqual(sorted(os.path.relpath(f, root) for f in folders), ["DCIM/Camera", "Pictures/Screenshots"])
+            found = bridge.newest_photos(folders, 2)
+            self.assertEqual([p["name"] for p in found], ["c.JPG", "b.png"], "newest first, images only")
+            self.assertEqual(found[1]["kind"], "screenshot")
+
+    def test_a_root_that_is_itself_the_camera_folder(self):
+        with tempfile.TemporaryDirectory() as root:
+            cam = os.path.join(root, "DCIM", "Camera")
+            os.makedirs(cam)
+            self.assertEqual(bridge.photo_folders([cam, root]), [cam], "each folder once")
+
+    def test_without_sshfs_it_says_so(self):
+        saved = bridge.shutil.which
+        bridge.shutil.which = lambda name: None
+        try:
+            self.assertEqual(bridge.photos("p1"), {"ok": False, "missing": "sshfs"})
+        finally:
+            bridge.shutil.which = saved

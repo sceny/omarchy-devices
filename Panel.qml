@@ -42,6 +42,30 @@ Panel {
   readonly property bool showShortcuts: profile.showShortcuts
   readonly property bool showMedia: profile.showMedia
   readonly property bool showNotifications: profile.showNotifications
+  readonly property bool showFiles: profile.showFiles
+  // Files: the device's newest photos (#65) and the files it sent (#37).
+  readonly property var photos: phone ? phone.photos : []
+  readonly property var photoInfo: phone ? phone.photoInfo : null
+  readonly property var received: phone ? phone.received : []
+  // Something to show, or a step that makes photos possible (sshfs, the
+  // phone's storage permission).
+  readonly property bool filesHint: !!photoInfo && photoInfo.ok === false
+  readonly property bool hasFiles: photos.length > 0 || received.length > 0 || filesHint
+  // The keyboard cursor in Files: the photos (a grid of four), then the
+  // received files.
+  property int filesIndex: 0
+  readonly property int photoColumns: 4
+  readonly property int filesCount: photos.length + received.length
+  function openReceived(entry) {
+    if (!entry) return
+    if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
+    Qt.openUrlExternally("file://" + encodeURI(entry.path))
+  }
+  function showReceivedFolder(entry) {
+    if (!entry) return
+    if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
+    Qt.openUrlExternally(Model.folderUrl(entry.path))
+  }
   readonly property var shortcutOrder: profile.shortcuts
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
   readonly property var barIndicators: Model.normalizeBarIndicators(setting("barIndicators", null))
@@ -242,7 +266,7 @@ Panel {
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
-  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true, showFiles: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
   readonly property var settingsRows: Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -404,7 +428,7 @@ Panel {
   // Edits show at once (the page, the pill); Esc puts back what was there
   // when editing began, ✓ and E keep them. What editing can change: the
   // profiles (several devices) or the flat keys (one device).
-  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications",
+  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications", "showFiles",
                                    "shortcuts", "barIndicators", "batteryLowOnly", "showCalls"]
   property var editBefore: null
   function startEditing() {
@@ -614,6 +638,7 @@ Panel {
     if (!phone || pendingDevice === "") return
     editing = false
     phone.view(pendingDevice)
+    phone.refreshPhotos(false)
     if (editOnArrival) { editOnArrival = false; startEditing() }
     pendingDevice = ""
     browsedName = ""
@@ -668,6 +693,7 @@ Panel {
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
       else if (key === "notifications" && showNotifications && notifications.length > 0) s.push(key)
+      else if (key === "files" && showFiles && hasFiles) s.push(key)
     }
     return s
   }
@@ -991,6 +1017,7 @@ Panel {
     if (s.length === 0) return
     if (s.indexOf(focusSection) < 0) focusSection = s[0]
     if (notifIndex >= notifications.length) notifIndex = Math.max(0, notifications.length - 1)
+    if (filesIndex >= filesCount) filesIndex = Math.max(0, filesCount - 1)
   }
 
   function moveCursor(dx, dy) {
@@ -1000,7 +1027,21 @@ Panel {
     if (dx !== 0) {
       if (focusSection === "actions") actionIndex = Math.max(0, Math.min(actions.length - 1, actionIndex + dx))
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
+      else if (focusSection === "files" && filesIndex < photos.length) filesIndex = Math.max(0, Math.min(photos.length - 1, filesIndex + dx))
       return
+    }
+    // Files: the photos are a grid of four, then the received files a list.
+    if (focusSection === "files" && !isCollapsed("files")) {
+      if (filesIndex < photos.length) {
+        var down = filesIndex + dy * photoColumns
+        if (down >= 0 && down < photos.length) { filesIndex = down; return }
+        if (dy > 0 && received.length > 0) { filesIndex = photos.length; return }
+      } else {
+        var step = filesIndex + dy
+        if (step >= photos.length && step < filesCount) { filesIndex = step; return }
+        if (dy < 0 && photos.length > 0) { filesIndex = photos.length - 1; return }
+        if (dy > 0) return
+      }
     }
     // The shortcuts are a grid: j/k walk its rows before leaving it. Folded,
     // they are one row of icons in the header.
@@ -1021,6 +1062,7 @@ Panel {
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
     if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
+    if (focusSection === "files") filesIndex = dy > 0 ? 0 : Math.max(0, filesCount - 1)
     scrollToCursor()
   }
 
@@ -1029,7 +1071,7 @@ Panel {
     // Editing: Enter shows or hides the section under the cursor.
     if (editing) { toggleSectionShown(focusSection); return }
     // A folded section opens on Enter; its content is not there to act on.
-    if ((focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
+    if ((focusSection === "media" || focusSection === "notifications" || focusSection === "files") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
       return
     }
@@ -1041,6 +1083,9 @@ Panel {
       if (shownCard) shownCard.togglePlaying()
     } else if (focusSection === "notifications") {
       openReply(notifications[notifIndex])
+    } else if (focusSection === "files") {
+      if (filesIndex < photos.length) { if (phone) phone.copyFile(photos[filesIndex].path) }
+      else openReceived(received[filesIndex - photos.length])
     }
   }
 
@@ -1075,6 +1120,8 @@ Panel {
     // Positions are kept current while closed (Service), but re-read now too,
     // so the seek bar is already where it belongs when the panel shows.
     if (phone) phone.refreshPositions()
+    // The newest photos, asked for when the panel opens (Service.refreshPhotos).
+    if (phone) phone.refreshPhotos(false)
     cursorActive = false
     browsedName = ""
     settingsOpen = false
@@ -1216,7 +1263,7 @@ Panel {
     // Checks while editing, as a click or a drag would: a section's switch, a
     // shortcut or bar indicator added or taken away, a section or a chosen
     // tile moved (glide), a bar switch.
-    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
+    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications, files: root.profile.showFiles }) }
     function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
     function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
     function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
@@ -1361,7 +1408,8 @@ Panel {
         busy: root.phone ? Object.keys(root.phone.busy) : [],
         watchError: root.phone ? root.phone.watchError : "",
         settingsOpen: root.settingsOpen,
-        layout: { showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications },
+        layout: { showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications, showFiles: root.showFiles },
+        files: { photos: root.photos.length, received: root.received.length, state: root.photoInfo ? { ok: root.photoInfo.ok, loading: !!root.photoInfo.loading, missing: root.photoInfo.missing || "", error: root.photoInfo.error || "" } : null },
         shortcuts: root.shortcutOrder,
         sections: root.sections,
         shownPlayer: root.shownPlayer,
@@ -1407,6 +1455,10 @@ Panel {
         else root.activateCursor()
       }
       onDeleteRequested: {
+        if (root.mainView && root.cursorActive && root.focusSection === "files" && root.filesIndex >= root.photos.length) {
+          if (root.phone) root.phone.dismissReceived(root.received[root.filesIndex - root.photos.length])
+          return
+        }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
           var n = root.notifications[root.notifIndex]
           if (n && n.dismissable) root.phone.dismiss(n)
@@ -2267,7 +2319,7 @@ Panel {
               //      nothing: the media cards and a half-typed text keep their state ----
               Item {
                 id: sectionsBox
-                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn, files: filesColumn })
                 readonly property real gap: Style.space(12)
                 function topOf(key) {
                   var y = 0
@@ -2742,6 +2794,121 @@ Panel {
                     }
                   }
                 }
+
+                // ---- Files: the newest photos and screenshots on the device
+                //      (click copies, drag drops the file into a window), and
+                //      the files it sent (open, show in folder, dismiss) ----
+                Column {
+                  id: filesColumn
+                  y: sectionsBox.topOf("files")
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("files") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("files") ? 10 : 0
+                  visible: root.showMain && root.drawnSections.indexOf("files") >= 0
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  PanelSeparator { visible: root.separatedAbove("files"); foreground: root.foreground }
+
+                  EditBar { section: "files"; item: filesColumn }
+
+                  FoldToggle {
+                    visible: !root.editing
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    motion: root.motion
+                    animate: root.settled
+                    width: parent.width
+                    title: "FILES"
+                    folded: root.isCollapsed("files")
+                    summary: Model.filesSummary(root.photos, root.received)
+                    onToggled: root.toggleCollapsed("files")
+                  }
+
+                  FoldBody {
+                    motion: root.motion
+                    animate: root.settled
+                    open: !root.isCollapsed("files") && !root.editing
+                    spacing: Style.space(8)
+
+                    // Photos need sshfs, or the phone's leave to read its storage.
+                    RowLayout {
+                      visible: root.filesHint
+                      width: parent.width
+                      spacing: Style.space(10)
+                      Text {
+                        Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        text: root.photoInfo && root.photoInfo.missing === "sshfs"
+                          ? "Photos from " + Model.deviceLabel(root.device) + " need sshfs on this computer"
+                          : "Photos: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                      Button {
+                        readonly property bool installing: !!root.phone && root.phone.setupFixing["sshfs"] === true
+                        text: root.photoInfo && root.photoInfo.missing === "sshfs" ? (installing ? "Installing…" : "Install") : "Try again"
+                        enabled: !installing
+                        tooltipText: root.photoInfo && root.photoInfo.missing === "sshfs" ? "Asks for your password" : (root.photoInfo ? root.photoInfo.error || "" : "")
+                        bordered: true
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: {
+                          if (!root.phone) return
+                          if (root.photoInfo && root.photoInfo.missing === "sshfs") root.phone.fixSetup("sshfs")
+                          else root.phone.refreshPhotos(true)
+                        }
+                      }
+                    }
+
+                    Grid {
+                      id: photoGrid
+                      visible: root.photos.length > 0
+                      width: parent.width
+                      columns: 4
+                      spacing: Style.space(6)
+                      readonly property real cell: (width - spacing * (columns - 1)) / columns
+                      Repeater {
+                        model: root.photos
+                        PhotoTile {
+                          required property var modelData
+                          required property int index
+                          width: photoGrid.cell
+                          height: photoGrid.cell
+                          photo: modelData
+                          place: index
+                        }
+                      }
+                    }
+
+                    Column {
+                      id: receivedColumn
+                      visible: root.received.length > 0
+                      width: parent.width
+                      spacing: Style.space(2)
+                      Text {
+                        textFormat: Text.PlainText
+                        text: "RECEIVED"
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+                      Repeater {
+                        model: root.received
+                        ReceivedRow {
+                          required property var modelData
+                          required property int index
+                          width: receivedColumn.width
+                          entry: modelData
+                          place: root.photos.length + index
+                        }
+                      }
+                    }
+                  }
+                }
               }
 
               // ---- Away, not paired, or KDE Connect down ----
@@ -2814,7 +2981,7 @@ Panel {
                 // profile on its page, else the defaults.
                 shortcutsShown: root.editedProfile.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications })
+                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications, showFiles: root.editedProfile.showFiles })
                 order: root.editedProfile.shortcuts
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
@@ -2869,9 +3036,10 @@ Panel {
     readonly property int place: root.drawnSections.indexOf(section)
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
-    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : "NOTIFICATIONS")
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "files" ? "FILES" : "NOTIFICATIONS"))
     readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
+      : section === "files" ? (root.photos.length + root.received.length > 0 ? Model.filesSummary(root.photos, root.received) : "")
       : (root.notifications.length > 0 ? Model.notificationsSummary(root.notifications) : "")
     open: root.editing
     motion: root.motion
@@ -3099,6 +3267,173 @@ Panel {
         else if (barMove.from === barTile.tile.pos) barMove.release()
       }
       onTranslationChanged: if (active) barMove.dragBy(translation.x, translation.y)
+    }
+  }
+
+  // Files: one of the device's newest photos, square. A click copies it,
+  // a drag drops the file into a window, ↗ opens it. In demo, a part of the
+  // one demo picture (`clip`), so four look like four.
+  component PhotoTile: CursorSurface {
+    id: tile
+    property var photo: ({})
+    property int place: 0
+    readonly property string url: "file://" + encodeURI(String(photo.path || ""))
+    hasCursor: root.cursorActive && root.focusSection === "files" && root.filesIndex === place
+    foreground: root.foreground
+    radius: Style.cornerRadius
+    clip: true
+
+    Item {
+      anchors.fill: parent
+      anchors.margins: Style.space(2)
+      clip: true
+      Image {
+        readonly property var c: tile.photo.clip || [0, 0, 1, 1]
+        width: parent.width / c[2]
+        height: parent.height / c[3]
+        x: -c[0] * width
+        y: -c[1] * height
+        source: tile.photo.thumb ? "file://" + encodeURI(tile.photo.thumb) : ""
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        smooth: true
+        sourceSize.width: 512
+      }
+      // Without a thumbnail (or the demo picture): the kind of picture.
+      Text {
+        anchors.centerIn: parent
+        visible: !tile.photo.thumb
+        text: Model.GLYPH.picture
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.heading
+      }
+    }
+    Text {
+      visible: tile.photo.kind === "screenshot"
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      anchors.margins: Style.space(5)
+      text: "\u{F0A0B}"
+      color: "white"
+      style: Text.Outline
+      styleColor: "#80000000"
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+
+    // The file itself, for a drop into another window.
+    Drag.active: tileDrag.active
+    Drag.dragType: Drag.Automatic
+    Drag.supportedActions: Qt.CopyAction
+    Drag.mimeData: ({ "text/uri-list": tile.url })
+    DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
+
+    MouseArea {
+      id: tileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: { root.cursorActive = true; root.focusSection = "files"; root.filesIndex = tile.place }
+      onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
+    }
+    PanelActionButton {
+      anchors.top: parent.top
+      anchors.right: parent.right
+      visible: tileMouse.containsMouse || openTile.hovered
+      id: openTile
+      iconText: "\u{F03CC}"
+      tooltipText: "Open"
+      foreground: "white"
+      fontFamily: root.fontFamily
+      onClicked: if (!tile.photo.demo) Qt.openUrlExternally(tile.url)
+    }
+    PanelToolTip {
+      visible: tileMouse.containsMouse && !openTile.hovered
+      text: (tile.photo.kind === "screenshot" ? "Screenshot" : "Photo") + " · " + Model.threadTime(tile.photo.at, Date.now()) + " · click to copy, drag into a window"
+    }
+  }
+
+  // Files: one the device sent. A click opens it; the folder button shows it
+  // in its folder; × forgets it here (the file stays).
+  component ReceivedRow: CursorSurface {
+    id: rrow
+    property var entry: ({})
+    property int place: 0
+    hasCursor: root.cursorActive && root.focusSection === "files" && root.filesIndex === place
+    foreground: root.foreground
+    implicitHeight: rrowContent.implicitHeight + Style.space(10)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: { root.cursorActive = true; root.focusSection = "files"; root.filesIndex = rrow.place }
+      onClicked: root.openReceived(rrow.entry)
+    }
+    RowLayout {
+      id: rrowContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(4)
+      spacing: Style.space(10)
+      Item {
+        Layout.preferredWidth: Style.space(28)
+        Layout.preferredHeight: Style.space(28)
+        Image {
+          anchors.fill: parent
+          visible: status === Image.Ready
+          source: Model.isImage(rrow.entry.name) && String(rrow.entry.path).indexOf("/demo/") !== 0 ? "file://" + encodeURI(rrow.entry.path) : ""
+          fillMode: Image.PreserveAspectCrop
+          asynchronous: true
+          sourceSize.width: 64
+        }
+        Text {
+          anchors.centerIn: parent
+          visible: parent.children[0].status !== Image.Ready
+          text: Model.isImage(rrow.entry.name) ? Model.GLYPH.picture : Model.GLYPH.document
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading
+        }
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: rrow.entry.name || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          elide: Text.ElideMiddle
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: Model.sizeText(rrow.entry.size) + " · " + Model.threadTime(rrow.entry.at, Date.now())
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      PanelActionButton {
+        iconText: "\u{F0770}"
+        tooltipText: "Show in folder"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.showReceivedFolder(rrow.entry)
+      }
+      PanelActionButton {
+        iconText: Model.GLYPH.close
+        tooltipText: "Forget it here (the file stays)"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: if (root.phone) root.phone.dismissReceived(rrow.entry)
+      }
     }
   }
 

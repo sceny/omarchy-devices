@@ -33,6 +33,7 @@
       "showShortcuts": true,
       "showMedia": true,
       "showNotifications": true,
+      "showFiles": true,
       "shortcuts": [
         "ring",
         "share",
@@ -43,7 +44,8 @@
         "devices",
         "actions",
         "media",
-        "notifications"
+        "notifications",
+        "files"
       ]
     },
     "schema": [
@@ -76,6 +78,13 @@
         "description": "The phone's notifications, with reply and dismiss. Hidden while there are none."
       },
       {
+        "key": "showFiles",
+        "type": "boolean",
+        "label": "Show files",
+        "defaultValue": true,
+        "description": "The device's newest photos and screenshots, and files it sent. Hidden while there are none."
+      },
+      {
         "key": "sectionOrder",
         "type": "array",
         "label": "Section order",
@@ -83,7 +92,8 @@
           "devices",
           "actions",
           "media",
-          "notifications"
+          "notifications",
+          "files"
         ],
         "items": {
           "type": "string",
@@ -91,7 +101,8 @@
             "devices",
             "actions",
             "media",
-            "notifications"
+            "notifications",
+            "files"
           ]
         },
         "description": "The order of the sections under the header. Edited from the panel's settings page (gear icon)."
