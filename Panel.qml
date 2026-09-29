@@ -271,6 +271,27 @@ Panel {
     if (!phone.demo || phone.settingsBeforeDemo === null) phone.settingsBeforeDemo = JSON.parse(JSON.stringify(root.settings || {}))
     phone.showDemo(kind)
   }
+  // ---- Preview: a demo phone before any device is set up (#62) ----
+  // The demo, entered from the setup checks, with a strip saying so. Nothing
+  // in it reaches a device; leaving it puts every setting back.
+  function startPreview() {
+    if (!phone || phone.preview) return
+    enterDemo("")
+    phone.preview = true
+    settingsOpen = false
+    messagesOpen = false
+    if (panelFlick) panelFlick.contentY = 0
+  }
+  function endPreview() {
+    if (!phone || !phone.preview) return
+    phone.showLive()
+    leaveDemo()
+  }
+  // A real device connecting ends the preview: the panel shows it instead.
+  readonly property bool liveConnected: !!phone && !!phone.liveSnapshot
+    && (phone.liveSnapshot.devices || []).some(function(d) { return d && d.paired === true && d.reachable === true })
+  onLiveConnectedChanged: if (liveConnected) endPreview()
+
   function leaveDemo() {
     var before = phone ? phone.settingsBeforeDemo : null
     if (!before) { forgetDemoProfiles(); return }
@@ -1316,6 +1337,11 @@ Panel {
       return "ok"
     }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
+    // Preview with a demo phone (on) or Back to setup (off), as the buttons would.
+    function preview(on: bool): string {
+      if (on) root.startPreview(); else root.endPreview()
+      return JSON.stringify({ preview: !!root.phone && root.phone.preview, demo: !!root.phone && root.phone.demo })
+    }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
@@ -1604,6 +1630,66 @@ Panel {
           // animating, so the page never re-flows during a page change.
           width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - 2 * root.pageGutter
           spacing: Style.space(12)
+
+          // ---- Preview: says the phone is a demo, with the way back ----
+          FoldBody {
+            open: !!root.phone && root.phone.preview
+            motion: root.motion
+            animate: root.settled
+            BorderSurface {
+              width: parent.width
+              implicitHeight: previewRow.implicitHeight + Style.space(14)
+              radius: Style.cornerRadius
+              color: Style.selectedFillFor(root.foreground, Color.accent)
+              borderSpec: Border.controlSpec("hover-cursor", root.foreground, Color.accent)
+              RowLayout {
+                id: previewRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(8)
+                spacing: Style.space(10)
+                Text {
+                  text: Model.GLYPH.devices
+                  color: Color.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.icon
+                }
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Demo: set up KDE Connect to see your phone"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                  }
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Made-up data; nothing here reaches a device"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+                }
+                Button {
+                  text: "Back to setup"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.endPreview()
+                }
+              }
+            }
+          }
 
           // ---- The pairing card: a device asking to pair, at the top, above
           //      the tabs (it is about all devices, not the one viewed),
@@ -2777,6 +2863,20 @@ Panel {
                   urgent: root.urgent
                   fontFamily: root.fontFamily
                   onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                }
+
+                // Before any device is set up: what the panel will show,
+                // with a made-up phone (#62).
+                Button {
+                  visible: !!root.snapshot && !root.device && !!root.phone && !root.phone.preview
+                  text: "Preview with a demo phone"
+                  iconText: Model.GLYPH.phone
+                  tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.startPreview()
                 }
               }
 
