@@ -401,16 +401,40 @@ Panel {
   // click to add or take away), and Done ends it. Changes go to the viewed
   // device's profile (with one device, the flat keys). Fresh on every open.
   property bool editing: false
+  // Edits show at once (the page, the pill); Esc puts back what was there
+  // when editing began, ✓ and E keep them. What editing can change: the
+  // profiles (several devices) or the flat keys (one device).
+  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications",
+                                   "shortcuts", "barIndicators", "batteryLowOnly", "showCalls"]
+  property var editBefore: null
   function startEditing() {
     if (!showMain) { settingsOpen = false; messagesOpen = false }
     composing = false
     composerFocused = false
     replyingTo = ""
+    var before = {}
+    for (var i = 0; i < editKeys.length; i++) before[editKeys[i]] = root.settings ? root.settings[editKeys[i]] : undefined
+    editBefore = JSON.parse(JSON.stringify(before))
     editing = true
     cursorActive = false
     if (panelFlick) panelFlick.contentY = 0
   }
-  function stopEditing() { editing = false; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
+  function stopEditing() { editing = false; editBefore = null; Qt.callLater(function() { keyCatcher.forceActiveFocus() }) }
+  function cancelEditing() {
+    var before = editBefore
+    stopEditing()
+    if (!before) return
+    var values = {}, changed = false
+    for (var i = 0; i < editKeys.length; i++) {
+      var k = editKeys[i]
+      if (JSON.stringify(before[k]) === JSON.stringify(root.settings ? root.settings[k] : undefined)) continue
+      values[k] = before[k]
+      changed = true
+    }
+    if (!changed) return
+    persistSettings(values)
+    if (phone) phone.report("Changes undone", false)
+  }
   function toggleEditing() { if (editing) stopEditing(); else startEditing() }
   // A right-click on a chip in the bar: the panel on that device, editing
   // its page (the bar strip leads it). Switching device ends editing, so a
@@ -1390,7 +1414,7 @@ Panel {
       }
       onCloseRequested: {
         if (root.pageMenuOpen) root.closePageMenu()
-        else if (root.editing) root.stopEditing()
+        else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
@@ -2032,7 +2056,7 @@ Panel {
                   enabled: opacity > 0.5
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
-                  tooltipText: root.editing ? "Done" : "Edit this page"
+                  tooltipText: root.editing ? "Done: keep the changes (Esc undoes them)" : "Edit this page"
                   foreground: root.editing ? Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()

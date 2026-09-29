@@ -18,7 +18,7 @@
   [Settings](settings.md).
 - **Edit the page** (✎ on hovering the device's name, right-click the
   page or the device's chip in the bar, or `E`): what the chip shows,
-  sections and shortcuts; drag, add, take away. ✓ when done.
+  sections and shortcuts; drag, add, take away. ✓ keeps it; Esc undoes.
 
 ## Keys
 

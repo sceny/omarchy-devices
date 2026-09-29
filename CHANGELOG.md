@@ -58,6 +58,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   *Battery only when low* and *Calls* switches; the pill in the bar
   changes as you go. A right-click on a device's chip opens it. The bar
   leaves a device's Settings; *Defaults for all devices* keeps it.
+- Editing a page: changes show at once; ✓ (or `E`) keeps them, and Esc
+  now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
 ### Fixed

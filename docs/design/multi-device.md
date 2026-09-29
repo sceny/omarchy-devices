@@ -460,8 +460,10 @@ right-click on the device's chip in the bar, and `E` open it too.
 - Every shortcut shows: the chosen ones in order, with a −, dragged within
   the grid; the others dimmed, with a +. A click adds or takes one away.
 - Moves glide like every order (`Reorder`, in a grid for the tiles).
-- ✓ Done, `E` or Esc ends it; it is off on every open and on changing
-  device. Changes go to the viewed device's profile.
+- Changes show at once, on the page and in the bar's pill. ✓ Done or `E`
+  keeps them; Esc puts back what was there when editing began. It is off
+  on every open and on changing device (both keep). Changes go to the
+  viewed device's profile.
 - Settings keeps what has no place on the page: a device's page shows
   *Sections, shortcuts and bar ›*, which opens this editor. *Defaults for
   all devices* keeps the sections, shortcuts and bar, having no page of
