@@ -51,7 +51,11 @@ var GLYPH = {
   grip: "\u{F01DD}",         // drag-vertical: drag a row to move it
   edit: "\u{F03EB}",         // pencil: edit the page in place
   add: "\u{F0419}",          // plus-circle-outline: add a shortcut while editing
-  remove: "\u{F0376}"        // minus-circle: take one away while editing
+  remove: "\u{F0376}",       // minus-circle: take one away while editing
+  callRing: "\u{F03F6}",     // phone-in-talk: a phone with waves (checked by rendering)
+  callMissed: "\u{F03FA}",   // phone-missed
+  callBack: "\u{F03F2}",     // phone
+  callText: "\u{F0369}"      // message-text
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -237,7 +241,7 @@ function moveShortcut(order, key, delta) {
 // (the same way), then reset and the KDE Connect link.
 // Each row of an order carries `pos` (its place) and `count` (how many share
 // the order), for its arrows and for dragging it.
-function settingsRows(flags, order, can, sections, bar, lowOnly) {
+function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
   var rows = []
   var sectionOrder = visibleSections(sections)
   for (var i = 0; i < sectionOrder.length; i++) {
@@ -255,9 +259,12 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
                 first: at === 0, last: at === chosen.length - 1, pos: at, count: chosen.length })
   }
-  // A switch, not a place in the pill: it decides when battery and % show.
+  // Switches, not places in the pill: when battery and % show, and whether
+  // calls show at all (in the pill and over the panel).
   rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
               hint: "Off, the battery and % always show", on: lowOnly !== false })
+  rows.push({ kind: "barFlag", key: "showCalls", label: "Calls",
+              hint: "Who is calling, and a call missed until you close it", on: calls !== false })
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)
@@ -416,6 +423,8 @@ function barParts(device, indicators, state) {
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
   function add(text, urgent) { parts.push({ text: text, urgent: !!urgent }) }
+  // A call is news, not an indicator: it leads whatever else is chosen.
+  if (st.call && reachable) parts.push({ text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
@@ -518,6 +527,89 @@ function networkText(device) {
   return [signalGlyph(device), net].filter(function (p) { return p !== "" }).join(" ")
 }
 
+// ---- Calls, from KDE Connect's telephony plugin ----
+// The bridge keeps the device's last call event: { event: "ringing" |
+// "missed", number, name, at (ms) }. KDE Connect says when a call rings and
+// when one is missed (a declined call counts as missed), never when it is
+// answered or ends (#60, #61). So a ringing call counts as ringing for
+// RING_MS at most, which is about as long as a phone rings before voicemail
+// takes it. A missed call shows until the user closes it (`closedAt`: the
+// `at` of the last call closed), for MISSED_MS at most.
+var RING_MS = 45000
+var MISSED_MS = 30 * 60000
+
+// A ringing phone's beat, on the plugin's pace, like a ringtone: two rings,
+// a short gap between them, then a rest. In one ring the three sound waves
+// light from the inside out, one every MOTION.outMs, then fade together over
+// MOTION.inMs, while the handset rocks. The pill glows for each ring
+// (ringPhases), so the bar and the card ring together.
+var RING_BEAT = { angle: 10, waveMs: MOTION.outMs, fadeMs: MOTION.inMs, rings: 2, gapMs: 160, restMs: 1000, restWave: 0.3 }
+
+function ringMs() { return 3 * RING_BEAT.waveMs + RING_BEAT.fadeMs }
+
+// The beat as lit and dark spans, for the pill: [{ lit, ms }], looping.
+function ringPhases() {
+  var out = []
+  for (var i = 0; i < RING_BEAT.rings; i++) {
+    out.push({ lit: true, ms: ringMs() })
+    out.push({ lit: false, ms: i < RING_BEAT.rings - 1 ? RING_BEAT.gapMs : RING_BEAT.restMs })
+  }
+  return out
+}
+
+function callState(device, nowMs, closedAt) {
+  var c = device && device.reachable === true ? device.call : null
+  if (!c || (c.event !== "ringing" && c.event !== "missed")) return null
+  var at = Number(c.at) || 0
+  if (closedAt && at <= closedAt) return null
+  var age = nowMs - at
+  var hold = c.hold === true
+  // A demo call (`hold`) rings until closed, so the ring can be watched.
+  if (c.event === "ringing" && age > RING_MS && !hold) return null
+  if (c.event === "missed" && age > MISSED_MS) return null
+  var number = String(c.number || "").trim()
+  var name = String(c.name || "").trim()
+  return {
+    state: c.event, at: at, number: number, hold: hold, device: device ? String(device.id) : "",
+    who: name || (number ? formatNumber(number) : "Unknown number"),
+    // The number under the name, when there is a name to put it under.
+    detail: name && number ? formatNumber(number) : ""
+  }
+}
+
+// The call the card shows, from every device's (`calls`, by id; `order`,
+// the devices' ids in order): a ringing one first, else the latest missed.
+function shownCall(calls, order) {
+  var best = null
+  for (var i = 0; i < order.length; i++) {
+    var c = calls[order[i]]
+    if (!c) continue
+    if (c.state === "ringing") return c
+    if (!best || c.at > best.at) best = c
+  }
+  return best
+}
+
+// The card's small caps line: "INCOMING CALL", "MISSED CALL · 14:05".
+function callHeading(call) {
+  if (!call) return ""
+  return call.state === "ringing" ? "INCOMING CALL" : "MISSED CALL · " + clockTime(call.at)
+}
+
+// How long until the call's state can change on its own (ringing runs out,
+// missed expires), for the timer that re-reads it; -1 when nothing will.
+function callExpiresIn(call, nowMs) {
+  if (!call || (call.hold && call.state === "ringing")) return -1
+  return Math.max(0, call.at + (call.state === "ringing" ? RING_MS : MISSED_MS) - nowMs)
+}
+
+// A made-up call for demo mode: a fictional name and a 555 number. It rings
+// until closed (`hold`), so the ring can be watched at its own speed.
+function demoCall(kind, nowMs) {
+  if (kind !== "ringing" && kind !== "missed") return null
+  return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0), hold: true }
+}
+
 // Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
 // size of the text, since the bolt in it says charging. With no charge known
 // it says "CONNECTED". Away or down, just the status.
@@ -538,10 +630,12 @@ function batteryText(device) {
 }
 
 // `nowPlaying` is the playing phone player's line (Service.nowPlaying), since
-// media comes from MPRIS in the shell rather than from the snapshot.
-function tooltip(snapshot, device, nowPlaying, unreadMessages) {
+// media comes from MPRIS in the shell rather than from the snapshot. `call`
+// is Model.callState's, or null.
+function tooltip(snapshot, device, nowPlaying, unreadMessages, call) {
   if (!device) return statusWord(snapshot, device)
   var lines = [device.name + " — " + statusWord(snapshot, device)]
+  if (call) lines.push((call.state === "ringing" ? "Call from " : "Missed call from ") + call.who)
   var c = batteryCharge(device)
   if (c >= 0) lines.push("Battery " + c + "%" + (charging(device) ? ", charging" : ""))
   var n = device.notifications ? device.notifications.length : 0
@@ -1102,9 +1196,9 @@ function chips(snapshot, settings, states, pairing) {
       glyph: glyph,
       // The chip's text: its icon and its indicators, as today's pill.
       text: barText(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
-        notifications: a.notifications, messages: a.messages, playing: !!st.playing }),
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing , call: st.call }),
       parts: barParts(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
-        notifications: a.notifications, messages: a.messages, playing: !!st.playing }),
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing , call: st.call }),
       bubble: barBubble(d, p.barIndicators, a.notifications),
       dimmed: d.reachable !== true,
       ringing: a.ringing,
@@ -1247,7 +1341,7 @@ function settingsPageRows(ctx) {
     // A panel torn down mid-reload can ask with nothing to edit.
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
     var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
-                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly)
+                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
     // A device's page (and the one-device page) edits its sections and
     // shortcuts on the page itself (edit in place): here, a row that opens
     // that. The defaults, with no page of their own, keep them here.

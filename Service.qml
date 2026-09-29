@@ -69,7 +69,102 @@ Item {
   // Each device's call, for the opening rule (a ringing device opens first).
   // Kept apart from deviceStates, which reads the messages service that
   // itself follows `device`.
-  readonly property var callStates: ({})
+  readonly property var callStates: {
+    var out = {}
+    for (var id in calls) out[id] = { call: { state: calls[id].state } }
+    return out
+  }
+
+  // ---- Calls (Model.callState): a device ringing, or a call missed ----
+  // Per device, for devices whose profile shows calls. KDE Connect never
+  // says a call ended, so time decides when ringing stops counting; `clock`
+  // is re-read when a call's state can next change.
+  property real clock: Date.now()
+  // Per device, the `at` of the last call the user closed. Memory only: after
+  // a restart the bridge has forgotten the calls too.
+  property var callClosed: ({})
+  readonly property var calls: {
+    var out = {}
+    for (var i = 0; i < ordered.length; i++) {
+      var d = ordered[i]
+      if (!Model.resolveProfile(profiles, d, i === 0).showCalls) continue
+      var c = Model.callState(d, clock, callClosed[d.id] || 0)
+      if (c) out[d.id] = c
+    }
+    return out
+  }
+  // The call the card shows: a ringing one first, else the latest missed.
+  readonly property var call: Model.shownCall(calls, ordered.map(function(d) { return String(d.id) }))
+  // A new call event from any device re-reads the clock.
+  readonly property string callEvents: JSON.stringify(ordered.map(function(d) { return d.call || null }))
+  onCallEventsChanged: clock = Date.now()
+
+  function closeCall() {
+    if (!call) return
+    var next = Object.assign({}, callClosed)
+    next[call.device] = call.at
+    callClosed = next
+  }
+
+  // On for each ring of the beat (Model.ringPhases): the ringing device's
+  // chip glows ring, ring, rest, in step with the card's waves.
+  readonly property bool ringing: !!call && call.state === "ringing"
+  readonly property var ringPhases: Model.ringPhases()
+  property int ringPhase: 0
+  readonly property bool ringLit: ringing && ringPhases[ringPhase].lit
+  Timer {
+    running: root.ringing
+    repeat: true
+    interval: root.ringPhases[root.ringPhase].ms
+    onRunningChanged: root.ringPhase = 0
+    onTriggered: root.ringPhase = (root.ringPhase + 1) % root.ringPhases.length
+  }
+  Timer {
+    // Wakes when the soonest call runs out (plus a beat), not every second.
+    readonly property real due: {
+      var soonest = -1
+      for (var id in root.calls) {
+        var t = Model.callExpiresIn(root.calls[id], root.clock)
+        if (t >= 0 && (soonest < 0 || t < soonest)) soonest = t
+      }
+      return soonest
+    }
+    interval: Math.max(250, due + 250)
+    running: due >= 0
+    onTriggered: root.clock = Date.now()
+  }
+
+  // The phone's dialer on the number (a tel: link through KDE Connect's
+  // share), on the device the call came to: the call itself is the user's
+  // tap on the phone.
+  function callBack(c) {
+    var n = c ? String(c.number || "").trim() : ""
+    if (n === "" || !c.device) return
+    if (demo) { demoRun("dial", [n], "dial"); return }
+    if (isBusy("dial")) return
+    setBusy("dial", true)
+    var proc = actionComponent.createObject(root, { key: "dial", command: [bridge, "dial", c.device, n] })
+    proc.running = true
+  }
+
+  // Demo mode rings (or misses) a made-up caller on the viewed device (or
+  // the first), over the demo snapshot. It replaces any other demo call.
+  function showDemoCall(kind) {
+    if (!demo) return
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var id = device ? String(device.id) : ""
+    var list = copy.devices || []
+    var d = null
+    for (var i = 0; i < list.length; i++) {
+      delete list[i].call
+      if (String(list[i].id) === id) d = list[i]
+    }
+    if (!d) d = Model.pickDevice(copy, "")
+    if (!d) return
+    d.call = Model.demoCall(kind, Date.now())
+    callClosed = ({})
+    snapshot = copy
+  }
   readonly property int deviceIndex: {
     for (var i = 0; i < ordered.length; i++) if (device && ordered[i].id === device.id) return i
     return -1
@@ -128,7 +223,8 @@ Item {
         notifications: Model.visibleNotifications(d, media).length,
         messages: smsService.deviceId === String(d.id) ? smsService.unreadCount : 0,
         playing: playing,
-        lowPercent: lowPercent
+        lowPercent: lowPercent,
+        call: calls[d.id] ? { state: calls[d.id].state } : null
       }
     }
     return out

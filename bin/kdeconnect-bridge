@@ -16,6 +16,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge share <device> [path...]       no paths: open the file chooser
   kdeconnect-bridge text <device> <text>           lands on the device's clipboard
   kdeconnect-bridge url <device> <url>             opens on the device
+  kdeconnect-bridge dial <device> <number>         the device's dialer, ready to call
   kdeconnect-bridge media <device> <PlayPause|Next|Previous>
   kdeconnect-bridge dismiss <device> <notification>
   kdeconnect-bridge reply <device> <replyId> <message>
@@ -152,7 +153,25 @@ def read_notifications(conn, dpath):
     return out
 
 
-def read_device(conn, device_id):
+# Calls: KDE Connect's telephony plugin signals `callReceived(event, number,
+# contactName)` for a ringing call (event "callReceived") and a missed one
+# ("missedCall"), and for nothing else: not when the call is answered or ends
+# (#60). A declined call arrives as missed. The last one per device is kept
+# here, with when it came; how long it counts is the panel's to decide.
+# KDE Connect puts the number in contactName when it has no name.
+CALL_EVENTS = {"callReceived": "ringing", "missedCall": "missed"}
+
+
+def call_event(event, number, name, at_ms):
+    kind = CALL_EVENTS.get(str(event))
+    if not kind:
+        return None
+    number, name = str(number or "").strip(), str(name or "").strip()
+    return {"event": kind, "number": number,
+            "name": "" if name == number else name, "at": int(at_ms)}
+
+
+def read_device(conn, device_id, calls=None):
     dpath = device_path(device_id)
     d = props(conn, dpath, IFACE + ".device")
     if d is None:
@@ -184,10 +203,12 @@ def read_device(conn, device_id):
             "media": has("mprisremote"),
             "notifications": has("notifications"),
             "ping": has("ping"),
+            "calls": has("telephony"),
         },
         "battery": None,
         "network": None,
         "notifications": [],
+        "call": None,
     }
 
     # Away, or not paired: nothing more can be read from it.
@@ -216,10 +237,11 @@ def read_device(conn, device_id):
         n = read_notifications(conn, dpath)
         dev["notifications"] = n if n is not None else []
 
+    dev["call"] = (calls or {}).get(device_id)
     return dev
 
 
-def snapshot(conn):
+def snapshot(conn, calls=None):
     try:
         if not daemon_running(conn):
             return {"daemon": False, "devices": []}
@@ -232,7 +254,7 @@ def snapshot(conn):
     devices = []
     for device_id in ids:
         try:
-            dev = read_device(conn, device_id)
+            dev = read_device(conn, device_id, calls)
         except GLib.Error:
             dev = None
         if dev:
@@ -244,10 +266,11 @@ def watch():
     conn = bus()
     loop = GLib.MainLoop()
     state = {"pending": 0, "last": None}
+    calls = {}
 
     def emit():
         state["pending"] = 0
-        line = json.dumps(snapshot(conn), sort_keys=True, ensure_ascii=False)
+        line = json.dumps(snapshot(conn, calls), sort_keys=True, ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
             try:
@@ -268,6 +291,25 @@ def watch():
         schedule()
         return True
 
+    def on_call(_conn, _sender, path, _iface, _signal, params):
+        # /modules/kdeconnect/devices/<id>/telephony
+        parts = path.split("/")
+        if len(parts) < 2:
+            return
+        c = call_event(*params.unpack(), GLib.get_real_time() // 1000)
+        if c:
+            calls[parts[-2]] = c
+        # The daemon forgets calls across a restart; so does this.
+
+    def on_owner(*_args):
+        calls.clear()
+
+    # Calls first, so the snapshot the next line schedules already has it.
+    conn.signal_subscribe(BUS_NAME, IFACE + ".device.telephony", "callReceived", None,
+                          None, Gio.DBusSignalFlags.NONE, on_call)
+    conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
+                          "NameOwnerChanged", "/org/freedesktop/DBus",
+                          BUS_NAME, Gio.DBusSignalFlags.NONE, on_owner)
     # Every signal the daemon emits, on any object: device list, reachability,
     # pairing, battery, notifications, media. Subscribing by well-known name
     # follows the daemon across restarts.
@@ -346,6 +388,17 @@ def act(argv):
             call(conn, dpath + "/share", IFACE + ".device.share", "shareText",
                  (value,), "(s)")
             return say("Text sent to %s" % device_name(conn, device_id))
+
+        if verb == "dial":
+            # A tel: link: the phone opens its dialer on the number (or, from
+            # the background, offers to in a notification). The call itself is
+            # the user's tap on the phone.
+            number = re.sub(r"[^\d+*#]", "", " ".join(rest))
+            if not number:
+                return say("No number to call", EXIT_CANCELLED)
+            call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
+                 ("tel:" + number,), "(s)")
+            return say("%s offers to call %s" % (device_name(conn, device_id), number))
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")

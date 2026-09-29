@@ -68,14 +68,49 @@ Item {
 
   function setToText(t) { toField.text = t; refreshSuggestions() }
 
+  // Text back from a call: the caller's conversation when there is one, else
+  // a new message with the caller already picked. While the reader is still
+  // getting its conversations, the caller waits as the recipient and moves
+  // into their conversation if it arrives.
+  property string waitingCaller: ""
+  function textTo(number, who, typeHere) {
+    if (!sms) return
+    sms.start()
+    var tid = sms.threadForAddress(number)
+    if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); return }
+    startNew(false)
+    recipients = [{ title: who || Model.formatNumber(number), number: number }]
+    refreshSuggestions()
+    waitingCaller = sms.ready ? "" : number
+    if (typeHere) Qt.callLater(function() { composer.forceActiveFocus() })
+  }
+  Connections {
+    target: view.sms
+    function onModelRevisionChanged() {
+      if (view.waitingCaller === "") return
+      if (!view.newMode || view.recipients.length !== 1 || view.recipients[0].number !== view.waitingCaller) { view.waitingCaller = ""; return }
+      var tid = view.sms.threadForAddress(view.waitingCaller)
+      if (tid < 0) { if (view.sms.ready) view.waitingCaller = ""; return }
+      var draft = composer.text
+      var typing = composer.activeFocus
+      view.cancelNew()
+      view.openThread(tid, typing)
+      composer.text = draft
+    }
+  }
+
   function cancelNew() {
     newMode = false
     sendingNew = false
     recipients = []
+    waitingCaller = ""
   }
 
+  // With someone picked and nothing typed, no list: it finds the next
+  // person, it is not a list to browse.
   function refreshSuggestions() {
-    suggestions = sms ? sms.candidates(toField.text, 8) : []
+    var typed = toField.text.trim()
+    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
     suggestionCursor = 0
   }
 
@@ -108,6 +143,7 @@ Item {
     var next = recipients.slice()
     next.splice(i, 1)
     recipients = next
+    refreshSuggestions()
   }
   readonly property var openRow: {
     var rev = sms ? sms.modelRevision : 0
@@ -136,6 +172,18 @@ Item {
 
   function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
   function setSearch(q) { searchField.text = q }
+  readonly property string searchText: searchField.text
+  readonly property string toText: toField.text
+
+  // Esc undoes the innermost thing open, one at a time: a name being typed
+  // in "To" (its list goes with it), the new message, the search. False
+  // when nothing is open here, so the panel closes messages.
+  function goBack() {
+    if (newMode && toField.text !== "") { toField.text = ""; return true }
+    if (newMode) { cancelNew(); return true }
+    if (searchField.text !== "") { searchField.text = ""; return true }
+    return false
+  }
 
   // PgUp/PgDn: a screen of the open conversation. The list runs bottom to
   // top, so "up" (older) is towards the end of the content.
@@ -516,7 +564,7 @@ Item {
             font.family: view.fontFamily
             onTextChanged: view.refreshSuggestions()
             onAccepted: view.acceptTo()
-            Keys.onEscapePressed: view.cancelNew()
+            Keys.onEscapePressed: view.goBack()
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {
@@ -564,7 +612,11 @@ Item {
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
               onEntered: view.suggestionCursor = suggestion.index
-              onClicked: view.addRecipient(suggestion.modelData)
+              // The user's own click: on to writing the message.
+              onClicked: {
+                view.addRecipient(suggestion.modelData)
+                if (view.newMode) composer.forceActiveFocus()
+              }
             }
             Column {
               id: suggestionText

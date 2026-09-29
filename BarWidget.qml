@@ -127,7 +127,8 @@ BarWidget {
           tooltipText: root.opened ? "" : (chip.dev
             ? Model.tooltip(root.phone ? root.phone.snapshot : null, chip.dev,
                 root.phone && root.phone.device && root.phone.device.id === chip.dev.id ? root.phone.nowPlaying : "",
-                root.phone && root.phone.sms && root.phone.sms.deviceId === String(chip.dev.id) ? root.phone.sms.unreadCount : 0)
+                root.phone && root.phone.sms && root.phone.sms.deviceId === String(chip.dev.id) ? root.phone.sms.unreadCount : 0,
+                root.phone && root.phone.calls ? root.phone.calls[chip.dev.id] || null : null)
             : Model.tooltip(root.phone ? root.phone.snapshot : null, null, "", 0))
           onPressed: function(b) { root.chipPressed(b, chip.modelData.id) }
         }
@@ -143,7 +144,11 @@ BarWidget {
               required property var modelData
               textFormat: Text.PlainText
               text: modelData.text
-              color: modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
+              // A ringing device's call glyph glows ring, ring, rest in the
+              // accent colour of the call card's phone (Service.ringLit); a
+              // low battery's parts are urgent.
+              color: modelData.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
+                : modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
               font.family: button.fontFamily
               font.pixelSize: button.fontSize
               renderType: Text.NativeRendering

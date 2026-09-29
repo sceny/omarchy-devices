@@ -26,6 +26,7 @@
         "bubble"
       ],
       "batteryLowOnly": true,
+      "showCalls": true,
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
@@ -148,6 +149,13 @@
         "label": "Battery only when low",
         "defaultValue": true,
         "description": "The battery and its percent stay out of the bar until the charge is low. Off, they always show."
+      },
+      {
+        "key": "showCalls",
+        "type": "boolean",
+        "label": "Calls",
+        "defaultValue": true,
+        "description": "While the phone rings, the caller in the bar and over the panel; a missed call stays until closed."
       },
       {
         "key": "lowBatteryPercent",

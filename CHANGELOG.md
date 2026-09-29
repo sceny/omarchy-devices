@@ -40,8 +40,24 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   one moves, the others slide aside to show where it will land; on release
   it glides into place. Shift+K / Shift+J glide the same way. The ↑ ↓
   buttons on each row are gone: the grip and the keys do their work.
+- Calls (#58): while a device rings, its chip in the bar shows a ringing
+  phone that glows ring by ring, and a card above the tabs names the
+  caller (and the device, with several), its sound waves ringing; the
+  panel opens on the ringing device. A missed call stays in the chip and
+  on the card until closed, with *Call back* (the phone's dialer, ready on
+  the number) and *Text back*, both on the device the call came to. A
+  *Calls* switch in each device's bar settings turns it off. KDE Connect
+  does not say when a call is answered or ends, so a ringing card gives up
+  after 45 s.
+- IPC: `demoCall ringing|missed|none`, `pressTextBack`, `closeCall`,
+  `demoTextTo`, `pressEscape`.
 
 ### Fixed
+- New message: after picking someone, every contact stayed listed; the
+  list now shows only while typing a name, and a click on a contact goes
+  on to the message. In messages, Esc undoes one thing at a time: the
+  name being typed, then the new message, then the search, then messages. After Esc leaves a
+  text field, the next Esc still closes messages.
 - Moving the first section up in Layout did nothing: it swapped with the
   hidden Devices section.
 - A low battery turned the whole pill red; now only the battery glyph and
