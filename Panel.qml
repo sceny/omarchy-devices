@@ -1362,6 +1362,15 @@ Panel {
       root.openReply(n)
       return "ok"
     }
+    // Files: what the section holds; a received file forgotten, as its ×.
+    function filesInfo(): string {
+      return JSON.stringify({ photos: root.photos.map(function(p) { return p.name }), received: root.received.map(function(r) { return r.name }),
+        state: root.photoInfo ? { ok: root.photoInfo.ok, missing: root.photoInfo.missing || "" } : null })
+    }
+    function dismissReceived(index: int): string {
+      if (root.phone) root.phone.dismissReceived(root.received[index])
+      return JSON.stringify(root.received.map(function(r) { return r.name }))
+    }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
