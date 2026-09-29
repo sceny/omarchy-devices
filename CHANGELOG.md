@@ -65,6 +65,12 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
+- Preview with a demo phone (#62): before any device is set up, a button
+  under the setup steps shows the panel with made-up data (the Pixel 8,
+  its notifications, conversations and media), under a strip saying it is
+  a demo, with *Back to setup*. A real device connecting ends it; leaving
+  puts every setting back. IPC: `preview true|false`.
+
 ### Fixed
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now

@@ -26,6 +26,11 @@ Until a device connects, the panel lists what is missing (installed,
 running, firewall, a paired device), with a **Fix** button where it can.
 Fixes ask for your password; nothing changes without a click.
 
+**Preview with a demo phone**, under the steps, shows the panel with
+made-up data until yours is set up; nothing reaches a device.
+
+![Preview with a demo phone](images/preview.png)
+
 On the phone:
 
 1. Open KDE Connect, pick the computer and pair.
