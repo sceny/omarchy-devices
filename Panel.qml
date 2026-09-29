@@ -1175,6 +1175,7 @@ Panel {
     function demoSetup(): string {
       if (!root.phone) return "no service"
       if (!root.phone.demo) root.enterDemo("")
+      root.phone.demoChecks = true
       root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.setupChecks = [
         { key: "installed", ok: true, label: "KDE Connect installed", status: "Installed", detail: "", fix: "", fixLabel: "" },
@@ -2089,7 +2090,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection · this computer, pairing, new devices"
+            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))

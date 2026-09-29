@@ -48,6 +48,7 @@ Item {
     snapshot = liveSnapshot
     smsService.showLive()
     searchedAt = 0
+    demoChecks = false
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -494,7 +495,7 @@ Item {
   Timer {
     id: searchRecheck
     interval: Model.SEARCH_MS + 100
-    onTriggered: { root.awayClock = Date.now(); if (!root.demo) root.runDoctor() }
+    onTriggered: { root.awayClock = Date.now(); root.runDoctor() }
   }
   // "12 min ago" stays right while a panel is open.
   Timer {
@@ -504,9 +505,11 @@ Item {
     onTriggered: root.awayClock = Date.now()
   }
 
+  // Sample checks from a demo (demoSetup) stay until live again; otherwise a
+  // demo shows this computer's real checks (they hold no device data).
+  property bool demoChecks: false
   function runDoctor() {
-    // Demo checks (demoSetup, demoAway) stay until live again.
-    if (doctorProc.running || demo) return
+    if (doctorProc.running || demoChecks) return
     doctorProc.running = true
   }
 
