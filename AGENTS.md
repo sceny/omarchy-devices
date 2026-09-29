@@ -183,6 +183,13 @@ Keep them; change one only with the owner.
   flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
   one device, Settings is one flat page. Moving a device writes down how
   each one shows in the bar, so moving never changes it.
+- **Files are read, never kept beyond the cache.** Photos are read from
+  the device's storage (KDE Connect's sftp, which needs `sshfs`) only when
+  a panel opens on it, at most every 20 s; their thumbnails and the list
+  of received files (`received-<device>.json`, from `shareReceived`) live
+  in `~/.cache/sceny.devices/`, never in `shell.json`. A received entry
+  goes when dismissed or when its file is gone. A check never opens a
+  real phone's photos: use the demo.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.

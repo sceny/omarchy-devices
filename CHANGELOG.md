@@ -65,6 +65,15 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
+- Files (#65, #37): a section with the device's newest photos and
+  screenshots (click to copy the image, drag it into a window, ↗ to open)
+  and the files it sent (open, show in folder, forget). Photos are read
+  from its storage through KDE Connect when the panel opens; that needs
+  `sshfs`, which the section offers to install. Received files are kept in
+  the cache and leave the list when their file is gone. It joins every
+  saved section order at the end, with its own switch (*Show files*).
+- IPC: `filesInfo`, `dismissReceived`.
+
 ### Fixed
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now
