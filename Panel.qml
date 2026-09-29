@@ -2560,6 +2560,13 @@ Panel {
                 bar: root.bar
                 onThreadOpened: function(tid) { root.rememberThread(tid) }
                 onUnreadToggled: root.toggleUnreadOnly()
+                // A text field here let go of the keyboard (Esc, a click
+                // away): the panel's keys take it back, so the next Esc
+                // still goes somewhere.
+                onComposerFocusedChanged: {
+                  if (composerFocused || !root.messagesOpen) return
+                  Qt.callLater(function() { if (root.messagesOpen && !messagesView.composerFocused) keyCatcher.forceActiveFocus() })
+                }
                 foreground: root.foreground
                 urgent: root.urgent
                 fontFamily: root.fontFamily
