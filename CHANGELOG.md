@@ -55,7 +55,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 ### Fixed
 - New message: after picking someone, every contact stayed listed; the
   list now shows only while typing a name, and a click on a contact goes
-  on to the message. Esc ends a new message before it closes messages.
+  on to the message. In messages, Esc undoes one thing at a time: the
+  name being typed, then the new message, then the search, then messages.
 - Moving the first section up in Layout did nothing: it swapped with the
   hidden Devices section.
 - A low battery turned the whole pill red; now only the battery glyph and
