@@ -17,8 +17,8 @@
   always, the others with news). Pair, order and unpair in
   [Settings](settings.md).
 - **Edit the page** (✎ on hovering the device's name, right-click the
-  page, or `E`): drag or switch off sections; drag, add or take away
-  shortcuts. ✓ when done. Each device keeps its own.
+  page or the device's chip in the bar, or `E`): what the chip shows,
+  sections and shortcuts; drag, add, take away. ✓ when done.
 
 ## Keys
 

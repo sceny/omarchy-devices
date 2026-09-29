@@ -17,9 +17,8 @@ Press `s` or the cog.
   them.
 - **Folds:** any section folds to one line; folded shortcuts still work as
   a row of icons.
-- **Bar:** what the pill shows beside the glyph, in order. With
-  *Battery only when low* on, the battery stays hidden until it runs low.
-  *Calls* off, the device's calls stay out of the bar and the panel.
+- **Bar:** edited on the page (right-click the device's chip);
+  *Defaults for all devices* keeps it for devices that did not change it.
 - **Add a device** and **Setup:** the steps on the new device, and the
   KDE Connect checks with fixes.
 

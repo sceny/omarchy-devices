@@ -78,6 +78,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" demoCall ringing        # demo only: a call on the viewed device (replaces the last); missed, none
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card; never Call back in a test (it opens the phone's dialer)
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc as the key; smsStatus shows newMessage
+"${IPC[@]}" rightClickChip <device> ; "${IPC[@]}" edit   # edit in place (edit toggles); editBar/editBarFlag/editMoveBar, editSection/editShortcut/editMoveSection/editMoveShortcut
+                                    # edits write settings: run them in a demo, which `live` puts back
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>

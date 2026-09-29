@@ -160,14 +160,17 @@ Keep them; change one only with the owner.
   empty state).
 - **A device's page is edited in place** (✎, shown only while the pointer
   is on the device's header so the page has no chrome at rest; a
-  right-click on the page, KDE's *Enter Edit Mode* idiom; or `E`): every
+  right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
+  the device's chip in the bar, one action as Omarchy's own widgets do; or
+  `E`): the Bar strip leads (the chip's indicators as tiles, *Battery only
+  when low*, *Calls*; the real pill is the preview), every
   section becomes a bar with its grip and switch, every shortcut shows
   (drag the chosen ones, click to add or take away), and ✓ Done, `E` or
   Esc ends it. It edits the viewed device's profile (with one device, the
   flat keys), and is off on every open. Settings keeps only what has no
   place on the page (nickname, icon, place in the bar, the device list);
-  *Defaults for all devices* keeps the sections and shortcuts, since the
-  defaults have no page of their own. There is no Devices section: tabs switch devices, the
+  *Defaults for all devices* keeps the sections, shortcuts and bar,
+  since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
 - **Each device's settings are its own** (`docs/design/multi-device.md`):

@@ -2087,6 +2087,7 @@ Panel {
                   width: parent.width - Style.space(16)
                   spacing: Style.space(10)
                   Text {
+                    id: barGlyph
                     Layout.alignment: Qt.AlignVCenter
                     text: Model.deviceIcon(root.device, root.profile)
                     color: root.dim
@@ -2167,7 +2168,8 @@ Panel {
                       id: flagLine
                       anchors.left: parent.left
                       anchors.right: parent.right
-                      anchors.leftMargin: Style.space(8)
+                      // Under the BAR title.
+                      anchors.leftMargin: Style.space(18) + barGlyph.width
                       anchors.rightMargin: Style.space(8)
                       anchors.verticalCenter: parent.verticalCenter
                       spacing: Style.space(10)
