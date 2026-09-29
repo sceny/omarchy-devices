@@ -48,7 +48,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
-| `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
+| `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -193,6 +193,15 @@ Keep them; change one only with the owner.
   quick log check has already passed (an attached handler that does not
   exist, such as `Keys.onPageUpPressed`, does exactly that).
 
+- **Connection is a Settings page** (`settingsScope` `connection`): this
+  computer's checks (status icon, name, short status, one action; *Ignore*
+  stops a check lighting the gear's dot, kept in `ignoredChecks`),
+  pairing requests, and adding a device. The panel opens on it while
+  nothing is paired or KDE Connect is down. An away device's page offers
+  *Reconnect* in place (a search, `fix search`; it never leaves the
+  page), and opening the panel on it searches once a minute at most.
+  Last seen comes from the bridge's cache (`last-seen.json`); causes are
+  worded as likely, and Samsung advice shows for Samsung devices only.
 - **Fixes change the system only on a click.** `fix install` and `fix firewall`
   go through `pkexec` (one password prompt); the firewall rule is limited to
   the local network the default route is on, never opened to everyone.
