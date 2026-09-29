@@ -172,6 +172,8 @@ Item {
 
   function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
   function setSearch(q) { searchField.text = q }
+  readonly property string searchText: searchField.text
+  readonly property string toText: toField.text
 
   // Esc undoes the innermost thing open, one at a time: a name being typed
   // in "To" (its list goes with it), the new message, the search. False

@@ -1217,7 +1217,8 @@ Panel {
       return JSON.stringify({ active: s.active, ready: s.ready, threads: s.threads.count, unread: s.unreadCount,
         open: s.openThreadId, loaded: s.messages.count, hasMore: s.hasMore, loading: s.loading,
         contacts: s.contactCount, error: s.lastError, composerFocused: messagesView ? messagesView.composerFocused : false,
-        newMessage: messagesView && messagesView.newMode ? { to: messagesView.recipients.map(function(r) { return r.number }), suggestions: messagesView.suggestions.length } : null })
+        newMessage: messagesView && messagesView.newMode ? { to: messagesView.recipients.map(function(r) { return r.number }), typed: messagesView.toText, suggestions: messagesView.suggestions.length } : null,
+        search: messagesView ? messagesView.searchText : "" })
     }
     function loadOlder(): string { if (root.sms) root.sms.loadMore(); return "ok" }
     function searchThreads(q: string): string {
