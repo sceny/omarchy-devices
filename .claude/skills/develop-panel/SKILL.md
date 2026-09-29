@@ -58,8 +58,8 @@ checked live, and the merge waits for someone who checks it.
   lands in `shell.json`. Wait for a new process first:
 
   ```bash
-  old=$(pgrep -f 'qs -p /usr/share/omarchy/shell' | head -1); omarchy restart shell
-  until p=$(pgrep -f 'qs -p /usr/share/omarchy/shell' | head -1) && [ -n "$p" ] && [ "$p" != "$old" ]; do sleep 0.3; done
+  old=$(pgrep -x quickshell); omarchy restart shell
+  until p=$(pgrep -x quickshell) && [ "$p" != "$old" ]; do sleep 0.3; done
   timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices status
   ```
 
