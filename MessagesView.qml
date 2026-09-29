@@ -173,6 +173,16 @@ Item {
   function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
   function setSearch(q) { searchField.text = q }
 
+  // Esc undoes the innermost thing open, one at a time: a name being typed
+  // in "To" (its list goes with it), the new message, the search. False
+  // when nothing is open here, so the panel closes messages.
+  function goBack() {
+    if (newMode && toField.text !== "") { toField.text = ""; return true }
+    if (newMode) { cancelNew(); return true }
+    if (searchField.text !== "") { searchField.text = ""; return true }
+    return false
+  }
+
   // PgUp/PgDn: a screen of the open conversation. The list runs bottom to
   // top, so "up" (older) is towards the end of the content.
   function scrollMessages(pages) {
@@ -552,7 +562,7 @@ Item {
             font.family: view.fontFamily
             onTextChanged: view.refreshSuggestions()
             onAccepted: view.acceptTo()
-            Keys.onEscapePressed: view.cancelNew()
+            Keys.onEscapePressed: view.goBack()
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {

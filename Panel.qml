@@ -1354,8 +1354,7 @@ Panel {
       onCloseRequested: {
         if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.stopEditing()
-        else if (root.messagesOpen && messagesView.newMode) messagesView.cancelNew()
-        else if (root.messagesOpen) root.closeMessagesView()
+        else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
         else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
         else root.close()
       }
