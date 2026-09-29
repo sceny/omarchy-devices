@@ -153,6 +153,11 @@ Item {
   }
 
   function moveCursor(dy) {
+    // A new message: the keys walk the people to pick from.
+    if (newMode) {
+      if (suggestions.length > 0) suggestionCursor = Math.max(0, Math.min(suggestions.length - 1, suggestionCursor + dy))
+      return
+    }
     if (!shown || shown.count === 0) return
     if (!cursorActive) { cursorActive = true; return }
     cursorTo(threadCursor + dy)
@@ -166,11 +171,27 @@ Item {
   }
 
   function activateCursor() {
+    // A new message: Enter picks the person under the cursor, and the user's
+    // own Enter moves on to writing (their conversation, if they have one).
+    if (newMode) {
+      var pick = suggestions[suggestionCursor]
+      if (!pick) return
+      addRecipient(pick)
+      if (newMode) composer.forceActiveFocus()
+      return
+    }
     if (!shown || threadCursor < 0 || threadCursor >= shown.count) return
     openThread(shown.get(threadCursor).tid, true)
   }
 
   function focusSearch() { searchField.forceActiveFocus(); searchField.selectAll() }
+  // A new message with nothing focused: a letter the user types in the panel
+  // starts the name in "To" (their own key, so the field may take it).
+  function typeIntoTo(t) {
+    if (!newMode) return
+    toField.forceActiveFocus()
+    toField.insert(toField.cursorPosition, t)
+  }
   function setSearch(q) { searchField.text = q }
   readonly property string searchText: searchField.text
   readonly property string toText: toField.text
