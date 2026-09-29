@@ -2079,8 +2079,22 @@ Panel {
                 animate: root.settled
                 spacing: Style.space(8)
 
+                // Lined up with the section bars below: the chip's glyph
+                // where their grips are (the bar is not a section; it does
+                // not move).
+                RowLayout {
+                  x: Style.space(8)
+                  width: parent.width - Style.space(16)
+                  spacing: Style.space(10)
+                  Text {
+                    Layout.alignment: Qt.AlignVCenter
+                    text: Model.deviceIcon(root.device, root.profile)
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                  }
                 Column {
-                  width: parent.width
+                  Layout.fillWidth: true
                   spacing: Style.space(1)
                   Text {
                     textFormat: Text.PlainText
@@ -2093,12 +2107,13 @@ Panel {
                   Text {
                     width: parent.width
                     textFormat: Text.PlainText
-                    text: "What " + Model.deviceLabel(root.device) + "'s chip shows beside its glyph, in order"
+                    text: "What its chip shows beside the glyph, in order"
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     elide: Text.ElideRight
                   }
+                }
                 }
 
                 Grid {
@@ -2152,6 +2167,8 @@ Panel {
                       id: flagLine
                       anchors.left: parent.left
                       anchors.right: parent.right
+                      anchors.leftMargin: Style.space(8)
+                      anchors.rightMargin: Style.space(8)
                       anchors.verticalCenter: parent.verticalCenter
                       spacing: Style.space(10)
                       ColumnLayout {
@@ -2902,6 +2919,8 @@ Panel {
       Text {
         textFormat: Text.PlainText
         anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(implicitWidth, editTile.width - Style.space(8))
+        elide: Text.ElideRight
         text: editTile.tile.label || ""
         color: root.foreground
         font.family: root.fontFamily

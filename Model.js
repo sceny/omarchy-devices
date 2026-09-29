@@ -367,13 +367,13 @@ function lowBattery(device, threshold) {
 // What the pill can show beside the glyph. "bubble" is not text: a count
 // drawn on the glyph itself (BarWidget), so it costs no width.
 var BAR_INDICATORS = [
-  { key: "connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
-  { key: "battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
-  { key: "percent", glyph: "%", label: "Battery %", hint: "The charge as a number" },
-  { key: "notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
-  { key: "messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
-  { key: "playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
-  { key: "bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
+  { key: "connection", tile: "Connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
+  { key: "battery", tile: "Battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
+  { key: "percent", tile: "Battery %", glyph: "%", label: "Battery %", hint: "The charge as a number" },
+  { key: "notifications", tile: "Notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
+  { key: "messages", tile: "Messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
+  { key: "playing", tile: "Playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
+  { key: "bubble", tile: "Bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
 ]
 
 function barIndicatorByKey(key) {
@@ -1487,11 +1487,11 @@ function editBarTiles(order) {
   var chosen = normalizeBarIndicators(order)
   var out = chosen.map(function(k, i) {
     var ind = barIndicatorByKey(k)
-    return { key: k, glyph: ind.glyph, label: ind.label, chosen: true, pos: i }
+    return { key: k, glyph: ind.glyph, label: ind.tile, chosen: true, pos: i }
   })
   for (var i = 0; i < BAR_INDICATORS.length; i++)
     if (chosen.indexOf(BAR_INDICATORS[i].key) < 0)
-      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, label: BAR_INDICATORS[i].label, chosen: false, pos: -1 })
+      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, label: BAR_INDICATORS[i].tile, chosen: false, pos: -1 })
   return out
 }
 
