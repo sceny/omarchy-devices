@@ -65,6 +65,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
+- A QR code to install the phone app (#64): while no device is paired, the
+  install step shows a code the phone's camera opens Google Play with,
+  beside the Google Play and F-Droid links. Drawn from `qrencode` (part of
+  Omarchy); nothing is fetched from the web.
+
 ### Fixed
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now

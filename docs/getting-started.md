@@ -26,7 +26,8 @@ Until a device connects, the panel lists what is missing (installed,
 running, firewall, a paired device), with a **Fix** button where it can.
 Fixes ask for your password; nothing changes without a click.
 
-On the phone:
+On the phone (while nothing is paired, the panel shows a QR code to scan
+for the app):
 
 1. Open KDE Connect, pick the computer and pair.
 2. Grant **notification access**, **SMS**, **contacts** (names instead of

@@ -12,7 +12,7 @@ writes nothing outside its folder but caches in `~/.cache/sceny.devices/`.
 | `SmsService.qml` | Text messages: threads and the open conversation, search, what was seen here. |
 | `Model.js` | Pure functions from data to what is drawn; tested with `node`. |
 | `BarWidget.qml`, `Panel.qml` | The pill; the panel, keyboard, settings and IPC. |
-| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings, messages, the setup checks. |
+| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings, messages, the setup checks (and the app's QR code, from `qrencode`, part of Omarchy). |
 
 The bridge exists because the shell has no generic D-Bus binding, and shell
 D-Bus clients (`busctl`, `gdbus`) open a connection per call and cannot
