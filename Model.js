@@ -414,38 +414,44 @@ function barText(device, indicators, state) {
 // The pill's text in parts, each drawn on its own so that only what is
 // urgent turns red: a low battery's glyph and percent, not the whole chip.
 // [{ text, urgent }], the device's glyph first.
+// Every part a chip can have, by key: a part keeps its key as the order
+// changes, so the bar slides it to its new place instead of redrawing.
+var BAR_PART_KEYS = ["glyph", "call", "connection", "battery", "percent", "notifications", "messages", "playing"]
+
 function barParts(device, indicators, state) {
   var st = state || {}
   // `glyph`: the device's own icon when its user picked one (deviceIcon).
-  var parts = [{ text: st.glyph || deviceGlyph(device), urgent: false }]
+  var parts = [{ key: "glyph", text: st.glyph || deviceGlyph(device), urgent: false }]
   var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
-  function add(text, urgent) { parts.push({ text: text, urgent: !!urgent }) }
+  function add(key, text, urgent) { parts.push({ key: key, text: text, urgent: !!urgent }) }
   // A call is news, not an indicator: it leads whatever else is chosen.
-  if (st.call && reachable) parts.push({ text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
+  if (st.call && reachable) parts.push({ key: "call", text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
       if (!device) continue
-      if (!reachable) add(GLYPH.wifiOff)
-      else add(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
+      if (!reachable) add(key, GLYPH.wifiOff)
+      else add(key, device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
       continue
     }
     if (!reachable) continue
-    if (key === "battery" && showBattery) { add(batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
+    if (key === "battery" && showBattery) { add(key, batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
     else if (key === "percent" && showBattery) {
       var pct = c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : "")
       // Right after the battery glyph, the % is part of it: one piece, a
-      // thin space apart, not an indicator of its own.
+      // thin space apart, not an indicator of its own. `glyph` and `suffix`
+      // draw it: a glyph's ink can run past its advance (the charging bolt),
+      // so the bar spaces the % from the ink, not from a character.
       var prev = parts[parts.length - 1]
-      if (prev.battery) prev.text += "\u2009" + pct
-      else add(pct, low)
+      if (prev.battery) { prev.glyph = prev.text; prev.suffix = pct; prev.text += "\u2009" + pct }
+      else add(key, pct, low)
     }
-    else if (key === "notifications" && st.notifications > 0) add(GLYPH.bell + " " + st.notifications)
-    else if (key === "messages" && st.messages > 0) add(GLYPH.messages + " " + st.messages)
-    else if (key === "playing" && st.playing) add(GLYPH.play)
+    else if (key === "notifications" && st.notifications > 0) add(key, GLYPH.bell + " " + st.notifications)
+    else if (key === "messages" && st.messages > 0) add(key, GLYPH.messages + " " + st.messages)
+    else if (key === "playing" && st.playing) add(key, GLYPH.play)
   }
   return parts
 }
@@ -792,6 +798,8 @@ function demoSnapshot(live, kind) {
   // A neutral name, so a screenshot of demo mode shows no real device.
   dev.name = "Pixel 8"
   dev.reachable = kind !== "away"
+  // "charging": the battery filling, for its glyph and % in the bar.
+  if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
   dev.can = { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true, ping: true }
   dev.network = { type: "5G", strength: 3 }

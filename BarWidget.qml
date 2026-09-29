@@ -114,7 +114,7 @@ BarWidget {
         required property int index
         readonly property var dev: root.deviceById(modelData.id)
         // On a vertical bar, the glyph alone.
-        readonly property var parts: root.vertical ? [{ text: chip.modelData.glyph, urgent: false }] : (chip.modelData.parts || [])
+        readonly property var parts: root.vertical ? [{ key: "glyph", text: chip.modelData.glyph, urgent: false }] : (chip.modelData.parts || [])
         implicitWidth: button.implicitWidth
         implicitHeight: button.implicitHeight
 
@@ -126,7 +126,7 @@ BarWidget {
           bar: root.bar
           text: chip.modelData.glyph
           labelVisible: false
-          fixedWidth: root.vertical ? -1 : partsRow.implicitWidth + 2 * Style.spaceReal(8.75)
+          fixedWidth: root.vertical ? -1 : partsRow.shownWidth + 2 * Style.spaceReal(8.75)
           horizontalMargin: 8.75
           dimmed: chip.modelData.dimmed === true
           tooltipText: root.opened ? "" : (chip.dev
@@ -138,27 +138,105 @@ BarWidget {
           onPressed: function(b) { root.chipPressed(b, chip.modelData.id) }
         }
 
-        Row {
+        // The parts, one slot per kind (Model.BAR_PART_KEYS): a part keeps its
+        // slot as the order changes, so it slides to its new place and one
+        // that comes or goes fades, at the plugin's pace, instead of the
+        // row being redrawn.
+        Item {
           id: partsRow
+          readonly property var keys: chip.parts.map(function(p) { return p.key })
+          readonly property real spacing: glyphMetrics.spaceWidth
+          // Bumped as slots are built, so widths read before they exist are read again.
+          property int built: 0
+          function slotWidth(key) {
+            var b = built
+            var item = slots.itemAt(Model.BAR_PART_KEYS.indexOf(key))
+            return item ? item.implicitWidth : 0
+          }
+          function offsetOf(place) {
+            var x = 0
+            for (var i = 0; i < place; i++) x += slotWidth(keys[i]) + spacing
+            return x
+          }
+          readonly property real fullWidth: keys.length > 0 ? offsetOf(keys.length - 1) + slotWidth(keys[keys.length - 1]) : 0
+          property real shownWidth: fullWidth
+          Behavior on shownWidth { NumberAnimation { duration: Model.MOTION.inMs; easing.type: Easing.OutCubic } }
           anchors.centerIn: parent
-          spacing: glyphMetrics.spaceWidth
+          width: shownWidth
+          height: button.height
           opacity: button.opacity
+
           Repeater {
-            model: chip.parts
-            Text {
-              required property var modelData
-              textFormat: Text.PlainText
-              text: modelData.text
-              // A ringing device's call glyph glows ring, ring, rest in the
-              // accent colour of the call card's phone (Service.ringLit); a
-              // low battery's parts are urgent.
-              color: modelData.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
-                : modelData.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
-              font.family: button.fontFamily
-              font.pixelSize: button.fontSize
-              renderType: Text.NativeRendering
-              anchors.verticalCenter: parent.verticalCenter
-              Behavior on color { ColorAnimation { duration: 160 } }
+            id: slots
+            model: Model.BAR_PART_KEYS
+            Item {
+              id: slot
+              required property string modelData
+              readonly property int place: partsRow.keys.indexOf(modelData)
+              readonly property var part: place >= 0 ? chip.parts[place] : null
+              // Kept while it fades out, so it leaves from where it was.
+              property var last: null
+              onPartChanged: if (part) last = part
+              readonly property var shown: part || last
+              readonly property color ink: !!part && part.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
+                : shown && shown.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
+              implicitWidth: !part ? 0 : (part.suffix ? glyphInk.inkWidth + inkGap + suffixText.implicitWidth : whole.implicitWidth)
+              height: parent.height
+              visible: opacity > 0.01
+              opacity: part ? 1 : 0
+              // Where it goes; kept while it fades out. One that comes in
+              // appears at its place (nothing to slide from while unseen).
+              readonly property real target: part ? partsRow.offsetOf(place) : -1
+              onTargetChanged: if (target >= 0) x = target
+              Component.onCompleted: { partsRow.built++; if (target >= 0) x = target }
+              Behavior on x { enabled: slot.opacity > 0.5; NumberAnimation { duration: Model.MOTION.inMs; easing.type: Easing.OutCubic } }
+              Behavior on opacity { NumberAnimation { duration: (slot.part ? Model.MOTION.inMs : Model.MOTION.outMs); easing.type: Easing.OutCubic } }
+
+              Text {
+                id: whole
+                visible: !(slot.shown && slot.shown.suffix)
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: slot.shown ? slot.shown.text : ""
+                color: slot.ink
+                font.family: button.fontFamily
+                font.pixelSize: button.fontSize
+                renderType: Text.NativeRendering
+                Behavior on color { ColorAnimation { duration: 160 } }
+              }
+              // The battery and its %: the % starts past the glyph's ink.
+              TextMetrics {
+                id: glyphInk
+                font.family: button.fontFamily
+                font.pixelSize: button.fontSize
+                text: slot.shown && slot.shown.suffix ? slot.shown.glyph : ""
+                readonly property real inkWidth: Math.max(advanceWidth, tightBoundingRect.x + tightBoundingRect.width)
+              }
+              readonly property real inkGap: Math.max(1, Math.round(button.fontSize * 0.12))
+              Text {
+                visible: !whole.visible
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: slot.shown && slot.shown.suffix ? slot.shown.glyph : ""
+                color: slot.ink
+                font.family: button.fontFamily
+                font.pixelSize: button.fontSize
+                renderType: Text.NativeRendering
+                Behavior on color { ColorAnimation { duration: 160 } }
+              }
+              Text {
+                id: suffixText
+                visible: !whole.visible
+                x: glyphInk.inkWidth + slot.inkGap
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: slot.shown && slot.shown.suffix ? slot.shown.suffix : ""
+                color: slot.ink
+                font.family: button.fontFamily
+                font.pixelSize: button.fontSize
+                renderType: Text.NativeRendering
+                Behavior on color { ColorAnimation { duration: 160 } }
+              }
             }
           }
         }
