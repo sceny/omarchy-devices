@@ -800,7 +800,7 @@ function demoSnapshot(live, kind) {
   dev.name = "Pixel 8"
   dev.reachable = kind !== "away"
   // Away: where it was, as the bridge's cache would say it.
-  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.243", at: Date.now() - 12 * 60000 } : null
+  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
   // "charging": the battery filling, for its glyph and % in the bar.
   if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
