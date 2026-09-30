@@ -413,3 +413,38 @@ class Search(unittest.TestCase):
         finally:
             bridge.bus, bridge.call = saved
         self.assertEqual(calls, [(bridge.ROOT, bridge.IFACE + ".daemon", "forceOnNetworkChange", ())])
+
+
+class PhotoCacheAndSave(unittest.TestCase):
+    """The last photo list shown at once, and a photo saved in Pictures."""
+
+    def test_the_cached_list_keeps_photos_whose_thumbnail_is_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: d
+            try:
+                cache = bridge.photos_cache("p1")
+                thumb = os.path.join(cache, "t1.jpg")
+                open(thumb, "w").close()
+                bridge.save_received(os.path.join(cache, bridge.PHOTO_LIST),
+                                     [{"name": "a.jpg", "thumb": thumb}, {"name": "b.jpg", "thumb": os.path.join(cache, "gone.jpg")}])
+                got = bridge.cached_photos("p1")
+                self.assertEqual([p["name"] for p in got["photos"]], ["a.jpg"])
+                self.assertTrue(got["cached"])
+                self.assertEqual(bridge.cached_photos("p2"), {"ok": False, "none": True})
+            finally:
+                bridge.state_dir = saved
+
+    def test_a_saved_photo_never_replaces_one_there(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.pictures_dir
+            bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
+            try:
+                src = os.path.join(d, "IMG_1.jpg")
+                open(src, "w").write("x")
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
+                    self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
+                self.assertEqual(sorted(os.listdir(os.path.join(d, "Pictures", "Pixel 8"))), ["IMG_1 (1).jpg", "IMG_1.jpg"])
+            finally:
+                bridge.pictures_dir = saved

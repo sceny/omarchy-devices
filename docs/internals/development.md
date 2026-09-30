@@ -22,6 +22,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" demo many              # several devices (tabs, chips); many-pair adds a pairing request
 "${IPC[@]}" demo charging          # the demo phone charging
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Files: photos and received; forget one (demo: made-up files)
+bin/kdeconnect-bridge photos-cached <device>   # the last photo list, at once (the panel shows it while the phone is read)
 "${IPC[@]}" view "Galaxy Tab S9"   # view a device (id, nickname or name); openOn opens on it; tabs
 "${IPC[@]}" settingsScope "Galaxy Tab S9"   # a device's settings page; also root, defaults
 "${IPC[@]}" live                   # back to the phone

@@ -39,6 +39,7 @@ var GLYPH = {
   video: "\u{F0567}",        // video
   file: "\u{F021F}",         // file-image
   document: "\u{F0219}",     // file-document: a received file that is not a picture
+  download: "\u{F01DA}",     // download: save a copy of a photo here
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
   check: "\u{F012C}",

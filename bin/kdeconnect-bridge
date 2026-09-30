@@ -24,6 +24,8 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge pair|accept|reject|unpair <device>
   kdeconnect-bridge photos <device> [count]        the newest photos and screenshots on
                                               it, with thumbnails, as JSON
+  kdeconnect-bridge photos-cached <device>         the last list, at once (from the cache)
+  kdeconnect-bridge save-file <path> <name>        a copy in Pictures/<name>/
   kdeconnect-bridge received-dismiss <device> <path>   forget one received file
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
@@ -480,9 +482,8 @@ def photos(device_id, count=PHOTO_COUNT):
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
     found = newest_photos(photo_folders(roots), count)
-    cache = os.path.join(state_dir(), "photos", re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
-    os.makedirs(cache, exist_ok=True)
-    keep = set()
+    cache = photos_cache(device_id)
+    keep = {PHOTO_LIST}
     for p in found:
         name = thumb_name(p)
         keep.add(name)
@@ -494,7 +495,59 @@ def photos(device_id, count=PHOTO_COUNT):
                 os.remove(os.path.join(cache, old))
             except OSError:
                 pass
+    save_received(os.path.join(cache, PHOTO_LIST), found)
     return {"ok": True, "photos": found}
+
+
+# The last list read from the device, with its thumbnails: the panel shows it
+# at once when it opens, while `photos` reads the device again.
+PHOTO_LIST = "list.json"
+
+
+def photos_cache(device_id):
+    path = os.path.join(state_dir(), "photos", re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def cached_photos(device_id):
+    """The last list, only entries whose thumbnail is still here; {ok: false}
+    when there is none."""
+    entries = load_received(os.path.join(photos_cache(device_id), PHOTO_LIST))
+    kept = [p for p in entries if isinstance(p, dict) and p.get("thumb") and os.path.isfile(p["thumb"])]
+    return {"ok": True, "cached": True, "photos": kept} if kept else {"ok": False, "none": True}
+
+
+def pictures_dir():
+    """The user's Pictures folder (xdg-user-dir), else ~/Pictures."""
+    try:
+        out = subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if out and out != os.path.expanduser("~"):
+            return out
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return os.path.expanduser("~/Pictures")
+
+
+def save_file(path, device_name):
+    """A copy of a file from the device in Pictures/<device name>/, never over
+    one already there (a number is added)."""
+    if not os.path.isfile(path):
+        return say("The file is gone", EXIT_FAILED)
+    folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
+    folder = os.path.join(pictures_dir(), folder_name)
+    os.makedirs(folder, exist_ok=True)
+    base, ext = os.path.splitext(os.path.basename(path))
+    target = os.path.join(folder, base + ext)
+    n = 1
+    while os.path.exists(target):
+        target = os.path.join(folder, "%s (%d)%s" % (base, n, ext))
+        n += 1
+    try:
+        shutil.copyfile(path, target)
+    except OSError as error:
+        return say(str(error), EXIT_FAILED)
+    return say("Saved to %s" % os.path.join(os.path.basename(pictures_dir()), folder_name, os.path.basename(target)))
 
 
 def copy_file(path):
@@ -1303,6 +1356,15 @@ def main(argv):
         count = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else PHOTO_COUNT
         print(json.dumps(photos(argv[1], count), ensure_ascii=False))
         return EXIT_OK
+    if argv[0] == "photos-cached":
+        if len(argv) < 2:
+            return say("photos-cached needs a device id", EXIT_FAILED)
+        print(json.dumps(cached_photos(argv[1]), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "save-file":
+        if len(argv) < 3:
+            return say("save-file needs a path and the device's name", EXIT_FAILED)
+        return save_file(argv[1], argv[2])
     if argv[0] == "received-dismiss":
         if len(argv) < 3:
             return say("received-dismiss needs a device id and a path", EXIT_FAILED)

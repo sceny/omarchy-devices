@@ -44,7 +44,38 @@ Panel {
   readonly property bool showNotifications: profile.showNotifications
   readonly property bool showFiles: profile.showFiles
   // Files: the device's newest photos (#65) and the files it sent (#37).
-  readonly property var photos: phone ? phone.photos : []
+  // The photos drawn: the device's, except when they go to none. Then the
+  // tiles fade, the section folds closed, and only then are they gone (no
+  // blink, no jump, no empty section left open).
+  readonly property var livePhotos: phone ? phone.photos : []
+  property var shownPhotos: []
+  property bool photosFading: false
+  property bool filesClosing: false
+  onLivePhotosChanged: {
+    if (livePhotos.length > 0) {
+      photoLeave.stop(); photoClose.stop()
+      photosFading = false; filesClosing = false
+      shownPhotos = livePhotos
+    } else if (shownPhotos.length > 0 && !photosFading) {
+      photosFading = true
+      photoLeave.restart()
+    }
+  }
+  Timer {
+    id: photoLeave
+    interval: Model.MOTION.outMs * root.motion
+    onTriggered: {
+      // Nothing else in the section: it folds closed before it goes.
+      if (root.received.length === 0 && !root.filesHint) { root.filesClosing = true; photoClose.restart() }
+      else { root.shownPhotos = []; root.photosFading = false }
+    }
+  }
+  Timer {
+    id: photoClose
+    interval: Model.MOTION.inMs * root.motion
+    onTriggered: { root.shownPhotos = []; root.photosFading = false; root.filesClosing = false }
+  }
+  readonly property var photos: shownPhotos
   readonly property var photoInfo: phone ? phone.photoInfo : null
   readonly property var received: phone ? phone.received : []
   // Something to show, or a step that makes photos possible (sshfs, the
@@ -2967,6 +2998,10 @@ Panel {
                 Column {
                   id: filesColumn
                   y: sectionsBox.topOf("files")
+                  // Folding closed when its last photos went (see shownPhotos).
+                  height: root.filesClosing ? 0 : implicitHeight
+                  clip: root.filesClosing
+                  Behavior on height { enabled: root.filesClosing; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
                   transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("files") : -1 }
                   z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("files") ? 10 : 0
                   visible: root.showMain && root.drawnSections.indexOf("files") >= 0
@@ -3032,6 +3067,8 @@ Panel {
                     Grid {
                       id: photoGrid
                       visible: root.photos.length > 0
+                      opacity: root.photosFading ? 0 : 1
+                      Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
                       width: parent.width
                       columns: 4
                       spacing: Style.space(6)
@@ -3542,6 +3579,17 @@ Panel {
       cursorShape: Qt.PointingHandCursor
       onEntered: { root.cursorActive = true; root.focusSection = "files"; root.filesIndex = tile.place }
       onClicked: root.openPhoto(tile.photo)
+    }
+    PanelActionButton {
+      id: saveTile
+      anchors.top: parent.top
+      anchors.right: copyTile.left
+      visible: tileHover.hovered
+      iconText: Model.GLYPH.download
+      tooltipText: "Save a copy in Pictures"
+      foreground: "white"
+      fontFamily: root.fontFamily
+      onClicked: if (root.phone) root.phone.savePhoto(tile.photo.path)
     }
     PanelActionButton {
       id: copyTile

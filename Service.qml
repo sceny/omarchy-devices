@@ -720,7 +720,21 @@ Item {
     // allowed) is tried again on the next open.
     if (!force && st && st.ok && Date.now() - st.at < 20000) return
     setPhotoState(id, Object.assign({}, st || { photos: [] }, { loading: true, at: Date.now() }))
+    // The first look since the shell started: the last list at once, from
+    // the cache, while the device is read (that takes seconds).
+    if (!st) {
+      var cached = photosComponent.createObject(root, { deviceId: id, cachedRun: true, command: [bridge, "photos-cached", id] })
+      cached.running = true
+    }
     var proc = photosComponent.createObject(root, { deviceId: id, command: [bridge, "photos", id] })
+    proc.running = true
+  }
+  // A copy of a photo in Pictures/<device>/; the toast says where.
+  function savePhoto(path) {
+    if (demo) { report("Demo: a made-up photo", false); return }
+    if (!device || isBusy("save")) return
+    setBusy("save", true)
+    var proc = actionComponent.createObject(root, { key: "save", command: [bridge, "save-file", path, Model.deviceLabel(device)] })
     proc.running = true
   }
   Component {
@@ -728,11 +742,19 @@ Item {
     Process {
       id: photosProc
       property string deviceId: ""
+      // The cached list: shown only while the real look has not answered.
+      property bool cachedRun: false
       stdout: StdioCollector {
         onStreamFinished: {
           var r = null
           try { r = JSON.parse(text) } catch (e) { r = { ok: false, error: "Could not read its storage" } }
-          root.setPhotoState(photosProc.deviceId, Object.assign({ photos: [] }, r, { loading: false, at: Date.now() }))
+          if (photosProc.cachedRun) {
+            var now = root.photoState[photosProc.deviceId]
+            if (r.ok && now && now.loading && !now.ok)
+              root.setPhotoState(photosProc.deviceId, Object.assign({}, now, { ok: true, photos: r.photos, cached: true }))
+          } else {
+            root.setPhotoState(photosProc.deviceId, Object.assign({ photos: [] }, r, { loading: false, at: Date.now() }))
+          }
           photosProc.destroy()
         }
       }

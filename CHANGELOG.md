@@ -66,8 +66,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
 - Files (#65, #37): a section with the device's newest photos and
-  screenshots (click to open, copy the image from its corner, drag it
-  into a window) and the files it sent (open, show in folder, forget). Photos are read
+  screenshots (click to open; from its corner, copy the image or save a
+  copy in Pictures/<device>; drag it into a window) and the files it sent
+  (open, show in folder, forget). The last photos show at once when the
+  panel opens, while the phone is read again; when none are left, they
+  fade and the section folds away. Photos are read
   from its storage through KDE Connect when the panel opens; that needs
   `sshfs`, which the section offers to install. Received files are kept in
   the cache and leave the list when their file is gone. It joins every
