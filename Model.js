@@ -1429,7 +1429,8 @@ function devicesListRows(snapshot, settings, lowPercent) {
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
       rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair", waiting: o.pairRequested === true })
+                  status: o.pairRequested === true ? "Waiting for it to accept" + (o.verificationKey ? " · key " + o.verificationKey : "") : "Available to pair",
+                  waiting: o.pairRequested === true })
   })
   return rows
 }

@@ -114,6 +114,7 @@ BarWidget {
   PairingPopup {
     phone: root.phone
     anchorItem: chipRow
+    panelOpen: root.opened
   }
 
   Loader {

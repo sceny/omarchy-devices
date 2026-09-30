@@ -241,6 +241,12 @@ Item {
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].pairRequestedByPeer === true) return list[i]
     return null
   }
+  // A pairing this computer asked for, waiting for the device to accept.
+  readonly property var pairingOut: {
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].pairRequested === true && list[i].paired !== true) return list[i]
+    return null
+  }
 
   // The pill: a chip per device that shows, and a resting glyph when none
   // does (Model.chips).

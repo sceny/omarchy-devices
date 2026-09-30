@@ -17,13 +17,18 @@ PanelWindow {
   id: popup
 
   property var phone: null
+  // This bar's panel is open: it shows the pairing itself, so the card waits.
+  property bool panelOpen: false
   // The chip it points at, in the bar's window.
   property Item anchorItem: null
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
   property real motion: 1
 
-  readonly property var request: phone ? phone.pairingRequest : null
+  // A device asking to pair, else a pairing this computer asked for (the
+  // device accepts it; the card shows the key to check there, and Cancel).
+  readonly property var request: phone ? (phone.pairingRequest || phone.pairingOut) : null
+  readonly property bool outgoing: !!shown && shown.pairRequestedByPeer !== true
   // ✕ hides this request's card; a new request shows again.
   property string hiddenId: ""
   // Kept while it fades out, so the text does not blank mid-fade.
@@ -33,7 +38,7 @@ PanelWindow {
     else hiddenId = ""
   }
   Component.onCompleted: if (request) shown = request
-  readonly property bool showing: !!request && String(request.id) !== hiddenId
+  readonly property bool showing: !!request && String(request.id) !== hiddenId && !panelOpen
   readonly property bool waiting: !!shown && !!phone
     && (phone.isBusy("accept:" + shown.id) || phone.isBusy("reject:" + shown.id))
 
@@ -98,7 +103,8 @@ PanelWindow {
         Text {
           Layout.fillWidth: true
           textFormat: Text.PlainText
-          text: (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
+          text: popup.outgoing ? "Pairing with " + (popup.shown ? String(popup.shown.name || "a device") : "")
+                               : (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
           color: popup.foreground
           font.family: popup.fontFamily
           font.pixelSize: Style.font.body
@@ -134,7 +140,7 @@ PanelWindow {
             Layout.fillWidth: true
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: "The same key on it? Then accept."
+            text: popup.outgoing ? "Accept it on the device if it shows this key." : "The same key on it? Then accept."
             color: Qt.darker(popup.foreground, 1.55)
             font.family: popup.fontFamily
             font.pixelSize: Style.font.caption
@@ -144,6 +150,7 @@ PanelWindow {
           Layout.topMargin: Style.space(6)
           spacing: Style.space(8)
           Button {
+            visible: !popup.outgoing
             text: popup.waiting ? "Waiting…" : "Accept"
             enabled: !popup.waiting
             bordered: true
@@ -153,7 +160,7 @@ PanelWindow {
             onClicked: if (popup.phone && popup.shown) popup.phone.acceptPairing(popup.shown.id)
           }
           Button {
-            text: "Reject"
+            text: popup.outgoing ? "Cancel" : "Reject"
             enabled: !popup.waiting
             foreground: popup.foreground
             fontFamily: popup.fontFamily
