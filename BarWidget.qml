@@ -110,6 +110,12 @@ BarWidget {
   onSettingsChanged: { injectPanel(); syncService() }
   onPhoneChanged: { injectPanel(); syncService() }
 
+  // A device asking to pair: a card under the bar, by the chips (#92).
+  PairingPopup {
+    phone: root.phone
+    anchorItem: chipRow
+  }
+
   Loader {
     id: panelLoader
     active: true
@@ -203,7 +209,10 @@ BarWidget {
               property var last: null
               onPartChanged: if (part) last = part
               readonly property var shown: part || last
+              // A ringing call's glyph glows on the ring beat; so does the first
+              // chip's device glyph while a device asks to pair.
               readonly property color ink: !!part && part.call === "ringing" && !!root.phone && root.phone.ringLit ? Color.accent
+                : !!part && part.key === "glyph" && chip.index === 0 && !!root.phone && root.phone.pairLit ? Color.accent
                 : shown && shown.urgent ? (root.bar ? root.bar.urgent : Color.urgent) : (root.bar ? root.bar.barForeground : Color.foreground)
               implicitWidth: !part ? 0 : (part.suffix ? glyphInk.inkWidth + inkGap + suffixText.implicitWidth : whole.implicitWidth)
               height: parent.height

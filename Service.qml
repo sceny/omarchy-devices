@@ -115,8 +115,10 @@ Item {
   readonly property var ringPhases: Model.ringPhases()
   property int ringPhase: 0
   readonly property bool ringLit: ringing && ringPhases[ringPhase].lit
+  // A device asking to pair glows on the same beat (the first chip's glyph).
+  readonly property bool pairLit: !!pairingRequest && ringPhases[ringPhase].lit
   Timer {
-    running: root.ringing
+    running: root.ringing || !!root.pairingRequest
     repeat: true
     interval: root.ringPhases[root.ringPhase].ms
     onRunningChanged: root.ringPhase = 0
