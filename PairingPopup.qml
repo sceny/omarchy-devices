@@ -17,8 +17,15 @@ PanelWindow {
   id: popup
 
   property var phone: null
-  // This bar's panel is open: it shows the pairing itself, so the card waits.
+  // This bar's panel is open: it shows the pairing itself, so the card waits,
+  // until the panel has faded out too (never drawn over it as it closes).
   property bool panelOpen: false
+  property bool panelGone: !panelOpen
+  onPanelOpenChanged: {
+    if (panelOpen) { panelGone = false; panelGoneTimer.stop() }
+    else panelGoneTimer.restart()
+  }
+  Timer { id: panelGoneTimer; interval: Model.MOTION.outMs + Model.MOTION.inMs; onTriggered: popup.panelGone = true }
   // The chip it points at, in the bar's window.
   property Item anchorItem: null
   property color foreground: Color.foreground
@@ -38,7 +45,7 @@ PanelWindow {
     else hiddenId = ""
   }
   Component.onCompleted: if (request) shown = request
-  readonly property bool showing: !!request && String(request.id) !== hiddenId && !panelOpen
+  readonly property bool showing: !!request && String(request.id) !== hiddenId && panelGone
   readonly property bool waiting: !!shown && !!phone
     && (phone.isBusy("accept:" + shown.id) || phone.isBusy("reject:" + shown.id))
 

@@ -703,9 +703,7 @@ Column {
 
   // A pairing in progress, on Add a device: a card, as the pop-up and the
   // panel's pairing card draw it (the device, what it asks; the key and the
-  // answer on one row). Room inside under the answer, and a margin below:
-  // a toast floating at the panel's bottom reaches the card's edge at most,
-  // never the key.
+  // answer on one row).
   component PairingCardRow: Column {
     id: pcard
     property var row: ({})
@@ -716,7 +714,7 @@ Column {
 
     BorderSurface {
       width: parent.width
-      implicitHeight: pcardContent.implicitHeight + Style.space(12) + Style.space(22)
+      implicitHeight: pcardContent.implicitHeight + 2 * Style.space(12)
       radius: Style.cornerRadius
       color: root.panelBackground
       borderSpec: Border.controlSpec(root.cursorIndex === pcard.rowIndex ? "hover-cursor" : "focus", root.foreground, Color.accent)
@@ -731,8 +729,7 @@ Column {
         id: pcardContent
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: Style.space(12)
+        anchors.verticalCenter: parent.verticalCenter
         anchors.leftMargin: Style.space(14)
         anchors.rightMargin: Style.space(12)
         spacing: Style.space(14)
@@ -794,9 +791,6 @@ Column {
         }
       }
     }
-    // The margin below the card: with the room inside, a toast never
-    // reaches the key.
-    Item { width: 1; height: Style.space(20) }
   }
 
   // A check on this computer: its status icon, name, short status and one
