@@ -56,6 +56,11 @@ Panel {
   property int filesIndex: 0
   readonly property int photoColumns: 4
   readonly property int filesCount: photos.length + received.length
+  function openPhoto(photo) {
+    if (!photo) return
+    if (photo.demo) { if (phone) phone.report("Demo: a made-up photo", false); return }
+    Qt.openUrlExternally("file://" + encodeURI(photo.path))
+  }
   function openReceived(entry) {
     if (!entry) return
     if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
@@ -1211,7 +1216,7 @@ Panel {
     } else if (focusSection === "notifications") {
       openReply(notifications[notifIndex])
     } else if (focusSection === "files") {
-      if (filesIndex < photos.length) { if (phone) phone.copyFile(photos[filesIndex].path) }
+      if (filesIndex < photos.length) openPhoto(photos[filesIndex])
       else openReceived(received[filesIndex - photos.length])
     }
   }
@@ -3482,9 +3487,9 @@ Panel {
     }
   }
 
-  // Files: one of the device's newest photos, square. A click copies it,
-  // a drag drops the file into a window, ↗ opens it. In demo, a part of the
-  // one demo picture (`clip`), so four look like four.
+  // Files: one of the device's newest photos, square. A click opens it, the
+  // corner button copies it, a drag drops the file into a window. In demo,
+  // a part of the one demo picture (`clip`), so four look like four.
   component PhotoTile: CursorSurface {
     id: tile
     property var photo: ({})
@@ -3536,22 +3541,22 @@ Panel {
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       onEntered: { root.cursorActive = true; root.focusSection = "files"; root.filesIndex = tile.place }
-      onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
+      onClicked: root.openPhoto(tile.photo)
     }
     PanelActionButton {
+      id: copyTile
       anchors.top: parent.top
       anchors.right: parent.right
-      id: openTile
       visible: tileHover.hovered
-      iconText: "\u{F03CC}"
-      tooltipText: "Open"
+      iconText: Model.GLYPH.clipboard
+      tooltipText: "Copy the image"
       foreground: "white"
       fontFamily: root.fontFamily
-      onClicked: if (!tile.photo.demo) Qt.openUrlExternally(tile.url)
+      onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
     }
     PanelToolTip {
       visible: tileMouse.containsMouse
-      text: (tile.photo.kind === "screenshot" ? "Screenshot" : "Photo") + " · " + Model.threadTime(tile.photo.at, Date.now()) + " · click to copy, drag into a window"
+      text: (tile.photo.kind === "screenshot" ? "Screenshot" : "Photo") + " · " + Model.threadTime(tile.photo.at, Date.now()) + " · click to open, drag into a window"
     }
   }
 

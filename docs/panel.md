@@ -10,8 +10,8 @@
   or the arrows away.
 - **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
   Play/Pause, KDE Connect.
-- **Files:** the phone's newest photos and screenshots (click to copy,
-  drag into a window) and the files it sent (open, show in folder).
+- **Files:** the phone's newest photos and screenshots (click to open,
+  copy, drag into a window) and the files it sent (open, show in folder).
 - **Calls:** a ringing device's chip rings, and a card above the tabs
   names the caller; a missed call stays, with *Call back* and *Text back*.
 - **Several devices:** a tab and a chip each. Pair, order and unpair in
