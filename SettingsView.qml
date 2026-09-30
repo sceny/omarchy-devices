@@ -642,7 +642,7 @@ Column {
         // Pairing: the key to compare, drawn as on the pop-up.
         PairingKey {
           Layout.topMargin: Style.space(4)
-          key: listRow.row.key || ""
+          key: listRow.row.pairKey || ""
           caption: listRow.row.kind === "request" ? "check it matches" : "accept on it if it matches"
           compact: true
           foreground: root.foreground

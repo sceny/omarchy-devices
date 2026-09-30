@@ -1424,13 +1424,13 @@ function devicesListRows(snapshot, settings, lowPercent) {
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer === true)
       rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: "Wants to pair", key: String(o.verificationKey || "") })
+                  status: "Wants to pair", pairKey: String(o.verificationKey || "") })
   })
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
       rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
                   status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair",
-                  key: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
+                  pairKey: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
   })
   return rows
 }
