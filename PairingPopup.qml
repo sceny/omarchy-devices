@@ -105,15 +105,40 @@ PanelWindow {
           font.bold: true
           elide: Text.ElideRight
         }
-        Text {
-          Layout.fillWidth: true
+        // The key is what the user checks: large, apart, in the accent,
+        // with what to do with it beside it.
+        RowLayout {
           visible: !!popup.shown && !!popup.shown.verificationKey
-          textFormat: Text.PlainText
-          text: "Key " + (popup.shown ? popup.shown.verificationKey : "") + ": the same on it?"
-          color: Qt.darker(popup.foreground, 1.55)
-          font.family: popup.fontFamily
-          font.pixelSize: Style.font.caption
-          elide: Text.ElideRight
+          Layout.topMargin: Style.space(6)
+          spacing: Style.space(10)
+          Rectangle {
+            implicitWidth: keyText.implicitWidth + Style.space(16)
+            implicitHeight: keyText.implicitHeight + Style.space(6)
+            radius: Style.cornerRadius
+            color: "transparent"
+            border.width: 1
+            border.color: Color.accent
+            Text {
+              id: keyText
+              anchors.centerIn: parent
+              textFormat: Text.PlainText
+              text: popup.shown ? String(popup.shown.verificationKey || "") : ""
+              color: Color.accent
+              font.family: popup.fontFamily
+              font.pixelSize: Style.font.heading
+              font.bold: true
+              font.letterSpacing: 1.5
+            }
+          }
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: "The same key on it? Then accept."
+            color: Qt.darker(popup.foreground, 1.55)
+            font.family: popup.fontFamily
+            font.pixelSize: Style.font.caption
+          }
         }
         RowLayout {
           Layout.topMargin: Style.space(6)

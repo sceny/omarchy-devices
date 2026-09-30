@@ -1227,7 +1227,12 @@ function orderedDevices(snapshot, settings) {
   var out = []
   settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
   var rest = paired.filter(function(d) { return byId[d.id] })
-  rest.sort(function(a, b) { return (b.reachable === true) - (a.reachable === true) })
+  // Connected first, otherwise as KDE Connect lists them. The engine's sort
+  // is not stable, so the list position breaks ties: a device joining the
+  // list must never swap two others (the first shows always, opens first).
+  var at = {}
+  rest.forEach(function(d, i) { at[d.id] = i })
+  rest.sort(function(a, b) { return ((b.reachable === true) - (a.reachable === true)) || (at[a.id] - at[b.id]) })
   return out.concat(rest)
 }
 

@@ -699,3 +699,12 @@ test("reconnect: where it was last seen, another network, and what to try after 
   assert.equal(M.inNetwork("192.168.2.20", "192.168.1.0/24"), false)
   assert.equal(M.inNetwork("", "192.168.1.0/24"), null)
 })
+
+test("with no saved order, connected devices keep KDE Connect's order, whatever joins", () => {
+  const dev = (id, reachable) => ({ id, name: id, paired: true, reachable })
+  const list = []
+  for (let i = 0; i < 12; i++) list.push(dev("d" + i, i % 3 !== 1))
+  const ids = M.orderedDevices({ devices: list }, M.readSettings({})).map(d => d.id)
+  assert.deepEqual(ids.filter(id => Number(id.slice(1)) % 3 !== 1), ["d0", "d2", "d3", "d5", "d6", "d8", "d9", "d11"], "connected, in their order")
+  assert.deepEqual(ids.slice(-4), ["d1", "d4", "d7", "d10"], "then away ones, in their order")
+})
