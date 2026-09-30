@@ -408,7 +408,7 @@ Column {
   }
   Repeater {
     model: root.scopeKind === "addDevice" ? root.rows : []
-    ListRow {
+    PairingCardRow {
       required property var modelData
       required property int index
       visible: modelData.kind === "request"
@@ -447,7 +447,19 @@ Column {
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "available"
+      visible: modelData.kind === "available" && !modelData.pairKey
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  // A pairing this computer asked for, waiting on the device: a card.
+  Repeater {
+    model: root.scopeKind === "addDevice" ? root.rows : []
+    PairingCardRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "available" && !!modelData.pairKey
       width: root.width
       row: modelData
       rowIndex: index
@@ -688,6 +700,104 @@ Column {
         Layout.alignment: Qt.AlignVCenter
       }
     }
+  }
+
+  // A pairing in progress, on Add a device: a card, as the pop-up and the
+  // panel's pairing card draw it (the device, what it asks; the key and the
+  // answer on one row). Room inside under the answer, and a margin below:
+  // a toast floating at the panel's bottom reaches the card's edge at most,
+  // never the key.
+  component PairingCardRow: Column {
+    id: pcard
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool incoming: row.kind === "request"
+    readonly property bool working: !!root.phone && (root.phone.isBusy("accept:" + row.id) || root.phone.isBusy("reject:" + row.id))
+    spacing: 0
+
+    BorderSurface {
+      width: parent.width
+      implicitHeight: pcardContent.implicitHeight + Style.space(12) + Style.space(22)
+      radius: Style.cornerRadius
+      color: root.panelBackground
+      borderSpec: Border.controlSpec(root.cursorIndex === pcard.rowIndex ? "hover-cursor" : "focus", root.foreground, Color.accent)
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: root.hovered(pcard.rowIndex)
+      }
+
+      RowLayout {
+        id: pcardContent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.topMargin: Style.space(12)
+        anchors.leftMargin: Style.space(14)
+        anchors.rightMargin: Style.space(12)
+        spacing: Style.space(14)
+
+        Text {
+          Layout.alignment: Qt.AlignTop
+          Layout.topMargin: Style.space(2)
+          text: pcard.row.glyph || ""
+          color: Color.accent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.display
+        }
+        ColumnLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            text: pcard.incoming ? (pcard.row.title || "A device") + " wants to pair" : "Pairing with " + (pcard.row.title || "a device")
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            PairingKey {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignBottom
+              key: pcard.row.pairKey || ""
+              caption: pcard.incoming ? "check it matches" : "accept on it if it matches"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+            Item { Layout.fillWidth: true; visible: !pcard.row.pairKey }
+            Button {
+              Layout.alignment: Qt.AlignBottom
+              visible: pcard.incoming
+              text: pcard.working ? "Waiting…" : "Accept"
+              enabled: !pcard.working
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: root.activated(pcard.rowIndex)
+            }
+            Button {
+              Layout.alignment: Qt.AlignBottom
+              text: pcard.incoming ? "Reject" : "Cancel"
+              enabled: !pcard.working
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: root.rejectRequested(pcard.row.id)
+            }
+          }
+        }
+      }
+    }
+    // The margin below the card: with the room inside, a toast never
+    // reaches the key.
+    Item { width: 1; height: Style.space(20) }
   }
 
   // A check on this computer: its status icon, name, short status and one

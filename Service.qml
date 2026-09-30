@@ -450,13 +450,24 @@ Item {
       onTriggered: {
         if ((verb === "dismiss" || verb === "action") && root.demo && root.snapshot)
           root.snapshot = Model.withoutNotification(root.snapshot, note)
+        // Demo Pair: the device waits to accept, showing a made-up key.
+        if (verb === "pair" && root.demo && root.snapshot) {
+          var pid = key.split(":")[1]
+          var pcopy = JSON.parse(JSON.stringify(root.snapshot))
+          ;(pcopy.devices || []).forEach(function(d) { if (d.id === pid) { d.pairRequested = true; d.verificationKey = "7C19 2B4D" } })
+          root.snapshot = pcopy
+        }
         // A demo pairing request answered: accepted, the device is paired;
-        // rejected, it goes.
+        // rejected (or a pairing asked here, cancelled), it goes back.
         if ((verb === "accept" || verb === "reject") && root.demo && root.snapshot) {
           var id = key.split(":")[1]
           var copy = JSON.parse(JSON.stringify(root.snapshot))
-          copy.devices = (copy.devices || []).filter(function(d) { return verb === "accept" || d.id !== id })
-          copy.devices.forEach(function(d) { if (d.id === id) { d.pairRequestedByPeer = false; d.paired = true } })
+          copy.devices = (copy.devices || []).filter(function(d) { return verb === "accept" || d.id !== id || d.pairRequested === true })
+          copy.devices.forEach(function(d) {
+            if (d.id !== id) return
+            if (verb === "accept") { d.pairRequestedByPeer = false; d.paired = true }
+            else { d.pairRequested = false; d.verificationKey = "" }
+          })
           root.snapshot = copy
         }
         root.setBusy(key, false)

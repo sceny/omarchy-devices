@@ -2957,11 +2957,6 @@ Panel {
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
 
-              // Room for the toast at the bottom of every page, always (a
-              // strip only while one shows would push the page): the toast
-              // floats here and never covers what the page shows, such as a
-              // pairing key.
-              Item { width: 1; height: toast.height + Style.space(8) }
             }
           }
         }
