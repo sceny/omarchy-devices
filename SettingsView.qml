@@ -474,9 +474,14 @@ Column {
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
 
-  Item { width: 1; height: Style.space(2) }
+  // The page's buttons (Unpair, Reset shortcuts, KDE Connect settings):
+  // their row takes room only when one of them shows (hidden buttons still
+  // left it 44 px tall, an empty band at the bottom of Add a device).
+  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0 || firstIndex("kdeconnect") >= 0
+  Item { visible: root.hasButtons; width: 1; height: Style.space(2) }
 
   Row {
+    visible: root.hasButtons
     spacing: Style.space(8)
 
     Button {
