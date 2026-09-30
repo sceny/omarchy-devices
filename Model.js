@@ -344,6 +344,23 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// KDE Connect cancels a pairing the other side has not accepted in this
+// long, on both sides: a constant compiled into it, not a setting and not on
+// D-Bus (kdeconnect-kde core/backends/pairinghandler.h, pairingTimeoutMsec =
+// 30 * 1000, at 97d6289). Change it here if KDE Connect ever changes it.
+var PAIR_TIMEOUT_S = 30
+
+// Seconds left for a pairing asked at `sinceMs`, never below 0.
+function pairSecondsLeft(sinceMs, nowMs) {
+  return Math.max(0, Math.min(PAIR_TIMEOUT_S, PAIR_TIMEOUT_S - Math.floor((nowMs - sinceMs) / 1000)))
+}
+
+// Actions whose result shows where they were clicked, with no toast: a
+// pairing card appears (Pair), becomes the device (Accept), goes (Reject,
+// Cancel). A failure still says so.
+var SHOWN_IN_PLACE = ["pair", "accept", "reject"]
+function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
+
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
   if (kind === "note") return { ms: 4000, fail: "" }
@@ -778,7 +795,7 @@ function demoSnapshot(live, kind) {
         ] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: true, reachable: false, links: [], can: {}, notifications: [] })
     if (kind === "many-pair")
-      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return many
   }
   if (kind === "devices") {
@@ -786,7 +803,7 @@ function demoSnapshot(live, kind) {
     withOthers.devices.push(
       { id: "demo-tab", name: "Galaxy Tab", type: "tablet", paired: true, reachable: false, links: [], can: {}, notifications: [] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: false, reachable: true, links: ["LAN"], can: {}, notifications: [] },
-      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return withOthers
   }
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
@@ -1227,7 +1244,12 @@ function orderedDevices(snapshot, settings) {
   var out = []
   settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
   var rest = paired.filter(function(d) { return byId[d.id] })
-  rest.sort(function(a, b) { return (b.reachable === true) - (a.reachable === true) })
+  // Connected first, otherwise as KDE Connect lists them. The engine's sort
+  // is not stable, so the list position breaks ties: a device joining the
+  // list must never swap two others (the first shows always, opens first).
+  var at = {}
+  rest.forEach(function(d, i) { at[d.id] = i })
+  rest.sort(function(a, b) { return ((b.reachable === true) - (a.reachable === true)) || (at[a.id] - at[b.id]) })
   return out.concat(rest)
 }
 
@@ -1419,12 +1441,13 @@ function devicesListRows(snapshot, settings, lowPercent) {
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer === true)
       rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: "Wants to pair" + (o.verificationKey ? " · key " + o.verificationKey : "") })
+                  status: "Wants to pair", pairKey: String(o.verificationKey || "") })
   })
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
       rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair", waiting: o.pairRequested === true })
+                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair",
+                  pairKey: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
   })
   return rows
 }

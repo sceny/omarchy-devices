@@ -490,10 +490,13 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset"].some(k => kinds.includes(k)), "sections, shortcuts and the bar are edited on the page")
   assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
   assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
-  const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A 3506" }), device({ id: "a", name: "Near", paired: false }))
+  const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A3506" }), device({ id: "a", name: "Near", paired: false }))
   const list = M.devicesListRows(two, s, 15)
   assert.deepEqual(list.map(r => [r.kind, r.id]), [["device", "p1"], ["device", "t1"], ["request", "n"], ["available", "a"]])
-  assert.match(list[2].status, /Wants to pair · key 4E5A 3506/)
+  assert.equal(list[2].status, "Wants to pair")
+  assert.equal(list[2].pairKey, "4E5A3506", "the key is drawn apart (PairingKey)")
+  assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
+    .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
   assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "connection", "addDevice", "kdeconnect"])
 })
@@ -698,4 +701,25 @@ test("reconnect: where it was last seen, another network, and what to try after 
   assert.equal(M.inNetwork("192.168.1.20", "192.168.1.0/24"), true)
   assert.equal(M.inNetwork("192.168.2.20", "192.168.1.0/24"), false)
   assert.equal(M.inNetwork("", "192.168.1.0/24"), null)
+})
+
+test("with no saved order, connected devices keep KDE Connect's order, whatever joins", () => {
+  const dev = (id, reachable) => ({ id, name: id, paired: true, reachable })
+  const list = []
+  for (let i = 0; i < 12; i++) list.push(dev("d" + i, i % 3 !== 1))
+  const ids = M.orderedDevices({ devices: list }, M.readSettings({})).map(d => d.id)
+  assert.deepEqual(ids.filter(id => Number(id.slice(1)) % 3 !== 1), ["d0", "d2", "d3", "d5", "d6", "d8", "d9", "d11"], "connected, in their order")
+  assert.deepEqual(ids.slice(-4), ["d1", "d4", "d7", "d10"], "then away ones, in their order")
+})
+
+test("pairing actions show their result in place: no toast unless they fail", () => {
+  assert.ok(["pair", "accept", "reject"].every(k => M.shownInPlace(k)))
+  assert.ok(!M.shownInPlace("ring") && !M.shownInPlace("unpair"))
+})
+
+test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
+  assert.equal(M.pairSecondsLeft(0, 0), 30)
+  assert.equal(M.pairSecondsLeft(0, 7400), 23)
+  assert.equal(M.pairSecondsLeft(0, 45000), 0, "never below 0")
+  assert.equal(M.pairSecondsLeft(5000, 4000), 30, "a clock read before the start: never above 30")
 })

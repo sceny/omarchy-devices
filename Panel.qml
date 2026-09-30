@@ -274,6 +274,89 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("addDevice")
   }
+  // A pairing on Add a device that completes: its card says so in place
+  // (✓ Paired with …) for a moment, then the panel goes to the device's
+  // page. No toast: the card and the page say it. Adding another is the
+  // gear → Add a device again.
+  property var pairingIds: ({})       // id -> "request" | "available": cards shown here
+  property var justPaired: null       // { id, title, glyph, kind }
+  // A pairing asked here: when it started (the card counts down KDE
+  // Connect's 30 s), and what became of one that was not accepted in time
+  // (said on its row, in place). A cancel the user pressed says nothing.
+  property var pairingSince: ({})     // id -> ms
+  property var pairingNotes: ({})     // id -> "Not accepted in time"
+  property var pairingCancelled: ({}) // id -> true
+  property real pairClock: Date.now()
+  Timer {
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice" && Object.keys(root.pairingSince).length > 0
+    interval: 1000
+    repeat: true
+    onTriggered: root.pairClock = Date.now()
+  }
+  function cancelPairing(id) {
+    var c = Object.assign({}, pairingCancelled)
+    c[String(id)] = true
+    pairingCancelled = c
+    if (phone) phone.rejectPairing(id)
+  }
+  function pairWithHere(id) {
+    var n = Object.assign({}, pairingNotes)
+    delete n[String(id)]
+    pairingNotes = n
+    if (phone) phone.pairWith(id)
+  }
+  function isPaired(id) {
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === String(id)) return true
+    return false
+  }
+  onSettingsRowsChanged: {
+    if (settingsScope !== "addDevice") return
+    var next = Object.assign({}, pairingIds), since = Object.assign({}, pairingSince), notes = Object.assign({}, pairingNotes)
+    var cancelled = Object.assign({}, pairingCancelled), changed = false
+    var waiting = {}
+    settingsRows.forEach(function(r) {
+      if ((r.kind === "request" || r.kind === "available") && r.pairKey) {
+        waiting[r.id] = true
+        if (next[r.id] !== r.kind) { next[r.id] = r.kind; changed = true }
+        if (r.kind === "available" && !since[r.id]) { since[r.id] = Date.now(); changed = true }
+      }
+    })
+    // A pairing asked here that is no longer waiting and not paired: KDE
+    // Connect gave up on it (30 s), unless the user cancelled it.
+    Object.keys(since).forEach(function(id) {
+      if (waiting[id] || isPaired(id)) return
+      if (!cancelled[id]) notes[id] = "Not accepted in time"
+      delete since[id]
+      delete next[id]
+      delete cancelled[id]
+      changed = true
+    })
+    if (changed) { pairingIds = next; pairingSince = since; pairingNotes = notes; pairingCancelled = cancelled; pairClock = Date.now() }
+  }
+  onPairedDevicesChanged: {
+    if (!opened || !showSettings || settingsScope !== "addDevice") return
+    for (var i = 0; i < pairedDevices.length; i++) {
+      var d = pairedDevices[i], kind = pairingIds[String(d.id)]
+      if (!kind) continue
+      var next = Object.assign({}, pairingIds)
+      delete next[String(d.id)]
+      pairingIds = next
+      justPaired = { id: String(d.id), title: Model.deviceLabel(d), glyph: Model.deviceGlyph(d), kind: kind }
+      pairedMove.restart()
+      return
+    }
+  }
+  Timer {
+    id: pairedMove
+    interval: 1200
+    onTriggered: {
+      var p = root.justPaired
+      root.justPaired = null
+      if (!p || !root.opened || !root.showSettings || root.settingsScope !== "addDevice") return
+      if (root.phone) root.phone.view(p.id)
+      root.closeSettings()
+    }
+  }
   // While Add a device shows, it looks for new devices.
   Timer {
     running: root.opened && root.showSettings && root.settingsScope === "addDevice"
@@ -818,7 +901,7 @@ Panel {
     else if (row.kind === "device") openScope(row.id)
     else if (row.kind === "defaults") openScope("defaults")
     else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
-    else if (row.kind === "available" && phone && !row.waiting) phone.pairWith(row.id)
+    else if (row.kind === "available" && phone && !row.waiting) pairWithHere(row.id)
     else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
     else if (row.kind === "icon") iconPicking = !iconPicking
     else if (row.kind === "barPlace") cycleBarPlace()
@@ -1702,14 +1785,16 @@ Panel {
               // Clicks on the card stay on the card.
               MouseArea { anchors.fill: parent }
 
+              // The same pattern as the pop-up (PairingPopup): the device and
+              // what it asks; then the key and the answer on one row.
               RowLayout {
                 id: pairRow
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(12)
-                anchors.rightMargin: Style.space(10)
-                spacing: Style.space(10)
+                anchors.leftMargin: Style.space(14)
+                anchors.rightMargin: Style.space(12)
+                spacing: Style.space(14)
 
                 Text {
                   textFormat: Text.PlainText
@@ -1717,59 +1802,54 @@ Panel {
                   color: Color.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.display
-                  Layout.alignment: Qt.AlignVCenter
+                  Layout.alignment: Qt.AlignTop
+                  Layout.topMargin: Style.space(2)
                 }
-                Column {
+                ColumnLayout {
                   Layout.fillWidth: true
-                  Layout.alignment: Qt.AlignVCenter
-                  spacing: Style.space(2)
+                  spacing: Style.space(8)
                   Text {
-                    width: parent.width
+                    Layout.fillWidth: true
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
-                    text: "WANTS TO PAIR"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+                    text: (pairCard.shown ? Model.deviceLabel(pairCard.shown) : "") + " wants to pair"
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
                   }
-                  Text {
-                    width: parent.width
-                    visible: text !== ""
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    // Compare it with the one the device shows.
-                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
+                  RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(8)
+                    PairingKey {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignBottom
+                      key: pairCard.shown ? String(pairCard.shown.verificationKey || "") : ""
+                      caption: "check it matches"
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+                    Item { Layout.fillWidth: true; visible: !pairCard.shown || !pairCard.shown.verificationKey }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: pairCard.waiting ? "Waiting…" : "Accept"
+                      bordered: true
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+                    }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: "Reject"
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+                    }
                   }
-                }
-                Button {
-                  text: "Accept"
-                  bordered: true
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
-                }
-                Button {
-                  text: "Reject"
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
                 }
               }
             }
@@ -2931,7 +3011,10 @@ Panel {
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
                 phone: root.phone
                 panelBackground: root.bar ? root.bar.background : Color.background
-                onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
+                onRejectRequested: function(id) { root.cancelPairing(id) }
+                pairingNotes: root.pairingNotes
+                pairingSince: root.pairingSince
+                pairClock: root.pairClock
                 onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
                 onNicknameSet: function(text) {
                   var t = String(text || "").replace(/\s+/g, " ").trim()
@@ -2949,6 +3032,7 @@ Panel {
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
                 network: root.phone ? root.phone.setupNetwork : ""
+                justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 foreground: root.foreground
@@ -2959,6 +3043,7 @@ Panel {
                 onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
+
             }
           }
         }

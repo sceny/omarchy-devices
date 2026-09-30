@@ -80,7 +80,23 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - IPC: `page connection|addDevice`, `demoAway`, `reconnect`, `ignoreCheck`;
   `demoSetup` stays until `live`.
 
+- Pairing (#92): a device asking to pair brings a card under the bar at
+  once (its key, *Accept*, *Reject*), and the first chip glows on the ring
+  beat while it waits; the card never takes the keyboard, and it waits
+  while the panel is open (the panel shows the request itself). A pairing
+  started from the panel shows no pop-up: it is a card on Add a device,
+  with the key and a countdown of KDE Connect's 30 seconds; not accepted
+  in time, its row says so; accepted, the card turns *✓ Paired* and the
+  panel goes to the device. The key reads the same everywhere: large, one
+  word, as KDE Connect shows it. Pairing actions no longer toast when they
+  work.
+
 ### Fixed
+- A device joining could swap two others in the order (the first device:
+  the one always in the bar, opened first).
+- Settings pages without buttons ended in an empty band (Add a device,
+  Connection).
+- An error from the messages reader could stay on screen for good.
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now
   starts past the glyph's ink.

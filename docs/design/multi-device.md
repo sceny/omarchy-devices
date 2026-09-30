@@ -284,7 +284,7 @@ with a dot opens Connection directly.
   ✓ Firewall           Open to 192.168.1.0/24
   ✓ Network            Wi-Fi · 192.168.1.0/24
  PAIRING REQUESTS
-  󰄜 Pixel 8            4E5A 3506                  [Accept] [Reject]
+  󰄜 Pixel 8            4E5A3506                  [Accept] [Reject]
  ADD A DEVICE
   1  Install KDE Connect on it        Google Play ↗  F-Droid ↗  [QR]
   2  Join this Wi-Fi (192.168.1.0/24)
