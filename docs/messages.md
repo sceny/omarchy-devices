@@ -27,3 +27,18 @@ Middle-click the pill, or pick *Messages* in the panel.
 
 In the reply field, Enter sends and Esc steps back. Nothing but your own
 click or Enter puts the cursor there.
+
+## Text someone from a key
+
+Bind a key (in `~/.config/hypr/bindings.lua`) to open a new message with
+your contacts listed; pick one with the arrows and Enter, or type a name:
+
+```lua
+o.bind("SUPER + SHIFT + T", "Text someone", "qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices textSomeone")
+```
+
+Or add it to the Omarchy menu (`~/.config/omarchy/extensions/omarchy-menu.jsonc`):
+
+```jsonc
+"text-someone": {"icon":"󰍩","label":"Text someone","action":"qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices textSomeone"},
+```

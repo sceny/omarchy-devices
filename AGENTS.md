@@ -65,7 +65,11 @@ Keep them; change one only with the owner.
 - **Nothing scripted focuses a text field.** IPC `openThread`, `newMessage`
   and the like never focus the composer: keystrokes meant for another window
   would land in a text, and Enter would send it. Only the user's own click or
-  Enter on a thread does.
+  Enter on a thread does. A key binding fires while another window has the
+  keyboard, so it is not the user's own action in the panel: `textSomeone`
+  shows the contact picker with nothing focused, and the user's own key in
+  the panel then may (a letter starts the name in To, Enter picks and moves
+  to the composer). Demo mode never lists the phone's synced contacts.
 - **No real personal data in the repository.** No phone numbers, device ids,
   message text or contact names in code, comments, docs, tests or commit
   messages. Examples use 555 numbers; screenshots (`preview.png`, `docs/`)

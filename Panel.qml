@@ -914,6 +914,24 @@ Panel {
     else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
   }
 
+  // Text someone: messages on a new message, on a device that has texts
+  // (the viewed one, else the first in the order that has).
+  function textSomeone() {
+    if (!phone) return "no service"
+    var target = null
+    if (device && can.sms === true) target = device
+    else {
+      var list = phone.ordered || []
+      for (var i = 0; i < list.length; i++) if (list[i].can && list[i].can.sms === true) { target = list[i]; break }
+    }
+    if (!target) { phone.report("No device here has text messages", false); return "no device with texts" }
+    if (opened && device && String(device.id) !== String(target.id)) close()
+    if (!opened) { phone.requestView(String(target.id)); openFromHotkey() }
+    openMessagesView(-1, false, true)
+    Qt.callLater(function() { if (messagesView && messagesOpen) messagesView.startNew(false) })
+    return "ok"
+  }
+
   // `fresh`: not back to the conversation left open (the caller picks one).
   function openMessagesView(threadId, typeHere, fresh) {
     // A tablet without a SIM (or a computer) has no text messages.
@@ -1466,6 +1484,11 @@ Panel {
       root.openReply(n)
       return "ok"
     }
+    // Text someone (#66): for a key binding or the Omarchy menu. Messages on a
+    // new message, the contact picker showing, nothing focused (a key fires
+    // while another window has the keyboard, so it is not the user's own
+    // action in the panel): the arrows and Enter, or typing, pick someone.
+    function textSomeone(): string { return root.textSomeone() }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
@@ -1587,6 +1610,8 @@ Panel {
       onTextKey: function(t) {
         if (root.messagesOpen) {
           if (!messagesView) return
+          // A new message: typing names who to send to.
+          if (messagesView.newMode && t.length === 1 && t.trim() !== "") { messagesView.typeIntoTo(t); return }
           if (t === "i") messagesView.focusComposer()
           else if (t === "n") messagesView.startNew(true)
           else if (t === "/") messagesView.focusSearch()

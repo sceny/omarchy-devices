@@ -90,7 +90,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
                                     # edits write settings: run them in a demo, which `live` puts back
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
-"${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
+"${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits> ; "${IPC[@]}" textSomeone
 "${IPC[@]}" fold actions ; "${IPC[@]}" moveSection media -1    # fold a section; move one in the order
 "${IPC[@]}" toggleBar <key> ; "${IPC[@]}" moveBar <key> -1      # bar indicators; toggleBar batteryLowOnly
 "${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
