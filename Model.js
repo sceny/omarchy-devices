@@ -344,6 +344,12 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// Actions whose result shows where they were clicked, with no toast: a
+// pairing card appears (Pair), becomes the device (Accept), goes (Reject,
+// Cancel). A failure still says so.
+var SHOWN_IN_PLACE = ["pair", "accept", "reject"]
+function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
+
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
   if (kind === "note") return { ms: 4000, fail: "" }

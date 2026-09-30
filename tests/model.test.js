@@ -711,3 +711,8 @@ test("with no saved order, connected devices keep KDE Connect's order, whatever 
   assert.deepEqual(ids.filter(id => Number(id.slice(1)) % 3 !== 1), ["d0", "d2", "d3", "d5", "d6", "d8", "d9", "d11"], "connected, in their order")
   assert.deepEqual(ids.slice(-4), ["d1", "d4", "d7", "d10"], "then away ones, in their order")
 })
+
+test("pairing actions show their result in place: no toast unless they fail", () => {
+  assert.ok(["pair", "accept", "reject"].every(k => M.shownInPlace(k)))
+  assert.ok(!M.shownInPlace("ring") && !M.shownInPlace("unpair"))
+})

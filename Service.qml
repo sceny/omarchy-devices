@@ -407,13 +407,13 @@ Item {
         : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
       if (done) {
         changed = true
-        if (w.said) report(w.said, false)
+        if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
         continue
       }
       if (now > w.until) {
         changed = true
         if (w.fail !== "") report(w.fail, true)
-        else if (w.said) report(w.said, false)
+        else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
         continue
       }
       next[key] = w
@@ -471,7 +471,7 @@ Item {
           root.snapshot = copy
         }
         root.setBusy(key, false)
-        root.report("Demo mode: nothing was sent to the device", false)
+        if (!Model.shownInPlace(verb)) root.report("Demo mode: nothing was sent to the device", false)
         demoClick.destroy()
       }
     }
