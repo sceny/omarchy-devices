@@ -344,6 +344,15 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// KDE Connect cancels a pairing the other side has not accepted in this
+// long, on both sides (its pairing handler's timeout).
+var PAIR_TIMEOUT_S = 30
+
+// Seconds left for a pairing asked at `sinceMs`, never below 0.
+function pairSecondsLeft(sinceMs, nowMs) {
+  return Math.max(0, Math.min(PAIR_TIMEOUT_S, PAIR_TIMEOUT_S - Math.floor((nowMs - sinceMs) / 1000)))
+}
+
 // Actions whose result shows where they were clicked, with no toast: a
 // pairing card appears (Pair), becomes the device (Accept), goes (Reject,
 // Cancel). A failure still says so.

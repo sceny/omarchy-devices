@@ -280,13 +280,58 @@ Panel {
   // gear → Add a device again.
   property var pairingIds: ({})       // id -> "request" | "available": cards shown here
   property var justPaired: null       // { id, title, glyph, kind }
+  // A pairing asked here: when it started (the card counts down KDE
+  // Connect's 30 s), and what became of one that was not accepted in time
+  // (said on its row, in place). A cancel the user pressed says nothing.
+  property var pairingSince: ({})     // id -> ms
+  property var pairingNotes: ({})     // id -> "Not accepted in time"
+  property var pairingCancelled: ({}) // id -> true
+  property real pairClock: Date.now()
+  Timer {
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice" && Object.keys(root.pairingSince).length > 0
+    interval: 1000
+    repeat: true
+    onTriggered: root.pairClock = Date.now()
+  }
+  function cancelPairing(id) {
+    var c = Object.assign({}, pairingCancelled)
+    c[String(id)] = true
+    pairingCancelled = c
+    if (phone) phone.rejectPairing(id)
+  }
+  function pairWithHere(id) {
+    var n = Object.assign({}, pairingNotes)
+    delete n[String(id)]
+    pairingNotes = n
+    if (phone) phone.pairWith(id)
+  }
+  function isPaired(id) {
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === String(id)) return true
+    return false
+  }
   onSettingsRowsChanged: {
     if (settingsScope !== "addDevice") return
-    var next = Object.assign({}, pairingIds), changed = false
+    var next = Object.assign({}, pairingIds), since = Object.assign({}, pairingSince), notes = Object.assign({}, pairingNotes)
+    var cancelled = Object.assign({}, pairingCancelled), changed = false
+    var waiting = {}
     settingsRows.forEach(function(r) {
-      if ((r.kind === "request" || r.kind === "available") && r.pairKey && next[r.id] !== r.kind) { next[r.id] = r.kind; changed = true }
+      if ((r.kind === "request" || r.kind === "available") && r.pairKey) {
+        waiting[r.id] = true
+        if (next[r.id] !== r.kind) { next[r.id] = r.kind; changed = true }
+        if (r.kind === "available" && !since[r.id]) { since[r.id] = Date.now(); changed = true }
+      }
     })
-    if (changed) pairingIds = next
+    // A pairing asked here that is no longer waiting and not paired: KDE
+    // Connect gave up on it (30 s), unless the user cancelled it.
+    Object.keys(since).forEach(function(id) {
+      if (waiting[id] || isPaired(id)) return
+      if (!cancelled[id]) notes[id] = "Not accepted in time"
+      delete since[id]
+      delete next[id]
+      delete cancelled[id]
+      changed = true
+    })
+    if (changed) { pairingIds = next; pairingSince = since; pairingNotes = notes; pairingCancelled = cancelled; pairClock = Date.now() }
   }
   onPairedDevicesChanged: {
     if (!opened || !showSettings || settingsScope !== "addDevice") return
@@ -856,7 +901,7 @@ Panel {
     else if (row.kind === "device") openScope(row.id)
     else if (row.kind === "defaults") openScope("defaults")
     else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
-    else if (row.kind === "available" && phone && !row.waiting) phone.pairWith(row.id)
+    else if (row.kind === "available" && phone && !row.waiting) pairWithHere(row.id)
     else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
     else if (row.kind === "icon") iconPicking = !iconPicking
     else if (row.kind === "barPlace") cycleBarPlace()
@@ -2966,7 +3011,10 @@ Panel {
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
                 phone: root.phone
                 panelBackground: root.bar ? root.bar.background : Color.background
-                onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
+                onRejectRequested: function(id) { root.cancelPairing(id) }
+                pairingNotes: root.pairingNotes
+                pairingSince: root.pairingSince
+                pairClock: root.pairClock
                 onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
                 onNicknameSet: function(text) {
                   var t = String(text || "").replace(/\s+/g, " ").trim()

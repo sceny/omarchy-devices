@@ -716,3 +716,10 @@ test("pairing actions show their result in place: no toast unless they fail", ()
   assert.ok(["pair", "accept", "reject"].every(k => M.shownInPlace(k)))
   assert.ok(!M.shownInPlace("ring") && !M.shownInPlace("unpair"))
 })
+
+test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
+  assert.equal(M.pairSecondsLeft(0, 0), 30)
+  assert.equal(M.pairSecondsLeft(0, 7400), 23)
+  assert.equal(M.pairSecondsLeft(0, 45000), 0, "never below 0")
+  assert.equal(M.pairSecondsLeft(5000, 4000), 30, "a clock read before the start: never above 30")
+})

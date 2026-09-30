@@ -21,6 +21,11 @@ Column {
   property string network: ""
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
+  // Pairings asked here: when each started (the card's countdown), and a
+  // note for one that was not accepted in time (on its row).
+  property var pairingNotes: ({})
+  property var pairingSince: ({})
+  property real pairClock: 0
   // Folding, like the main page's sections, and remembered the same way.
   property var collapsed: ({})
   property var flags: ({})
@@ -648,8 +653,9 @@ Column {
           textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: text !== ""
-          text: listRow.row.status || listRow.row.hint || ""
-          color: root.dim
+          readonly property string note: root.pairingNotes[listRow.row.id] || ""
+          text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
+          color: note !== "" ? Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -796,15 +802,28 @@ Column {
         ColumnLayout {
           Layout.fillWidth: true
           spacing: Style.space(8)
-          Text {
+          RowLayout {
             Layout.fillWidth: true
-            textFormat: Text.PlainText
-            text: pcard.incoming ? (pcard.row.title || "A device") + " wants to pair" : "Pairing with " + (pcard.row.title || "a device")
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            font.bold: true
-            elide: Text.ElideRight
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              text: pcard.incoming ? (pcard.row.title || "A device") + " wants to pair" : "Pairing with " + (pcard.row.title || "a device")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              elide: Text.ElideRight
+            }
+            // KDE Connect gives up after 30 s: how long is left.
+            Text {
+              readonly property real since: root.pairingSince[pcard.row.id] || 0
+              visible: !pcard.incoming && since > 0
+              textFormat: Text.PlainText
+              text: Model.pairSecondsLeft(since, root.pairClock) + " s"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
           }
           RowLayout {
             Layout.fillWidth: true
