@@ -49,6 +49,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
+| `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -205,6 +206,15 @@ Keep them; change one only with the owner.
   page), and opening the panel on it searches once a minute at most.
   Last seen comes from the bridge's cache (`last-seen.json`); causes are
   worded as likely, and Samsung advice shows for Samsung devices only.
+- **Pairing comes forward, never over the keyboard.** A device asking to
+  pair brings `PairingPopup` under the bar (a layer surface with no
+  keyboard focus, input only on its card) and glows the first chip;
+  the panel never opens by itself, since it takes the keyboard. The
+  pop-up is for a device asking only: a pairing started from the panel
+  stays on its Add a device card (key, countdown of KDE Connect's 30 s,
+  `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
+  as KDE Connect shows it (one word). Pairing actions show their result
+  in place (`Model.shownInPlace`): no toast unless they fail.
 - **Fixes change the system only on a click.** `fix install` and `fix firewall`
   go through `pkexec` (one password prompt); the firewall rule is limited to
   the local network the default route is on, never opened to everyone.
