@@ -454,7 +454,7 @@ Item {
         if (verb === "pair" && root.demo && root.snapshot) {
           var pid = key.split(":")[1]
           var pcopy = JSON.parse(JSON.stringify(root.snapshot))
-          ;(pcopy.devices || []).forEach(function(d) { if (d.id === pid) { d.pairRequested = true; d.verificationKey = "7C19 2B4D" } })
+          ;(pcopy.devices || []).forEach(function(d) { if (d.id === pid) { d.pairRequested = true; d.verificationKey = "7C192B4D" } })
           root.snapshot = pcopy
         }
         // A demo pairing request answered: accepted, the device is paired;
