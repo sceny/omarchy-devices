@@ -345,6 +345,14 @@ class Photos(unittest.TestCase):
             found = bridge.newest_photos(folders, 2)
             self.assertEqual([p["name"] for p in found], ["c.JPG", "b.png"], "newest first, images only")
             self.assertEqual(found[1]["kind"], "screenshot")
+            links = bridge.photo_folder_names(folders)
+            self.assertEqual([(l["name"], os.path.relpath(l["path"], root)) for l in links],
+                             [("Camera", "DCIM/Camera"), ("Screenshots", "Pictures/Screenshots")],
+                             "one link per folder the strip reads, wherever the phone keeps it")
+
+    def test_screenshots_in_dcim_are_linked_there(self):
+        links = bridge.photo_folder_names(["/m/DCIM/Screenshots", "/m/DCIM/Camera"])
+        self.assertEqual(links, [{"name": "Camera", "path": "/m/DCIM/Camera"}, {"name": "Screenshots", "path": "/m/DCIM/Screenshots"}])
 
     def test_a_root_that_is_itself_the_camera_folder(self):
         with tempfile.TemporaryDirectory() as root:

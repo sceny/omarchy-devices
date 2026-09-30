@@ -87,9 +87,10 @@ Panel {
   property int filesIndex: 0
   readonly property int photoColumns: 4
   readonly property int filesCount: photos.length + received.length
-  function openAllPhotos() {
+  // A folder the strip reads (Camera, Screenshots), in the file manager.
+  function openPhotoFolder(path) {
     if (phone && phone.demo) { phone.report("Demo: made-up photos", false); return }
-    if (photoInfo && photoInfo.folder) Qt.openUrlExternally("file://" + encodeURI(photoInfo.folder))
+    if (path) Qt.openUrlExternally("file://" + encodeURI(path))
   }
   function openPhoto(photo) {
     if (!photo) return
@@ -3090,22 +3091,29 @@ Panel {
                       }
                     }
 
-                    // Everything on the device: its camera folder in the file
-                    // manager (the storage KDE Connect mounted for Files).
-                    // Only from a fresh look: the cached list may predate
-                    // the mount.
+                    // Every photo: one link per folder the strip reads
+                    // (Camera, Screenshots), wherever this phone keeps it,
+                    // opened in the file manager (the storage KDE Connect
+                    // mounted). Only from a fresh look: the cached list may
+                    // predate the mount.
                     RowLayout {
                       width: parent.width
-                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.folder && !root.photoInfo.cached
+                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.folders
+                        && root.photoInfo.folders.length > 0 && !root.photoInfo.cached
+                      spacing: Style.space(4)
                       Item { Layout.fillWidth: true }
-                      Button {
-                        text: "Camera folder"
-                        iconText: Model.GLYPH.chevronRight
-                        tooltipText: "Opens its camera folder, every photo, in your file manager"
-                        foreground: root.foreground
-                        fontFamily: root.fontFamily
-                        fontSize: Style.font.bodySmall
-                        onClicked: root.openAllPhotos()
+                      Repeater {
+                        model: root.photoInfo && root.photoInfo.folders ? root.photoInfo.folders : []
+                        Button {
+                          required property var modelData
+                          text: modelData.name
+                          iconText: Model.GLYPH.chevronRight
+                          tooltipText: "Opens its " + modelData.name.toLowerCase() + " folder, every one, in your file manager"
+                          foreground: root.foreground
+                          fontFamily: root.fontFamily
+                          fontSize: Style.font.bodySmall
+                          onClicked: root.openPhotoFolder(modelData.path)
+                        }
                       }
                     }
 

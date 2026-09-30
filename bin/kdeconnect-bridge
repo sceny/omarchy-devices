@@ -483,8 +483,9 @@ def photos(device_id, count=PHOTO_COUNT):
         return {"ok": False, "error": error.message}
     folders = photo_folders(roots)
     found = newest_photos(folders, count)
-    # Where all of them are, for "All photos" (the file manager): the camera.
-    camera = next((f for f in folders if "Camera" in f), folders[0] if folders else "")
+    # The folders the strip reads, each by name, for the links that open them
+    # in the file manager: wherever this phone keeps them.
+    named = photo_folder_names(folders)
     cache = photos_cache(device_id)
     keep = {PHOTO_LIST}
     for p in found:
@@ -499,7 +500,17 @@ def photos(device_id, count=PHOTO_COUNT):
             except OSError:
                 pass
     save_received(os.path.join(cache, PHOTO_LIST), found)
-    return {"ok": True, "photos": found, "folder": camera}
+    return {"ok": True, "photos": found, "folders": named}
+
+
+def photo_folder_names(folders):
+    """The folders as links: [{name: "Camera" | "Screenshots", path}], one
+    per name (the first found), Camera first."""
+    out = {}
+    for f in folders:
+        name = "Screenshots" if "Screenshot" in f else "Camera"
+        out.setdefault(name, f)
+    return [{"name": n, "path": out[n]} for n in ("Camera", "Screenshots") if n in out]
 
 
 # The last list read from the device, with its thumbnails: the panel shows it

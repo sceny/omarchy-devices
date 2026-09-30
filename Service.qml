@@ -703,7 +703,8 @@ Item {
   // them. Per device: { loading, ok, missing, error, photos, at }.
   property var photoState: ({})
   readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
-  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture), folder: "/demo/DCIM/Camera" }
+  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
+      folders: [{ name: "Camera", path: "/demo/DCIM/Camera" }, { name: "Screenshots", path: "/demo/Pictures/Screenshots" }] }
     : (device ? photoState[String(device.id)] || null : null)
   readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
   function setPhotoState(id, value) {
