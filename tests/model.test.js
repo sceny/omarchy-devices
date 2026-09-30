@@ -670,13 +670,18 @@ test("connection: this computer's checks, ignored ones, requests and devices to 
   ]
   const devices = [{ kind: "device", id: "p1" }, { kind: "available", id: "a" }, { kind: "request", id: "n" }]
   const rows = M.connectionRows(checks, [])
-  assert.deepEqual(rows.map(r => r.kind + ":" + r.key), ["check:installed", "check:running", "check:firewall", "check:network"], "this computer only")
+  assert.deepEqual(rows.map(r => r.kind + ":" + r.key), ["check:kdeconnect", "check:firewall", "check:network"], "this computer only, one row per thing")
+  assert.deepEqual([rows[0].label, rows[0].status, rows[0].ok], ["KDE Connect", "Running", true])
+  const stopped = M.connectionRows([{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: false, status: "Stopped", fix: "start", fixLabel: "Start" }], [])
+  assert.deepEqual([stopped[0].label, stopped[0].status, stopped[0].fix], ["KDE Connect", "Stopped", "start"], "stopped: the one row says so, with Start")
+  const missing = M.connectionRows([{ key: "installed", ok: false, status: "Not installed", fix: "install", fixLabel: "Install" }, { key: "running", ok: false, status: "Stopped" }], [])
+  assert.deepEqual([missing[0].status, missing[0].fix, M.connectionIssues([{ key: "installed", ok: false }, { key: "running", ok: false }], [])], ["Not installed", "install", 1], "not installed: one issue, not two")
   assert.deepEqual(M.addDeviceRows(devices).map(r => r.kind + ":" + r.id), ["request:n", "available:a"], "adding: requests first, then devices in reach")
-  assert.equal(rows[2].fix, "firewall")
+  assert.equal(rows[1].fix, "firewall")
   assert.equal(M.connectionIssues(checks, []), 1)
   assert.equal(M.connectionSummary(checks, []), "1 to fix")
   assert.equal(M.connectionIssues(checks, ["firewall"]), 0, "ignored: no dot")
-  assert.ok(M.connectionRows(checks, ["firewall"])[2].ignored)
+  assert.ok(M.connectionRows(checks, ["firewall"])[1].ignored)
   assert.equal(M.connectionSummary([], []), "Checking…")
 })
 

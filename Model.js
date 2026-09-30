@@ -1005,10 +1005,25 @@ function shortcutsSummary(order) {
 // its paired and connected checks are the devices' own pages' business.
 var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
 // Short names: the status beside each says the rest ("Running", "Closed").
-var CHECK_NAMES = { installed: "KDE Connect", running: "Service", firewall: "Firewall", network: "Network" }
+// One row per thing on this computer, named after it: a service's checks
+// (KDE Connect: installed, running) become one row that says which state it
+// is in, so other services (Bluetooth, scrcpy) can each have theirs.
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
 
 function computerChecks(checks) {
-  return (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
+  var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
+  var installed = null, running = null, rest = []
+  list.forEach(function(c) {
+    if (c.key === "installed") installed = c
+    else if (c.key === "running") running = c
+    else rest.push(c)
+  })
+  if (!installed && !running) return rest
+  // Not installed says so first; installed and stopped says Stopped.
+  var failing = installed && !installed.ok ? installed : (running && !running.ok ? running : null)
+  var kde = failing ? Object.assign({}, failing, { key: "kdeconnect" })
+    : { key: "kdeconnect", ok: true, label: "KDE Connect", status: running ? running.status || "Running" : installed.status, detail: "", fix: "", fixLabel: "" }
+  return [kde].concat(rest)
 }
 
 // Failing checks on this computer the user has not ignored: the gear's dot.
