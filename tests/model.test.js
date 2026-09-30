@@ -271,9 +271,6 @@ test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications, Files")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
-  assert.equal(M.setupSummary([]), "Checking…")
-  assert.equal(M.setupSummary([{ ok: true }, { ok: true }]), "All good")
-  assert.equal(M.setupSummary([{ ok: false }, { ok: true }, { ok: false }]), "2 things to fix")
 })
 
 test("demo messages are made up: fictional names, 555 numbers, one open conversation", () => {
@@ -493,12 +490,15 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset"].some(k => kinds.includes(k)), "sections, shortcuts and the bar are edited on the page")
   assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
   assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
-  const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A 3506" }), device({ id: "a", name: "Near", paired: false }))
+  const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A3506" }), device({ id: "a", name: "Near", paired: false }))
   const list = M.devicesListRows(two, s, 15)
   assert.deepEqual(list.map(r => [r.kind, r.id]), [["device", "p1"], ["device", "t1"], ["request", "n"], ["available", "a"]])
-  assert.match(list[2].status, /Wants to pair · key 4E5A 3506/)
+  assert.equal(list[2].status, "Wants to pair")
+  assert.equal(list[2].pairKey, "4E5A3506", "the key is drawn apart (PairingKey)")
+  assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
+    .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "kdeconnect"])
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "connection", "addDevice", "kdeconnect"])
 })
 
 test("settings rows: a device's page has identity, its groups, a reset per changed group, and Unpair", () => {
@@ -678,4 +678,65 @@ test("files: a section of its own, joining saved orders at the end; sizes, image
   assert.equal(photos.length, 4)
   assert.ok(photos.every(p => p.demo && p.clip.length === 4))
   assert.ok(M.demoReceived(0).every(r => r.path.startsWith("/demo/")), "made up: nothing real")
+})
+
+test("connection: this computer's checks, ignored ones, requests and devices to pair; the gear's count", () => {
+  const checks = [
+    { key: "installed", ok: true, label: "KDE Connect installed", status: "Installed" },
+    { key: "running", ok: true, label: "KDE Connect running", status: "Running" },
+    { key: "firewall", ok: false, label: "Firewall lets devices in", status: "Closed", detail: "Ports closed", fix: "firewall", fixLabel: "Allow" },
+    { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24" },
+    { key: "paired", ok: true, label: "A device is paired" }
+  ]
+  const devices = [{ kind: "device", id: "p1" }, { kind: "available", id: "a" }, { kind: "request", id: "n" }]
+  const rows = M.connectionRows(checks, [])
+  assert.deepEqual(rows.map(r => r.kind + ":" + r.key), ["check:kdeconnect", "check:firewall", "check:network"], "this computer only, one row per thing")
+  assert.deepEqual([rows[0].label, rows[0].status, rows[0].ok], ["KDE Connect", "Running", true])
+  const stopped = M.connectionRows([{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: false, status: "Stopped", fix: "start", fixLabel: "Start" }], [])
+  assert.deepEqual([stopped[0].label, stopped[0].status, stopped[0].fix], ["KDE Connect", "Stopped", "start"], "stopped: the one row says so, with Start")
+  const missing = M.connectionRows([{ key: "installed", ok: false, status: "Not installed", fix: "install", fixLabel: "Install" }, { key: "running", ok: false, status: "Stopped" }], [])
+  assert.deepEqual([missing[0].status, missing[0].fix, M.connectionIssues([{ key: "installed", ok: false }, { key: "running", ok: false }], [])], ["Not installed", "install", 1], "not installed: one issue, not two")
+  assert.deepEqual(M.addDeviceRows(devices).map(r => r.kind + ":" + r.id), ["request:n", "available:a"], "adding: requests first, then devices in reach")
+  assert.equal(rows[1].fix, "firewall")
+  assert.equal(M.connectionIssues(checks, []), 1)
+  assert.equal(M.connectionSummary(checks, []), "1 to fix")
+  assert.equal(M.connectionIssues(checks, ["firewall"]), 0, "ignored: no dot")
+  assert.ok(M.connectionRows(checks, ["firewall"])[1].ignored)
+  assert.equal(M.connectionSummary([], []), "Checking…")
+})
+
+test("reconnect: where it was last seen, another network, and what to try after a search", () => {
+  const now = 10 * 3600 * 1000
+  const away = device({ reachable: false, name: "Galaxy S23", lastSeen: { link: "LAN", address: "192.168.1.20", at: now - 12 * 60000 } })
+  assert.deepEqual(M.awayState(away, "192.168.1.0/24", 0, now), { lines: ["Last seen on Wi-Fi at 192.168.1.20, 12 min ago"], searching: false })
+  assert.match(M.awayState(away, "10.0.0.0/24", 0, now).lines[1], /Likely on another network/)
+  assert.equal(M.awayState(away, "192.168.1.0/24", now - 1000, now).searching, true, "looking for SEARCH_MS")
+  const after = M.awayState(away, "192.168.1.0/24", now - M.SEARCH_MS, now)
+  assert.match(after.lines[1], /^Not found\. On Galaxy S23: open KDE Connect, and join the same Wi-Fi; set the app's battery use to Unrestricted$/)
+  assert.doesNotMatch(M.awayState(device({ reachable: false, name: "Pixel 8" }), "", 1, now).lines[1], /Unrestricted/, "Samsung advice only for Samsung")
+  assert.equal(M.awayState(device({ reachable: false }), "", 0, now).lines[0], "Not seen by this computer yet")
+  assert.equal(M.inNetwork("192.168.1.20", "192.168.1.0/24"), true)
+  assert.equal(M.inNetwork("192.168.2.20", "192.168.1.0/24"), false)
+  assert.equal(M.inNetwork("", "192.168.1.0/24"), null)
+})
+
+test("with no saved order, connected devices keep KDE Connect's order, whatever joins", () => {
+  const dev = (id, reachable) => ({ id, name: id, paired: true, reachable })
+  const list = []
+  for (let i = 0; i < 12; i++) list.push(dev("d" + i, i % 3 !== 1))
+  const ids = M.orderedDevices({ devices: list }, M.readSettings({})).map(d => d.id)
+  assert.deepEqual(ids.filter(id => Number(id.slice(1)) % 3 !== 1), ["d0", "d2", "d3", "d5", "d6", "d8", "d9", "d11"], "connected, in their order")
+  assert.deepEqual(ids.slice(-4), ["d1", "d4", "d7", "d10"], "then away ones, in their order")
+})
+
+test("pairing actions show their result in place: no toast unless they fail", () => {
+  assert.ok(["pair", "accept", "reject"].every(k => M.shownInPlace(k)))
+  assert.ok(!M.shownInPlace("ring") && !M.shownInPlace("unpair"))
+})
+
+test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
+  assert.equal(M.pairSecondsLeft(0, 0), 30)
+  assert.equal(M.pairSecondsLeft(0, 7400), 23)
+  assert.equal(M.pairSecondsLeft(0, 45000), 0, "never below 0")
+  assert.equal(M.pairSecondsLeft(5000, 4000), 30, "a clock read before the start: never above 30")
 })

@@ -25,7 +25,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" view "Galaxy Tab S9"   # view a device (id, nickname or name); openOn opens on it; tabs
 "${IPC[@]}" settingsScope "Galaxy Tab S9"   # a device's settings page; also root, defaults
 "${IPC[@]}" live                   # back to the phone
-"${IPC[@]}" page settings          # also main, messages
+"${IPC[@]}" page settings          # also main, messages, connection
+"${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # Connection's checks; the phone away; Reconnect
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none

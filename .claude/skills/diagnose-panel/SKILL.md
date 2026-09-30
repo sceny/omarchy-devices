@@ -122,5 +122,8 @@ side are tracked apart.
 - A call's answer or end never reaches the panel, nor does a ringer mute:
   the telephony plugin signals only ringing and missed on D-Bus (#60, #61).
   A declined call arrives as missed.
+- After the computer unpairs a connected phone and it pairs again, the
+  phone may send no notifications until it restarts (#95). A pairing
+  started or ended on the phone does not do this.
 - RCS chats may be missing (only the SMS/MMS store is read).
 - No names without the contacts permission on the phone.

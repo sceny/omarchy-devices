@@ -32,6 +32,7 @@ var GLYPH = {
   checked: "\u{F0132}",      // checkbox-marked
   unchecked: "\u{F0131}",    // checkbox-blank-outline
   reset: "\u{F099B}",        // restore
+  refresh: "\u{F0450}",      // refresh: look again (Reconnect)
   group: "\u{F0849}",        // account-group
   newMessage: "\u{F0653}",   // message-plus
   picture: "\u{F0976}",      // image
@@ -347,6 +348,23 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// KDE Connect cancels a pairing the other side has not accepted in this
+// long, on both sides: a constant compiled into it, not a setting and not on
+// D-Bus (kdeconnect-kde core/backends/pairinghandler.h, pairingTimeoutMsec =
+// 30 * 1000, at 97d6289). Change it here if KDE Connect ever changes it.
+var PAIR_TIMEOUT_S = 30
+
+// Seconds left for a pairing asked at `sinceMs`, never below 0.
+function pairSecondsLeft(sinceMs, nowMs) {
+  return Math.max(0, Math.min(PAIR_TIMEOUT_S, PAIR_TIMEOUT_S - Math.floor((nowMs - sinceMs) / 1000)))
+}
+
+// Actions whose result shows where they were clicked, with no toast: a
+// pairing card appears (Pair), becomes the device (Accept), goes (Reject,
+// Cancel). A failure still says so.
+var SHOWN_IN_PLACE = ["pair", "accept", "reject"]
+function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
+
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
   if (kind === "note") return { ms: 4000, fail: "" }
@@ -781,7 +799,7 @@ function demoSnapshot(live, kind) {
         ] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: true, reachable: false, links: [], can: {}, notifications: [] })
     if (kind === "many-pair")
-      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return many
   }
   if (kind === "devices") {
@@ -789,7 +807,7 @@ function demoSnapshot(live, kind) {
     withOthers.devices.push(
       { id: "demo-tab", name: "Galaxy Tab", type: "tablet", paired: true, reachable: false, links: [], can: {}, notifications: [] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: false, reachable: true, links: ["LAN"], can: {}, notifications: [] },
-      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return withOthers
   }
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
@@ -802,6 +820,8 @@ function demoSnapshot(live, kind) {
   // A neutral name, so a screenshot of demo mode shows no real device.
   dev.name = "Pixel 8"
   dev.reachable = kind !== "away"
+  // Away: where it was, as the bridge's cache would say it.
+  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
   // "charging": the battery filling, for its glyph and % in the bar.
   if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
@@ -1000,12 +1020,119 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
-function setupSummary(checks) {
-  var list = checks || []
+// ---- Connection: this computer, pairing, adding a device ----
+
+// The doctor's checks that are about this computer (the Connection page);
+// its paired and connected checks are the devices' own pages' business.
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+// Short names: the status beside each says the rest ("Running", "Closed").
+// One row per thing on this computer, named after it: a service's checks
+// (KDE Connect: installed, running) become one row that says which state it
+// is in, so other services (Bluetooth, scrcpy) can each have theirs.
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
+
+function computerChecks(checks) {
+  var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
+  var installed = null, running = null, rest = []
+  list.forEach(function(c) {
+    if (c.key === "installed") installed = c
+    else if (c.key === "running") running = c
+    else rest.push(c)
+  })
+  if (!installed && !running) return rest
+  // Not installed says so first; installed and stopped says Stopped.
+  var failing = installed && !installed.ok ? installed : (running && !running.ok ? running : null)
+  var kde = failing ? Object.assign({}, failing, { key: "kdeconnect" })
+    : { key: "kdeconnect", ok: true, label: "KDE Connect", status: running ? running.status || "Running" : installed.status, detail: "", fix: "", fixLabel: "" }
+  return [kde].concat(rest)
+}
+
+// Failing checks on this computer the user has not ignored: the gear's dot.
+function connectionIssues(checks, ignored) {
+  var skip = ignored || []
+  return computerChecks(checks).filter(function(c) { return !c.ok && skip.indexOf(c.key) < 0 }).length
+}
+
+function connectionSummary(checks, ignored) {
+  var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
-  var bad = 0
-  for (var i = 0; i < list.length; i++) if (!list[i].ok) bad++
-  return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
+  var n = connectionIssues(checks, ignored)
+  return n === 0 ? "All good" : (n === 1 ? "1 to fix" : n + " to fix")
+}
+
+// The Connection page's rows, in one list for the keyboard: this computer's
+// checks (status icon, name, short status, one action; a failing one can be
+// ignored). It checks what exists; Add a device (addDeviceRows) makes a new
+// pairing.
+function connectionRows(checks, ignored) {
+  var skip = ignored || []
+  var rows = computerChecks(checks).map(function(c) {
+    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
+             status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
+             fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
+  })
+  return rows
+}
+
+// The Add a device page's rows: devices asking to pair, then devices in
+// reach to pair with (`devices`: devicesListRows).
+function addDeviceRows(devices) {
+  var rows = []
+  ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
+  ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
+  return rows
+}
+
+// ---- A paired device that is away: where it was, and what to try ----
+
+// Whether an IPv4 address is inside a network written "192.168.1.0/24";
+// null when either cannot be read.
+function inNetwork(address, network) {
+  var m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(String(network || ""))
+  var a = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(address || ""))
+  if (!m || !a) return null
+  function num(x) { return ((Number(x[1]) * 256 + Number(x[2])) * 256 + Number(x[3])) * 256 + Number(x[4]) }
+  var size = Math.pow(2, 32 - Number(m[5]))
+  return Math.floor(num(a) / size) === Math.floor(num(m) / size)
+}
+
+// "just now", "5 min ago", "2 h ago", "3 days ago".
+function agoText(ms, nowMs) {
+  var s = Math.max(0, Math.round((nowMs - ms) / 1000))
+  if (s < 60) return "just now"
+  if (s < 3600) return Math.round(s / 60) + " min ago"
+  if (s < 86400) return Math.round(s / 3600) + " h ago"
+  var d = Math.round(s / 86400)
+  return d === 1 ? "a day ago" : d + " days ago"
+}
+
+// How long Reconnect waits for the device before saying it was not found.
+var SEARCH_MS = 8000
+
+// Samsung's advice (battery use Unrestricted) is for Samsung devices only.
+function isSamsung(device) { return /galaxy|samsung|^sm-/i.test(String(device && device.name || "")) }
+
+// What an away device's page says, as short lines: where it was last seen
+// (device.lastSeen, from the bridge's cache), whether that was another
+// network, and after a search that found nothing, what to try on it.
+// Causes are likely, never certain. `searchedAt`: when Reconnect last
+// started, 0 for never.
+function awayState(device, network, searchedAt, nowMs) {
+  var seen = device && device.lastSeen
+  var lines = []
+  if (seen && seen.at) {
+    var how = seen.link === "Bluetooth" ? "Bluetooth" : (seen.link === "LAN" ? "Wi-Fi" : "the network")
+    lines.push("Last seen on " + how + (seen.address ? " at " + seen.address : "") + ", " + agoText(seen.at, nowMs))
+    if (inNetwork(seen.address, network) === false)
+      lines.push("Likely on another network: this computer is on " + network)
+  } else {
+    lines.push("Not seen by this computer yet")
+  }
+  var searching = searchedAt > 0 && nowMs - searchedAt < SEARCH_MS
+  if (searchedAt > 0 && !searching)
+    lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
+      + (isSamsung(device) ? "; set the app's battery use to Unrestricted" : ""))
+  return { lines: lines, searching: searching }
 }
 
 // ---- Demo messages: made-up conversations for screenshots and checks ----
@@ -1122,7 +1249,12 @@ function orderedDevices(snapshot, settings) {
   var out = []
   settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
   var rest = paired.filter(function(d) { return byId[d.id] })
-  rest.sort(function(a, b) { return (b.reachable === true) - (a.reachable === true) })
+  // Connected first, otherwise as KDE Connect lists them. The engine's sort
+  // is not stable, so the list position breaks ties: a device joining the
+  // list must never swap two others (the first shows always, opens first).
+  var at = {}
+  rest.forEach(function(d, i) { at[d.id] = i })
+  rest.sort(function(a, b) { return ((b.reachable === true) - (a.reachable === true)) || (at[a.id] - at[b.id]) })
   return out.concat(rest)
 }
 
@@ -1314,12 +1446,13 @@ function devicesListRows(snapshot, settings, lowPercent) {
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer === true)
       rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: "Wants to pair" + (o.verificationKey ? " · key " + o.verificationKey : "") })
+                  status: "Wants to pair", pairKey: String(o.verificationKey || "") })
   })
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
       rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair", waiting: o.pairRequested === true })
+                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair",
+                  pairKey: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
   })
   return rows
 }
@@ -1380,7 +1513,11 @@ function settingsPageRows(ctx) {
       rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
     }
   }
-  if (scope === "root") rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  if (scope === "root") {
+    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
+    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
+    rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  }
   return rows
 }
 

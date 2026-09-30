@@ -73,8 +73,38 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   the cache and leave the list when their file is gone. It joins every
   saved section order at the end, with its own switch (*Show files*).
 - IPC: `filesInfo`, `dismissReceived`.
+- Connection and Add a device (#75), two Settings pages in place of the
+  Setup and Add a device folds. Connection checks this computer (KDE
+  Connect, the firewall, the network) with fixes; a check can be ignored,
+  and a failing one puts a red dot on the cog, which then opens
+  Connection. Add a device lists requests to pair, the steps on the
+  device and devices in reach to pair with. The panel opens on Add a
+  device while nothing is paired, and on Connection while KDE Connect is
+  down.
+- Reconnect (#69): an away device's page says where it was last seen
+  (kept across restarts) and whether that was another network, with
+  *Reconnect*: it looks for the device, then says what to try. Opening the
+  panel on an away device looks once by itself.
+- IPC: `page connection|addDevice`, `demoAway`, `reconnect`, `ignoreCheck`;
+  `demoSetup` stays until `live`.
+
+- Pairing (#92): a device asking to pair brings a card under the bar at
+  once (its key, *Accept*, *Reject*), and the first chip glows on the ring
+  beat while it waits; the card never takes the keyboard, and it waits
+  while the panel is open (the panel shows the request itself). A pairing
+  started from the panel shows no pop-up: it is a card on Add a device,
+  with the key and a countdown of KDE Connect's 30 seconds; not accepted
+  in time, its row says so; accepted, the card turns *✓ Paired* and the
+  panel goes to the device. The key reads the same everywhere: large, one
+  word, as KDE Connect shows it. Pairing actions no longer toast when they
+  work.
 
 ### Fixed
+- A device joining could swap two others in the order (the first device:
+  the one always in the bar, opened first).
+- Settings pages without buttons ended in an empty band (Add a device,
+  Connection).
+- An error from the messages reader could stay on screen for good.
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now
   starts past the glyph's ink.

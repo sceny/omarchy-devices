@@ -27,8 +27,9 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge received-dismiss <device> <path>   forget one received file
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall|sshfs   fix one (install,
-                                              firewall and sshfs ask for a password)
+  kdeconnect-bridge fix install|start|firewall|sshfs|search   fix one (install,
+                                              firewall and sshfs ask for a password;
+                                              search looks for devices again)
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -269,6 +270,81 @@ def snapshot(conn, calls=None):
     return {"daemon": True, "devices": devices}
 
 
+# ---- Last seen ---------------------------------------------------------------
+#
+# Where each paired device was while it was last connected: its link, its
+# address and when. An away device's page says it ("last seen on Wi-Fi at
+# 192.168.1.20, 12 min ago"), after a restart too: it is kept in the cache.
+# While a device is connected its time moves on in memory and reaches the
+# file at most every SEEN_SAVE_MS, so a restart is off by that at most.
+
+SEEN_SAVE_MS = 5 * 60 * 1000
+
+
+def state_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    path = os.path.join(base, "sceny.devices")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def seen_path():
+    return os.path.join(state_dir(), "last-seen.json")
+
+
+def load_seen(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_seen(path, seen):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(seen, f, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def note_seen(seen, devices, now_ms):
+    """Updates `seen` from a snapshot's devices; returns whether the file
+    should be written now: a device's link or address changed, it left, or
+    the time of a connected one is SEEN_SAVE_MS old on disk."""
+    write = False
+    for d in devices:
+        if not d.get("paired"):
+            continue
+        old = seen.get(d["id"])
+        if d.get("reachable"):
+            entry = {"link": (d.get("links") or [""])[0], "address": (d.get("addresses") or [""])[0],
+                     "at": now_ms, "here": True, "saved": (old or {}).get("saved", 0)}
+            if not old or not old.get("here") or old.get("link") != entry["link"] \
+                    or old.get("address") != entry["address"] or now_ms - entry["saved"] >= SEEN_SAVE_MS:
+                write = True
+            seen[d["id"]] = entry
+        elif old and old.get("here"):
+            seen[d["id"]] = dict(old, here=False)
+            write = True
+    if write:
+        for entry in seen.values():
+            entry["saved"] = now_ms
+    return write
+
+
+def with_seen(snap, seen):
+    """An away paired device carries where it was last seen, or None."""
+    for d in snap.get("devices", []):
+        s = seen.get(d["id"])
+        d["lastSeen"] = {"link": s.get("link", ""), "address": s.get("address", ""), "at": s.get("at", 0)} \
+            if s and d.get("paired") and not d.get("reachable") else None
+    return snap
+
+
 # ---- Files: received from a device, and its newest photos ----------------
 #
 # Received (#37): KDE Connect signals `shareReceived(url)` when a file
@@ -287,16 +363,8 @@ PHOTO_COUNT = 8
 MOUNT_TIMEOUT_MS = 30000
 
 
-def files_cache():
-    """~/.cache/sceny.devices, where received lists and thumbnails live."""
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-    path = os.path.join(base, "sceny.devices")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-
 def received_path(device_id):
-    return os.path.join(files_cache(), "received-%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+    return os.path.join(state_dir(), "received-%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
 
 
 def load_received(path):
@@ -412,7 +480,7 @@ def photos(device_id, count=PHOTO_COUNT):
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
     found = newest_photos(photo_folders(roots), count)
-    cache = os.path.join(files_cache(), "photos", re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+    cache = os.path.join(state_dir(), "photos", re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
     os.makedirs(cache, exist_ok=True)
     keep = set()
     for p in found:
@@ -453,6 +521,11 @@ def watch():
     loop = GLib.MainLoop()
     state = {"pending": 0, "last": None}
     calls = {}
+    seen = load_seen(seen_path())
+    # Known here only while connected: a device away at start keeps the time
+    # it left, not "now".
+    for entry in seen.values():
+        entry["here"] = False
 
     def emit():
         state["pending"] = 0
@@ -467,7 +540,9 @@ def watch():
             if prune_received(entries):
                 save_received(path, entries)
             d["received"] = entries
-        line = json.dumps(snap, sort_keys=True, ensure_ascii=False)
+        if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
+            save_seen(seen_path(), seen)
+        line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
             try:
@@ -722,6 +797,7 @@ def doctor():
     checks = []
     installed = shutil.which("kdeconnect-cli") is not None
     checks.append({"key": "installed", "ok": installed, "label": "KDE Connect installed",
+                   "status": "Installed" if installed else "Not installed",
                    "detail": "" if installed else "The kdeconnect package is not installed",
                    "fix": "" if installed else "install", "fixLabel": "Install"})
     running = False
@@ -735,6 +811,7 @@ def doctor():
         except GLib.Error:
             running = False
     checks.append({"key": "running", "ok": running, "label": "KDE Connect running",
+                   "status": "Running" if running else "Stopped",
                    "detail": "" if running else "It starts at login; it is not running now",
                    "fix": "" if running or not installed else "start", "fixLabel": "Start"})
     fw = firewall_state()
@@ -742,8 +819,14 @@ def doctor():
     fw_ok = not fw["active"] or fw["allowed"]
     checks.append({"key": "firewall", "ok": fw_ok,
                    "label": "Firewall lets devices in",
+                   "status": ("Open to %s" % (lan or "the local network")) if fw["active"] and fw_ok
+                             else ("Off" if fw["present"] else "None") if fw_ok else "Closed",
                    "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, lan or "the local network"),
                    "fix": "" if fw_ok else "firewall", "fixLabel": "Allow"})
+    checks.append({"key": "network", "ok": bool(lan), "label": "On a network",
+                   "status": lan or "No network",
+                   "detail": "" if lan else "Join the Wi-Fi your devices are on",
+                   "fix": "", "fixLabel": ""})
     paired = [d for d in devices if d.get("paired")]
     reachable = [d for d in paired if d.get("reachable")]
     checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
@@ -756,6 +839,15 @@ def doctor():
 
 
 def fix(what):
+    if what == "search":
+        # What `kdeconnect-cli --refresh` does: the daemon announces itself on
+        # every network, and a device that hears it connects back. Nothing on
+        # the system changes, and connected devices stay connected.
+        try:
+            call(bus(), ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Looking for devices on the network")
     if what == "install":
         cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "kdeconnect"]
     elif what == "start":
@@ -1227,7 +1319,7 @@ def main(argv):
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "snapshot":
-        print(json.dumps(snapshot(bus()), indent=2, sort_keys=True, ensure_ascii=False))
+        print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK
     return act(argv)
 
