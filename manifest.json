@@ -80,7 +80,7 @@
       {
         "key": "showFiles",
         "type": "boolean",
-        "label": "Show files",
+        "label": "Show photos and files",
         "defaultValue": true,
         "description": "The device's newest photos and screenshots, and files it sent. Hidden while there are none."
       },

@@ -3023,7 +3023,7 @@ Panel {
                     motion: root.motion
                     animate: root.settled
                     width: parent.width
-                    title: "FILES"
+                    title: "PHOTOS & FILES"
                     folded: root.isCollapsed("files")
                     summary: Model.filesSummary(root.photos, root.received)
                     onToggled: root.toggleCollapsed("files")
@@ -3099,9 +3099,9 @@ Panel {
                       visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.folder && !root.photoInfo.cached
                       Item { Layout.fillWidth: true }
                       Button {
-                        text: "All photos"
+                        text: "Camera folder"
                         iconText: Model.GLYPH.chevronRight
-                        tooltipText: "Opens its camera folder in your file manager"
+                        tooltipText: "Opens its camera folder, every photo, in your file manager"
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         fontSize: Style.font.bodySmall
@@ -3301,7 +3301,7 @@ Panel {
     readonly property int place: root.drawnSections.indexOf(section)
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
-    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "files" ? "FILES" : "NOTIFICATIONS"))
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "files" ? "PHOTOS & FILES" : "NOTIFICATIONS"))
     readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
       : section === "files" ? (root.photos.length + root.received.length > 0 ? Model.filesSummary(root.photos, root.received) : "")

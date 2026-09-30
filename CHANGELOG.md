@@ -65,17 +65,18 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
-- Files (#65, #37): a section with the device's newest photos and
-  screenshots (click to open; from its corner, copy the image or save a
-  copy in Pictures/<device>; drag it into a window) and the files it sent
-  (open, show in folder, forget). *All photos* opens the phone's camera
-  folder in the file manager. The last photos show at once when the
-  panel opens, while the phone is read again; when none are left, they
-  fade and the section folds away. Photos are read
-  from its storage through KDE Connect when the panel opens; that needs
-  `sshfs`, which the section offers to install. Received files are kept in
-  the cache and leave the list when their file is gone. It joins every
-  saved section order at the end, with its own switch (*Show files*).
+- Photos & files (#65, #37): a section with the device's newest photos
+  and screenshots (click to open; from its corner, copy the image or save
+  a copy in Pictures/<device>; drag it into a window) and the files it
+  sent (open, show in folder, forget). *Camera folder* opens the phone's
+  camera folder, every photo, in the file manager. The last photos show
+  at once when the panel opens, while the phone is read again; when none
+  are left, they fade and the section folds away. Photos are read from
+  its storage through KDE Connect when the panel opens; that needs
+  `sshfs`, which the section offers to install. Received files are kept
+  in the cache and leave the list when their file is gone. It joins every
+  saved section order at the end, with its own switch (*Show photos and
+  files*).
 - IPC: `filesInfo`, `dismissReceived`.
 - Connection and Add a device (#75), two Settings pages in place of the
   Setup and Add a device folds. Connection checks this computer (KDE

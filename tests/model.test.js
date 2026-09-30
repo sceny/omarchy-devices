@@ -265,10 +265,10 @@ test("demo devices cover requests, away and available", () => {
 
 test("folded settings sections say what is in them", () => {
   assert.equal(M.layoutSummary({}), "Everything shown")
-  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications, Files", "the Devices section is gone from the page")
+  assert.equal(M.layoutSummary({ showMedia: false }), "Shortcuts, Notifications, Photos & files", "the Devices section is gone from the page")
   assert.equal(M.layoutSummary({ showDevices: false, showShortcuts: false, showMedia: false, showNotifications: false, showFiles: false }), "Everything hidden")
-  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Shortcuts, Now playing, Files", "a new order is never hidden")
-  assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications, Files")
+  assert.equal(M.layoutSummary({}, ["notifications", "devices", "actions", "media"]), "Notifications, Shortcuts, Now playing, Photos & files", "a new order is never hidden")
+  assert.equal(M.layoutSummary({ showMedia: false, showDevices: false }, ["media", "notifications"]), "Shortcuts, Notifications, Photos & files")
   assert.equal(M.shortcutsSummary(["messages", "ring"]), "Messages, Ring")
   assert.equal(M.shortcutsSummary([]), "None")
 })

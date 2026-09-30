@@ -135,11 +135,12 @@ var LAYOUT = [
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
-  { key: "showFiles", section: "files", label: "Files", hint: "Its newest photos and screenshots, and files it sent" }
+  { key: "showFiles", section: "files", label: "Photos & files", hint: "Its newest photos and screenshots, and files it sent" }
 ]
 
 // A section added in a release joins a saved order at its default place
-// (normalizeSections), so Files comes last for everyone who had an order.
+// (normalizeSections), so Photos & files comes last for everyone who had an
+// order.
 var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "files"]
 
 function layoutBySection(section) {
