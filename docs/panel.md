@@ -6,12 +6,12 @@
 
 - **Notifications:** reply, dismiss, and the app's buttons where KDE
   Connect passes them on.
-- **Now playing:** the active player first; the others are a swipe, `h`/`l`
-  or the arrows away.
+- **Now playing:** the active player; the others a swipe or `h`/`l` away.
 - **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
   Play/Pause, KDE Connect.
-- **Photos & files:** the newest photos and screenshots (open, copy, save,
-  drag), *Camera* and *Screenshots* in your file manager, and files sent.
+- **Received:** files the phone sent (open, show in folder, forget).
+- **Photos:** the newest photos and screenshots (open, copy, save, drag),
+  and *Camera* and *Screenshots* in your file manager.
 - **Calls:** a ringing device's chip rings, and a card above the tabs
   names the caller; a missed call stays, with *Call back* and *Text back*.
 - **Several devices:** a tab and a chip each. Pair, order and unpair in

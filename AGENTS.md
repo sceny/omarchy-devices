@@ -184,7 +184,8 @@ Keep them; change one only with the owner.
   flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
   one device, Settings is one flat page. Moving a device writes down how
   each one shows in the bar, so moving never changes it.
-- **Files are read, never kept beyond the cache.** Photos are read from
+- **Photos and received files are read, never kept beyond the cache**
+  (two sections, each gone while it has nothing). Photos are read from
   the device's storage (KDE Connect's sftp, which needs `sshfs`) only when
   a panel opens on it, at most every 20 s; their thumbnails and the list
   of received files (`received-<device>.json`, from `shareReceived`) live

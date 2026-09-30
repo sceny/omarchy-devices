@@ -135,13 +135,14 @@ var LAYOUT = [
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
-  { key: "showFiles", section: "files", label: "Photos & files", hint: "Its newest photos and screenshots, and files it sent" }
+  { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
+  { key: "showPhotos", section: "photos", label: "Photos", hint: "Its newest photos and screenshots" }
 ]
 
 // A section added in a release joins a saved order at its default place
-// (normalizeSections), so Photos & files comes last for everyone who had an
-// order.
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "files"]
+// (normalizeSections), so Received and Photos come last for everyone who had
+// an order.
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -1206,7 +1207,8 @@ var PROFILE_SETTINGS = {
   showShortcuts: function(v) { return layoutFlag(v) },
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
-  showFiles: function(v) { return layoutFlag(v) },
+  showPhotos: function(v) { return layoutFlag(v) },
+  showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   collapsed: function(v) { return collapsedState(v) }
 }
@@ -1420,7 +1422,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "showFiles", "sectionOrder"],
+  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1488,7 +1490,7 @@ function settingsPageRows(ctx) {
   } else {
     // A panel torn down mid-reload can ask with nothing to edit.
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showFiles: e.showFiles },
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
     // A device's page (and the one-device page) edits its sections,
     // shortcuts and bar on the page itself (edit in place): here, a row
@@ -1653,7 +1655,8 @@ var SECTION_EMPTY = {
   actions: "No shortcuts: add some below",
   media: "Shows while the device plays something",
   notifications: "Shows while there are notifications",
-  files: "Shows its newest photos, and files it sends"
+  photos: "Shows its newest photos and screenshots",
+  received: "Shows the files it sends you"
 }
 
 // ---- Files: the device's newest photos (#65) and files it sent (#37) ----
@@ -1680,12 +1683,16 @@ function folderUrl(path) {
   return at > 0 ? "file://" + encodeURI(p.slice(0, at)) : ""
 }
 
-function filesSummary(photos, received) {
-  var parts = []
-  var p = (photos || []).length, r = (received || []).length
-  if (p > 0) parts.push(p === 1 ? "1 photo" : p + " photos")
-  if (r > 0) parts.push(r + " received")
-  return parts.length > 0 ? parts.join(" · ") : "Nothing new"
+function photosSummary(photos) {
+  var n = (photos || []).length
+  return n === 0 ? "Nothing new" : (n === 1 ? "1 photo" : n + " photos")
+}
+
+// The newest file's name, and how many more.
+function receivedSummary(received) {
+  var list = received || []
+  if (list.length === 0) return "Nothing new"
+  return list.length === 1 ? String(list[0].name) : list[0].name + " and " + (list.length - 1) + " more"
 }
 
 // Demo: photos from the one local demo picture, each a different part of it

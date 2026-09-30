@@ -9,7 +9,7 @@
 | No notifications | Notification access for KDE Connect on the phone. |
 | Numbers instead of names | The contacts permission on the phone. |
 | No calls | The phone and call log permissions for KDE Connect on the phone. |
-| No photos | *Install* sshfs from the Files section; allow storage access in the app. |
+| No photos | *Install* sshfs from the Photos section; allow storage access in the app. |
 | A notification you never see on the phone | KDE Connect forwarded a hidden one (below). |
 
 ## What KDE Connect cannot do

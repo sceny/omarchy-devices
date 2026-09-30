@@ -65,19 +65,19 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
-- Photos & files (#65, #37): a section with the device's newest photos
-  and screenshots (click to open; from its corner, copy the image or save
-  a copy in Pictures/<device>; drag it into a window) and the files it
-  sent (open, show in folder, forget). *Camera* and *Screenshots* open
-  those folders, every image, in the file manager, wherever the phone
-  keeps them. The last photos show
-  at once when the panel opens, while the phone is read again; when none
-  are left, they fade and the section folds away. Photos are read from
-  its storage through KDE Connect when the panel opens; that needs
-  `sshfs`, which the section offers to install. Received files are kept
-  in the cache and leave the list when their file is gone. It joins every
-  saved section order at the end, with its own switch (*Show photos and
-  files*).
+- Received (#37): a section with the files the device sent you (open,
+  show in folder, forget); they are kept in the cache and leave the list
+  when their file is gone. Gone while there are none.
+- Photos (#65): a section with the device's newest photos and
+  screenshots: click to open; from a photo's corner, copy it or save a
+  copy in Pictures/<device>; drag it into a window. *Camera* and
+  *Screenshots* open those folders, every image, in the file manager,
+  wherever the phone keeps them. The last photos show at once when the
+  panel opens, while the phone is read again; when none are left, they
+  fade and the section folds away. Photos are read from its storage
+  through KDE Connect, which needs `sshfs`: the section offers to install
+  it. Both sections join every saved order at the end, each with its own
+  switch.
 - IPC: `filesInfo`, `dismissReceived`.
 - Connection and Add a device (#75), two Settings pages in place of the
   Setup and Add a device folds. Connection checks this computer (KDE
