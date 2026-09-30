@@ -418,7 +418,6 @@ Column {
     }
   }
 
-  Item { visible: root.scopeKind === "addDevice" && root.firstIndex("request") >= 0; width: 1; height: Style.space(6) }
   PanelSectionHeader {
     visible: root.scopeKind === "addDevice"
     text: "ON THE DEVICE"
