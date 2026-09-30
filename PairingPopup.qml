@@ -67,7 +67,8 @@ PanelWindow {
     y: popup.barAtBottom ? popup.height - (popup.barWindow ? popup.barWindow.height : 0) - height - popup.gap
                          : (popup.barWindow ? popup.barWindow.height : 0) + popup.gap
     radius: Style.cornerRadius
-    color: Util.alpha(Color.background, 0.97)
+    // Solid: whatever is under it never shows through.
+    color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
     borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
     opacity: popup.showing ? 1 : 0
     // In from the bar's side, at the plugin's pace.
