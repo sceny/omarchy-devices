@@ -407,6 +407,67 @@ def note_received(entries, url, now_ms):
     return True
 
 
+def rename_received(entries, old_path, new_path):
+    """A listed file renamed in its folder (as its folder's watch reports
+    it): the entry follows it. Returns whether one did."""
+    changed = False
+    for e in entries:
+        if e.get("path") == old_path and new_path:
+            e["path"] = new_path
+            e["name"] = os.path.basename(new_path)
+            changed = True
+    return changed
+
+
+class FolderWatch:
+    """Watches the folders that hold received files, so a file deleted,
+    moved away or renamed updates the list at once. One watch per folder,
+    only while it holds a listed file; no file is held open. Best effort on
+    any machine: a watch the system refuses (its limits, a network or FUSE
+    folder) is skipped silently (a line on stderr would show as an error),
+    and the existence check on every snapshot, at least every 30 s, still
+    catches a deletion."""
+
+    def __init__(self, on_event, make_monitor=None):
+        self.on_event = on_event                  # (kind, path, new_path)
+        self.make_monitor = make_monitor or self._gio_monitor
+        self.monitors = {}                        # folder -> monitor
+
+    @staticmethod
+    def _gio_monitor(folder, callback):
+        monitor = Gio.File.new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        monitor.connect("changed", callback)
+        return monitor
+
+    def sync(self, folders):
+        want = set(f for f in folders if f)
+        for folder in list(self.monitors):
+            if folder not in want:
+                self.cancel(folder)
+        for folder in want:
+            if folder in self.monitors:
+                continue
+            try:
+                self.monitors[folder] = self.make_monitor(folder, self.changed)
+            except (GLib.Error, OSError):
+                pass
+
+    def cancel(self, folder):
+        monitor = self.monitors.pop(folder, None)
+        try:
+            if monitor is not None:
+                monitor.cancel()
+        except (GLib.Error, OSError, AttributeError):
+            pass
+
+    def changed(self, _monitor, file, other, event):
+        path = file.get_path() if file is not None else ""
+        if event == Gio.FileMonitorEvent.RENAMED:
+            self.on_event("renamed", path, other.get_path() if other is not None else "")
+        elif event in (Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED_OUT):
+            self.on_event("gone", path, "")
+
+
 def prune_received(entries):
     """Drops entries whose file is gone (moved, deleted); returns whether
     any went."""
@@ -598,7 +659,9 @@ def watch():
         state["pending"] = 0
         snap = snapshot(conn, calls)
         # Received files, re-read each time (a dismiss writes the file from
-        # another process), without the ones that are gone.
+        # another process), without the ones that are gone; their folders
+        # are watched, so a change there comes at once (FolderWatch).
+        ids, dirs = [], set()
         for d in snap.get("devices", []):
             if not d.get("paired"):
                 continue
@@ -607,6 +670,10 @@ def watch():
             if prune_received(entries):
                 save_received(path, entries)
             d["received"] = entries
+            ids.append(d["id"])
+            dirs.update(os.path.dirname(e.get("path", "")) for e in entries)
+        state["received_ids"] = ids
+        folders.sync(dirs)
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
@@ -642,6 +709,19 @@ def watch():
 
     def on_owner(*_args):
         calls.clear()
+
+    def on_folder(kind, path, new_path):
+        # A listed file renamed in its folder: its entry follows it. Gone
+        # (deleted, moved away): the next snapshot's check drops it.
+        if kind == "renamed":
+            for device_id in state.get("received_ids", []):
+                rpath = received_path(device_id)
+                entries = load_received(rpath)
+                if rename_received(entries, path, new_path):
+                    save_received(rpath, entries)
+        schedule()
+
+    folders = FolderWatch(on_folder)
 
     def on_share(_conn, _sender, path, _iface, _signal, params):
         # /modules/kdeconnect/devices/<id>/share

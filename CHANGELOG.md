@@ -66,8 +66,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
 - Received (#37): a section with the files the device sent you (open,
-  show in folder, forget); they are kept in the cache and leave the list
-  when their file is gone. Gone while there are none.
+  show in folder, forget); they are kept in the cache. Their folders are
+  watched: a file renamed there is followed, and one deleted or moved away
+  leaves the list at once (where the system allows a watch; otherwise
+  within 30 s). Gone while there are none.
 - Photos (#65): a section with the device's newest photos and
   screenshots: click to open; from a photo's corner, copy it or save a
   copy in Pictures/<device>; drag it into a window. *Camera* and

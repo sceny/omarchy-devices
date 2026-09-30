@@ -456,3 +456,69 @@ class PhotoCacheAndSave(unittest.TestCase):
                 self.assertEqual(sorted(os.listdir(os.path.join(d, "Pictures", "Pixel 8"))), ["IMG_1 (1).jpg", "IMG_1.jpg"])
             finally:
                 bridge.pictures_dir = saved
+
+
+class ReceivedFolderWatch(unittest.TestCase):
+    """The folders of received files are watched: a rename is followed, a
+    delete or move-away goes at once; a watch the system refuses changes
+    nothing (the 30 s existence check still works)."""
+
+    def test_a_rename_is_followed(self):
+        entries = [{"path": "/d/a.pdf", "name": "a.pdf"}, {"path": "/d/b.txt", "name": "b.txt"}]
+        self.assertTrue(bridge.rename_received(entries, "/d/a.pdf", "/d/report.pdf"))
+        self.assertEqual(entries[0], {"path": "/d/report.pdf", "name": "report.pdf"})
+        self.assertFalse(bridge.rename_received(entries, "/d/none", "/d/x"))
+        self.assertFalse(bridge.rename_received(entries, "/d/b.txt", ""), "no new name: not a rename")
+
+    def test_a_refused_watch_is_skipped_silently(self):
+        def refuse(folder, callback):
+            raise bridge.GLib.Error("Too many open files")
+        watch = bridge.FolderWatch(lambda *a: None, make_monitor=refuse)
+        with contextlib.redirect_stderr(open(os.devnull, "w")) as err:
+            watch.sync({"/d"})
+        self.assertEqual(watch.monitors, {})
+
+    def test_watches_follow_the_folders_that_hold_listed_files(self):
+        made, cancelled = [], []
+
+        class Fake:
+            def __init__(self, folder):
+                self.folder = folder
+
+            def cancel(self):
+                cancelled.append(self.folder)
+
+        def make(folder, callback):
+            made.append(folder)
+            return Fake(folder)
+
+        watch = bridge.FolderWatch(lambda *a: None, make_monitor=make)
+        watch.sync({"/a", "/b", ""})
+        self.assertEqual(sorted(made), ["/a", "/b"], "one watch per folder; none for an empty path")
+        watch.sync({"/b"})
+        self.assertEqual(cancelled, ["/a"], "a folder no longer holding a listed file is let go")
+        watch.sync({"/b"})
+        self.assertEqual(sorted(made), ["/a", "/b"], "an existing watch is kept, not made again")
+
+    def test_a_real_folder_reports_a_rename_and_a_delete(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "a.pdf")
+            open(src, "w").close()
+            events = []
+            watch = bridge.FolderWatch(lambda kind, path, new: events.append((kind, os.path.basename(path), os.path.basename(new))))
+            watch.sync({d})
+            ctx = bridge.GLib.MainContext.default()
+
+            def pump(until):
+                deadline = bridge.GLib.get_monotonic_time() + 2000000
+                while not until() and bridge.GLib.get_monotonic_time() < deadline:
+                    ctx.iteration(False)
+
+            os.rename(src, os.path.join(d, "report.pdf"))
+            pump(lambda: any(e[0] == "renamed" for e in events))
+            self.assertIn(("renamed", "a.pdf", "report.pdf"), events)
+            os.remove(os.path.join(d, "report.pdf"))
+            pump(lambda: any(e[0] == "gone" for e in events))
+            self.assertIn(("gone", "report.pdf", ""), events)
+            watch.sync(set())
+            self.assertEqual(watch.monitors, {})
