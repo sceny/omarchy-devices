@@ -81,75 +81,64 @@ PanelWindow {
       Behavior on y { NumberAnimation { duration: (popup.showing ? Model.MOTION.inMs : Model.MOTION.outMs) * popup.motion; easing.type: Easing.OutCubic } } }
     Behavior on opacity { NumberAnimation { duration: (popup.showing ? Model.MOTION.inMs : Model.MOTION.outMs) * popup.motion; easing.type: Easing.OutCubic } }
 
+    // The device and what is asked; then the key and the answer on one
+    // row (the key's caption above it says what to check).
     RowLayout {
       id: content
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       anchors.leftMargin: Style.space(16)
-      anchors.rightMargin: Style.space(10)
-      spacing: Style.space(12)
+      anchors.rightMargin: Style.space(12)
+      spacing: Style.space(14)
 
       Text {
-        Layout.alignment: Qt.AlignVCenter
+        Layout.alignment: Qt.AlignTop
+        Layout.topMargin: Style.space(2)
         text: popup.shown ? Model.deviceGlyph(popup.shown) : ""
         color: Color.accent
         font.family: popup.fontFamily
-        font.pixelSize: Style.font.heading + 6
+        font.pixelSize: Style.font.display
       }
       ColumnLayout {
         Layout.fillWidth: true
-        spacing: Style.space(2)
-        Text {
-          Layout.fillWidth: true
-          textFormat: Text.PlainText
-          text: popup.outgoing ? "Pairing with " + (popup.shown ? String(popup.shown.name || "a device") : "")
-                               : (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
-          color: popup.foreground
-          font.family: popup.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          elide: Text.ElideRight
-        }
-        // The key is what the user checks: large, apart, in the accent,
-        // with what to do with it beside it.
+        spacing: Style.space(8)
         RowLayout {
-          visible: !!popup.shown && !!popup.shown.verificationKey
-          Layout.topMargin: Style.space(6)
-          spacing: Style.space(10)
-          Rectangle {
-            implicitWidth: keyText.implicitWidth + Style.space(16)
-            implicitHeight: keyText.implicitHeight + Style.space(6)
-            radius: Style.cornerRadius
-            color: "transparent"
-            border.width: 1
-            border.color: Color.accent
-            Text {
-              id: keyText
-              anchors.centerIn: parent
-              textFormat: Text.PlainText
-              text: popup.shown ? String(popup.shown.verificationKey || "") : ""
-              color: Color.accent
-              font.family: popup.fontFamily
-              font.pixelSize: Style.font.heading
-              font.bold: true
-              font.letterSpacing: 1.5
-            }
-          }
+          Layout.fillWidth: true
+          spacing: Style.space(8)
           Text {
             Layout.fillWidth: true
             textFormat: Text.PlainText
-            wrapMode: Text.WordWrap
-            text: popup.outgoing ? "Accept it on the device if it shows this key." : "The same key on it? Then accept."
-            color: Qt.darker(popup.foreground, 1.55)
+            text: popup.outgoing ? "Pairing with " + (popup.shown ? String(popup.shown.name || "a device") : "")
+                                 : (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
+            color: popup.foreground
             font.family: popup.fontFamily
-            font.pixelSize: Style.font.caption
+            font.pixelSize: Style.font.body
+            font.bold: true
+            elide: Text.ElideRight
+          }
+          PanelActionButton {
+            iconText: Model.GLYPH.close
+            tooltipText: "Hide; the request still waits in the panel"
+            foreground: popup.foreground
+            fontFamily: popup.fontFamily
+            onClicked: if (popup.shown) popup.hiddenId = String(popup.shown.id)
           }
         }
         RowLayout {
-          Layout.topMargin: Style.space(6)
+          Layout.fillWidth: true
           spacing: Style.space(8)
+          PairingKey {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignBottom
+            key: popup.shown ? String(popup.shown.verificationKey || "") : ""
+            caption: popup.outgoing ? "accept on it if it matches" : "check it matches"
+            foreground: popup.foreground
+            fontFamily: popup.fontFamily
+          }
+          Item { Layout.fillWidth: true; visible: !popup.shown || !popup.shown.verificationKey }
           Button {
+            Layout.alignment: Qt.AlignBottom
             visible: !popup.outgoing
             text: popup.waiting ? "Waiting…" : "Accept"
             enabled: !popup.waiting
@@ -160,6 +149,7 @@ PanelWindow {
             onClicked: if (popup.phone && popup.shown) popup.phone.acceptPairing(popup.shown.id)
           }
           Button {
+            Layout.alignment: Qt.AlignBottom
             text: popup.outgoing ? "Cancel" : "Reject"
             enabled: !popup.waiting
             foreground: popup.foreground
@@ -168,14 +158,6 @@ PanelWindow {
             onClicked: if (popup.phone && popup.shown) popup.phone.rejectPairing(popup.shown.id)
           }
         }
-      }
-      PanelActionButton {
-        Layout.alignment: Qt.AlignTop
-        iconText: Model.GLYPH.close
-        tooltipText: "Hide; the request still waits in the panel"
-        foreground: popup.foreground
-        fontFamily: popup.fontFamily
-        onClicked: if (popup.shown) popup.hiddenId = String(popup.shown.id)
       }
     }
   }

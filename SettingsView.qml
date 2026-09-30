@@ -639,6 +639,15 @@ Column {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
+        // Pairing: the key to compare, drawn as on the pop-up.
+        PairingKey {
+          Layout.topMargin: Style.space(4)
+          key: listRow.row.key || ""
+          caption: listRow.row.kind === "request" ? "check it matches" : "accept on it if it matches"
+          compact: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
       }
 
       // Asking to pair: accept or reject. In reach: pair.

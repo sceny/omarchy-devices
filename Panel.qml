@@ -1702,14 +1702,16 @@ Panel {
               // Clicks on the card stay on the card.
               MouseArea { anchors.fill: parent }
 
+              // The same pattern as the pop-up (PairingPopup): the device and
+              // what it asks; then the key and the answer on one row.
               RowLayout {
                 id: pairRow
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(12)
-                anchors.rightMargin: Style.space(10)
-                spacing: Style.space(10)
+                anchors.leftMargin: Style.space(14)
+                anchors.rightMargin: Style.space(12)
+                spacing: Style.space(14)
 
                 Text {
                   textFormat: Text.PlainText
@@ -1717,59 +1719,54 @@ Panel {
                   color: Color.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.display
-                  Layout.alignment: Qt.AlignVCenter
+                  Layout.alignment: Qt.AlignTop
+                  Layout.topMargin: Style.space(2)
                 }
-                Column {
+                ColumnLayout {
                   Layout.fillWidth: true
-                  Layout.alignment: Qt.AlignVCenter
-                  spacing: Style.space(2)
+                  spacing: Style.space(8)
                   Text {
-                    width: parent.width
+                    Layout.fillWidth: true
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
-                    text: "WANTS TO PAIR"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+                    text: (pairCard.shown ? Model.deviceLabel(pairCard.shown) : "") + " wants to pair"
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
                   }
-                  Text {
-                    width: parent.width
-                    visible: text !== ""
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    // Compare it with the one the device shows.
-                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
+                  RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(8)
+                    PairingKey {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignBottom
+                      key: pairCard.shown ? String(pairCard.shown.verificationKey || "") : ""
+                      caption: "check it matches"
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+                    Item { Layout.fillWidth: true; visible: !pairCard.shown || !pairCard.shown.verificationKey }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: pairCard.waiting ? "Waiting…" : "Accept"
+                      bordered: true
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+                    }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: "Reject"
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+                    }
                   }
-                }
-                Button {
-                  text: "Accept"
-                  bordered: true
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
-                }
-                Button {
-                  text: "Reject"
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
                 }
               }
             }
