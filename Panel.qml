@@ -87,6 +87,10 @@ Panel {
   property int filesIndex: 0
   readonly property int photoColumns: 4
   readonly property int filesCount: photos.length + received.length
+  function openAllPhotos() {
+    if (phone && phone.demo) { phone.report("Demo: made-up photos", false); return }
+    if (photoInfo && photoInfo.folder) Qt.openUrlExternally("file://" + encodeURI(photoInfo.folder))
+  }
   function openPhoto(photo) {
     if (!photo) return
     if (photo.demo) { if (phone) phone.report("Demo: a made-up photo", false); return }
@@ -3083,6 +3087,25 @@ Panel {
                           photo: modelData
                           place: index
                         }
+                      }
+                    }
+
+                    // Everything on the device: its camera folder in the file
+                    // manager (the storage KDE Connect mounted for Files).
+                    // Only from a fresh look: the cached list may predate
+                    // the mount.
+                    RowLayout {
+                      width: parent.width
+                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.folder && !root.photoInfo.cached
+                      Item { Layout.fillWidth: true }
+                      Button {
+                        text: "All photos"
+                        iconText: Model.GLYPH.chevronRight
+                        tooltipText: "Opens its camera folder in your file manager"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: root.openAllPhotos()
                       }
                     }
 

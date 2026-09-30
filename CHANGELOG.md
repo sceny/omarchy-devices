@@ -68,7 +68,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
 - Files (#65, #37): a section with the device's newest photos and
   screenshots (click to open; from its corner, copy the image or save a
   copy in Pictures/<device>; drag it into a window) and the files it sent
-  (open, show in folder, forget). The last photos show at once when the
+  (open, show in folder, forget). *All photos* opens the phone's camera
+  folder in the file manager. The last photos show at once when the
   panel opens, while the phone is read again; when none are left, they
   fade and the section folds away. Photos are read
   from its storage through KDE Connect when the panel opens; that needs

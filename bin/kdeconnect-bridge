@@ -481,7 +481,10 @@ def photos(device_id, count=PHOTO_COUNT):
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
-    found = newest_photos(photo_folders(roots), count)
+    folders = photo_folders(roots)
+    found = newest_photos(folders, count)
+    # Where all of them are, for "All photos" (the file manager): the camera.
+    camera = next((f for f in folders if "Camera" in f), folders[0] if folders else "")
     cache = photos_cache(device_id)
     keep = {PHOTO_LIST}
     for p in found:
@@ -496,7 +499,7 @@ def photos(device_id, count=PHOTO_COUNT):
             except OSError:
                 pass
     save_received(os.path.join(cache, PHOTO_LIST), found)
-    return {"ok": True, "photos": found}
+    return {"ok": True, "photos": found, "folder": camera}
 
 
 # The last list read from the device, with its thumbnails: the panel shows it
