@@ -345,7 +345,9 @@ function withoutNotification(snapshot, id) {
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
 // KDE Connect cancels a pairing the other side has not accepted in this
-// long, on both sides (its pairing handler's timeout).
+// long, on both sides: a constant compiled into it, not a setting and not on
+// D-Bus (kdeconnect-kde core/backends/pairinghandler.h, pairingTimeoutMsec =
+// 30 * 1000, at 97d6289). Change it here if KDE Connect ever changes it.
 var PAIR_TIMEOUT_S = 30
 
 // Seconds left for a pairing asked at `sinceMs`, never below 0.
