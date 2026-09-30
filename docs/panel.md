@@ -9,7 +9,7 @@
 - **Now playing:** the active player; the others a swipe or `h`/`l` away.
 - **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
   Play/Pause, KDE Connect.
-- **Received:** files the phone sent (open, show in folder, forget).
+- **Received:** files the phone sent (open, show in Files, forget).
 - **Photos:** the newest photos and screenshots (open, copy, save, drag),
   and *Camera* and *Screenshots* in your file manager.
 - **Calls:** a ringing device's chip rings, and a card above the tabs

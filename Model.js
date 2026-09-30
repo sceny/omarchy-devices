@@ -1676,11 +1676,10 @@ function isImage(name) {
   return !!m && IMAGE_EXTENSIONS.indexOf(m[1].toLowerCase()) >= 0
 }
 
-// The folder a file is in, as a file:// URL (Show in folder).
-function folderUrl(path) {
-  var p = String(path || "")
-  var at = p.lastIndexOf("/")
-  return at > 0 ? "file://" + encodeURI(p.slice(0, at)) : ""
+// A path as a file:// address, each part encoded apart (a name with # or ?
+// stays whole), as Omarchy's own panels build one.
+function fileUri(path) {
+  return "file://" + String(path || "").split("/").map(function(p) { return encodeURIComponent(p) }).join("/")
 }
 
 function photosSummary(photos) {

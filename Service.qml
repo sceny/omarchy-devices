@@ -777,6 +777,19 @@ Item {
     dismissedFiles = next
     if (!demo) Quickshell.execDetached([bridge, "received-dismiss", String(device.id), entry.path])
   }
+  // Opening, as Omarchy's own panels do: through uwsm-app, so the app runs
+  // as the user's (its own scope, like one from the launcher), not as a
+  // child of the shell. A file opens in its default app; Show in folder is
+  // the file manager with the file selected.
+  function openPath(path) {
+    if (!path) return
+    Quickshell.execDetached(["uwsm-app", "--", "xdg-open", String(path)])
+  }
+  function revealPath(path) {
+    if (!path) return
+    Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", Model.fileUri(path)])
+  }
+
   // The file on the clipboard (an image as image data).
   function copyFile(path) {
     if (demo) { report("Copied", false); return }

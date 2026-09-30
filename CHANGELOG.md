@@ -65,8 +65,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
-- Received (#37): a section with the files the device sent you (open,
-  show in folder, forget); they are kept in the cache. Their folders are
+- Received (#37): a section with the files the device sent you (open in its app,
+  show in Files, forget); they are kept in the cache. Their folders are
   watched: a file renamed there is followed, and one deleted or moved away
   leaves the list at once (where the system allows a watch; otherwise
   within 30 s). Gone while there are none.

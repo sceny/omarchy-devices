@@ -91,22 +91,22 @@ Panel {
   // A folder the strip reads (Camera, Screenshots), in the file manager.
   function openPhotoFolder(path) {
     if (phone && phone.demo) { phone.report("Demo: made-up photos", false); return }
-    if (path) Qt.openUrlExternally("file://" + encodeURI(path))
+    if (phone) phone.openPath(path)
   }
   function openPhoto(photo) {
     if (!photo) return
     if (photo.demo) { if (phone) phone.report("Demo: a made-up photo", false); return }
-    Qt.openUrlExternally("file://" + encodeURI(photo.path))
+    if (phone) phone.openPath(photo.path)
   }
   function openReceived(entry) {
     if (!entry) return
     if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
-    Qt.openUrlExternally("file://" + encodeURI(entry.path))
+    if (phone) phone.openPath(entry.path)
   }
   function showReceivedFolder(entry) {
     if (!entry) return
     if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
-    Qt.openUrlExternally(Model.folderUrl(entry.path))
+    if (phone) phone.revealPath(entry.path)
   }
   readonly property var shortcutOrder: profile.shortcuts
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
@@ -3668,8 +3668,9 @@ Panel {
     }
   }
 
-  // Files: one the device sent. A click opens it; the folder button shows it
-  // in its folder; × forgets it here (the file stays).
+  // Received: a file the device sent. A click (or Enter) opens it in its
+  // app, as Omarchy opens files (uwsm-app); the folder button shows it
+  // selected in Files; × forgets it here (the file stays).
   component ReceivedRow: CursorSurface {
     id: rrow
     property var entry: ({})
@@ -3679,11 +3680,16 @@ Panel {
     implicitHeight: rrowContent.implicitHeight + Style.space(10)
 
     MouseArea {
+      id: rrowMouse
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
       onEntered: { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place }
       onClicked: root.openReceived(rrow.entry)
+    }
+    PanelToolTip {
+      visible: rrowMouse.containsMouse
+      text: "Open in its app"
     }
     RowLayout {
       id: rrowContent
@@ -3736,7 +3742,7 @@ Panel {
       }
       PanelActionButton {
         iconText: "\u{F0770}"
-        tooltipText: "Show in folder"
+        tooltipText: "Show in Files"
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: root.showReceivedFolder(rrow.entry)

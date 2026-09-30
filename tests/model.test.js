@@ -672,7 +672,7 @@ test("files: a section of its own, joining saved orders at the end; sizes, image
   assert.equal(M.sizeText(2150), "2 KB")
   assert.equal(M.sizeText(3.4 * 1024 * 1024), "3.4 MB")
   assert.ok(M.isImage("IMG_1.JPG") && !M.isImage("notes.txt"))
-  assert.equal(M.folderUrl("/home/u/Downloads/a b.pdf"), "file:///home/u/Downloads")
+  assert.equal(M.fileUri("/home/u/Downloads/a b#1?.pdf"), "file:///home/u/Downloads/a%20b%231%3F.pdf", "each part encoded apart")
   assert.equal(M.photosSummary([{}, {}]), "2 photos")
   assert.equal(M.photosSummary([]), "Nothing new")
   assert.equal(M.receivedSummary([{ name: "a.pdf" }, { name: "b.txt" }]), "a.pdf and 1 more")
