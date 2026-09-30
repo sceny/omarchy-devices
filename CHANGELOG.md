@@ -65,6 +65,21 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
+- Connection and Add a device (#75), two Settings pages in place of the
+  Setup and Add a device folds. Connection checks this computer (KDE
+  Connect, the firewall, the network) with fixes; a check can be ignored,
+  and a failing one puts a red dot on the cog, which then opens
+  Connection. Add a device lists requests to pair, the steps on the
+  device and devices in reach to pair with. The panel opens on Add a
+  device while nothing is paired, and on Connection while KDE Connect is
+  down.
+- Reconnect (#69): an away device's page says where it was last seen
+  (kept across restarts) and whether that was another network, with
+  *Reconnect*: it looks for the device, then says what to try. Opening the
+  panel on an away device looks once by itself.
+- IPC: `page connection|addDevice`, `demoAway`, `reconnect`, `ignoreCheck`;
+  `demoSetup` stays until `live`.
+
 ### Fixed
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now

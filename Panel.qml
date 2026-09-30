@@ -173,7 +173,8 @@ Panel {
 
   // The setup checks run while a panel shows them: nothing connected, or
   // the settings page open.
-  readonly property bool wantsSetup: opened && ((showMain && !reachable) || showSettings)
+  // Always while open: the gear's dot says when a check on this computer fails.
+  readonly property bool wantsSetup: opened
   property bool countedSetup: false
   onWantsSetupChanged: {
     if (!phone || wantsSetup === countedSetup) return
@@ -244,9 +245,50 @@ Panel {
   // reload tears the panel down.
   readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
-  readonly property var settingsRows: Model.settingsPageRows({
+  // ---- Connection (a settings scope): this computer, pairing, adding ----
+  // Checks the user chose not to fix (a firewall on a Bluetooth-only
+  // machine): they no longer light the gear's dot.
+  readonly property var ignoredChecks: {
+    var v = setting("ignoredChecks", [])
+    return Array.isArray(v) ? v : []
+  }
+  readonly property var setupChecks: phone ? phone.setupChecks : []
+  readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
+  function ignoreCheck(key, on) {
+    var next = ignoredChecks.filter(function(k) { return k !== key })
+    if (on) next.push(key)
+    persistSettings({ ignoredChecks: next.length > 0 ? next : undefined })
+  }
+  // Nothing to show on the main page without them: KDE Connect down (the
+  // panel opens on Connection, what is broken), or nothing paired (it opens
+  // on Add a device, what to do next).
+  readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? "connection" : (pairedDevices.length === 0 ? "addDevice" : ""))
+  // The viewed device away: where it was and what Reconnect found.
+  readonly property var awayInfo: Model.awayState(device, phone ? phone.setupNetwork : "", phone ? phone.searchedAt : 0,
+                                                  phone ? phone.awayClock : Date.now())
+  function openConnection() {
+    if (!settingsOpen) openSettings()
+    openScope("connection")
+  }
+  function openAddDevice() {
+    if (!settingsOpen) openSettings()
+    openScope("addDevice")
+  }
+  // While Add a device shows, it looks for new devices.
+  Timer {
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice"
+    interval: 30000
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (root.phone) root.phone.searchDevices(true)
+  }
+
+  readonly property var settingsRows: settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+    : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
+    : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
+    connection: Model.connectionSummary(setupChecks, ignoredChecks),
     devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
@@ -785,6 +827,8 @@ Panel {
     else if (row.kind === "editPage") { if (editingDevice && scopeDevice) phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
+    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
+    else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1070,6 +1114,8 @@ Panel {
     pageMenuOpen = false
     // The device asked for (a chip, IPC), else the first connected one.
     if (phone) phone.viewOnOpen()
+    // A paired device that is away is looked for once (Service.searchIfAway).
+    if (phone) phone.searchIfAway()
     deviceSwap.stop()
     pendingDevice = ""
     // Positions are kept current while closed (Service), but re-read now too,
@@ -1079,6 +1125,8 @@ Panel {
     browsedName = ""
     settingsOpen = false
     messagesOpen = false
+    // Nothing paired, or KDE Connect down: straight to Connection.
+    if (openingScope !== "") { settingsOpen = true; settingsScope = openingScope; settingsIndex = 0 }
     snapPage()
     replyingTo = ""
     replyFocused = false
@@ -1119,6 +1167,8 @@ Panel {
     // For checking the transitions: open a page as a click would.
     function page(name: string): string {
       if (name === "settings") root.openSettings()
+      else if (name === "connection") root.openConnection()
+      else if (name === "addDevice") root.openAddDevice()
       else if (name === "messages") root.openMessagesView(-1)
       else { root.settingsOpen = false; root.messagesOpen = false }
       return root.targetPage
@@ -1126,18 +1176,36 @@ Panel {
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
-    // Sample failing checks, to look at the fix buttons (replaced by the next
-    // real check within 10 s).
+    // Demo: sample failing checks on this computer, to look at the fixes and
+    // the gear's dot (kept until `live`; a demo starts if none runs).
     function demoSetup(): string {
       if (!root.phone) return "no service"
+      if (!root.phone.demo) root.enterDemo("")
+      root.phone.demoChecks = true
+      root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.setupChecks = [
-        { key: "installed", ok: true, label: "KDE Connect installed", detail: "", fix: "", fixLabel: "" },
-        { key: "running", ok: false, label: "KDE Connect running", detail: "It starts at login; it is not running now", fix: "start", fixLabel: "Start" },
-        { key: "firewall", ok: false, label: "Firewall lets devices in", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
-        { key: "paired", ok: false, label: "A device is paired", detail: "Open KDE Connect on the phone or tablet and pair it with this computer", fix: "", fixLabel: "" }
+        { key: "installed", ok: true, label: "KDE Connect installed", status: "Installed", detail: "", fix: "", fixLabel: "" },
+        { key: "running", ok: true, label: "KDE Connect running", status: "Running", detail: "", fix: "", fixLabel: "" },
+        { key: "firewall", ok: false, label: "Firewall lets devices in", status: "Closed", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
+        { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" }
       ]
+      return JSON.stringify({ issues: root.computerIssues })
+    }
+    // Demo: the phone away, last seen 12 minutes ago on this network.
+    function demoAway(): string {
+      if (!root.phone) return "no service"
+      root.enterDemo("away")
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.searchedAt = 0
       return "ok"
     }
+    // Reconnect on the viewed device, as its button would; what it shows.
+    function reconnect(): string {
+      if (root.phone) root.phone.searchDevices(false)
+      return JSON.stringify(root.awayInfo)
+    }
+    // A check ignored (or not), as its Ignore / Undo would.
+    function ignoreCheck(key: string, on: bool): string { root.ignoreCheck(key, on); return JSON.stringify({ ignored: root.ignoredChecks, issues: root.computerIssues }) }
     // Demo only: press a notification's action as a click would, to check
     // what follows in the panel. Refused on live data, where it would act on
     // the phone.
@@ -1848,10 +1916,11 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: "Settings"
+            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: root.openSettings()
+            onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
+            GearDot { visible: root.computerIssues > 0 }
           }
 
           Flickable {
@@ -2027,7 +2096,8 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
+            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
+                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
@@ -2064,14 +2134,16 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: root.showMain ? "Settings" : "Back"
+                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: {
                     if (root.messagesOpen) root.closeMessagesView()
                     else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+                    else if (root.computerIssues > 0) root.openConnection()
                     else root.openSettings()
                   }
+                  GearDot { visible: root.showMain && root.computerIssues > 0 }
                 }
               }
             }
@@ -2745,38 +2817,71 @@ Panel {
               }
 
               // ---- Away, not paired, or KDE Connect down ----
+              // Away: where it was last seen, and Reconnect, in place (the
+              // search runs here and the result lands here). Nothing paired
+              // or KDE Connect down: the way to Connection.
               Column {
                 id: awayColumn
                 visible: root.showMain && !root.reachable
                 width: parent.width
-                spacing: Style.space(10)
+                spacing: Style.space(8)
+                readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon
 
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
                   wrapMode: Text.WordWrap
-                  color: root.dim
+                  color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   text: {
                     if (!root.phone || !root.snapshot) return "Looking for your devices…"
-                    if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
-                    if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
-                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
+                    if (!root.phone.daemon) return "KDE Connect is not running."
+                    if (!root.device) return "No device is paired yet."
+                    return Model.deviceLabel(root.device) + " is away"
                   }
                 }
 
-                // What stands in the way, with a fix for what can be fixed here.
-                SetupChecks {
-                  visible: !!root.snapshot
-                  width: parent.width
-                  checks: root.phone ? root.phone.setupChecks : []
-                  busyFixes: root.phone ? root.phone.setupFixing : ({})
-                  showPhoneSteps: !root.device
-                  foreground: root.foreground
-                  urgent: root.urgent
-                  fontFamily: root.fontFamily
-                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                Repeater {
+                  model: awayColumn.away ? root.awayInfo.lines : []
+                  Text {
+                    required property string modelData
+                    textFormat: Text.PlainText
+                    width: awayColumn.width
+                    wrapMode: Text.WordWrap
+                    text: modelData
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+
+                Row {
+                  spacing: Style.space(8)
+                  Button {
+                    visible: awayColumn.away
+                    text: root.awayInfo.searching ? "Looking…" : "Reconnect"
+                    iconText: root.awayInfo.searching ? "\u{F0996}" : Model.GLYPH.refresh
+                    iconSpinning: root.awayInfo.searching
+                    enabled: !root.awayInfo.searching
+                    tooltipText: "Looks for it on the network; connected devices stay connected"
+                    bordered: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    onClicked: if (root.phone) root.phone.searchDevices(false)
+                  }
+                  Button {
+                    visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
+                    readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection")
+                    iconText: Model.GLYPH.chevronRight
+                    bordered: true
+                    foreground: root.computerIssues > 0 ? root.urgent : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    onClicked: adding ? root.openAddDevice() : root.openConnection()
+                  }
                 }
               }
 
@@ -2819,7 +2924,7 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
+                scopeKind: root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
@@ -2842,9 +2947,10 @@ Panel {
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
-                setupChecks: root.phone ? root.phone.setupChecks : []
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
+                network: root.phone ? root.phone.setupNetwork : ""
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }
@@ -3012,6 +3118,18 @@ Panel {
       }
       onTranslationChanged: if (active) editTile.order.dragBy(translation.x, translation.y)
     }
+  }
+
+  // A failing check on this computer: a dot on the gear, until it is fixed
+  // or ignored (Connection).
+  component GearDot: Rectangle {
+    anchors.right: parent.right
+    anchors.top: parent.top
+    anchors.margins: Style.space(3)
+    width: Math.max(5, Math.round(Style.font.caption * 0.55))
+    height: width
+    radius: width / 2
+    color: root.urgent
   }
 
   // Editing the bar: an indicator as the bar shows it, with a small caption.
