@@ -32,10 +32,9 @@ PanelWindow {
   property string fontFamily: Style.font.family
   property real motion: 1
 
-  // A device asking to pair, else a pairing this computer asked for (the
-  // device accepts it; the card shows the key to check there, and Cancel).
-  readonly property var request: phone ? (phone.pairingRequest || phone.pairingOut) : null
-  readonly property bool outgoing: !!shown && shown.pairRequestedByPeer !== true
+  // Only a device asking to pair: a pairing started here, from the panel,
+  // is the user's own and stays on its card in the panel (Add a device).
+  readonly property var request: phone ? phone.pairingRequest : null
   // ✕ hides this request's card; a new request shows again.
   property string hiddenId: ""
   // Kept while it fades out, so the text does not blank mid-fade.
@@ -116,8 +115,7 @@ PanelWindow {
           Text {
             Layout.fillWidth: true
             textFormat: Text.PlainText
-            text: popup.outgoing ? "Pairing with " + (popup.shown ? String(popup.shown.name || "a device") : "")
-                                 : (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
+            text: (popup.shown ? String(popup.shown.name || "A device") : "") + " wants to pair"
             color: popup.foreground
             font.family: popup.fontFamily
             font.pixelSize: Style.font.body
@@ -139,14 +137,13 @@ PanelWindow {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignBottom
             key: popup.shown ? String(popup.shown.verificationKey || "") : ""
-            caption: popup.outgoing ? "accept on it if it matches" : "check it matches"
+            caption: "check it matches"
             foreground: popup.foreground
             fontFamily: popup.fontFamily
           }
           Item { Layout.fillWidth: true; visible: !popup.shown || !popup.shown.verificationKey }
           Button {
             Layout.alignment: Qt.AlignBottom
-            visible: !popup.outgoing
             text: popup.waiting ? "Waiting…" : "Accept"
             enabled: !popup.waiting
             bordered: true
@@ -157,7 +154,7 @@ PanelWindow {
           }
           Button {
             Layout.alignment: Qt.AlignBottom
-            text: popup.outgoing ? "Cancel" : "Reject"
+            text: "Reject"
             enabled: !popup.waiting
             foreground: popup.foreground
             fontFamily: popup.fontFamily
