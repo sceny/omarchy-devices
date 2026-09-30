@@ -445,7 +445,9 @@ Item {
       property string key: ""
       property string verb: ""
       property string note: ""
-      interval: 900
+      // A demo device "accepts" a pairing asked here a few seconds after its
+      // key shows, as a real one would once the user taps Accept on it.
+      interval: verb === "paired" ? 3000 : 900
       running: true
       onTriggered: {
         if ((verb === "dismiss" || verb === "action") && root.demo && root.snapshot)
@@ -456,6 +458,17 @@ Item {
           var pcopy = JSON.parse(JSON.stringify(root.snapshot))
           ;(pcopy.devices || []).forEach(function(d) { if (d.id === pid) { d.pairRequested = true; d.verificationKey = "7C192B4D" } })
           root.snapshot = pcopy
+          demoComponent.createObject(root, { key: key, verb: "paired", note: "" })
+        }
+        if (verb === "paired" && root.demo && root.snapshot) {
+          var aid = key.split(":")[1]
+          var acopy = JSON.parse(JSON.stringify(root.snapshot))
+          ;(acopy.devices || []).forEach(function(d) {
+            if (d.id === aid && d.pairRequested === true) { d.pairRequested = false; d.paired = true; d.verificationKey = "" }
+          })
+          root.snapshot = acopy
+          demoClick.destroy()
+          return
         }
         // A demo pairing request answered: accepted, the device is paired;
         // rejected (or a pairing asked here, cancelled), it goes back.

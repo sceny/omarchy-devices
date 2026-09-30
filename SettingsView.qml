@@ -19,6 +19,8 @@ Column {
   property var setupFixing: ({})
   // This computer's network, for Add a device's steps.
   property string network: ""
+  // A pairing that just completed here: ✓ in place of its card, for a moment.
+  property var justPaired: null
   // Folding, like the main page's sections, and remembered the same way.
   property var collapsed: ({})
   property var flags: ({})
@@ -417,6 +419,7 @@ Column {
       rowIndex: index
     }
   }
+  PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "request" }
 
   PanelSectionHeader {
     visible: root.scopeKind === "addDevice"
@@ -464,6 +467,7 @@ Column {
       rowIndex: index
     }
   }
+  PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
 
   Item { width: 1; height: Style.space(2) }
 
@@ -697,6 +701,53 @@ Column {
         font.family: root.fontFamily
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
+      }
+    }
+  }
+
+  // A pairing that just completed: its card, turned ✓, before the panel goes
+  // to the device.
+  component PairedCard: BorderSurface {
+    width: root.width
+    implicitHeight: pairedRow.implicitHeight + 2 * Style.space(12)
+    radius: Style.cornerRadius
+    color: root.panelBackground
+    borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+    RowLayout {
+      id: pairedRow
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(14)
+      anchors.rightMargin: Style.space(12)
+      spacing: Style.space(14)
+      Text {
+        text: root.justPaired ? root.justPaired.glyph : ""
+        color: Color.accent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.display
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(2)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: Model.GLYPH.check + "  Paired with " + (root.justPaired ? root.justPaired.title : "")
+          color: Color.accent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          elide: Text.ElideRight
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: "Opening it…"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
       }
     }
   }

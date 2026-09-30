@@ -274,6 +274,44 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("addDevice")
   }
+  // A pairing on Add a device that completes: its card says so in place
+  // (✓ Paired with …) for a moment, then the panel goes to the device's
+  // page. No toast: the card and the page say it. Adding another is the
+  // gear → Add a device again.
+  property var pairingIds: ({})       // id -> "request" | "available": cards shown here
+  property var justPaired: null       // { id, title, glyph, kind }
+  onSettingsRowsChanged: {
+    if (settingsScope !== "addDevice") return
+    var next = Object.assign({}, pairingIds), changed = false
+    settingsRows.forEach(function(r) {
+      if ((r.kind === "request" || r.kind === "available") && r.pairKey && next[r.id] !== r.kind) { next[r.id] = r.kind; changed = true }
+    })
+    if (changed) pairingIds = next
+  }
+  onPairedDevicesChanged: {
+    if (!opened || !showSettings || settingsScope !== "addDevice") return
+    for (var i = 0; i < pairedDevices.length; i++) {
+      var d = pairedDevices[i], kind = pairingIds[String(d.id)]
+      if (!kind) continue
+      var next = Object.assign({}, pairingIds)
+      delete next[String(d.id)]
+      pairingIds = next
+      justPaired = { id: String(d.id), title: Model.deviceLabel(d), glyph: Model.deviceGlyph(d), kind: kind }
+      pairedMove.restart()
+      return
+    }
+  }
+  Timer {
+    id: pairedMove
+    interval: 1200
+    onTriggered: {
+      var p = root.justPaired
+      root.justPaired = null
+      if (!p || !root.opened || !root.showSettings || root.settingsScope !== "addDevice") return
+      if (root.phone) root.phone.view(p.id)
+      root.closeSettings()
+    }
+  }
   // While Add a device shows, it looks for new devices.
   Timer {
     running: root.opened && root.showSettings && root.settingsScope === "addDevice"
@@ -2946,6 +2984,7 @@ Panel {
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
                 network: root.phone ? root.phone.setupNetwork : ""
+                justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 foreground: root.foreground
