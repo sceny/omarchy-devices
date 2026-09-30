@@ -522,3 +522,44 @@ class ReceivedFolderWatch(unittest.TestCase):
             self.assertIn(("gone", "report.pdf", ""), events)
             watch.sync(set())
             self.assertEqual(watch.monitors, {})
+
+
+class OpenFile(unittest.TestCase):
+    """A file opens in its app as the desktop sees it (GIO, following a
+    type's parents), through uwsm-app; with no app, it is shown in Files."""
+
+    def run_open(self, path, app):
+        launched = []
+        saved = bridge.default_app
+        bridge.default_app = lambda p: app
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")), contextlib.redirect_stderr(open(os.devnull, "w")):
+                code = bridge.open_file(path, launch=launched.append)
+        finally:
+            bridge.default_app = saved
+        return code, launched
+
+    def test_with_an_app_it_opens_through_uwsm(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "a b#1.json")
+            open(f, "w").close()
+            code, launched = self.run_open(f, object())
+            self.assertEqual(code, bridge.EXIT_OK)
+            self.assertEqual(launched, [["uwsm-app", "--", "gio", "open", f]])
+
+    def test_without_an_app_it_is_shown_in_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "a b#1.xyz")
+            open(f, "w").close()
+            code, launched = self.run_open(f, None)
+            self.assertEqual(code, bridge.EXIT_CANCELLED)
+            self.assertEqual(launched[0][:4], ["uwsm-app", "--", "nautilus", "--select"])
+            self.assertTrue(launched[0][4].endswith("/a%20b%231.xyz"), "each part encoded apart")
+
+    def test_a_gone_file_opens_nothing(self):
+        code, launched = self.run_open("/nowhere/at/all.pdf", object())
+        self.assertEqual((code, launched), (bridge.EXIT_FAILED, []))
+
+    def test_json_is_text_to_gio(self):
+        self.assertTrue(bridge.Gio.content_type_is_a("application/json", "text/plain"),
+                        "why GIO finds a text editor for JSON where xdg-open finds nothing")

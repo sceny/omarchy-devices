@@ -779,11 +779,15 @@ Item {
   }
   // Opening, as Omarchy's own panels do: through uwsm-app, so the app runs
   // as the user's (its own scope, like one from the launcher), not as a
-  // child of the shell. A file opens in its default app; Show in folder is
-  // the file manager with the file selected.
+  // child of the shell. The bridge picks the app as GIO does, as Files does
+  // (a type's parents count: JSON is text), where xdg-open looks up the
+  // exact type only and opens nothing; with no app for the type, it shows
+  // the file in Files and the toast says so. Show in folder is Files with
+  // the file selected.
   function openPath(path) {
     if (!path) return
-    Quickshell.execDetached(["uwsm-app", "--", "xdg-open", String(path)])
+    var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
+    proc.running = true
   }
   function revealPath(path) {
     if (!path) return
