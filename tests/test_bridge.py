@@ -759,7 +759,7 @@ class OpenFromDevice(unittest.TestCase):
 
     def test_opening_with_local_opens_the_copy(self):
         with tempfile.TemporaryDirectory() as d:
-            src = os.path.join(d, "IMG_1.jpg")
+            src = os.path.join(d, "VID_1.mp4")  # a picture goes the sandboxed way (OpenPicturesSafely)
             open(src, "w").write("x")
             saved = (bridge.state_dir, bridge.default_app)
             bridge.state_dir = lambda: os.path.join(d, "state")
@@ -771,6 +771,39 @@ class OpenFromDevice(unittest.TestCase):
                 bridge.state_dir, bridge.default_app = saved
             self.assertEqual(ran[0][:4], ["uwsm-app", "--", "gio", "open"])
             self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")), "the copy, not the device's file")
+
+
+class OpenPicturesSafely(unittest.TestCase):
+    """A picture from the device (the gallery, a received one) opens as a
+    copy decoded in the sandbox; anything else as itself."""
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_received_picture_opens_as_a_copy(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            ran = []
+            try:
+                src = os.path.join(d, "IMG_1.png")
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 40, 30)
+                pix.fill(0x3366ccff)
+                pix.savev(src, "png", [], [])
+                self.assertEqual(bridge.open_file(src, launch=ran.append, from_device=True), bridge.EXIT_OK)
+                opened = ran[0][4]
+                self.assertTrue(opened.startswith(os.path.join(d, "state", "open")) and opened.endswith(".jpg"))
+                notes = os.path.join(d, "notes.txt")
+                open(notes, "w").write("x")
+                bridge.open_file(notes, launch=ran.append, from_device=True)
+                self.assertEqual(ran[1][4], notes, "not a picture: as itself")
+                bad = os.path.join(d, "bad.jpg")
+                open(bad, "wb").write(b"\xff\xd8 not really")
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    self.assertEqual(bridge.open_file(bad, launch=ran.append, from_device=True), bridge.EXIT_FAILED)
+                self.assertEqual(len(ran), 2, "not readable: not opened")
+            finally:
+                bridge.state_dir, bridge.default_app = saved
 
 
 class ReceivedFolderWatch(unittest.TestCase):

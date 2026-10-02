@@ -122,7 +122,7 @@ Panel {
   function openReceived(entry) {
     if (!entry) return
     if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
-    if (phone) phone.openPath(entry.path)
+    if (phone) phone.openPath(entry.path, true)
   }
   function showReceivedFolder(entry) {
     if (!entry) return

@@ -211,10 +211,11 @@ Keep them; change one only with the owner.
   output). The shell loads only images the bridge wrote from the decoded
   pixels (`safe/`, Gallery thumbnails, `sms/preview_*`); a QML `Image`
   never points at a file the device sent. With no sandbox, there is no
-  picture, never an unsandboxed decode. A picture message's picture opened
-  full size is a JPEG made the same way (`open/`); one that does not
-  decode is not opened. Other files open in their app (a click), the
-  user's own choice of app, as in Files.
+  picture, never an unsandboxed decode. A picture opened full size (a
+  gallery tile, a received picture, a picture message's) is a JPEG made
+  the same way (`open/`); one that does not decode is not opened. Other
+  files open in their app (a click), the user's own choice of app, as in
+  Files.
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step

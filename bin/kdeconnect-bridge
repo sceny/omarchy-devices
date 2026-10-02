@@ -1001,15 +1001,23 @@ def trim_cache(cache, limit, keep=None):
             total -= size
 
 
-def open_file(path, launch=None, local=False):
+def open_file(path, launch=None, local=False, from_device=False):
     """Opens a file in its app, as Omarchy launches apps (uwsm-app), or
     when no app can open its type, shows it selected in Files and says so.
-    `launch` runs a command (replaced in tests)."""
+    A file from the device (`local`: read over its storage; `from_device`:
+    received) that is a picture opens as a copy decoded in the sandbox
+    (safe_full_picture), never as the device's bytes; one that does not
+    decode is not opened. `launch` runs a command (replaced in tests)."""
     launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     if not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
-    if local and os.path.isfile(path):
+    if (local or from_device) and os.path.isfile(path) and os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
+        copy = safe_full_picture(path)
+        if not copy:
+            return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
+        path = copy
+    elif local and os.path.isfile(path):
         try:
             path = local_copy(path)
         except OSError as error:
@@ -1919,7 +1927,7 @@ def main(argv):
         save_received(path, entries)
         return EXIT_OK
     if argv[0] == "open-file":
-        return open_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:])
+        return open_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:], from_device="--from-device" in argv[2:])
     if argv[0] == "safe-image":
         # A safe copy of an image from the device (a track's art), for the
         # panel to show: its path, or nothing.
