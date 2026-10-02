@@ -1778,8 +1778,16 @@ function receivedSummary(received) {
 // Demo: photos from the one local demo picture, each a different part of it
 // (`clip`: x, y, w, h as fractions), so a screenshot shows four of them;
 // and two received files that exist nowhere (demo only opens nothing).
-function demoPhotos(picture, nowMs) {
+function demoPhotos(picture, nowMs, gallery) {
   var now = nowMs === undefined ? Date.now() : nowMs
+  // Pictures put in the demo's gallery folder (not in the repository): up
+  // to eight, two rows, the second one shown as a video.
+  if (gallery && gallery.length > 0) {
+    return gallery.slice(0, 8).map(function(path, i) {
+      return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: path, thumb: path, at: now - (i * 7 + 2) * 60000,
+               album: i % 4 === 2 ? "Screenshots" : "Camera", video: i === 1, demo: true }
+    })
+  }
   var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
   return clips.map(function(c, i) {
     return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,

@@ -1,4 +1,5 @@
 import QtQuick
+import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
 import Quickshell.Services.Mpris
@@ -709,7 +710,22 @@ Item {
   // them. Per device: { loading, ok, missing, error, photos, at }.
   property var photoState: ({})
   readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
-  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
+  // The demo's own gallery pictures, if any were put there (not in the
+  // repository): ~/.cache/sceny.devices/demo/gallery/, in name order.
+  property var demoGallery: []
+  FolderListModel {
+    id: demoGalleryFolder
+    folder: "file://" + smsService.cacheBase + "/demo/gallery"
+    nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.webp"]
+    showDirs: false
+    sortField: FolderListModel.Name
+    onCountChanged: {
+      var files = []
+      for (var i = 0; i < count; i++) files.push(String(get(i, "filePath")))
+      root.demoGallery = files
+    }
+  }
+  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture, undefined, demoGallery),
       albums: [{ name: "Camera", path: "/demo/DCIM/Camera", count: 842 }, { name: "Screenshots", path: "/demo/Pictures/Screenshots", count: 211 },
                { name: "WhatsApp Images", path: "/demo/WhatsApp Images", count: 96 }, { name: "WhatsApp Video", path: "/demo/WhatsApp Video", count: 41 },
                { name: "Download", path: "/demo/Download", count: 18 }] }
