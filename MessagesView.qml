@@ -485,7 +485,7 @@ Item {
           onTextChanged: if (view.sms) view.sms.setQuery(text)
           onAccepted: { if (view.shown && view.shown.count > 0) view.openThread(view.shown.get(0).tid, true) }
           escapeStep: "clear"
-          onLeft: focus = false
+          onSteppedOut: focus = false
           Keys.onDownPressed: { focus = false; view.cursorTo(0) }
         }
 
@@ -725,7 +725,7 @@ Item {
             escapeStep: "clear"
             floating: view.suggestions.length > 0 && text.trim() !== ""
             onCloseFloating: view.suggestions = []
-            onLeft: view.goBack()
+            onSteppedOut: view.goBack()
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {
@@ -982,7 +982,7 @@ Item {
             font.family: view.fontFamily
             onAccepted: view.sendComposer()
             // Esc leaves the reply; the draft stays.
-            onLeft: view.blurComposer()
+            onSteppedOut: view.blurComposer()
           }
           // A new conversation waits for its thread to show up; the button
           // is the ring meanwhile.

@@ -2943,7 +2943,7 @@ Panel {
                         font.family: root.fontFamily
                         onActiveFocusChanged: root.composerFocused = activeFocus
                         // Esc closes it; the text stays for next time.
-                        onLeft: root.closeComposer()
+                        onSteppedOut: root.closeComposer()
                         // Enter is taken here, not in onAccepted: TextInput passes
                         // it on, and the key catcher would run the tile again.
                         Keys.onPressed: function(event) {
@@ -4773,7 +4773,7 @@ Panel {
             font.family: root.fontFamily
             onActiveFocusChanged: root.replyFocused = activeFocus
             // Esc closes the reply; what was written stays (it threw it away).
-            onLeft: root.closeReply()
+            onSteppedOut: root.closeReply()
             onAccepted: {
               if (text.trim() === "") return
               root.phone.reply(row.note, text)

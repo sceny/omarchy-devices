@@ -8,7 +8,7 @@ import qs.Ui
 // 2. else the field's own step (`escapeStep`): "keep" (a draft stays: a reply, a text to
 //    send), "clear" (a search empties first), or "revert" (a setting goes
 //    back to `savedText`);
-// 3. then the field is left (`left`): its owner releases the focus, and the
+// 3. then the field is left (`steppedOut`): its owner releases the focus, and the
 //    page's own Esc takes over from there.
 // Fields set these, never their own Keys.onEscapePressed.
 TextField {
@@ -17,12 +17,12 @@ TextField {
   property string savedText: ""
   property bool floating: false
   signal closeFloating()
-  signal left()
+  signal steppedOut()
 
   Keys.onEscapePressed: {
     if (floating) { closeFloating(); return }
     if (escapeStep === "clear" && text !== "") { text = ""; return }
     if (escapeStep === "revert") text = savedText
-    left()
+    steppedOut()
   }
 }

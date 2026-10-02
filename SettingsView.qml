@@ -1061,7 +1061,7 @@ Column {
           // Esc puts the saved nickname back and leaves.
           escapeStep: "revert"
           savedText: idRow.row.value || ""
-          onLeft: root.nicknameFocus(false)
+          onSteppedOut: root.nicknameFocus(false)
         }
 
         Text {
