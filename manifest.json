@@ -89,9 +89,9 @@
       {
         "key": "showPhotos",
         "type": "boolean",
-        "label": "Show photos",
+        "label": "Show gallery",
         "defaultValue": true,
-        "description": "The device's newest photos and screenshots. Hidden while there are none."
+        "description": "The device's newest photos and videos. Hidden while there are none."
       },
       {
         "key": "sectionOrder",

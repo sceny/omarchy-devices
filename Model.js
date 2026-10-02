@@ -37,6 +37,7 @@ var GLYPH = {
   newMessage: "\u{F0653}",   // message-plus
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
+  folderOpen: "\u{F0770}",   // folder-open: shown in Files
   file: "\u{F021F}",         // file-image
   document: "\u{F0219}",     // file-document: a received file that is not a picture
   download: "\u{F01DA}",     // download: save a copy of a photo here
@@ -136,7 +137,7 @@ var LAYOUT = [
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
   { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
-  { key: "showPhotos", section: "photos", label: "Photos", hint: "Its newest photos and screenshots" }
+  { key: "showPhotos", section: "photos", label: "Gallery", hint: "Its newest photos and videos" }
 ]
 
 // A section added in a release joins a saved order at its default place
@@ -1655,7 +1656,7 @@ var SECTION_EMPTY = {
   actions: "No shortcuts: add some below",
   media: "Shows while the device plays something",
   notifications: "Shows while there are notifications",
-  photos: "Shows its newest photos and screenshots",
+  photos: "Shows its newest photos and videos",
   received: "Shows the files it sends you"
 }
 

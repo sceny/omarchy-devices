@@ -70,12 +70,13 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   watched: a file renamed there is followed, and one deleted or moved away
   leaves the list at once (where the system allows a watch; otherwise
   within 30 s). Gone while there are none.
-- Photos (#65): a section with the device's newest photos and videos,
-  from every album where a phone keeps its gallery (`DCIM`, `Pictures`,
-  `Movies`; a folder marked `.nomedia` is left out, as the phone's gallery
-  does): click to open (a video plays); from a corner, copy it or save a
+- Gallery (#65): a section with the device's newest photos and videos,
+  found as the phone's own gallery finds them (all of its shared storage,
+  WhatsApp's included; hidden and `.nomedia` folders and apps' private
+  ones left out), each folder an album; each folder's listing is kept, so
+  only what changed is read again: click to open (a video plays); from a corner, copy it or save a
   copy in Pictures/<device>, with its own date and only once; drag it
-  into a window. The biggest albums open in the file manager, wherever the
+  into a window. The biggest albums open in the file manager (a folder icon), wherever the
   phone keeps them. When the storage cannot be opened, the section says
   so with *Try again*, and asks again by itself only after 10 minutes, so
   KDE Connect's error does not pop up on every open (#100). The last photos show at once when the

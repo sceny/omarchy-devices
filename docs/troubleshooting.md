@@ -9,8 +9,8 @@
 | No notifications | Notification access for KDE Connect on the phone. |
 | Numbers instead of names | The contacts permission on the phone. |
 | No calls | The phone and call log permissions for KDE Connect on the phone. |
-| No photos | *Install* sshfs from the Photos section; allow storage access in the app. |
-| A photo is missing | Photos reads `DCIM`, `Pictures` and `Movies`; files in `Download` or an app's own folder (WhatsApp) are not in it. |
+| No gallery | *Install* sshfs from the Gallery section; allow storage access in the app. |
+| A photo is missing | Gallery shows what the phone's gallery does; a folder marked hidden or `.nomedia` is left out. The first look takes up to a minute. |
 | A notification you never see on the phone | KDE Connect forwarded a hidden one (below). |
 
 ## What KDE Connect cannot do

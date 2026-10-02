@@ -42,6 +42,7 @@ out (closed the file chooser), 2 on failure.
 """
 
 import base64
+import concurrent.futures
 import hashlib
 import html
 import ipaddress
@@ -357,22 +358,28 @@ def with_seen(snap, seen):
 # cache (received-<device>.json; file paths are private, so not shell.json).
 # An entry goes when the user dismisses it or its file is gone.
 #
-# Photos (#65): the device's storage, mounted by KDE Connect's sftp plugin
-# (sshfs), read when the panel asks: the newest photos and videos where a
-# phone keeps its gallery (DCIM, Pictures, Movies), album by album, with
-# thumbnails cached here. Download and Android/ hold other apps' files, not
-# the gallery; a hidden folder, or one marked .nomedia, is not in it either.
-
+# Gallery (#65): the device's storage, mounted by KDE Connect's sftp plugin
+# (sshfs), read when the panel asks: the newest photos and videos as the
+# phone's own gallery finds them. Android's media index (MediaStore) holds
+# every image and video in shared storage except in hidden folders, folders
+# marked .nomedia, and Android/data and Android/obb (apps' private files);
+# an item's album is the folder that holds it (its "bucket"). Thumbnails are
+# cached here.
+#
 RECEIVED_MAX = 50
-MEDIA_ROOTS = ["DCIM", "Pictures", "Movies"]
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".dng", ".jxl")
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".webm")
 PHOTO_COUNT = 8
-# Every folder is a round trip to the phone: the walk stops this deep, after
-# this many entries, or after this long, and keeps what it found.
-MEDIA_DEPTH = 3
-MEDIA_SCAN_MAX = 20000
-MEDIA_SCAN_SEC = 8
+# Apps' private folders, under a storage root: not in the gallery.
+MEDIA_SKIP = ("Android/data", "Android/obb")
+# Every folder is a round trip to the phone, so each one's listing is kept
+# (media-dirs.json) and listed again only when its date changed (a file
+# added, removed or renamed in it). The first look lists everything, in at
+# most MEDIA_SCAN_SEC; what it did not reach is read on the next look.
+MEDIA_DEPTH = 12
+MEDIA_SCAN_SEC = 60
+MEDIA_THREADS = 16
+MEDIA_DIRS = "media-dirs.json"
 ALBUM_LINKS = 3
 MOUNT_TIMEOUT_MS = 30000
 
@@ -499,57 +506,89 @@ def media_kind(name):
     return None
 
 
-def scan_media(roots, depth=MEDIA_DEPTH, limit=MEDIA_SCAN_MAX, seconds=MEDIA_SCAN_SEC, clock=time.monotonic):
-    """Every photo and video under DCIM, Pictures and Movies of the mounted
-    storage roots (sftp's getDirectories): ([{path, name, at, album, video}],
-    {album: {name, path, count}}). The album is the folder right under the
-    top one (DCIM/Camera is Camera); a file in the top folder is in its
-    album. A root that is itself a media folder (some phones list
-    DCIM/Camera apart) is read once."""
-    found, albums, visited = [], {}, set()
-    budget = {"left": limit, "until": clock() + seconds}
+def scan_media(roots, known=None, depth=MEDIA_DEPTH, seconds=MEDIA_SCAN_SEC, clock=time.monotonic):
+    """Every photo and video in the mounted storage roots (sftp's
+    getDirectories), as the phone's gallery finds them: (found, albums,
+    folders, complete). found: [{path, name, at, album, video}], newest
+    first; albums: {folder: {name, path, count}}; folders: each folder's
+    listing, {path: {m, n, f: [[name, at, video]], d: [names]}}, to pass back
+    as `known` next time, when a folder whose date is the same is not listed
+    again. Out of time, a folder already known is taken as it was; one never
+    listed is left out and `complete` is false. A root inside another (some
+    phones list DCIM/Camera apart) is read once."""
+    known = known or {}
+    folders, visited = {}, set()
+    until = clock() + seconds
+    complete = [True]
 
-    def walk(folder, album, album_path, level):
-        real = os.path.realpath(folder)
-        if real in visited or budget["left"] <= 0 or clock() > budget["until"]:
-            return
-        visited.add(real)
-        try:
-            with os.scandir(folder) as it:
-                entries = list(it)
-        except OSError:
-            return
+    def listing(folder):
+        with os.scandir(folder) as it:
+            entries = list(it)
         if any(e.name == ".nomedia" for e in entries):
-            return
-        budget["left"] -= len(entries)
+            return {"n": True, "f": [], "d": []}
+        files, dirs = [], []
         for e in entries:
             if e.name.startswith("."):
                 continue
             try:
-                if e.is_dir():
-                    if level < depth:
-                        walk(e.path, album or e.name, album_path or e.path, level + 1)
+                if e.is_dir(follow_symlinks=False):
+                    dirs.append(e.name)
                     continue
-                kind = media_kind(e.name) if e.is_file() else None
-                if kind is None:
-                    continue
-                at = int(e.stat().st_mtime * 1000)
+                kind = media_kind(e.name) if e.is_file(follow_symlinks=False) else None
+                if kind:
+                    files.append([e.name, int(e.stat().st_mtime * 1000), kind == "video"])
             except OSError:
                 continue
-            name = album or os.path.basename(folder)
-            entry = albums.setdefault(name, {"name": name, "path": album_path or folder, "count": 0})
-            entry["count"] += 1
-            found.append({"path": e.path, "name": e.name, "at": at, "album": name, "video": kind == "video"})
+        return {"n": False, "f": files, "d": sorted(dirs)}
 
-    tops = [(r, [t for t in MEDIA_ROOTS if os.path.isdir(os.path.join(r, t))]) for r in roots]
-    for root, names in sorted(tops, key=lambda rt: not rt[1]):
-        if names:
-            for t in names:
-                walk(os.path.join(root, t), None, None, 1)
-        else:
-            walk(root, os.path.basename(root.rstrip("/")), root, 1)
+    def resolve(folder):
+        """The folder's listing: the known one while its date is the same,
+        else read again; None when it cannot be read or was never read in
+        time."""
+        entry = known.get(folder)
+        if clock() > until:
+            # Taken as it was: a folder added since is not seen this time.
+            complete[0] = False
+            return entry
+        try:
+            mtime = os.stat(folder).st_mtime_ns
+            if entry is None or entry.get("m") != mtime:
+                entry = dict(listing(folder), m=mtime)
+        except OSError:
+            return None
+        return entry
+
+    # Level by level, each level's folders at once: every check is a round
+    # trip to the phone, and sshfs answers many together.
+    level = [(root.rstrip("/") or "/", "") for root in sorted(roots, key=len)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MEDIA_THREADS) as pool:
+        for depth_now in range(depth + 1):
+            level = [(f, rel) for f, rel in level if f not in visited and not visited.add(f)]
+            if not level:
+                break
+            entries = list(pool.map(lambda fr: resolve(fr[0]), level))
+            below = []
+            for (folder, rel), entry in zip(level, entries):
+                if entry is None:
+                    continue
+                folders[folder] = entry
+                if depth_now < depth:
+                    for name in entry["d"]:
+                        sub = rel + "/" + name if rel else name
+                        if sub not in MEDIA_SKIP:
+                            below.append((os.path.join(folder, name), sub))
+            level = below
+
+    found, albums = [], {}
+    for folder, entry in folders.items():
+        if entry.get("n") or not entry["f"]:
+            continue
+        name = os.path.basename(folder)
+        albums[folder] = {"name": name, "path": folder, "count": len(entry["f"])}
+        for fname, at, video in entry["f"]:
+            found.append({"path": os.path.join(folder, fname), "name": fname, "at": at, "album": name, "video": video})
     found.sort(key=lambda p: (-p["at"], p["name"]))
-    return found, albums
+    return found, albums, folders, complete[0]
 
 
 def album_links(albums, count=ALBUM_LINKS):
@@ -600,10 +639,17 @@ def photos(device_id, count=PHOTO_COUNT):
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
-    every, albums = scan_media(roots)
-    found = every[:count]
     cache = photos_cache(device_id)
-    keep = {PHOTO_LIST}
+    dirs_path = os.path.join(cache, MEDIA_DIRS)
+    try:
+        with open(dirs_path) as f:
+            known = json.load(f)
+    except (OSError, ValueError):
+        known = {}
+    every, albums, folders, complete = scan_media(roots, known if isinstance(known, dict) else {})
+    save_received(dirs_path, folders)
+    found = every[:count]
+    keep = {PHOTO_LIST, MEDIA_DIRS}
     for p in found:
         name = thumb_name(p)
         keep.add(name)
@@ -617,7 +663,7 @@ def photos(device_id, count=PHOTO_COUNT):
                 pass
     save_received(os.path.join(cache, PHOTO_LIST), found)
     # The biggest albums, for the links that open them in the file manager.
-    return {"ok": True, "photos": found, "albums": album_links(albums)}
+    return {"ok": True, "photos": found, "albums": album_links(albums), "complete": complete}
 
 
 # The last list read from the device, with its thumbnails: the panel shows it

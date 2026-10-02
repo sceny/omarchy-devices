@@ -3004,7 +3004,7 @@ Panel {
                   }
                 }
 
-                // ---- Photos: the newest photos and screenshots on the device
+                // ---- Gallery: the newest photos and videos on the device
                 //      (click opens; copy, save, drag), and a link per folder
                 //      for all of them in the file manager ----
                 Column {
@@ -3053,8 +3053,8 @@ Panel {
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
                         text: root.photoInfo && root.photoInfo.missing === "sshfs"
-                          ? "Photos from " + Model.deviceLabel(root.device) + " need sshfs on this computer"
-                          : "Photos: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
+                          ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
+                          : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
                         color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
@@ -3114,7 +3114,7 @@ Panel {
                         Button {
                           required property var modelData
                           text: modelData.name
-                          iconText: Model.GLYPH.chevronRight
+                          iconText: Model.GLYPH.folderOpen
                           tooltipText: modelData.count + " in " + modelData.name + ": opens the album in your file manager"
                           foreground: root.foreground
                           fontFamily: root.fontFamily
@@ -3766,7 +3766,7 @@ Panel {
         }
       }
       PanelActionButton {
-        iconText: "\u{F0770}"
+        iconText: Model.GLYPH.folderOpen
         tooltipText: "Show in Files"
         foreground: root.foreground
         fontFamily: root.fontFamily
