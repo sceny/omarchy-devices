@@ -738,9 +738,10 @@ Item {
   // A copy of a photo in Pictures/<device>/; the toast says where.
   function savePhoto(path) {
     if (demo) { report("Demo: a made-up photo", false); return }
-    if (!device || isBusy("save")) return
-    setBusy("save", true)
-    var proc = actionComponent.createObject(root, { key: "save", command: [bridge, "save-file", path, Model.deviceLabel(device)] })
+    var key = "save:" + String(path)
+    if (!device || isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "save-file", path, Model.deviceLabel(device)] })
     proc.running = true
   }
   Component {
@@ -813,9 +814,10 @@ Item {
   // The file on the clipboard (an image as image data).
   function copyFile(path) {
     if (demo) { report("Copied", false); return }
-    if (isBusy("copy")) return
-    setBusy("copy", true)
-    var proc = actionComponent.createObject(root, { key: "copy", command: [bridge, "copy-file", path] })
+    var key = "copy:" + String(path)
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", path] })
     proc.running = true
   }
 

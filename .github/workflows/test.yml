@@ -13,7 +13,7 @@ jobs:
         with:
           node-version: 22
       - name: PyGObject for the bridge
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi gir1.2-gdkpixbuf-2.0
       - name: Model
         run: node --test tests/*.test.js
       - name: Bridge

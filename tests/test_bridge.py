@@ -9,6 +9,8 @@ import contextlib
 import importlib.machinery
 import importlib.util
 import os
+import subprocess
+import shutil
 import tempfile
 import unittest
 
@@ -497,6 +499,94 @@ class PhotoCacheAndSave(unittest.TestCase):
                 self.assertEqual(sorted(os.listdir(folder)), ["IMG_1 (2).jpg", "IMG_1.jpg"], "another file beside it")
             finally:
                 bridge.pictures_dir = saved
+
+
+def has_gdkpixbuf():
+    try:
+        import gi
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf  # noqa: F401
+        return True
+    except (ImportError, ValueError):
+        return False
+
+
+def sandbox_works():
+    if not (shutil.which("bwrap") and shutil.which("ffmpeg") and shutil.which("ffmpegthumbnailer")):
+        return False
+    return subprocess.run(["bwrap", "--unshare-all", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib",
+                           "--symlink", "usr/lib64", "/lib64", "--", "/usr/bin/true"], capture_output=True).returncode == 0
+
+
+class SandboxedThumbs(unittest.TestCase):
+    """A file from the device is decoded only in a sandbox; what the shell
+    loads is a JPEG written here from its pixels."""
+
+    def test_the_sandbox_shows_only_the_one_file(self):
+        args = bridge.sandbox_args(["/usr/bin/ffmpegthumbnailer"], {"/run/user/1/dev/v.mp4": "/in/video"}, "/c/work")
+        self.assertEqual(args[0], "bwrap")
+        for flag in ("--unshare-all", "--die-with-parent", "--new-session", "--clearenv"):
+            self.assertIn(flag, args)
+        binds = [args[i + 1] for i, a in enumerate(args) if a in ("--bind", "--ro-bind", "--ro-bind-try")]
+        self.assertEqual(sorted(binds), sorted(["/usr", "/etc/ld.so.cache", "/run/user/1/dev/v.mp4", "/c/work"]),
+                         "nothing of the user's but the file and the work folder")
+        i = args.index("/run/user/1/dev/v.mp4")
+        self.assertEqual(args[i - 1], "--ro-bind", "the file is read-only")
+
+    def test_a_video_without_the_sandbox_gets_no_thumbnail(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "v.mp4")
+            open(src, "w").write("x")
+            saved = bridge.shutil.which
+            bridge.shutil.which = lambda name: None
+            try:
+                self.assertFalse(bridge.make_thumb(src, os.path.join(d, "t.jpg"), video=True))
+            finally:
+                bridge.shutil.which = saved
+            self.assertEqual(sorted(os.listdir(d)), ["v.mp4"], "nothing left behind")
+
+    def test_a_photo_too_big_gets_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "big.jpg")
+            open(src, "w").write("x" * 100)
+            saved = bridge.THUMB_MAX_BYTES
+            bridge.THUMB_MAX_BYTES = 10
+            try:
+                self.assertFalse(bridge.make_thumb(src, os.path.join(d, "t.jpg")))
+            finally:
+                bridge.THUMB_MAX_BYTES = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_photo_becomes_a_new_square_jpeg(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = os.path.join(d, "IMG.png"), os.path.join(d, "t.jpg")
+            for alpha in (False, True):  # a PNG screenshot has alpha; JPEG has none
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, alpha, 8, 600, 300)
+                pix.fill(0x3366ccff)
+                pix.savev(src, "png", [], [])
+                self.assertTrue(bridge.make_thumb(src, dst), "alpha %s" % alpha)
+                self.assertEqual(open(dst, "rb").read(2), b"\xff\xd8", "a JPEG of ours")
+                out = GdkPixbuf.Pixbuf.new_from_file(dst)
+                self.assertEqual((out.get_width(), out.get_height()), (256, 256))
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_something_that_is_not_an_image_gets_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "IMG.jpg")
+            open(src, "wb").write(b"\xff\xd8not really")
+            self.assertFalse(bridge.make_thumb(src, os.path.join(d, "t.jpg")))
+            self.assertFalse(os.path.exists(os.path.join(d, "t.jpg.part")))
+
+    @unittest.skipUnless(has_gdkpixbuf() and sandbox_works(), "bwrap, ffmpeg, ffmpegthumbnailer")
+    def test_a_video_frame_comes_out_of_the_sandbox(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = os.path.join(d, "VID.mp4"), os.path.join(d, "t.jpg")
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc=duration=2:size=320x240:rate=10",
+                            "-pix_fmt", "yuv420p", src], check=True)
+            self.assertTrue(bridge.make_thumb(src, dst, video=True))
+            self.assertEqual(open(dst, "rb").read(2), b"\xff\xd8")
+            self.assertEqual(sorted(os.listdir(d)), ["VID.mp4", "t.jpg"], "the work folder is gone")
 
 
 class OpenFromDevice(unittest.TestCase):

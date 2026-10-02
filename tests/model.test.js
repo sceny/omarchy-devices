@@ -676,6 +676,21 @@ test("files: a section of its own, joining saved orders at the end; sizes, image
   assert.equal(M.photosSummary([{}, {}]), "2 photos")
   assert.equal(M.photosSummary([{}, { video: true }]), "1 photo, 1 video")
   assert.equal(M.photosSummary([{ video: true }, { video: true }]), "2 videos")
+  const apply = (keys, ops) => {
+    const cur = keys.slice()
+    ops.forEach(o => {
+      if (o.op === "remove") cur.splice(o.at, 1)
+      else if (o.op === "move") cur.splice(o.to, 0, cur.splice(o.from, 1)[0])
+      else cur.splice(o.at, 0, o.key)
+    })
+    return cur
+  }
+  for (const [from, to] of [[["a", "b", "c", "d"], ["a", "c", "d", "e"]], [["a", "b"], ["c", "a", "b"]],
+                            [["a", "b", "c"], ["c", "b", "a"]], [[], ["a", "b"]], [["a", "b"], []]]) {
+    assert.deepEqual(apply(from, M.listOps(from, to)), to, from.join("") + " -> " + to.join(""))
+  }
+  assert.deepEqual(M.listOps(["a", "b", "c", "d"], ["a", "c", "d", "e"]), [{ op: "remove", at: 1 }, { op: "insert", at: 3, key: "e" }],
+    "one gone: the rest stay (they glide), one new at the end")
   const a = [{ path: "/p/1.jpg", at: 1, thumb: "/t/1.jpg" }]
   assert.equal(M.photosKey(a), M.photosKey(JSON.parse(JSON.stringify(a))), "the same photos in a new list: the same tiles")
   assert.notEqual(M.photosKey(a), M.photosKey([{ path: "/p/1.jpg", at: 1, thumb: "" }]), "a thumbnail arriving redraws")

@@ -80,6 +80,21 @@ Panel {
     onTriggered: { root.shownPhotos = []; root.photosFading = false; root.photosClosing = false }
   }
   readonly property var photos: shownPhotos
+  // The tiles, one per photo, changed in place (Model.listOps) so they glide.
+  ListModel { id: photoModel }
+  onShownPhotosChanged: {
+    var keys = shownPhotos.map(Model.photoIdentity), old = []
+    for (var i = 0; i < photoModel.count; i++) old.push(photoModel.get(i).key)
+    Model.listOps(old, keys).forEach(function(o) {
+      if (o.op === "remove") photoModel.remove(o.at, 1)
+      else if (o.op === "move") photoModel.move(o.from, o.to, 1)
+      else photoModel.insert(o.at, { key: o.key, json: JSON.stringify(shownPhotos[o.at]) })
+    })
+    for (var j = 0; j < shownPhotos.length; j++) {
+      var json = JSON.stringify(shownPhotos[j])
+      if (photoModel.get(j).json !== json) photoModel.setProperty(j, "json", json)
+    }
+  }
   readonly property var photoInfo: phone ? phone.photoInfo : null
   readonly property var received: phone ? phone.received : []
   // Something to show, or a step that makes photos possible (sshfs, the
@@ -3039,6 +3054,8 @@ Panel {
                     title: "GALLERY"
                     canBusy: true
                     busy: !!root.photoInfo && root.photoInfo.loading === true
+                    refreshTip: "Look at the phone again"
+                    onRefreshRequested: if (root.phone) root.phone.refreshPhotos(true)
                     folded: root.isCollapsed("photos")
                     summary: Model.photosSummary(root.photos)
                     onToggled: root.toggleCollapsed("photos")
@@ -3083,25 +3100,54 @@ Panel {
                       }
                     }
 
-                    Grid {
+                    // The tiles are kept, one per photo (photoModel), so a
+                    // photo that goes fades out and the rest glide to their
+                    // new places, one that comes fades in: at the panel's
+                    // pace, and only once the page has settled.
+                    GridView {
                       id: photoGrid
                       visible: root.photos.length > 0
                       opacity: root.photosFading ? 0 : 1
                       Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
-                      width: parent.width
-                      columns: 4
-                      spacing: Style.space(6)
-                      readonly property real cell: (width - spacing * (columns - 1)) / columns
-                      Repeater {
-                        model: root.photos
+                      readonly property int columns: root.photoColumns
+                      readonly property real spacing: Style.space(6)
+                      readonly property real cell: (parent.width - spacing * (columns - 1)) / columns
+                      // A cell is a tile and the gap after it; the last gap
+                      // falls outside the section.
+                      width: parent.width + spacing
+                      height: Math.ceil(count / columns) * cellHeight - spacing
+                      cellWidth: cell + spacing
+                      cellHeight: cell + spacing
+                      interactive: false
+                      model: photoModel
+                      delegate: Item {
+                        required property string json
+                        required property int index
+                        width: photoGrid.cellWidth
+                        height: photoGrid.cellHeight
                         PhotoTile {
-                          required property var modelData
-                          required property int index
                           width: photoGrid.cell
                           height: photoGrid.cell
-                          photo: modelData
-                          place: index
+                          photo: JSON.parse(parent.json)
+                          place: parent.index
                         }
+                      }
+                      add: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      remove: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      displaced: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion }
+                      }
+                      move: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
                       }
                     }
 
@@ -3770,27 +3816,35 @@ Panel {
       onEntered: { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
       onClicked: root.openPhoto(tile.photo)
     }
-    PanelActionButton {
+    // Save and copy read the file over the network: each turns into the
+    // ring while it works, and stays while it does, pointer on the tile or not.
+    readonly property bool saving: !!root.phone && root.phone.isBusy("save:" + String(photo.path || ""))
+    readonly property bool copying: !!root.phone && root.phone.isBusy("copy:" + String(photo.path || ""))
+    WaitButton {
       id: saveTile
       anchors.top: parent.top
       anchors.right: copyTile.left
-      visible: tileHover.hovered
-      iconText: Model.GLYPH.download
+      visible: tileHover.hovered || tile.saving
+      glyph: Model.GLYPH.download
+      waiting: tile.saving
+      motion: root.motion
       tooltipText: "Save a copy in Pictures"
       foreground: "white"
       fontFamily: root.fontFamily
-      onClicked: if (root.phone) root.phone.savePhoto(tile.photo.path)
+      onClicked: if (root.phone && !tile.saving) root.phone.savePhoto(tile.photo.path)
     }
-    PanelActionButton {
+    WaitButton {
       id: copyTile
       anchors.top: parent.top
       anchors.right: parent.right
-      visible: tileHover.hovered
-      iconText: Model.GLYPH.clipboard
+      visible: tileHover.hovered || tile.copying
+      glyph: Model.GLYPH.clipboard
+      waiting: tile.copying
+      motion: root.motion
       tooltipText: tile.photo.video ? "Copy the file" : "Copy the image"
       foreground: "white"
       fontFamily: root.fontFamily
-      onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
+      onClicked: if (root.phone && !tile.copying) root.phone.copyFile(tile.photo.path)
     }
     PanelToolTip {
       visible: tileMouse.containsMouse
