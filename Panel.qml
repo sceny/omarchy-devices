@@ -394,6 +394,11 @@ Panel {
   // ---- Connection (a settings scope): this computer, pairing, adding ----
   // Checks the user chose not to fix (a firewall on a Bluetooth-only
   // machine): they no longer light the gear's dot.
+  // The phone the app's QR code is for on Add a device: "android" (the
+  // default; the key is left out) or "ios". Kept, so the next device added
+  // starts on the same choice.
+  readonly property string appPlatform: setting("appPlatform", "android") === "ios" ? "ios" : "android"
+  function setAppPlatform(p) { persistSettings({ appPlatform: p === "ios" ? "ios" : undefined }) }
   readonly property var ignoredChecks: {
     var v = setting("ignoredChecks", [])
     return Array.isArray(v) ? v : []
@@ -1714,6 +1719,8 @@ Panel {
       return JSON.stringify(root.received.map(function(r) { return r.name }))
     }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
+    // The phone Add a device's QR code is for, as its toggle would: android or ios.
+    function appPlatform(platform: string): string { root.setAppPlatform(platform); return root.appPlatform }
     // Preview with a demo phone (on) or Back to setup (off), as the buttons would.
     function preview(on: bool): string {
       if (on) root.startPreview(); else root.backToSetup()
@@ -3664,6 +3671,8 @@ Panel {
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
                 network: root.phone ? root.phone.setupNetwork : ""
+                appPlatform: root.appPlatform
+                onAppPlatformSet: function(p) { root.setAppPlatform(p) }
                 justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }

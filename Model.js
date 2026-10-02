@@ -1146,7 +1146,8 @@ function awayState(device, network, searchedAt, nowMs) {
 
 var APP_LINKS = {
   play: "https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp",
-  fdroid: "https://f-droid.org/packages/org.kde.kdeconnect_tp/"
+  fdroid: "https://f-droid.org/packages/org.kde.kdeconnect_tp/",
+  appStore: "https://apps.apple.com/app/kde-connect/id1580245991"
 }
 
 // qrencode's text output (`qrencode -t ASCII -m 0 <url>`: a line per row,

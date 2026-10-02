@@ -684,6 +684,7 @@ test("the app's QR code: qrencode's text read as a square grid", () => {
   assert.equal(M.qrGrid(""), null, "nothing: no code")
   assert.equal(M.qrGrid(text.replace("##", "#")), null, "a ragged row: no code")
   assert.match(M.APP_LINKS.play, /^https:\/\/play\.google\.com\/.*org\.kde\.kdeconnect_tp$/)
+  assert.match(M.APP_LINKS.appStore, /^https:\/\/apps\.apple\.com\/app\/kde-connect\/id1580245991$/)
 })
 
 test("files: a section of its own, joining saved orders at the end; sizes, images, summaries, demo", () => {

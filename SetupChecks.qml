@@ -14,13 +14,39 @@ Column {
   property string network: ""
   // A QR code for the app's store page in the install step: the phone's
   // camera opens it (#64). Drawn from qrencode (Omarchy ships it); without
-  // it, the links alone.
+  // it, the links alone. Android or iPhone (a toggle, kept by the panel):
+  // the iPhone app does far less, and the step says so.
   property bool showQr: false
-  property var qr: null
+  property string platform: "android"
+  signal platformSet(string platform)
+  readonly property bool ios: platform === "ios"
+  readonly property string storeUrl: ios ? Model.APP_LINKS.appStore : Model.APP_LINKS.play
+  property var qrs: ({})
+  readonly property var qr: qrs[platform] || null
   Process {
-    running: root.showQr && root.qr === null
-    command: ["qrencode", "-t", "ASCII", "-m", "0", Model.APP_LINKS.play]
-    stdout: StdioCollector { onStreamFinished: root.qr = Model.qrGrid(text) }
+    id: qrMaker
+    property string forPlatform: ""
+    running: false
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var next = Object.assign({}, root.qrs)
+        next[qrMaker.forPlatform] = Model.qrGrid(text)
+        root.qrs = next
+      }
+    }
+  }
+  function makeQr() {
+    if (!showQr || qrs[platform] !== undefined || qrMaker.running) return
+    qrMaker.forPlatform = platform
+    qrMaker.command = ["qrencode", "-t", "ASCII", "-m", "0", storeUrl]
+    qrMaker.running = true
+  }
+  onShowQrChanged: makeQr()
+  onPlatformChanged: makeQr()
+  Component.onCompleted: makeQr()
+  Connections {
+    target: qrMaker
+    function onRunningChanged() { if (!qrMaker.running) Qt.callLater(root.makeQr) }
   }
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
@@ -31,12 +57,12 @@ Column {
 
   Repeater {
     model: [
-      { text: "Install KDE Connect on it", qr: true, links: [
-        { label: "Google Play", url: Model.APP_LINKS.play },
-        { label: "F-Droid", url: Model.APP_LINKS.fdroid }] },
+      { text: "Install KDE Connect on it", qr: true, links: root.ios
+        ? [{ label: "App Store", url: Model.APP_LINKS.appStore }]
+        : [{ label: "Google Play", url: Model.APP_LINKS.play }, { label: "F-Droid", url: Model.APP_LINKS.fdroid }] },
       { text: "Join this computer's Wi-Fi" + (root.network !== "" ? " (" + root.network + ")" : ""), links: [] },
       { text: "Open the app and pick this computer; accept here", links: [] },
-      { text: "Allow what you want here: notification access, SMS, contacts, media control", links: [] }
+      { text: root.ios ? "Allow local network access when it asks" : "Allow what you want here: notification access, SMS, contacts, media control", links: [] }
     ]
 
     RowLayout {
@@ -90,6 +116,32 @@ Column {
         }
       }
 
+      // Which phone the code is for.
+      Row {
+        visible: step.modelData.qr === true && root.showQr
+        spacing: Style.space(10)
+        Repeater {
+          model: [{ key: "android", label: "Android" }, { key: "ios", label: "iPhone" }]
+          Text {
+            required property var modelData
+            textFormat: Text.PlainText
+            text: modelData.label
+            color: root.platform === modelData.key ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            font.bold: root.platform === modelData.key
+            font.underline: root.platform !== modelData.key && platformMouse.containsMouse
+            MouseArea {
+              id: platformMouse
+              anchors.fill: parent
+              hoverEnabled: true
+              cursorShape: Qt.PointingHandCursor
+              onClicked: if (root.platform !== parent.modelData.key) root.platformSet(parent.modelData.key)
+            }
+          }
+        }
+      }
+
       // The QR code: black on white with its quiet zone, whatever the
       // theme, so a phone's camera reads it.
       Row {
@@ -129,11 +181,22 @@ Column {
           width: Math.max(Style.space(80), step.width - qrBox.width - Style.space(40))
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "Scan with the phone's camera to open Google Play"
+          text: "Scan with the phone's camera to open " + (root.ios ? "the App Store" : "Google Play")
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
+      }
+      // The iPhone app does far less: said here, not found out later.
+      Text {
+        visible: step.modelData.qr === true && root.showQr && root.ios
+        Layout.fillWidth: true
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        text: "On iPhone, KDE Connect shares the clipboard and files; notifications and messages stay on the phone, and it stays connected only while the app is open."
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
       }
       }
     }
