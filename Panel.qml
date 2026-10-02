@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window as QW
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -174,6 +175,8 @@ Panel {
   }
 
   onTargetPageChanged: {
+    // Leaving the preview runs its own change (previewSwap).
+    if (previewLeaving) return
     if (targetPage === shownPage && !pageSwap.running) return
     // Closed, or just opening: nothing to show off, the panel fades in anyway.
     if (!opened) { snapPage(); return }
@@ -198,11 +201,11 @@ Panel {
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -215,7 +218,6 @@ Panel {
     }
     ScriptAction {
       script: {
-        root.leavePreviewNow()
         root.applyShownPage()
         pageHost.slide = root.pageDirection * pageSwap.travel
         if (panelFlick) panelFlick.contentY = 0
@@ -226,9 +228,47 @@ Panel {
       NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
     }
     // A change of mind mid-way (Esc right after opening) lands too.
+    onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+  }
+
+  // Leaving the preview (backToSetup): the still of the old page fades and
+  // slides out, the real page and the panel's size take over at the
+  // midpoint, and the page comes in: the same beat as pageSwap.
+  SequentialAnimation {
+    id: previewSwap
+    ParallelAnimation {
+      NumberAnimation { target: pageStill; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageStill; property: "x"; from: 0; to: pageSwap.travel; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+    }
+    ScriptAction {
+      script: {
+        pageStill.visible = false
+        pageStill.source = ""
+        pageStill.x = 0
+        pageStill.opacity = 1
+        root.applyShownPage()
+        root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+        root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
+        pageColumn.opacity = 1
+        pageHost.opacity = 0
+        pageHost.slide = -pageSwap.travel
+        if (panelFlick) panelFlick.contentY = 0
+      }
+    }
+    ParallelAnimation {
+      NumberAnimation { target: pageHost; property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+      NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+    }
     onStopped: {
-      if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
-      else root.leavePreviewNow()
+      root.previewLeaving = false
+      pageStill.visible = false
+      pageStill.source = ""
+      pageColumn.opacity = 1
+      pageHost.opacity = 1
+      pageHost.slide = 0
+      root.applyShownPage()
+      root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+      root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
     }
   }
 
@@ -511,21 +551,35 @@ Panel {
   // at the change's midpoint, while no page shows: the fading page never
   // shows the real phone's data. On the same page, the page fades out and
   // back in around the swap.
-  property bool leavePreviewAtSwap: false
+  // Turning the demo live rebuilds the whole panel for the real device
+  // (about 0.1 s): done in the middle of a page change, it froze the change
+  // and the slide-in then jumped. So the page is captured first and shown
+  // still while the demo turns live underneath (a click's latency, nothing
+  // moving), and only then does the change run, on a fresh clock
+  // (previewSwap): the still fades out, the real page comes in, and the
+  // panel's size follows at the same beat.
+  property bool previewLeaving: false
   function backToSetup() {
+    if (!opened || previewLeaving) { if (!opened) finishBackToSetup(); return }
+    previewLeaving = true
+    cardWidth = cardWidth
+    cardHeight = cardHeight
+    pageHost.grabToImage(function(result) {
+      pageStill.source = result.url
+      pageStill.visible = true
+      pageColumn.opacity = 0
+      finishBackToSetup()
+      Qt.callLater(function() { previewSwap.restart() })
+    }, Qt.size(pageHost.width * pageHost.dpr, pageHost.height * pageHost.dpr))
+  }
+  function finishBackToSetup() {
     var from = previewFrom
     if (editing) stopEditing()
     if (from !== "" && from !== "main") { openSettings(); openScope(from) }
     else { messagesOpen = false; settingsOpen = false }
-    if (!opened) { endPreview(); return }
-    leavePreviewAtSwap = true
-    if (!pageSwap.running) { pageDirection = -1; pageSwap.restart() }
-  }
-  function leavePreviewNow() {
-    if (!leavePreviewAtSwap) return
-    leavePreviewAtSwap = false
     endPreview()
   }
+
   readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
   // A real device connecting ends the preview: the panel shows it instead.
   readonly property bool liveConnected: !!phone && !!phone.liveSnapshot
@@ -2480,6 +2534,7 @@ Panel {
           Item {
             id: pageHost
             property real slide: 0
+            readonly property real dpr: QW.Screen.devicePixelRatio > 0 ? QW.Screen.devicePixelRatio : 1
             width: parent.width
             height: pageColumn.implicitHeight
             implicitHeight: pageColumn.implicitHeight
@@ -3593,6 +3648,15 @@ Panel {
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
 
+            }
+            // The old page held still while the demo turns live (backToSetup).
+            Image {
+              id: pageStill
+              visible: false
+              width: pageHost.width
+              height: sourceSize.height / pageHost.dpr
+              asynchronous: false
+              cache: false
             }
           }
         }
