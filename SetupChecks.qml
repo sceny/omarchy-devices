@@ -187,7 +187,7 @@ Column {
         Layout.fillWidth: true
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
-        text: "On iPhone, KDE Connect shares the clipboard and files; notifications and messages stay on the phone, and it stays connected only while the app is open."
+        text: "With an iPhone, this panel gets files and the clipboard from it. It cannot show the iPhone's notifications or messages, and the iPhone stays connected only while KDE Connect is open on it."
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
