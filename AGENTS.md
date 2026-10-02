@@ -343,11 +343,13 @@ request included. Stop only when a check fails or the freeze check finds
    `main` is frozen: say so and release nothing.
 1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
    alone raise Z (`0.6.0` → `0.6.1`).
-   **Prepare on a branch from `develop`** (`release-X.Y.Z`): rename
-   `## Unreleased` in `CHANGELOG.md` to `## X.Y.Z — YYYY-MM-DD`, group the
-   entries by area (Bar, Panel, Messages, Fixed), and add an *Upgrading*
-   group when a setting or a default changes. Set `"version": "X.Y.Z"` in
-   `manifest.json`. Pull request into `develop`, CI green, squash-merge.
+   **Prepare on a branch from `develop`** (`release-X.Y.Z`): turn
+   `## Unreleased` in `CHANGELOG.md` (the guide's *What's new*, linked from
+   the README) into `## X.Y.Z — YYYY-MM-DD` with *Highlights* (a few lines
+   on the big things), *Issues* and *Pull requests without an issue* (each
+   linked, with its title), and *Upgrading* when a setting or a default
+   changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
+   `develop`, CI green, squash-merge.
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
