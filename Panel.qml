@@ -56,7 +56,10 @@ Panel {
     if (livePhotos.length > 0) {
       photoLeave.stop(); photoClose.stop()
       photosFading = false; photosClosing = false
-      shownPhotos = livePhotos
+      // The same photos keep their tiles: a read starting or ending gives a
+      // new list, and new tiles would restart a tile's ring and reload its
+      // picture (a blink).
+      if (Model.photosKey(livePhotos) !== Model.photosKey(shownPhotos)) shownPhotos = livePhotos
     } else if (shownPhotos.length > 0 && !photosFading) {
       photosFading = true
       photoLeave.restart()
@@ -3670,6 +3673,7 @@ Panel {
     Rectangle {
       anchors.centerIn: parent
       visible: tileOpenRing.visible
+      opacity: tileOpenRing.opacity
       width: Style.font.heading * 1.6
       height: width
       radius: width / 2

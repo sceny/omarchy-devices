@@ -1693,6 +1693,12 @@ function photosSummary(photos) {
   return parts.join(", ")
 }
 
+// What makes the tiles: a list with the same key is the same tiles, so a
+// state change (a read starting or ending) does not rebuild them.
+function photosKey(photos) {
+  return (photos || []).map(function(p) { return [p.path, p.at, p.thumb, p.video === true].join("|") }).join("\n")
+}
+
 // The newest file's name, and how many more.
 function receivedSummary(received) {
   var list = received || []

@@ -676,6 +676,9 @@ test("files: a section of its own, joining saved orders at the end; sizes, image
   assert.equal(M.photosSummary([{}, {}]), "2 photos")
   assert.equal(M.photosSummary([{}, { video: true }]), "1 photo, 1 video")
   assert.equal(M.photosSummary([{ video: true }, { video: true }]), "2 videos")
+  const a = [{ path: "/p/1.jpg", at: 1, thumb: "/t/1.jpg" }]
+  assert.equal(M.photosKey(a), M.photosKey(JSON.parse(JSON.stringify(a))), "the same photos in a new list: the same tiles")
+  assert.notEqual(M.photosKey(a), M.photosKey([{ path: "/p/1.jpg", at: 1, thumb: "" }]), "a thumbnail arriving redraws")
   assert.equal(M.photosSummary([]), "Nothing new")
   assert.equal(M.receivedSummary([{ name: "a.pdf" }, { name: "b.txt" }]), "a.pdf and 1 more")
   assert.equal(M.receivedSummary([{ name: "a.pdf" }]), "a.pdf")
