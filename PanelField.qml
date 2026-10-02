@@ -5,7 +5,7 @@ import qs.Ui
 // way everywhere, one thing at a time:
 // 1. something floating over the field (`floating`: suggestions) closes,
 //    and what was typed stays (`closeFloating`);
-// 2. else the field's own step: "keep" (a draft stays: a reply, a text to
+// 2. else the field's own step (`escapeStep`): "keep" (a draft stays: a reply, a text to
 //    send), "clear" (a search empties first), or "revert" (a setting goes
 //    back to `savedText`);
 // 3. then the field is left (`left`): its owner releases the focus, and the
@@ -13,7 +13,7 @@ import qs.Ui
 // Fields set these, never their own Keys.onEscapePressed.
 TextField {
   id: field
-  property string escape: "keep"
+  property string escapeStep: "keep"
   property string savedText: ""
   property bool floating: false
   signal closeFloating()
@@ -21,8 +21,8 @@ TextField {
 
   Keys.onEscapePressed: {
     if (floating) { closeFloating(); return }
-    if (escape === "clear" && text !== "") { text = ""; return }
-    if (escape === "revert") text = savedText
+    if (escapeStep === "clear" && text !== "") { text = ""; return }
+    if (escapeStep === "revert") text = savedText
     left()
   }
 }

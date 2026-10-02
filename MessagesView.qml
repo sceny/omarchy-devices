@@ -484,7 +484,7 @@ Item {
           font.family: view.fontFamily
           onTextChanged: if (view.sms) view.sms.setQuery(text)
           onAccepted: { if (view.shown && view.shown.count > 0) view.openThread(view.shown.get(0).tid, true) }
-          escape: "clear"
+          escapeStep: "clear"
           onLeft: focus = false
           Keys.onDownPressed: { focus = false; view.cursorTo(0) }
         }
@@ -722,7 +722,7 @@ Item {
             // Esc: the suggestions close and what was typed stays (Enter then
             // sends to exactly that); then the field clears; then the new
             // message is left. Typing brings the suggestions back.
-            escape: "clear"
+            escapeStep: "clear"
             floating: view.suggestions.length > 0 && text.trim() !== ""
             onCloseFloating: view.suggestions = []
             onLeft: view.goBack()

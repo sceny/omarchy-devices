@@ -1059,7 +1059,7 @@ Column {
           onActiveFocusChanged: root.nicknameFocus(activeFocus)
           onAccepted: { root.nicknameSet(text); root.nicknameFocus(false) }
           // Esc puts the saved nickname back and leaves.
-          escape: "revert"
+          escapeStep: "revert"
           savedText: idRow.row.value || ""
           onLeft: root.nicknameFocus(false)
         }

@@ -218,7 +218,7 @@ Keep them; change one only with the owner.
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step
-  (`keep` a draft, `clear` a search, `revert` a setting); then the field is
+  (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
 - **Opening a place closes the panel; opening an item keeps it.** An
