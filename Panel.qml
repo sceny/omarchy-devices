@@ -504,6 +504,10 @@ Panel {
   // Back to setup: out of the preview, onto the page it began from.
   function backToSetup() {
     var from = previewFrom
+    // Whatever the preview had open (its messages, editing its page) closes
+    // with it: back is setup, never the real phone's messages.
+    if (messagesOpen) closeMessagesView()
+    if (editing) stopEditing()
     endPreview()
     if (from !== "" && from !== "main") { if (!settingsOpen) openSettings(); openScope(from) }
     else closeSettings()
