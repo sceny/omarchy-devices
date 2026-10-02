@@ -589,6 +589,84 @@ class SandboxedThumbs(unittest.TestCase):
             self.assertEqual(sorted(os.listdir(d)), ["VID.mp4", "t.jpg"], "the work folder is gone")
 
 
+class SafeImages(unittest.TestCase):
+    """Every other image from the device (icons, art, previews, received
+    pictures) is shown only as a copy decoded in the sandbox."""
+
+    def png(self, path, w, h, alpha=False):
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, alpha, 8, w, h)
+        pix.fill(0x3366cc80 if alpha else 0x3366ccff)
+        pix.savev(path, "png", [], [])
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_copy_fits_its_box_and_keeps_alpha(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = os.path.join(d, "icon.png"), os.path.join(d, "out.png")
+            self.png(src, 400, 200, alpha=True)
+            self.assertTrue(bridge.fit_image(src, dst, 96))
+            out = GdkPixbuf.Pixbuf.new_from_file(dst)
+            self.assertEqual((out.get_width(), out.get_height(), out.get_has_alpha()), (96, 48, True))
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_made_once_while_the_source_is_the_same(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, folder = os.path.join(d, "art.png"), os.path.join(d, "safe")
+            os.makedirs(folder)
+            self.png(src, 300, 300)
+            made = []
+            saved = bridge.fit_image
+            bridge.fit_image = lambda s_, dst, box: (made.append(dst), saved(s_, dst, box))[1]
+            try:
+                first = bridge.safe_image(src, 128, folder)
+                self.assertEqual(bridge.safe_image(src, 128, folder), first)
+            finally:
+                bridge.fit_image = saved
+            self.assertEqual(len(made), 1)
+            self.assertTrue(first.startswith(folder) and first.endswith(".png"))
+
+    def test_nothing_for_what_is_missing_too_big_or_not_an_image(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(bridge.safe_image(os.path.join(d, "none.png"), 96, d), "")
+            big = os.path.join(d, "big.png")
+            open(big, "w").write("x" * 100)
+            saved = bridge.SAFE_SOURCE_MAX
+            bridge.SAFE_SOURCE_MAX = 10
+            try:
+                self.assertEqual(bridge.safe_image(big, 96, d), "")
+            finally:
+                bridge.SAFE_SOURCE_MAX = saved
+            if has_gdkpixbuf():
+                bad = os.path.join(d, "bad.png")
+                open(bad, "wb").write(b"\x89PNG not really")
+                self.assertEqual(bridge.safe_image(bad, 96, d), "")
+
+    def test_the_cache_drops_the_least_recently_used(self):
+        with tempfile.TemporaryDirectory() as d:
+            for i, name in enumerate(["a.png", "b.png", "c.png"]):
+                p = os.path.join(d, name)
+                open(p, "w").write("x" * 10)
+                os.utime(p, (1000 + i, 1000 + i))
+            bridge.trim_files(d, 25)
+            self.assertEqual(sorted(os.listdir(d)), ["b.png", "c.png"])
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_messages_preview_is_a_copy_not_the_bytes(self):
+        import base64
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "p.png")
+            self.png(src, 640, 480)
+            reader = bridge.Sms.__new__(bridge.Sms)
+            reader.thumbs = d
+            entry = reader.attachment((7, "image/jpeg", base64.b64encode(open(src, "rb").read()).decode(), "u1"))
+            self.assertTrue(entry["thumb"].startswith(os.path.join(d, "preview_")))
+            self.assertNotEqual(open(entry["thumb"], "rb").read(), open(src, "rb").read(), "written here, not as it came")
+            self.assertFalse([n for n in os.listdir(d) if n.endswith(".raw")], "the phone's bytes are gone")
+            junk = reader.attachment((8, "image/jpeg", base64.b64encode(b"not an image").decode(), "u2"))
+            self.assertEqual(junk["thumb"], "", "no preview: the view shows the attachment's kind")
+
+
 class OpenFromDevice(unittest.TestCase):
     """A file from the device opens from a local copy, kept while unchanged;
     the cache drops the oldest copies past its limit."""
