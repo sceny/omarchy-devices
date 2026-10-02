@@ -1649,6 +1649,8 @@ Panel {
     function status(): string {
       return JSON.stringify({
         opened: root.opened,
+        messagesOpen: root.messagesOpen,
+        preview: !!root.phone && root.phone.preview,
         editing: root.editing,
         call: root.call,
         daemon: root.phone ? root.phone.daemon : false,
