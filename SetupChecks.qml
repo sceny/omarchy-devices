@@ -155,6 +155,10 @@ Column {
           Canvas {
             id: qrCanvas
             anchors.fill: parent
+            // A paint asked while hidden (the code is hidden while the other
+            // phone's is made) is skipped: paint again when it shows.
+            onVisibleChanged: if (visible) requestPaint()
+            onWidthChanged: requestPaint()
             onPaint: {
               var ctx = getContext("2d")
               ctx.reset()
