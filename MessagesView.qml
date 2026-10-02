@@ -164,8 +164,28 @@ Item {
     if (!shown || shown.count === 0) return
     cursorActive = true
     threadCursor = Math.max(0, Math.min(shown.count - 1, i))
+    // The list glides to keep the cursor in sight, at the panel's pace, as
+    // the cursor moves (a jump, then the move, read as two steps). Where it
+    // goes is what positionViewAtIndex would set; it starts from where it is.
+    threadGlide.stop()
+    var from = threadList.contentY
     threadList.positionViewAtIndex(threadCursor, ListView.Contain)
+    glide(threadList, threadGlide, from, threadList.contentY)
   }
+
+  // Scrolling by key: from where the list is to where it goes, at the
+  // panel's pace (Model.MOTION); a key held down starts each glide from
+  // where the last one had got to.
+  function glide(list, anim, from, to) {
+    anim.stop()
+    list.contentY = from
+    if (Math.abs(to - from) < 0.5) return
+    anim.from = from
+    anim.to = to
+    anim.start()
+  }
+  NumberAnimation { id: threadGlide; target: threadList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  NumberAnimation { id: messageGlide; target: messageList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
 
   // PgUp/PgDn on the conversation list: the cursor a screen of rows at a
   // time, as the arrows move it one row; `pages` > 0 up.
@@ -220,7 +240,9 @@ Item {
     var bottom = messageList.originY + messageList.contentHeight - messageList.height
     if (bottom <= top) return
     var step = messageList.height * 0.85 * pages
-    messageList.contentY = Math.max(top, Math.min(bottom, messageList.contentY - step))
+    // From where a glide under way has got to, or from rest; to the next screen.
+    var base = messageGlide.running ? messageGlide.to : messageList.contentY
+    glide(messageList, messageGlide, messageList.contentY, Math.max(top, Math.min(bottom, base - step)))
   }
 
   // `typeHere` puts the cursor in the composer: for the user's own click or
