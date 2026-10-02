@@ -1,4 +1,5 @@
 import QtQuick
+import QtQml
 import QtQuick.Layouts
 import Quickshell.Io
 import qs.Commons
@@ -20,33 +21,25 @@ Column {
   property string platform: "android"
   signal platformSet(string platform)
   readonly property bool ios: platform === "ios"
-  readonly property string storeUrl: ios ? Model.APP_LINKS.appStore : Model.APP_LINKS.play
   property var qrs: ({})
   readonly property var qr: qrs[platform] || null
-  Process {
-    id: qrMaker
-    property string forPlatform: ""
-    running: false
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var next = Object.assign({}, root.qrs)
-        next[qrMaker.forPlatform] = Model.qrGrid(text)
-        root.qrs = next
+  // One qrencode per phone, each with its own address: made once, when
+  // that phone's code is first shown.
+  Instantiator {
+    model: [{ key: "android", url: Model.APP_LINKS.play }, { key: "ios", url: Model.APP_LINKS.appStore }]
+    delegate: Process {
+      id: qrMaker
+      required property var modelData
+      running: root.showQr && root.platform === modelData.key && root.qrs[modelData.key] === undefined
+      command: ["qrencode", "-t", "ASCII", "-m", "0", modelData.url]
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var next = Object.assign({}, root.qrs)
+          next[qrMaker.modelData.key] = Model.qrGrid(text)
+          root.qrs = next
+        }
       }
     }
-  }
-  function makeQr() {
-    if (!showQr || qrs[platform] !== undefined || qrMaker.running) return
-    qrMaker.forPlatform = platform
-    qrMaker.command = ["qrencode", "-t", "ASCII", "-m", "0", storeUrl]
-    qrMaker.running = true
-  }
-  onShowQrChanged: makeQr()
-  onPlatformChanged: makeQr()
-  Component.onCompleted: makeQr()
-  Connections {
-    target: qrMaker
-    function onRunningChanged() { if (!qrMaker.running) Qt.callLater(root.makeQr) }
   }
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
