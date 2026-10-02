@@ -237,6 +237,7 @@ Panel {
   SequentialAnimation {
     id: previewSwap
     ParallelAnimation {
+      NumberAnimation { target: previewStripCard; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
       NumberAnimation { target: pageStill; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
       NumberAnimation { target: pageStill; property: "x"; from: 0; to: pageSwap.travel; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
     }
@@ -246,6 +247,7 @@ Panel {
         pageStill.source = ""
         pageStill.x = 0
         pageStill.opacity = 1
+        previewStrip.held = false
         root.applyShownPage()
         root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
         root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
@@ -261,6 +263,8 @@ Panel {
     }
     onStopped: {
       root.previewLeaving = false
+      previewStrip.held = false
+      previewStripCard.opacity = 1
       pageStill.visible = false
       pageStill.source = ""
       pageColumn.opacity = 1
@@ -562,6 +566,7 @@ Panel {
   function backToSetup() {
     if (!opened || previewLeaving) { if (!opened) finishBackToSetup(); return }
     previewLeaving = true
+    previewStrip.held = true
     cardWidth = cardWidth
     cardHeight = cardHeight
     pageHost.grabToImage(function(result) {
@@ -1995,11 +2000,17 @@ Panel {
           spacing: Style.space(12)
 
           // ---- Preview: says the phone is a demo, with the way back ----
+          // Leaving with Back to setup, it stays until the page change's
+          // midpoint, fading with the old page, then folds away with the
+          // panel's resize: closing at the click moved the page under it.
           FoldBody {
-            open: !!root.phone && root.phone.preview
+            id: previewStrip
+            property bool held: false
+            open: (!!root.phone && root.phone.preview) || held
             motion: root.motion
             animate: root.settled
             BorderSurface {
+              id: previewStripCard
               width: parent.width
               implicitHeight: previewRow.implicitHeight + Style.space(14)
               radius: Style.cornerRadius
