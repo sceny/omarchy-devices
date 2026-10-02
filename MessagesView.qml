@@ -176,6 +176,19 @@ Item {
     cursorTo((cursorActive ? threadCursor : 0) - pages * rows)
   }
 
+  // Where the pointer last was on screen, so a row that slides under a still
+  // pointer (the keys scrolled the list) is told apart from the pointer
+  // moving onto it.
+  property point lastPointer: Qt.point(-1, -1)
+  function pointerAt(area, index) {
+    var g = area.mapToGlobal(area.mouseX, area.mouseY)
+    var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
+    lastPointer = Qt.point(g.x, g.y)
+    if (!moved) return
+    cursorActive = true
+    threadCursor = index
+  }
+
   function activateCursor() {
     if (!shown || threadCursor < 0 || threadCursor >= shown.count) return
     openThread(shown.get(threadCursor).tid, true)
@@ -881,7 +894,11 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { view.cursorActive = true; view.threadCursor = row.index }
+      // The pointer takes the cursor only when it moves: rows the keys
+      // scroll under a resting pointer do not (they took it back from the
+      // arrow, which then seemed to scroll without moving).
+      onEntered: view.pointerAt(this, row.index)
+      onPositionChanged: view.pointerAt(this, row.index)
       onClicked: view.openThread(row.tid, true)
     }
 
