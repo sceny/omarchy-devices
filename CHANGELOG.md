@@ -1,216 +1,60 @@
-# Changelog
+[Devices](README.md) › What's new
 
-Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
-`manifest.json`.
+# What's new
 
-## Unreleased
+Each version, newest first, grouped by what it touches. `omarchy plugin
+update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
+GitHub release with these notes.
 
-- Several devices: with two or more paired devices, a tab each at the top
-  of the panel (`1`–`9`, Shift+H / Shift+L), and a chip each in the bar:
-  the first device always, the others while they have news (notifications,
-  unread messages, a low battery). Each chip has its own bubble; clicking
-  it opens the panel on that device. The panel opens on the first
-  connected device. Folded sections are kept per device. With one device,
-  nothing changes (#73).
-- The pill never disappears: with nothing to show (nothing paired, or
-  KDE Connect stopped) it keeps a devices glyph to click.
-- A device asking to pair shows a card at the top of the panel, above the
-  tabs, with its key, *Accept* and *Reject*; it pushes the rest down while
-  it lasts.
-- The open-panel mark under the pill spans every chip (#67).
-- IPC: `view <device>`, `openOn <device>`, `tabs`; `demo many`. Leaving a
-  demo (`live`) puts every setting back as it was when the demo began.
-- Settings for devices (#74): a nickname and an icon for each device, used
-  in the bar and the tabs. With several devices, Settings lists them
-  (drag to move, or Shift+K / Shift+J; pair, accept and reject there
-  too); each has its own page: nickname, icon, whether it shows in
-  the bar (always, only with news, never), whether it has a tab, and its
-  own layout, bar and shortcuts, marked CUSTOM with *use the defaults*.
-  *Defaults for all devices* sets the rest. Unpair is on the device's page.
-- The Devices section is gone from the main page: tabs, the pairing card
-  and Settings do its work.
-- Edit the page in place (✎ on hovering the device's name, a right-click
-  on the page, or `E`): each section
-  becomes a bar to drag or switch off, every shortcut shows (drag the
-  chosen ones, click to add or take one away), and ✓ Done ends it. Each
-  device keeps its own; a device's page in Settings points there, and
-  *Defaults for all devices* keeps the sections and shortcuts.
-- Drag to reorder: every order has a grip to drag by (devices, sections,
-  bar indicators, shortcuts), and the tabs can be dragged sideways. While
-  one moves, the others slide aside to show where it will land; on release
-  it glides into place. Shift+K / Shift+J glide the same way. The ↑ ↓
-  buttons on each row are gone: the grip and the keys do their work.
-- Calls (#58): while a device rings, its chip in the bar shows a ringing
-  phone that glows ring by ring, and a card above the tabs names the
-  caller (and the device, with several), its sound waves ringing; the
-  panel opens on the ringing device. A missed call stays in the chip and
-  on the card until closed, with *Call back* (the phone's dialer, ready on
-  the number) and *Text back*, both on the device the call came to. A
-  *Calls* switch in each device's bar settings turns it off. KDE Connect
-  does not say when a call is answered or ends, so a ringing card gives up
-  after 45 s.
-- IPC: `demoCall ringing|missed|none`, `pressTextBack`, `closeCall`,
-  `demoTextTo`, `pressEscape`.
+## 0.7.0 — 2026-10-02
 
-- The bar joins edit in place (#84): editing a device's page starts with
-  its chip, drawn as the bar shows it, a little larger: drag an
-  indicator to move it, click to add or take one away; then the
-  *Battery only when low* and *Calls* switches; the pill in the bar
-  changes as you go. A right-click on a device's chip opens it. The bar
-  leaves a device's Settings; *Defaults for all devices* keeps it.
-- The pill in the bar moves as its indicators do: a new order slides
-  each one to its place, and one that comes or goes fades, at the panel's
-  pace.
-- Editing a page: changes show at once; ✓ (or `E`) keeps them, and Esc
-  now undoes everything since editing began.
-- IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
+### Highlights
 
-- Received (#37): a section with the files the device sent you (open in its app,
-  show in Files, forget); they are kept in the cache. Their folders are
-  watched: a file renamed there is followed, and one deleted or moved away
-  leaves the list at once (where the system allows a watch; otherwise
-  within 30 s). Gone while there are none.
-- Gallery (#65): a section with the device's newest photos and videos,
-  found as the phone's own gallery finds them: all of its shared storage,
-  WhatsApp's included, but hidden and `.nomedia` folders and apps' private
-  ones; each folder is an album. Each folder's listing is kept, so only
-  what changed is read again. A small ring at the header's right shows
-  while the phone is read (the last photos show meanwhile); idle, a
-  refresh button takes its place while the pointer is on the header.
-  - Click a tile to open it: the file is copied here first (a ring on the
-    tile) and the copy opens, so a video plays at its own pace, not the
-    network's; the copies are a cache of 2 GB at most. From a tile's
-    corner, copy it or save a copy in Pictures/<device>, with its own date
-    and only once; or drag it into a window.
-  - The biggest albums open in the file manager (a folder icon); the row
-    scrolls sideways when they do not fit (the arrows at its edges, the
-    wheel, a swipe or a drag). Opening an album, or a received
-    file's folder, closes the panel; opening a photo or a file keeps it
-    open for the next.
-  - A file from the phone is decoded only in a sandbox: images through
-    glycin (each decode in its own bubblewrap sandbox), a video's frame
-    in one of ours (no network, no home, only that file); the panel
-    shows a JPEG made from the pixels, never the phone's file (#105).
-  - Read through KDE Connect, which needs `sshfs`: the section offers to
-    install it. When the storage cannot be opened, the section says so
-    with *Try again*, and asks again by itself only after 10 minutes, so
-    KDE Connect's error does not pop up on every open (#100).
-  - Received and Gallery join every saved order at the end, each with its
-    own switch; each is gone while it has nothing.
-- IPC: `filesInfo`, `dismissReceived`.
-- Connection and Add a device (#75), two Settings pages in place of the
-  Setup and Add a device folds. Connection checks this computer (KDE
-  Connect, the firewall, the network) with fixes; a check can be ignored,
-  and a failing one puts a red dot on the cog, which then opens
-  Connection. Add a device lists requests to pair, the steps on the
-  device and devices in reach to pair with. The panel opens on Add a
-  device while nothing is paired, and on Connection while KDE Connect is
-  down.
-- Reconnect (#69): an away device's page says where it was last seen
-  (kept across restarts) and whether that was another network, with
-  *Reconnect*: it looks for the device, then says what to try. Opening the
-  panel on an away device looks once by itself.
-- IPC: `page connection|addDevice`, `demoAway`, `reconnect`, `ignoreCheck`;
-  `demoSetup` stays until `live`.
+- **Several devices**: a tab and a chip each, and settings for each one.
+- **Calls** ring in the bar; a missed call offers to call or text back.
+- **Gallery and Received**: the phone's newest photos and videos, and the
+  files it sent you.
+- **Setup**: checks with fixes, a QR code for the app (Android or iPhone),
+  a pairing pop-up with the key, and a demo phone to look around first.
+- **Make it yours**: edit the page in place, drag anything to reorder.
+- **Keyboard**: one cursor that slides, and messages fully by keyboard.
+- **Safety**: every image from the phone is decoded in a sandbox.
 
-- Pairing (#92): a device asking to pair brings a card under the bar at
-  once (its key, *Accept*, *Reject*), and the first chip glows on the ring
-  beat while it waits; the card never takes the keyboard, and it waits
-  while the panel is open (the panel shows the request itself). A pairing
-  started from the panel shows no pop-up: it is a card on Add a device,
-  with the key and a countdown of KDE Connect's 30 seconds; not accepted
-  in time, its row says so; accepted, the card turns *✓ Paired* and the
-  panel goes to the device. The key reads the same everywhere: large, one
-  word, as KDE Connect shows it. Pairing actions no longer toast when they
-  work.
-- Preview with a demo phone (#62): before any device is set up, a button
-  on Add a device shows the panel with made-up data (the Pixel 8,
-  its notifications, conversations and media), under a strip saying it is
-  a demo, with *Back to setup*. A real device connecting ends it; leaving
-  puts every setting back. IPC: `preview true|false`.
-- A QR code to install the phone app (#64): on Add a device, the install
-  step shows a code the phone's camera opens the store with, for Android
-  (Google Play, beside the Google Play and F-Droid links) or iPhone (the
-  App Store), chosen with two buttons and kept. Under the iPhone's code, a
-  line says what the panel can do with one: files and the clipboard, not
-  its notifications or messages, and only while KDE Connect is open on it.
-- The header names no device on pages about none: Connection, Add a
-  device, and with several devices the Settings list and the defaults read
-  *Devices*, with the plugin's glyph.
-- Moving between Settings pages (the list, Connection, Add a device, a
-  device's page) slides and fades like every page change; back to the list
-  slides back. Drawn from `qrencode` (part of
-  Omarchy); nothing is fetched from the web.
+### Issues
 
-- The panel opened again within five minutes goes back where it was (the
-  page, the Settings page, the device, the scroll, the conversation): a
-  look at a picture, then back to the conversation. Later, it opens on its
-  main page.
+- [#72](https://github.com/sceny/omarchy-devices/issues/72) Many devices, step 1: profiles, settings read as defaults, chips and attention
+- [#73](https://github.com/sceny/omarchy-devices/issues/73) Many devices, step 2: tabs, per-device pages, chips in the pill, the pairing card
+- [#74](https://github.com/sceny/omarchy-devices/issues/74) Many devices, step 3: Settings for devices
+- [#75](https://github.com/sceny/omarchy-devices/issues/75) Many devices, step 4: the Connection page and Reconnect
+- [#58](https://github.com/sceny/omarchy-devices/issues/58) Incoming and missed calls in the bar and the panel
+- [#65](https://github.com/sceny/omarchy-devices/issues/65) The phone's newest photos in the panel (Gallery)
+- [#37](https://github.com/sceny/omarchy-devices/issues/37) Inbox of files received from the device
+- [#81](https://github.com/sceny/omarchy-devices/issues/81) Edit a device's page in place
+- [#84](https://github.com/sceny/omarchy-devices/issues/84) The bar joins edit in place
+- [#92](https://github.com/sceny/omarchy-devices/issues/92) Pairing: a pop-up and a glow when a device asks to pair
+- [#62](https://github.com/sceny/omarchy-devices/issues/62) Preview the panel with a demo phone before setting up
+- [#64](https://github.com/sceny/omarchy-devices/issues/64) A QR code to install the phone app
+- [#69](https://github.com/sceny/omarchy-devices/issues/69) Find a paired device that is away, and say why when it cannot
+- [#105](https://github.com/sceny/omarchy-devices/issues/105) Gallery: decode the phone's files in a sandbox
+- [#107](https://github.com/sceny/omarchy-devices/issues/107) Images from the phone decoded by the shell, unsandboxed
+- [#100](https://github.com/sceny/omarchy-devices/issues/100) Gallery asked for the mount on every open after a failure
+- [#102](https://github.com/sceny/omarchy-devices/issues/102) Messages: a conversation opened while another loaded stayed on skeletons
+- [#108](https://github.com/sceny/omarchy-devices/issues/108) Demo mode showed the real device's nickname
+- [#67](https://github.com/sceny/omarchy-devices/issues/67) The line under the pill covered only part of it
 
-- One keyboard cursor everywhere: on the main page and in Settings too,
-  the cursor is one highlight that slides from row, tile or card to the
-  next with the keys (and lands at once under the pointer), the page
-  gliding to keep it in sight; PgUp/PgDn move a screen at a time. Settings
-  now scrolls to follow its cursor.
-- Messages by keyboard: `l` or → moves the keys into the open
-  conversation and `h` or ← (or Esc) back to the list; there, the arrows
-  and PgUp/PgDn move a highlight from message to message, and Enter opens
-  a message's picture or copies its text. Only the side the keys are on
-  shows its highlight, which slides from row to row with the keys (and
-  lands at once under the pointer), the list or conversation gliding to
-  keep it in sight. ↑ on the first conversation goes to search.
+### Pull requests without an issue
 
-### Fixed
-- New message: a typed number no one in the list has (a short code, a
-  new number) comes first as *This number*; and Esc in *To* closes the
-  suggestions, keeping what you typed. Enter took the first match.
-- Esc steps back the same way in every text field: what floats over it
-  closes first, then the field's own step (a draft stays, a search
-  clears, a setting goes back), then the field is left. The notification
-  reply no longer throws away what you wrote.
-- Contact names saved in the old vCard encoding (quoted-printable, as for
-  accented names) showed as `=C3=A1…`; they are decoded.
-- Messages: PageUp and PageDown were swapped. They now move through the
-  conversation list a page at a time, as the arrows move a row; while
-  writing a reply, they scroll the conversation.
-- Messages: a picture in HEIC (as newer phones send them) opened nothing
-  when clicked. A picture now opens from a full-size copy decoded in the
-  sandbox, so the viewer never reads the phone's bytes; other attachments
-  open in their app as Files would open them.
-- Images from the phone (notification icons, a track's art, a picture
-  message's preview) were decoded by the shell itself; they are now shown
-  only as copies decoded in a sandbox (glycin), as the Gallery's are, and
-  a received picture's preview too (#107).
-- A picture opened from the phone (a gallery tile, a received picture, a
-  picture message) is a copy decoded in the sandbox; your viewer never
-  reads the phone's bytes.
-- Demo mode showed the real device's nickname (and icon, and place in the
-  bar); it now shows only its own (#108).
-- No hand cursor showed over the panel's buttons: the main page's
-  right-click area and the media swipe area held the arrow over them.
-- Messages: opening a conversation while another was still loading left
-  every conversation on skeletons until the shell restarted (#102).
-- A device joining could swap two others in the order (the first device:
-  the one always in the bar, opened first).
-- Settings pages without buttons ended in an empty band (Add a device,
-  Connection).
-- An error from the messages reader could stay on screen for good.
-- *Bar: use the defaults* left a device's *Calls* switch as it was.
-- While charging, the % beside the battery overlapped its bolt; it now
-  starts past the glyph's ink.
-- New message: after picking someone, every contact stayed listed; the
-  list now shows only while typing a name, and a click on a contact goes
-  on to the message. In messages, Esc undoes one thing at a time: the
-  name being typed, then the new message, then the search, then messages. After Esc leaves a
-  text field, the next Esc still closes messages.
-- Moving the first section up in Layout did nothing: it swapped with the
-  hidden Devices section.
-- A low battery turned the whole pill red; now only the battery glyph and
-  its % do. Beside the battery glyph, the % joins it (a thin space apart),
-  so the two read as one.
-- A newly ticked bar indicator went to the end; it now goes to its natural
-  place (connection, battery, %, counts, playing, bubble), so % follows
-  the battery.
+- [#111](https://github.com/sceny/omarchy-devices/pull/111) One keyboard cursor and one Esc everywhere, messages by keyboard, pictures open sandboxed
+- [#104](https://github.com/sceny/omarchy-devices/pull/104) The hand cursor over the panel's buttons
+- [#87](https://github.com/sceny/omarchy-devices/pull/87) The resting glyph with nothing paired
+- [#112](https://github.com/sceny/omarchy-devices/pull/112) The user guide: a picture per topic, from demo mode
+
+### Upgrading
+
+- **Received** and **Gallery** join your saved order at the end, switched
+  on; each shows only while it has something.
+- The Devices section is gone; its switch is ignored. Nothing in your
+  settings is rewritten.
 
 ## 0.6.1 — 2026-09-28
 

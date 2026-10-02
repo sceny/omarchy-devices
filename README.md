@@ -44,7 +44,8 @@ media and photos, without picking it up.
 [Gallery and files](docs/gallery-and-files.md) ·
 [Calls and devices](docs/calls-and-devices.md) ·
 [Settings](docs/settings.md) ·
-[Troubleshooting](docs/troubleshooting.md)
+[Troubleshooting](docs/troubleshooting.md) ·
+[What's new](CHANGELOG.md)
 
 ## Internals
 
