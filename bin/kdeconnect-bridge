@@ -51,6 +51,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import urllib.parse
 
 import gi
@@ -357,13 +358,22 @@ def with_seen(snap, seen):
 # An entry goes when the user dismisses it or its file is gone.
 #
 # Photos (#65): the device's storage, mounted by KDE Connect's sftp plugin
-# (sshfs), read when the panel asks: the newest images in its camera and
-# screenshot folders, with thumbnails cached here.
+# (sshfs), read when the panel asks: the newest photos and videos where a
+# phone keeps its gallery (DCIM, Pictures, Movies), album by album, with
+# thumbnails cached here. Download and Android/ hold other apps' files, not
+# the gallery; a hidden folder, or one marked .nomedia, is not in it either.
 
 RECEIVED_MAX = 50
-PHOTO_FOLDERS = ["DCIM/Camera", "Pictures/Screenshots", "DCIM/Screenshots"]
-PHOTO_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic")
+MEDIA_ROOTS = ["DCIM", "Pictures", "Movies"]
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".dng", ".jxl")
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".webm")
 PHOTO_COUNT = 8
+# Every folder is a round trip to the phone: the walk stops this deep, after
+# this many entries, or after this long, and keeps what it found.
+MEDIA_DEPTH = 3
+MEDIA_SCAN_MAX = 20000
+MEDIA_SCAN_SEC = 8
+ALBUM_LINKS = 3
 MOUNT_TIMEOUT_MS = 30000
 
 
@@ -479,57 +489,103 @@ def prune_received(entries):
     return changed
 
 
-def photo_folders(roots):
-    """The camera and screenshot folders under the mounted storage roots
-    (sftp's getDirectories), each once."""
-    out, seen = [], set()
-    for root in roots:
-        for sub in [""] + PHOTO_FOLDERS:
-            path = os.path.join(root, sub) if sub else root
-            if sub == "" and not any(path.rstrip("/").endswith(f) for f in PHOTO_FOLDERS):
-                continue
-            real = os.path.realpath(path)
-            if real not in seen and os.path.isdir(path):
-                seen.add(real)
-                out.append(path)
-    return out
+def media_kind(name):
+    """"photo", "video", or None for a file that is not gallery media."""
+    lower = name.lower()
+    if lower.endswith(IMAGE_EXTENSIONS):
+        return "photo"
+    if lower.endswith(VIDEO_EXTENSIONS):
+        return "video"
+    return None
 
 
-def newest_photos(folders, count=PHOTO_COUNT):
-    """The newest images across the folders: {path, name, at, kind}."""
-    found = []
-    for folder in folders:
-        kind = "screenshot" if "Screenshot" in folder else "camera"
+def scan_media(roots, depth=MEDIA_DEPTH, limit=MEDIA_SCAN_MAX, seconds=MEDIA_SCAN_SEC, clock=time.monotonic):
+    """Every photo and video under DCIM, Pictures and Movies of the mounted
+    storage roots (sftp's getDirectories): ([{path, name, at, album, video}],
+    {album: {name, path, count}}). The album is the folder right under the
+    top one (DCIM/Camera is Camera); a file in the top folder is in its
+    album. A root that is itself a media folder (some phones list
+    DCIM/Camera apart) is read once."""
+    found, albums, visited = [], {}, set()
+    budget = {"left": limit, "until": clock() + seconds}
+
+    def walk(folder, album, album_path, level):
+        real = os.path.realpath(folder)
+        if real in visited or budget["left"] <= 0 or clock() > budget["until"]:
+            return
+        visited.add(real)
         try:
             with os.scandir(folder) as it:
-                for e in it:
-                    if e.is_file() and e.name.lower().endswith(PHOTO_EXTENSIONS) and not e.name.startswith("."):
-                        found.append({"path": e.path, "name": e.name,
-                                      "at": int(e.stat().st_mtime * 1000), "kind": kind})
+                entries = list(it)
         except OSError:
-            continue
-    found.sort(key=lambda p: -p["at"])
-    return found[:count]
+            return
+        if any(e.name == ".nomedia" for e in entries):
+            return
+        budget["left"] -= len(entries)
+        for e in entries:
+            if e.name.startswith("."):
+                continue
+            try:
+                if e.is_dir():
+                    if level < depth:
+                        walk(e.path, album or e.name, album_path or e.path, level + 1)
+                    continue
+                kind = media_kind(e.name) if e.is_file() else None
+                if kind is None:
+                    continue
+                at = int(e.stat().st_mtime * 1000)
+            except OSError:
+                continue
+            name = album or os.path.basename(folder)
+            entry = albums.setdefault(name, {"name": name, "path": album_path or folder, "count": 0})
+            entry["count"] += 1
+            found.append({"path": e.path, "name": e.name, "at": at, "album": name, "video": kind == "video"})
+
+    tops = [(r, [t for t in MEDIA_ROOTS if os.path.isdir(os.path.join(r, t))]) for r in roots]
+    for root, names in sorted(tops, key=lambda rt: not rt[1]):
+        if names:
+            for t in names:
+                walk(os.path.join(root, t), None, None, 1)
+        else:
+            walk(root, os.path.basename(root.rstrip("/")), root, 1)
+    found.sort(key=lambda p: (-p["at"], p["name"]))
+    return found, albums
+
+
+def album_links(albums, count=ALBUM_LINKS):
+    """The biggest albums, as links that open them: [{name, path, count}]."""
+    return sorted(albums.values(), key=lambda a: (-a["count"], a["name"]))[:count]
 
 
 def thumb_name(photo):
     return hashlib.sha1(("%s|%d" % (photo["path"], photo["at"])).encode()).hexdigest()[:20] + ".jpg"
 
 
-def make_thumb(src, dst):
-    """A square 256 px thumbnail (ImageMagick, part of Omarchy)."""
+def make_thumb(src, dst, video=False):
+    """A square 256 px thumbnail (ImageMagick; a video's frame from
+    ffmpegthumbnailer; both part of Omarchy). False when there is none."""
+    frame = dst + ".frame.png"
     try:
+        if video:
+            subprocess.run(["ffmpegthumbnailer", "-i", src, "-o", frame, "-s", "512", "-c", "png"],
+                           capture_output=True, timeout=30)
+            if not os.path.isfile(frame):
+                return False
+            src = frame
         subprocess.run(["magick", src + "[0]", "-auto-orient", "-thumbnail", "256x256^",
                         "-gravity", "center", "-extent", "256x256", "-quality", "85", dst],
                        capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         pass
+    finally:
+        if video and os.path.exists(frame):
+            os.remove(frame)
     return os.path.isfile(dst)
 
 
 def photos(device_id, count=PHOTO_COUNT):
-    """The device's newest photos as JSON: {ok, photos} or {ok: false,
-    missing: "sshfs"} or {ok: false, error}."""
+    """The device's newest photos and videos as JSON: {ok, photos, albums}
+    or {ok: false, missing: "sshfs"} or {ok: false, error}."""
     if not shutil.which("sshfs"):
         return {"ok": False, "missing": "sshfs"}
     conn = bus()
@@ -544,18 +600,15 @@ def photos(device_id, count=PHOTO_COUNT):
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
-    folders = photo_folders(roots)
-    found = newest_photos(folders, count)
-    # The folders the strip reads, each by name, for the links that open them
-    # in the file manager: wherever this phone keeps them.
-    named = photo_folder_names(folders)
+    every, albums = scan_media(roots)
+    found = every[:count]
     cache = photos_cache(device_id)
     keep = {PHOTO_LIST}
     for p in found:
         name = thumb_name(p)
         keep.add(name)
         thumb = os.path.join(cache, name)
-        p["thumb"] = thumb if os.path.isfile(thumb) or make_thumb(p["path"], thumb) else ""
+        p["thumb"] = thumb if os.path.isfile(thumb) or make_thumb(p["path"], thumb, p["video"]) else ""
     for old in os.listdir(cache):
         if old not in keep:
             try:
@@ -563,17 +616,8 @@ def photos(device_id, count=PHOTO_COUNT):
             except OSError:
                 pass
     save_received(os.path.join(cache, PHOTO_LIST), found)
-    return {"ok": True, "photos": found, "folders": named}
-
-
-def photo_folder_names(folders):
-    """The folders as links: [{name: "Camera" | "Screenshots", path}], one
-    per name (the first found), Camera first."""
-    out = {}
-    for f in folders:
-        name = "Screenshots" if "Screenshot" in f else "Camera"
-        out.setdefault(name, f)
-    return [{"name": n, "path": out[n]} for n in ("Camera", "Screenshots") if n in out]
+    # The biggest albums, for the links that open them in the file manager.
+    return {"ok": True, "photos": found, "albums": album_links(albums)}
 
 
 # The last list read from the device, with its thumbnails: the panel shows it
@@ -606,25 +650,36 @@ def pictures_dir():
     return os.path.expanduser("~/Pictures")
 
 
+def save_target(folder, name, size):
+    """Where a copy of `name` goes in `folder`: its own name, else "name (2)"
+    and on; None when the same file (same name and size) is already there."""
+    base, ext = os.path.splitext(name)
+    target, n = os.path.join(folder, name), 1
+    while os.path.lexists(target):
+        if os.path.isfile(target) and os.path.getsize(target) == size:
+            return None
+        n += 1
+        target = os.path.join(folder, "%s (%d)%s" % (base, n, ext))
+    return target
+
+
 def save_file(path, device_name):
-    """A copy of a file from the device in Pictures/<device name>/, never over
-    one already there (a number is added)."""
+    """A copy of a file from the device in Pictures/<device name>/, with its
+    own date; never over another file, and not twice."""
     if not os.path.isfile(path):
         return say("The file is gone", EXIT_FAILED)
     folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
     folder = os.path.join(pictures_dir(), folder_name)
     os.makedirs(folder, exist_ok=True)
-    base, ext = os.path.splitext(os.path.basename(path))
-    target = os.path.join(folder, base + ext)
-    n = 1
-    while os.path.exists(target):
-        target = os.path.join(folder, "%s (%d)%s" % (base, n, ext))
-        n += 1
+    shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
+    target = save_target(folder, os.path.basename(path), os.path.getsize(path))
+    if target is None:
+        return say("Already in %s" % shown)
     try:
-        shutil.copyfile(path, target)
+        shutil.copy2(path, target)
     except OSError as error:
         return say(str(error), EXIT_FAILED)
-    return say("Saved to %s" % os.path.join(os.path.basename(pictures_dir()), folder_name, os.path.basename(target)))
+    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)))
 
 
 def file_uri(path):

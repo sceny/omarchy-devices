@@ -1683,8 +1683,13 @@ function fileUri(path) {
 }
 
 function photosSummary(photos) {
-  var n = (photos || []).length
-  return n === 0 ? "Nothing new" : (n === 1 ? "1 photo" : n + " photos")
+  var list = photos || []
+  if (list.length === 0) return "Nothing new"
+  var videos = list.filter(function(p) { return p.video === true }).length
+  var parts = []
+  if (list.length > videos) parts.push(list.length - videos === 1 ? "1 photo" : (list.length - videos) + " photos")
+  if (videos > 0) parts.push(videos === 1 ? "1 video" : videos + " videos")
+  return parts.join(", ")
 }
 
 // The newest file's name, and how many more.
@@ -1701,8 +1706,8 @@ function demoPhotos(picture, nowMs) {
   var now = nowMs === undefined ? Date.now() : nowMs
   var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
   return clips.map(function(c, i) {
-    return { name: "PXL_2026092" + i + ".jpg", path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
-             kind: i === 2 ? "screenshot" : "camera", clip: c, demo: true }
+    return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
+             album: i === 2 ? "Screenshots" : "Camera", video: i === 1, clip: c, demo: true }
   })
 }
 function demoReceived(nowMs) {

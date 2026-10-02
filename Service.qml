@@ -704,7 +704,8 @@ Item {
   property var photoState: ({})
   readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
   readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
-      folders: [{ name: "Camera", path: "/demo/DCIM/Camera" }, { name: "Screenshots", path: "/demo/Pictures/Screenshots" }] }
+      albums: [{ name: "Camera", path: "/demo/DCIM/Camera", count: 842 }, { name: "Screenshots", path: "/demo/Pictures/Screenshots", count: 211 },
+               { name: "WhatsApp", path: "/demo/Pictures/WhatsApp", count: 96 }] }
     : (device ? photoState[String(device.id)] || null : null)
   readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
   function setPhotoState(id, value) {

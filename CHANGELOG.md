@@ -70,11 +70,13 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   watched: a file renamed there is followed, and one deleted or moved away
   leaves the list at once (where the system allows a watch; otherwise
   within 30 s). Gone while there are none.
-- Photos (#65): a section with the device's newest photos and
-  screenshots: click to open; from a photo's corner, copy it or save a
-  copy in Pictures/<device>; drag it into a window. *Camera* and
-  *Screenshots* open those folders, every image, in the file manager,
-  wherever the phone keeps them. The last photos show at once when the
+- Photos (#65): a section with the device's newest photos and videos,
+  from every album where a phone keeps its gallery (`DCIM`, `Pictures`,
+  `Movies`; a folder marked `.nomedia` is left out, as the phone's gallery
+  does): click to open (a video plays); from a corner, copy it or save a
+  copy in Pictures/<device>, with its own date and only once; drag it
+  into a window. The biggest albums open in the file manager, wherever the
+  phone keeps them. The last photos show at once when the
   panel opens, while the phone is read again; when none are left, they
   fade and the section folds away. Photos are read from its storage
   through KDE Connect, which needs `sshfs`: the section offers to install

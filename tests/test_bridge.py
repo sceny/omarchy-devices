@@ -327,38 +327,55 @@ class Received(unittest.TestCase):
 
 
 class Photos(unittest.TestCase):
-    """The newest images in the camera and screenshot folders of a mounted
-    device (a made-up tree here)."""
+    """The newest photos and videos where a phone keeps its gallery, album by
+    album (a made-up tree here)."""
 
-    def test_newest_across_camera_and_screenshots(self):
+    def tree(self, root, files):
+        for i, rel in enumerate(files):
+            p = os.path.join(root, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").close()
+            os.utime(p, (1000 + i, 1000 + i))
+
+    def test_every_album_photos_and_videos_newest_first(self):
         with tempfile.TemporaryDirectory() as root:
-            cam = os.path.join(root, "DCIM", "Camera")
-            shots = os.path.join(root, "Pictures", "Screenshots")
-            os.makedirs(cam)
-            os.makedirs(shots)
-            for i, (folder, name) in enumerate([(cam, "a.jpg"), (shots, "b.png"), (cam, "c.JPG"), (cam, "notes.txt"), (cam, ".hidden.jpg")]):
-                p = os.path.join(folder, name)
-                open(p, "w").close()
-                os.utime(p, (1000 + i, 1000 + i))
-            folders = bridge.photo_folders([root])
-            self.assertEqual(sorted(os.path.relpath(f, root) for f in folders), ["DCIM/Camera", "Pictures/Screenshots"])
-            found = bridge.newest_photos(folders, 2)
-            self.assertEqual([p["name"] for p in found], ["c.JPG", "b.png"], "newest first, images only")
-            self.assertEqual(found[1]["kind"], "screenshot")
-            links = bridge.photo_folder_names(folders)
-            self.assertEqual([(l["name"], os.path.relpath(l["path"], root)) for l in links],
-                             [("Camera", "DCIM/Camera"), ("Screenshots", "Pictures/Screenshots")],
-                             "one link per folder the strip reads, wherever the phone keeps it")
+            self.tree(root, ["DCIM/Camera/a.jpg", "Pictures/Screenshots/b.png", "DCIM/Camera/clip.MP4",
+                             "Pictures/Instagram/c.jpg", "Movies/Edits/d.mov", "DCIM/top.jpg",
+                             "DCIM/Camera/notes.txt", "DCIM/Camera/.hidden.jpg", "Download/e.jpg",
+                             "Android/media/app/f.jpg"])
+            found, albums = bridge.scan_media([root])
+            self.assertEqual([p["name"] for p in found], ["top.jpg", "d.mov", "c.jpg", "clip.MP4", "b.png", "a.jpg"],
+                             "newest first; gallery folders only; media only; hidden left out")
+            self.assertEqual({p["name"]: p["album"] for p in found},
+                             {"top.jpg": "DCIM", "d.mov": "Edits", "c.jpg": "Instagram", "clip.MP4": "Camera",
+                              "b.png": "Screenshots", "a.jpg": "Camera"})
+            self.assertEqual([p["video"] for p in found], [False, True, False, True, False, False])
+            links = bridge.album_links(albums)
+            self.assertEqual([(l["name"], l["count"]) for l in links], [("Camera", 2), ("DCIM", 1), ("Edits", 1)],
+                             "the biggest albums first, then by name")
+            self.assertEqual(os.path.relpath(links[0]["path"], root), "DCIM/Camera")
 
-    def test_screenshots_in_dcim_are_linked_there(self):
-        links = bridge.photo_folder_names(["/m/DCIM/Screenshots", "/m/DCIM/Camera"])
-        self.assertEqual(links, [{"name": "Camera", "path": "/m/DCIM/Camera"}, {"name": "Screenshots", "path": "/m/DCIM/Screenshots"}])
-
-    def test_a_root_that_is_itself_the_camera_folder(self):
+    def test_a_nomedia_folder_and_hidden_folders_are_not_the_gallery(self):
         with tempfile.TemporaryDirectory() as root:
-            cam = os.path.join(root, "DCIM", "Camera")
-            os.makedirs(cam)
-            self.assertEqual(bridge.photo_folders([cam, root]), [cam], "each folder once")
+            self.tree(root, ["Pictures/Stickers/.nomedia", "Pictures/Stickers/s.png", "DCIM/.thumbnails/t.jpg",
+                             "DCIM/Camera/a.jpg"])
+            found, _ = bridge.scan_media([root])
+            self.assertEqual([p["name"] for p in found], ["a.jpg"])
+
+    def test_a_root_that_is_itself_a_media_folder_is_read_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.tree(root, ["DCIM/Camera/a.jpg"])
+            found, _ = bridge.scan_media([os.path.join(root, "DCIM", "Camera"), root])
+            self.assertEqual([(p["name"], p["album"]) for p in found], [("a.jpg", "Camera")])
+
+    def test_the_walk_stops_at_its_limits(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.tree(root, ["DCIM/Camera/deep/deeper/x.jpg", "DCIM/Camera/a.jpg"])
+            found, _ = bridge.scan_media([root], depth=2)
+            self.assertEqual([p["name"] for p in found], ["a.jpg"], "too deep is left out")
+            ticks = iter([0, 0, 100, 100, 100, 100])
+            found, _ = bridge.scan_media([root], clock=lambda: next(ticks, 100), seconds=1)
+            self.assertEqual(found, [], "out of time keeps what it had")
 
     def test_without_sshfs_it_says_so(self):
         saved = bridge.shutil.which
@@ -443,17 +460,24 @@ class PhotoCacheAndSave(unittest.TestCase):
             finally:
                 bridge.state_dir = saved
 
-    def test_a_saved_photo_never_replaces_one_there(self):
+    def test_a_saved_photo_keeps_its_date_and_is_saved_once(self):
         with tempfile.TemporaryDirectory() as d:
             saved = bridge.pictures_dir
             bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
             try:
                 src = os.path.join(d, "IMG_1.jpg")
                 open(src, "w").write("x")
+                os.utime(src, (1000, 1000))
                 with contextlib.redirect_stdout(open(os.devnull, "w")):
                     self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
                     self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
-                self.assertEqual(sorted(os.listdir(os.path.join(d, "Pictures", "Pixel 8"))), ["IMG_1 (1).jpg", "IMG_1.jpg"])
+                folder = os.path.join(d, "Pictures", "Pixel 8")
+                self.assertEqual(os.listdir(folder), ["IMG_1.jpg"], "the same file is not saved twice")
+                self.assertEqual(os.path.getmtime(os.path.join(folder, "IMG_1.jpg")), 1000, "with its own date")
+                open(src, "w").write("another")
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    bridge.save_file(src, "Pixel 8")
+                self.assertEqual(sorted(os.listdir(folder)), ["IMG_1 (2).jpg", "IMG_1.jpg"], "another file beside it")
             finally:
                 bridge.pictures_dir = saved
 

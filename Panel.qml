@@ -1558,6 +1558,7 @@ Panel {
     // Files: what the section holds; a received file forgotten, as its ×.
     function filesInfo(): string {
       return JSON.stringify({ photos: root.photos.map(function(p) { return p.name }), received: root.received.map(function(r) { return r.name }),
+        albums: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums.map(function(a) { return a.name }) : [],
         state: root.photoInfo ? { ok: root.photoInfo.ok, missing: root.photoInfo.missing || "" } : null })
     }
     function dismissReceived(index: int): string {
@@ -3097,24 +3098,24 @@ Panel {
                       }
                     }
 
-                    // Every photo: one link per folder the strip reads
-                    // (Camera, Screenshots), wherever this phone keeps it,
+                    // Everything else: the biggest albums (Camera,
+                    // Screenshots, …), wherever this phone keeps them,
                     // opened in the file manager (the storage KDE Connect
                     // mounted). Only from a fresh look: the cached list may
                     // predate the mount.
                     RowLayout {
                       width: parent.width
-                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.folders
-                        && root.photoInfo.folders.length > 0 && !root.photoInfo.cached
+                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.albums
+                        && root.photoInfo.albums.length > 0 && !root.photoInfo.cached
                       spacing: Style.space(4)
                       Item { Layout.fillWidth: true }
                       Repeater {
-                        model: root.photoInfo && root.photoInfo.folders ? root.photoInfo.folders : []
+                        model: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums : []
                         Button {
                           required property var modelData
                           text: modelData.name
                           iconText: Model.GLYPH.chevronRight
-                          tooltipText: "Opens its " + modelData.name.toLowerCase() + " folder, every one, in your file manager"
+                          tooltipText: modelData.count + " in " + modelData.name + ": opens the album in your file manager"
                           foreground: root.foreground
                           fontFamily: root.fontFamily
                           fontSize: Style.font.bodySmall
@@ -3622,10 +3623,28 @@ Panel {
       Text {
         anchors.centerIn: parent
         visible: !tile.photo.thumb
-        text: Model.GLYPH.picture
+        text: tile.photo.video ? Model.GLYPH.video : Model.GLYPH.picture
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading
+      }
+    }
+    // A video: a play mark in the corner, as galleries draw it.
+    Rectangle {
+      visible: tile.photo.video === true
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      anchors.margins: Style.space(6)
+      width: Style.font.heading
+      height: width
+      radius: width / 2
+      color: Qt.rgba(0, 0, 0, 0.55)
+      Text {
+        anchors.centerIn: parent
+        text: Model.GLYPH.play
+        color: "white"
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
       }
     }
     // The file itself, for a drop into another window.
@@ -3662,14 +3681,15 @@ Panel {
       anchors.right: parent.right
       visible: tileHover.hovered
       iconText: Model.GLYPH.clipboard
-      tooltipText: "Copy the image"
+      tooltipText: tile.photo.video ? "Copy the file" : "Copy the image"
       foreground: "white"
       fontFamily: root.fontFamily
       onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
     }
     PanelToolTip {
       visible: tileMouse.containsMouse
-      text: (tile.photo.kind === "screenshot" ? "Screenshot" : "Photo") + " · " + Model.threadTime(tile.photo.at, Date.now()) + " · click to open, drag into a window"
+      text: (tile.photo.album || "Photo") + (tile.photo.video ? " · video" : "") + " · " + Model.threadTime(tile.photo.at, Date.now())
+        + (tile.photo.video ? " · click to play" : " · click to open") + ", drag into a window"
     }
   }
 
