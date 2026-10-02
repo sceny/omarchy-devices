@@ -2,48 +2,39 @@
 
 # Getting started
 
-## Requirements
-
-- Omarchy 4.
-- KDE Connect on the computer: `sudo pacman -S --needed kdeconnect`.
-- The KDE Connect app on the phone
-  ([Google Play](https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp),
-  [F-Droid](https://f-droid.org/packages/org.kde.kdeconnect_tp/)), on the
-  same network.
-
 ## Install
+
+You need Omarchy 4, KDE Connect on the computer
+(`sudo pacman -S --needed kdeconnect`), and the phone on the same network.
 
 ```bash
 omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable
 ```
 
-The pill lands on the right of the bar; move it with
-`omarchy bar move sceny.devices --section right --index <n>`.
+## Add your phone
 
-## Set up KDE Connect
+Until a phone is paired, the panel opens on **Add a device**. Scan the
+code with the phone's camera to get the app, Android or iPhone, then pick
+this computer in the app and accept here.
 
-Until a device connects, the panel lists what is missing (installed,
-running, firewall, a paired device), with a **Fix** button where it can.
-Fixes ask for your password; nothing changes without a click.
+![Add a device: the steps on the phone and a QR code for the app (demo data)](images/add-device.png)
 
-On the phone:
+On the phone, allow notification access, SMS, contacts and media control.
+An iPhone shares files and the clipboard only.
 
-1. Open KDE Connect, pick the computer and pair.
-2. Grant **notification access**, **SMS**, **contacts** (names instead of
-   numbers) and **media control**.
-3. On Samsung, set the app's battery use to *Unrestricted*.
+## Check this computer
 
-<details><summary>The firewall by hand</summary>
+**Connection** checks KDE Connect, the firewall and the network, with a
+fix for each; a fix asks for your password.
 
-KDE Connect uses ports 1714–1764. Allow them from your home network only
-(use your own range):
+![Connection: KDE Connect, the firewall and the network, all good (demo data)](images/connection.png)
 
-```bash
-sudo ufw allow from 192.168.1.0/24 to any port 1714:1764 proto tcp comment 'KDE Connect'
-sudo ufw allow from 192.168.1.0/24 to any port 1714:1764 proto udp comment 'KDE Connect'
-```
+## Look around first
 
-</details>
+**Preview with a demo phone** shows the panel with made-up data. Nothing
+reaches a device.
+
+![The panel in preview, with its strip and Back to setup (demo data)](images/preview.png)
 
 ## Update and remove
 
@@ -52,5 +43,5 @@ omarchy plugin update sceny.devices
 omarchy plugin remove sceny.devices
 ```
 
-Removing keeps KDE Connect, its pairing and the firewall rule. Delete
+Removing keeps KDE Connect and its pairing. Delete
 `~/.cache/sceny.devices/` to clear the caches.

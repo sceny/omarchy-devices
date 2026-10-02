@@ -21,7 +21,8 @@ Item {
 
   // Started on first use of the messages view, then kept.
   property bool wanted: false
-  readonly property bool active: wanted && reachable && deviceId !== "" && bridge !== ""
+  // A demo device (made-up id) has no messages to read.
+  readonly property bool active: wanted && reachable && deviceId !== "" && deviceId.indexOf("demo") !== 0 && bridge !== ""
 
   property bool ready: false
   property int contactCount: 0
@@ -135,6 +136,22 @@ Item {
   ListModel { id: messageModel }
 
   function start() { wanted = true }
+
+  // The viewed device changed (a tab, a chip): this reader follows it from a
+  // clean slate, so one device's conversations never show under another.
+  // The seen marks follow too (their file is per device).
+  onDeviceIdChanged: {
+    if (demo) return
+    closeThread()
+    threadModel.clear()
+    seen = ({})
+    ready = false
+    modelRevision++
+    if (proc.running) {
+      proc.running = false
+      Qt.callLater(function() { if (sms.active && !proc.running) proc.running = true })
+    }
+  }
 
   // Demo: made-up conversations (Model.demoThreads) in place of the real
   // ones, for screenshots. Bridge events are ignored meanwhile and nothing
@@ -297,11 +314,14 @@ Item {
       return
     }
     start()
-    if (tid === openThreadId && messageModel.count > 0) return
+    if (tid === openThreadId && (messageModel.count > 0 || loading)) return
     openThreadId = tid
     messageModel.clear()
     loadedCount = 0
     hasMore = true
+    // The page still on its way is the previous conversation's; its answer
+    // is dropped (another thread), so this one is asked for now.
+    loading = false
     markSeen(tid)
     loadMore()
   }
@@ -407,8 +427,11 @@ Item {
       seenKeys[key] = true
       out.push({ name: name || "", number: number, title: name || Model.formatNumber(number), tid: tid })
     }
-    for (var c = 0; c < contacts.length && out.length < (limit || 8); c++)
-      consider(contacts[c].name, contacts[c].number, threadForAddress(contacts[c].number))
+    // Demo mode shows made-up people only: the phone's synced contacts are
+    // real, so they stay out of it (a screenshot of the demo is public).
+    var people = demo ? [] : contacts
+    for (var c = 0; c < people.length && out.length < (limit || 8); c++)
+      consider(people[c].name, people[c].number, threadForAddress(people[c].number))
     for (var i = 0; i < threadModel.count && out.length < (limit || 8); i++) {
       var t = threadModel.get(i)
       if (!t.group) consider(t.title !== Model.formatNumber(t.addresses) ? t.title : "", t.addresses, t.tid)
@@ -422,7 +445,7 @@ Item {
       for (var i = 0; i < messageModel.count; i++) {
         var files = JSON.parse(messageModel.get(i).attachments)
         for (var j = 0; j < files.length; j++)
-          if (files[j].id === id && files[j].thumb) { Quickshell.execDetached(["xdg-open", files[j].thumb]); return }
+          if (files[j].id === id && files[j].thumb) { Quickshell.execDetached([sms.bridge, "open-file", files[j].thumb]); return }
       }
       return
     }
@@ -476,11 +499,13 @@ Item {
       contactCount = ev.count
       contacts = ev.contacts || []
     } else if (ev.ev === "attachment") {
-      // Open what the user asked for; the daemon names the file after its id.
+      // Open what the user asked for (a picture: the bridge's copy made in
+      // the sandbox), as Files would: GIO's default app for its type
+      // (xdg-open knows none for HEIC, and opened nothing), through uwsm-app.
       var wanted = pendingFiles[ev.name] === true || Object.keys(pendingFiles).length > 0
       if (wanted) {
         pendingFiles = ({})
-        Quickshell.execDetached(["xdg-open", ev.path])
+        Quickshell.execDetached([sms.bridge, "open-file", ev.path])
       }
       attachmentReady(ev.path)
     } else if (ev.ev === "sent") {
@@ -488,6 +513,7 @@ Item {
     } else if (ev.ev === "error") {
       lastError = ev.message || "Something went wrong"
       if (ev.cmd === "load") loading = false
+      if (ev.cmd === "attachment") pendingFiles = ({})
       errorClear.restart()
     }
   }
@@ -502,7 +528,17 @@ Item {
 
     stdout: SplitParser {
       onRead: function(line) {
-        try { sms.handle(JSON.parse(line)) } catch (e) { sms.lastError = "Unreadable update from kdeconnect-bridge" }
+        var ev = null
+        try { ev = JSON.parse(line) } catch (e) {
+          // Clears like any error; the length only (the line may hold message text).
+          console.warn("sceny.devices sms: an unreadable line, " + String(line).length + " characters")
+          sms.lastError = "Unreadable update from kdeconnect-bridge"
+          errorClear.restart()
+          return
+        }
+        // A fault here is the panel's, not the bridge's: logged, with the
+        // event's type only.
+        try { sms.handle(ev) } catch (e2) { console.warn("sceny.devices sms: " + e2 + " while handling " + ev.ev) }
       }
     }
 
@@ -525,4 +561,9 @@ Item {
     interval: 3000
     onTriggered: if (sms.active && !proc.running) proc.running = true
   }
+  // Started and stopped here, not by a binding alone: the restart above
+  // assigns `running`, which drops `running: sms.active`, and the reader
+  // then stayed stopped after messages went inactive and back (a demo, the
+  // phone away). Another device restarts it (onDeviceIdChanged, above).
+  onActiveChanged: proc.running = sms.active
 }

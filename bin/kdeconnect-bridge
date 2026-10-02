@@ -16,14 +16,24 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge share <device> [path...]       no paths: open the file chooser
   kdeconnect-bridge text <device> <text>           lands on the device's clipboard
   kdeconnect-bridge url <device> <url>             opens on the device
+  kdeconnect-bridge dial <device> <number>         the device's dialer, ready to call
   kdeconnect-bridge media <device> <PlayPause|Next|Previous>
   kdeconnect-bridge dismiss <device> <notification>
   kdeconnect-bridge reply <device> <replyId> <message>
   kdeconnect-bridge action <device> <notification> <action>
   kdeconnect-bridge pair|accept|reject|unpair <device>
+  kdeconnect-bridge photos <device> [count]        the newest photos and screenshots on
+                                              it, with thumbnails, as JSON
+  kdeconnect-bridge photos-cached <device>         the last list, at once (from the cache)
+  kdeconnect-bridge save-file <path> <name>        a copy in Pictures/<name>/
+  kdeconnect-bridge received-dismiss <device> <path>   forget one received file
+  kdeconnect-bridge open-file <path>               in its app (uwsm-app, GIO's default),
+                                              else shown in Files
+  kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall   fix one (install and
-                                              firewall ask for a password)
+  kdeconnect-bridge fix install|start|firewall|sshfs|search   fix one (install,
+                                              firewall and sshfs ask for a password;
+                                              search looks for devices again)
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -32,14 +42,20 @@ out (closed the file chooser), 2 on failure.
 """
 
 import base64
+import concurrent.futures
+import hashlib
 import html
 import ipaddress
 import json
 import shutil
 import os
+import quopri
 import re
 import subprocess
 import sys
+import tempfile
+import time
+import urllib.parse
 
 import gi
 
@@ -144,7 +160,7 @@ def read_notifications(conn, dpath):
             "dismissable": bool(p.get("dismissable", False)),
             "replyId": p.get("replyId", ""),
             "actions": list(p.get("actions", []) or []),
-            "icon": icon if icon and os.path.exists(icon) else "",
+            "icon": safe_image(icon, NOTE_ICON_BOX) if icon else "",
             "silent": bool(p.get("silent", False)),
         })
     # activeNotifications is in arrival order; newest first reads better.
@@ -152,7 +168,25 @@ def read_notifications(conn, dpath):
     return out
 
 
-def read_device(conn, device_id):
+# Calls: KDE Connect's telephony plugin signals `callReceived(event, number,
+# contactName)` for a ringing call (event "callReceived") and a missed one
+# ("missedCall"), and for nothing else: not when the call is answered or ends
+# (#60). A declined call arrives as missed. The last one per device is kept
+# here, with when it came; how long it counts is the panel's to decide.
+# KDE Connect puts the number in contactName when it has no name.
+CALL_EVENTS = {"callReceived": "ringing", "missedCall": "missed"}
+
+
+def call_event(event, number, name, at_ms):
+    kind = CALL_EVENTS.get(str(event))
+    if not kind:
+        return None
+    number, name = str(number or "").strip(), str(name or "").strip()
+    return {"event": kind, "number": number,
+            "name": "" if name == number else name, "at": int(at_ms)}
+
+
+def read_device(conn, device_id, calls=None):
     dpath = device_path(device_id)
     d = props(conn, dpath, IFACE + ".device")
     if d is None:
@@ -184,10 +218,13 @@ def read_device(conn, device_id):
             "media": has("mprisremote"),
             "notifications": has("notifications"),
             "ping": has("ping"),
+            "calls": has("telephony"),
+            "files": has("sftp"),
         },
         "battery": None,
         "network": None,
         "notifications": [],
+        "call": None,
     }
 
     # Away, or not paired: nothing more can be read from it.
@@ -216,10 +253,11 @@ def read_device(conn, device_id):
         n = read_notifications(conn, dpath)
         dev["notifications"] = n if n is not None else []
 
+    dev["call"] = (calls or {}).get(device_id)
     return dev
 
 
-def snapshot(conn):
+def snapshot(conn, calls=None):
     try:
         if not daemon_running(conn):
             return {"daemon": False, "devices": []}
@@ -232,7 +270,7 @@ def snapshot(conn):
     devices = []
     for device_id in ids:
         try:
-            dev = read_device(conn, device_id)
+            dev = read_device(conn, device_id, calls)
         except GLib.Error:
             dev = None
         if dev:
@@ -240,14 +278,813 @@ def snapshot(conn):
     return {"daemon": True, "devices": devices}
 
 
+# ---- Last seen ---------------------------------------------------------------
+#
+# Where each paired device was while it was last connected: its link, its
+# address and when. An away device's page says it ("last seen on Wi-Fi at
+# 192.168.1.20, 12 min ago"), after a restart too: it is kept in the cache.
+# While a device is connected its time moves on in memory and reaches the
+# file at most every SEEN_SAVE_MS, so a restart is off by that at most.
+
+SEEN_SAVE_MS = 5 * 60 * 1000
+
+
+def state_dir():
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    path = os.path.join(base, "sceny.devices")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def seen_path():
+    return os.path.join(state_dir(), "last-seen.json")
+
+
+def load_seen(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_seen(path, seen):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(seen, f, sort_keys=True)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def note_seen(seen, devices, now_ms):
+    """Updates `seen` from a snapshot's devices; returns whether the file
+    should be written now: a device's link or address changed, it left, or
+    the time of a connected one is SEEN_SAVE_MS old on disk."""
+    write = False
+    for d in devices:
+        if not d.get("paired"):
+            continue
+        old = seen.get(d["id"])
+        if d.get("reachable"):
+            entry = {"link": (d.get("links") or [""])[0], "address": (d.get("addresses") or [""])[0],
+                     "at": now_ms, "here": True, "saved": (old or {}).get("saved", 0)}
+            if not old or not old.get("here") or old.get("link") != entry["link"] \
+                    or old.get("address") != entry["address"] or now_ms - entry["saved"] >= SEEN_SAVE_MS:
+                write = True
+            seen[d["id"]] = entry
+        elif old and old.get("here"):
+            seen[d["id"]] = dict(old, here=False)
+            write = True
+    if write:
+        for entry in seen.values():
+            entry["saved"] = now_ms
+    return write
+
+
+def with_seen(snap, seen):
+    """An away paired device carries where it was last seen, or None."""
+    for d in snap.get("devices", []):
+        s = seen.get(d["id"])
+        d["lastSeen"] = {"link": s.get("link", ""), "address": s.get("address", ""), "at": s.get("at", 0)} \
+            if s and d.get("paired") and not d.get("reachable") else None
+    return snap
+
+
+# ---- Files: received from a device, and its newest photos ----------------
+#
+# Received (#37): KDE Connect signals `shareReceived(url)` when a file
+# arrives and keeps no history, so the list is ours: newest first, in the
+# cache (received-<device>.json; file paths are private, so not shell.json).
+# An entry goes when the user dismisses it or its file is gone.
+#
+# Gallery (#65): the device's storage, mounted by KDE Connect's sftp plugin
+# (sshfs), read when the panel asks: the newest photos and videos as the
+# phone's own gallery finds them. Android's media index (MediaStore) holds
+# every image and video in shared storage except in hidden folders, folders
+# marked .nomedia, and Android/data and Android/obb (apps' private files);
+# an item's album is the folder that holds it (its "bucket"). Thumbnails are
+# cached here.
+#
+RECEIVED_MAX = 50
+IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".avif", ".gif", ".dng", ".jxl")
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".m4v", ".3gp", ".mkv", ".webm")
+PHOTO_COUNT = 8
+# Apps' private folders, under a storage root: not in the gallery.
+MEDIA_SKIP = ("Android/data", "Android/obb")
+# Every folder is a round trip to the phone, so each one's listing is kept
+# (media-dirs.json) and listed again only when its date changed (a file
+# added, removed or renamed in it). The first look lists everything, in at
+# most MEDIA_SCAN_SEC; what it did not reach is read on the next look.
+MEDIA_DEPTH = 12
+MEDIA_SCAN_SEC = 60
+MEDIA_THREADS = 16
+MEDIA_DIRS = "media-dirs.json"
+ALBUM_LINKS = 8
+MOUNT_TIMEOUT_MS = 30000
+
+
+def received_path(device_id):
+    return os.path.join(state_dir(), "received-%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+
+
+def load_received(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def save_received(path, entries):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(entries, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def local_path(url):
+    """The file a file:// URL names, or "" for anything else (text, links)."""
+    parsed = urllib.parse.urlparse(str(url or ""))
+    return urllib.parse.unquote(parsed.path) if parsed.scheme == "file" else ""
+
+
+def note_received(entries, url, now_ms):
+    """A new entry for a received file, newest first, once per path;
+    returns whether the list changed. Text and links are not files."""
+    path = local_path(url)
+    if not path or not os.path.isfile(path):
+        return False
+    entries[:] = [e for e in entries if e.get("path") != path]
+    entries.insert(0, {"path": path, "name": os.path.basename(path),
+                       "size": os.path.getsize(path), "at": now_ms})
+    del entries[RECEIVED_MAX:]
+    return True
+
+
+def rename_received(entries, old_path, new_path):
+    """A listed file renamed in its folder (as its folder's watch reports
+    it): the entry follows it. Returns whether one did."""
+    changed = False
+    for e in entries:
+        if e.get("path") == old_path and new_path:
+            e["path"] = new_path
+            e["name"] = os.path.basename(new_path)
+            changed = True
+    return changed
+
+
+class FolderWatch:
+    """Watches the folders that hold received files, so a file deleted,
+    moved away or renamed updates the list at once. One watch per folder,
+    only while it holds a listed file; no file is held open. Best effort on
+    any machine: a watch the system refuses (its limits, a network or FUSE
+    folder) is skipped silently (a line on stderr would show as an error),
+    and the existence check on every snapshot, at least every 30 s, still
+    catches a deletion."""
+
+    def __init__(self, on_event, make_monitor=None):
+        self.on_event = on_event                  # (kind, path, new_path)
+        self.make_monitor = make_monitor or self._gio_monitor
+        self.monitors = {}                        # folder -> monitor
+
+    @staticmethod
+    def _gio_monitor(folder, callback):
+        monitor = Gio.File.new_for_path(folder).monitor_directory(Gio.FileMonitorFlags.WATCH_MOVES, None)
+        monitor.connect("changed", callback)
+        return monitor
+
+    def sync(self, folders):
+        want = set(f for f in folders if f)
+        for folder in list(self.monitors):
+            if folder not in want:
+                self.cancel(folder)
+        for folder in want:
+            if folder in self.monitors:
+                continue
+            try:
+                self.monitors[folder] = self.make_monitor(folder, self.changed)
+            except (GLib.Error, OSError):
+                pass
+
+    def cancel(self, folder):
+        monitor = self.monitors.pop(folder, None)
+        try:
+            if monitor is not None:
+                monitor.cancel()
+        except (GLib.Error, OSError, AttributeError):
+            pass
+
+    def changed(self, _monitor, file, other, event):
+        path = file.get_path() if file is not None else ""
+        if event == Gio.FileMonitorEvent.RENAMED:
+            self.on_event("renamed", path, other.get_path() if other is not None else "")
+        elif event in (Gio.FileMonitorEvent.DELETED, Gio.FileMonitorEvent.MOVED_OUT):
+            self.on_event("gone", path, "")
+
+
+def prune_received(entries):
+    """Drops entries whose file is gone (moved, deleted); returns whether
+    any went."""
+    kept = [e for e in entries if os.path.isfile(e.get("path", ""))]
+    changed = len(kept) != len(entries)
+    entries[:] = kept
+    return changed
+
+
+def media_kind(name):
+    """"photo", "video", or None for a file that is not gallery media."""
+    lower = name.lower()
+    if lower.endswith(IMAGE_EXTENSIONS):
+        return "photo"
+    if lower.endswith(VIDEO_EXTENSIONS):
+        return "video"
+    return None
+
+
+def scan_media(roots, known=None, depth=MEDIA_DEPTH, seconds=MEDIA_SCAN_SEC, clock=time.monotonic):
+    """Every photo and video in the mounted storage roots (sftp's
+    getDirectories), as the phone's gallery finds them: (found, albums,
+    folders, complete). found: [{path, name, at, album, video}], newest
+    first; albums: {folder: {name, path, count}}; folders: each folder's
+    listing, {path: {m, n, f: [[name, at, video]], d: [names]}}, to pass back
+    as `known` next time, when a folder whose date is the same is not listed
+    again. Out of time, a folder already known is taken as it was; one never
+    listed is left out and `complete` is false. A root inside another (some
+    phones list DCIM/Camera apart) is read once."""
+    known = known or {}
+    folders, visited = {}, set()
+    until = clock() + seconds
+    complete = [True]
+
+    def listing(folder):
+        with os.scandir(folder) as it:
+            entries = list(it)
+        if any(e.name == ".nomedia" for e in entries):
+            return {"n": True, "f": [], "d": []}
+        files, dirs = [], []
+        for e in entries:
+            if e.name.startswith("."):
+                continue
+            try:
+                if e.is_dir(follow_symlinks=False):
+                    dirs.append(e.name)
+                    continue
+                kind = media_kind(e.name) if e.is_file(follow_symlinks=False) else None
+                if kind:
+                    files.append([e.name, int(e.stat().st_mtime * 1000), kind == "video"])
+            except OSError:
+                continue
+        return {"n": False, "f": files, "d": sorted(dirs)}
+
+    def resolve(folder):
+        """The folder's listing: the known one while its date is the same,
+        else read again; None when it cannot be read or was never read in
+        time."""
+        entry = known.get(folder)
+        if clock() > until:
+            # Taken as it was: a folder added since is not seen this time.
+            complete[0] = False
+            return entry
+        try:
+            mtime = os.stat(folder).st_mtime_ns
+            if entry is None or entry.get("m") != mtime:
+                entry = dict(listing(folder), m=mtime)
+        except OSError:
+            return None
+        return entry
+
+    # Level by level, each level's folders at once: every check is a round
+    # trip to the phone, and sshfs answers many together.
+    level = [(root.rstrip("/") or "/", "") for root in sorted(roots, key=len)]
+    with concurrent.futures.ThreadPoolExecutor(max_workers=MEDIA_THREADS) as pool:
+        for depth_now in range(depth + 1):
+            level = [(f, rel) for f, rel in level if f not in visited and not visited.add(f)]
+            if not level:
+                break
+            entries = list(pool.map(lambda fr: resolve(fr[0]), level))
+            below = []
+            for (folder, rel), entry in zip(level, entries):
+                if entry is None:
+                    continue
+                folders[folder] = entry
+                if depth_now < depth:
+                    for name in entry["d"]:
+                        sub = rel + "/" + name if rel else name
+                        if sub not in MEDIA_SKIP:
+                            below.append((os.path.join(folder, name), sub))
+            level = below
+
+    found, albums = [], {}
+    for folder, entry in folders.items():
+        if entry.get("n") or not entry["f"]:
+            continue
+        name = os.path.basename(folder)
+        albums[folder] = {"name": name, "path": folder, "count": len(entry["f"])}
+        for fname, at, video in entry["f"]:
+            found.append({"path": os.path.join(folder, fname), "name": fname, "at": at, "album": name, "video": video})
+    found.sort(key=lambda p: (-p["at"], p["name"]))
+    return found, albums, folders, complete[0]
+
+
+def album_links(albums, count=ALBUM_LINKS):
+    """The biggest albums, as links that open them: [{name, path, count}]."""
+    return sorted(albums.values(), key=lambda a: (-a["count"], a["name"]))[:count]
+
+
+def thumb_name(photo):
+    return hashlib.sha1(("%s|%d" % (photo["path"], photo["at"])).encode()).hexdigest()[:20] + ".jpg"
+
+
+# A file from the phone is untrusted: a crafted image or video could exploit
+# a decoder. Nothing here decodes it in this process or the shell's:
+# - images go through GdkPixbuf, which on Omarchy decodes with glycin: each
+#   decode in its own bubblewrap sandbox with a syscall filter;
+# - a video's frame comes from ffmpegthumbnailer inside a bubblewrap sandbox
+#   of ours (no network, no home, only that one file, read-only; limits on
+#   memory, time and output), and is then decoded as an image is;
+# - what the shell loads is a JPEG written here from the decoded pixels.
+# Without the sandbox (no bwrap), a video gets no thumbnail; a photo larger
+# than THUMB_MAX_BYTES gets none either. A tile without one shows its kind.
+THUMB_SIZE = 256
+THUMB_MAX_BYTES = 64 << 20
+SANDBOX_SEC = 30
+SANDBOX_MEMORY = 2 << 30
+SANDBOX_OUTPUT = 32 << 20
+
+
+def sandbox_args(cmd, inputs, out_dir):
+    """bwrap around `cmd`: /usr read-only, nothing of the user's but the
+    `inputs` ({path: inside}, read-only) and `out_dir` (at /out); no network,
+    no other process, no environment."""
+    args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
+            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+            "--symlink", "usr/bin", "/bin", "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache",
+            "--dev", "/dev", "--tmpfs", "/tmp", "--setenv", "HOME", "/tmp"]
+    for path, inside in inputs.items():
+        args += ["--ro-bind", path, inside]
+    return args + ["--bind", out_dir, "/out", "--"] + cmd
+
+
+def sandbox_limits():
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (SANDBOX_MEMORY, SANDBOX_MEMORY))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (SANDBOX_OUTPUT, SANDBOX_OUTPUT))
+    resource.setrlimit(resource.RLIMIT_CPU, (SANDBOX_SEC, SANDBOX_SEC))
+
+
+def video_frame(src, out_dir):
+    """A frame of the video as a PNG in out_dir, made in the sandbox; None
+    without one."""
+    if not shutil.which("bwrap"):
+        return None
+    cmd = ["/usr/bin/ffmpegthumbnailer", "-i", "/in/video", "-o", "/out/frame.png", "-s", "512", "-c", "png"]
+    try:
+        subprocess.run(sandbox_args(cmd, {src: "/in/video"}, out_dir), capture_output=True,
+                       timeout=SANDBOX_SEC, preexec_fn=sandbox_limits)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    frame = os.path.join(out_dir, "frame.png")
+    return frame if os.path.isfile(frame) and not os.path.islink(frame) else None
+
+
+def square_thumb(src, dst, size=THUMB_SIZE):
+    """A size x size JPEG of the image's middle, from its decoded pixels
+    (GdkPixbuf: glycin's sandbox on Omarchy). False when it cannot be read."""
+    try:
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(src, size * 3, size * 3, True)
+        pix = pix.apply_embedded_orientation() or pix
+        w, h = pix.get_width(), pix.get_height()
+        scale = size / min(w, h)
+        sw, sh = max(size, round(w * scale)), max(size, round(h * scale))
+        scaled = pix.scale_simple(sw, sh, GdkPixbuf.InterpType.BILINEAR)
+        square = scaled.new_subpixbuf((sw - size) // 2, (sh - size) // 2, size, size).copy()
+        if square.get_has_alpha():
+            # JPEG has no alpha (a PNG screenshot has): flattened on black.
+            flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, size, size)
+            flat.fill(0x000000ff)
+            square.composite(flat, 0, 0, size, size, 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
+            square = flat
+        tmp = dst + ".part"
+        square.savev(tmp, "jpeg", ["quality"], ["85"])
+        os.replace(tmp, dst)
+        return True
+    except (GLib.Error, ValueError, ImportError, OSError, ZeroDivisionError):
+        return False
+
+
+# Every other image from the device (a notification's icon, a track's art, a
+# picture message's preview, a received picture) is shown only as a copy
+# made here the same way: decoded through GdkPixbuf (glycin's sandbox),
+# fitted in a box, written as a PNG of ours (alpha kept: icons have it). The
+# copies are a cache, named by the source and its size and date, the least
+# recently used removed past SAFE_MAX.
+SAFE_SOURCE_MAX = 16 << 20
+NOTE_ICON_BOX = 96
+RECEIVED_PREVIEW_BOX = 128
+MESSAGE_PREVIEW_BOX = 512
+ART_BOX = 512
+SAFE_MAX = 64 << 20
+
+
+def safe_dir():
+    path = os.path.join(state_dir(), "safe")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def fit_image(src, dst, box, fmt="png"):
+    """The image, fitted in box x box (never enlarged), from its decoded
+    pixels (GdkPixbuf: glycin's sandbox on Omarchy), written as a PNG (alpha
+    kept) or a JPEG (alpha flattened). False when it cannot be read."""
+    try:
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(src)
+        if _fmt is None:
+            return False
+        pix = GdkPixbuf.Pixbuf.new_from_file(src) if w <= box and h <= box else \
+            GdkPixbuf.Pixbuf.new_from_file_at_scale(src, box, box, True)
+        pix = pix.apply_embedded_orientation() or pix
+        if pix.get_width() > box or pix.get_height() > box:
+            scale = box / max(pix.get_width(), pix.get_height())
+            pix = pix.scale_simple(max(1, round(pix.get_width() * scale)), max(1, round(pix.get_height() * scale)),
+                                   GdkPixbuf.InterpType.BILINEAR)
+        tmp = dst + ".part"
+        if fmt == "jpeg":
+            if pix.get_has_alpha():
+                flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, pix.get_width(), pix.get_height())
+                flat.fill(0x000000ff)
+                pix.composite(flat, 0, 0, pix.get_width(), pix.get_height(), 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
+                pix = flat
+            pix.savev(tmp, "jpeg", ["quality"], ["92"])
+        else:
+            pix.savev(tmp, "png", [], [])
+        os.replace(tmp, dst)
+        return True
+    except (GLib.Error, ValueError, ImportError, OSError, ZeroDivisionError, TypeError):
+        if os.path.exists(dst + ".part"):
+            os.remove(dst + ".part")
+        return False
+
+
+# A picture from the device opened full size (a picture message's, a click):
+# the viewer gets a JPEG decoded in the sandbox, never the device's bytes.
+FULL_PICTURE_BOX = 4096
+
+
+def safe_full_picture(src, cache=None, limit=None):
+    """A full-size copy of a picture from the device, made in the sandbox,
+    kept with the copies a click opens; "" when it cannot be read."""
+    try:
+        st = os.stat(src)
+    except OSError:
+        return ""
+    cache = cache or open_cache()
+    folder = os.path.join(cache, hashlib.sha1(("%s|%d|%d" % (src, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16])
+    target = os.path.join(folder, os.path.splitext(os.path.basename(src))[0] + ".jpg")
+    if os.path.isfile(target):
+        os.utime(folder)
+        return target
+    os.makedirs(folder, exist_ok=True)
+    if not fit_image(src, target, FULL_PICTURE_BOX, "jpeg"):
+        shutil.rmtree(folder, ignore_errors=True)
+        return ""
+    os.utime(folder)
+    trim_cache(cache, OPEN_CACHE_MAX if limit is None else limit, keep=folder)
+    return target
+
+
+def safe_image(src, box, folder=None, limit=SAFE_MAX):
+    """The path of a safe copy of an image from the device (made once while
+    the source is unchanged); "" when there is none."""
+    try:
+        st = os.stat(src)
+    except (OSError, TypeError, ValueError):
+        return ""
+    if not os.path.isfile(src) or st.st_size > SAFE_SOURCE_MAX:
+        return ""
+    folder = folder or safe_dir()
+    key = "%s|%d|%d|%d" % (src, st.st_size, int(st.st_mtime), box)
+    dst = os.path.join(folder, hashlib.sha1(key.encode()).hexdigest()[:24] + ".png")
+    if os.path.isfile(dst):
+        os.utime(dst)
+        return dst
+    if not fit_image(src, dst, box):
+        return ""
+    trim_files(folder, limit, keep=dst)
+    return dst
+
+
+def trim_files(folder, limit, keep=None):
+    """Removes the least recently used files until the folder fits."""
+    entries = []
+    for name in os.listdir(folder):
+        path = os.path.join(folder, name)
+        try:
+            st = os.stat(path)
+            entries.append((st.st_mtime, path, st.st_size))
+        except OSError:
+            continue
+    total = sum(e[2] for e in entries)
+    for _at, path, size in sorted(entries):
+        if total <= limit:
+            break
+        if path != keep:
+            try:
+                os.remove(path)
+                total -= size
+            except OSError:
+                pass
+
+
+def make_thumb(src, dst, video=False):
+    """A square thumbnail of a file from the device, decoded only in a
+    sandbox (see above). False when there is none."""
+    try:
+        if video:
+            work = tempfile.mkdtemp(dir=os.path.dirname(dst))
+            try:
+                frame = video_frame(src, work)
+                return bool(frame) and square_thumb(frame, dst)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+        if os.path.getsize(src) > THUMB_MAX_BYTES:
+            return False
+        return square_thumb(src, dst)
+    except OSError:
+        return False
+
+
+def photos(device_id, count=PHOTO_COUNT):
+    """The device's newest photos and videos as JSON: {ok, photos, albums}
+    or {ok: false, missing: "sshfs"} or {ok: false, error}."""
+    if not shutil.which("sshfs"):
+        return {"ok": False, "missing": "sshfs"}
+    conn = bus()
+    path = device_path(device_id) + "/sftp"
+    iface = IFACE + ".device.sftp"
+    try:
+        result = conn.call_sync(BUS_NAME, path, iface, "mountAndWait", None, None,
+                                Gio.DBusCallFlags.NONE, MOUNT_TIMEOUT_MS, None).unpack()
+        if not result or not result[0]:
+            error = call(conn, path, iface, "getMountError")[0]
+            return {"ok": False, "error": error or "The device did not allow its storage"}
+        roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
+    except GLib.Error as error:
+        return {"ok": False, "error": error.message}
+    cache = photos_cache(device_id)
+    dirs_path = os.path.join(cache, MEDIA_DIRS)
+    try:
+        with open(dirs_path) as f:
+            known = json.load(f)
+    except (OSError, ValueError):
+        known = {}
+    every, albums, folders, complete = scan_media(roots, known if isinstance(known, dict) else {})
+    save_received(dirs_path, folders)
+    found = every[:count]
+    keep = {PHOTO_LIST, MEDIA_DIRS}
+    for p in found:
+        name = thumb_name(p)
+        keep.add(name)
+        thumb = os.path.join(cache, name)
+        p["thumb"] = thumb if os.path.isfile(thumb) or make_thumb(p["path"], thumb, p["video"]) else ""
+    for old in os.listdir(cache):
+        if old not in keep:
+            try:
+                os.remove(os.path.join(cache, old))
+            except OSError:
+                pass
+    save_received(os.path.join(cache, PHOTO_LIST), found)
+    # The biggest albums, for the links that open them in the file manager.
+    return {"ok": True, "photos": found, "albums": album_links(albums), "complete": complete}
+
+
+# The last list read from the device, with its thumbnails: the panel shows it
+# at once when it opens, while `photos` reads the device again.
+PHOTO_LIST = "list.json"
+
+
+def photos_cache(device_id):
+    path = os.path.join(state_dir(), "photos", re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def cached_photos(device_id):
+    """The last list, only entries whose thumbnail is still here; {ok: false}
+    when there is none."""
+    entries = load_received(os.path.join(photos_cache(device_id), PHOTO_LIST))
+    kept = [p for p in entries if isinstance(p, dict) and p.get("thumb") and os.path.isfile(p["thumb"])]
+    return {"ok": True, "cached": True, "photos": kept} if kept else {"ok": False, "none": True}
+
+
+def pictures_dir():
+    """The user's Pictures folder (xdg-user-dir), else ~/Pictures."""
+    try:
+        out = subprocess.run(["xdg-user-dir", "PICTURES"], capture_output=True, text=True, timeout=5).stdout.strip()
+        if out and out != os.path.expanduser("~"):
+            return out
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return os.path.expanduser("~/Pictures")
+
+
+def save_target(folder, name, size):
+    """Where a copy of `name` goes in `folder`: its own name, else "name (2)"
+    and on; None when the same file (same name and size) is already there."""
+    base, ext = os.path.splitext(name)
+    target, n = os.path.join(folder, name), 1
+    while os.path.lexists(target):
+        if os.path.isfile(target) and os.path.getsize(target) == size:
+            return None
+        n += 1
+        target = os.path.join(folder, "%s (%d)%s" % (base, n, ext))
+    return target
+
+
+def save_file(path, device_name):
+    """A copy of a file from the device in Pictures/<device name>/, with its
+    own date; never over another file, and not twice."""
+    if not os.path.isfile(path):
+        return say("The file is gone", EXIT_FAILED)
+    folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
+    folder = os.path.join(pictures_dir(), folder_name)
+    os.makedirs(folder, exist_ok=True)
+    shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
+    target = save_target(folder, os.path.basename(path), os.path.getsize(path))
+    if target is None:
+        return say("Already in %s" % shown)
+    try:
+        shutil.copy2(path, target)
+    except OSError as error:
+        return say(str(error), EXIT_FAILED)
+    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)))
+
+
+def file_uri(path):
+    """A path as a file:// address, each part encoded apart."""
+    return "file://" + "/".join(urllib.parse.quote(p) for p in path.split("/"))
+
+
+def default_app(path):
+    """The app the desktop opens this file with, following the type's
+    parents as GIO does (JSON is text, so a text editor opens it; xdg-open
+    looks up the exact type only and opens nothing). None when no app can."""
+    if os.path.isdir(path):
+        ctype = "inode/directory"
+    else:
+        ctype, _uncertain = Gio.content_type_guess(path, None)
+    return Gio.AppInfo.get_default_for_type(ctype, False)
+
+
+# Files from the device are opened from a copy here: an app reading over the
+# network plays a video slower than its pace. The copies are a cache, the
+# oldest removed first past OPEN_CACHE_MAX.
+OPEN_CACHE_MAX = 2 << 30
+
+
+def open_cache():
+    path = os.path.join(state_dir(), "open")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def local_copy(path, cache=None, limit=OPEN_CACHE_MAX):
+    """A copy of the device's file in the cache, under its own name (apps
+    show it): the one already there while the file is unchanged."""
+    cache = cache or open_cache()
+    st = os.stat(path)
+    folder = os.path.join(cache, hashlib.sha1(path.encode()).hexdigest()[:16])
+    target = os.path.join(folder, os.path.basename(path))
+    try:
+        t = os.stat(target)
+        if t.st_size == st.st_size and int(t.st_mtime) == int(st.st_mtime):
+            os.utime(folder)
+            return target
+    except OSError:
+        pass
+    os.makedirs(folder, exist_ok=True)
+    tmp = target + ".part"
+    shutil.copyfile(path, tmp)
+    os.utime(tmp, (st.st_atime, st.st_mtime))
+    os.replace(tmp, target)
+    os.utime(folder)
+    trim_cache(cache, limit, keep=folder)
+    return target
+
+
+def trim_cache(cache, limit, keep=None):
+    """Removes the least recently opened copies until the cache fits."""
+    entries = []
+    for name in os.listdir(cache):
+        folder = os.path.join(cache, name)
+        try:
+            size = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder))
+            entries.append((os.stat(folder).st_mtime, folder, size))
+        except OSError:
+            continue
+    total = sum(e[2] for e in entries)
+    for _at, folder, size in sorted(entries):
+        if total <= limit:
+            break
+        if folder != keep:
+            shutil.rmtree(folder, ignore_errors=True)
+            total -= size
+
+
+def open_file(path, launch=None, local=False, from_device=False):
+    """Opens a file in its app, as Omarchy launches apps (uwsm-app), or
+    when no app can open its type, shows it selected in Files and says so.
+    A file from the device (`local`: read over its storage; `from_device`:
+    received) that is a picture opens as a copy decoded in the sandbox
+    (safe_full_picture), never as the device's bytes; one that does not
+    decode is not opened. `launch` runs a command (replaced in tests)."""
+    launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    if not os.path.exists(path):
+        return say("The file is gone", EXIT_FAILED)
+    if (local or from_device) and os.path.isfile(path) and os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
+        copy = safe_full_picture(path)
+        if not copy:
+            return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
+        path = copy
+    elif local and os.path.isfile(path):
+        try:
+            path = local_copy(path)
+        except OSError as error:
+            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
+    if default_app(path) is None:
+        launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
+        ext = os.path.splitext(path)[1] or "these"
+        return say("No app opens %s files here; shown in Files" % ext, EXIT_CANCELLED)
+    launch(["uwsm-app", "--", "gio", "open", path])
+    return EXIT_OK
+
+
+def copy_file(path):
+    """The file on the clipboard: an image as image data, anything else as
+    a file (a URI list, as file managers copy)."""
+    if not os.path.isfile(path):
+        return say("The file is gone", EXIT_FAILED)
+    ext = os.path.splitext(path)[1].lower().lstrip(".")
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext)
+    try:
+        if mime:
+            with open(path, "rb") as f:
+                subprocess.run(["wl-copy", "--type", mime], stdin=f, timeout=15, check=True)
+        else:
+            subprocess.run(["wl-copy", "--type", "text/uri-list"], input=("file://" + urllib.parse.quote(path) + "\n").encode(),
+                           timeout=15, check=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        return say(str(error), EXIT_FAILED)
+    return say("Copied")
+
+
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
     state = {"pending": 0, "last": None}
+    calls = {}
+    seen = load_seen(seen_path())
+    # Known here only while connected: a device away at start keeps the time
+    # it left, not "now".
+    for entry in seen.values():
+        entry["here"] = False
 
     def emit():
         state["pending"] = 0
-        line = json.dumps(snapshot(conn), sort_keys=True, ensure_ascii=False)
+        snap = snapshot(conn, calls)
+        # Received files, re-read each time (a dismiss writes the file from
+        # another process), without the ones that are gone; their folders
+        # are watched, so a change there comes at once (FolderWatch).
+        ids, dirs = [], set()
+        for d in snap.get("devices", []):
+            if not d.get("paired"):
+                continue
+            path = received_path(d["id"])
+            entries = load_received(path)
+            if prune_received(entries):
+                save_received(path, entries)
+            # A picture shows as a safe copy (preview), never the file itself.
+            d["received"] = [dict(e, preview=safe_image(e["path"], RECEIVED_PREVIEW_BOX)
+                                  if os.path.splitext(e.get("path", ""))[1].lower() in IMAGE_EXTENSIONS else "")
+                             for e in entries]
+            ids.append(d["id"])
+            dirs.update(os.path.dirname(e.get("path", "")) for e in entries)
+        state["received_ids"] = ids
+        folders.sync(dirs)
+        if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
+            save_seen(seen_path(), seen)
+        line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
             try:
@@ -268,6 +1105,50 @@ def watch():
         schedule()
         return True
 
+    def on_call(_conn, _sender, path, _iface, _signal, params):
+        # /modules/kdeconnect/devices/<id>/telephony
+        parts = path.split("/")
+        if len(parts) < 2:
+            return
+        c = call_event(*params.unpack(), GLib.get_real_time() // 1000)
+        if c:
+            calls[parts[-2]] = c
+        # The daemon forgets calls across a restart; so does this.
+
+    def on_owner(*_args):
+        calls.clear()
+
+    def on_folder(kind, path, new_path):
+        # A listed file renamed in its folder: its entry follows it. Gone
+        # (deleted, moved away): the next snapshot's check drops it.
+        if kind == "renamed":
+            for device_id in state.get("received_ids", []):
+                rpath = received_path(device_id)
+                entries = load_received(rpath)
+                if rename_received(entries, path, new_path):
+                    save_received(rpath, entries)
+        schedule()
+
+    folders = FolderWatch(on_folder)
+
+    def on_share(_conn, _sender, path, _iface, _signal, params):
+        # /modules/kdeconnect/devices/<id>/share
+        parts = path.split("/")
+        if len(parts) < 2:
+            return
+        rpath = received_path(parts[-2])
+        entries = load_received(rpath)
+        if note_received(entries, params.unpack()[0], GLib.get_real_time() // 1000):
+            save_received(rpath, entries)
+
+    conn.signal_subscribe(BUS_NAME, IFACE + ".device.share", "shareReceived", None,
+                          None, Gio.DBusSignalFlags.NONE, on_share)
+    # Calls first, so the snapshot the next line schedules already has it.
+    conn.signal_subscribe(BUS_NAME, IFACE + ".device.telephony", "callReceived", None,
+                          None, Gio.DBusSignalFlags.NONE, on_call)
+    conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
+                          "NameOwnerChanged", "/org/freedesktop/DBus",
+                          BUS_NAME, Gio.DBusSignalFlags.NONE, on_owner)
     # Every signal the daemon emits, on any object: device list, reachability,
     # pairing, battery, notifications, media. Subscribing by well-known name
     # follows the daemon across restarts.
@@ -346,6 +1227,17 @@ def act(argv):
             call(conn, dpath + "/share", IFACE + ".device.share", "shareText",
                  (value,), "(s)")
             return say("Text sent to %s" % device_name(conn, device_id))
+
+        if verb == "dial":
+            # A tel: link: the phone opens its dialer on the number (or, from
+            # the background, offers to in a notification). The call itself is
+            # the user's tap on the phone.
+            number = re.sub(r"[^\d+*#]", "", " ".join(rest))
+            if not number:
+                return say("No number to call", EXIT_CANCELLED)
+            call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
+                 ("tel:" + number,), "(s)")
+            return say("%s offers to call %s" % (device_name(conn, device_id), number))
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")
@@ -460,6 +1352,7 @@ def doctor():
     checks = []
     installed = shutil.which("kdeconnect-cli") is not None
     checks.append({"key": "installed", "ok": installed, "label": "KDE Connect installed",
+                   "status": "Installed" if installed else "Not installed",
                    "detail": "" if installed else "The kdeconnect package is not installed",
                    "fix": "" if installed else "install", "fixLabel": "Install"})
     running = False
@@ -473,6 +1366,7 @@ def doctor():
         except GLib.Error:
             running = False
     checks.append({"key": "running", "ok": running, "label": "KDE Connect running",
+                   "status": "Running" if running else "Stopped",
                    "detail": "" if running else "It starts at login; it is not running now",
                    "fix": "" if running or not installed else "start", "fixLabel": "Start"})
     fw = firewall_state()
@@ -480,8 +1374,14 @@ def doctor():
     fw_ok = not fw["active"] or fw["allowed"]
     checks.append({"key": "firewall", "ok": fw_ok,
                    "label": "Firewall lets devices in",
+                   "status": ("Open to %s" % (lan or "the local network")) if fw["active"] and fw_ok
+                             else ("Off" if fw["present"] else "None") if fw_ok else "Closed",
                    "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, lan or "the local network"),
                    "fix": "" if fw_ok else "firewall", "fixLabel": "Allow"})
+    checks.append({"key": "network", "ok": bool(lan), "label": "On a network",
+                   "status": lan or "No network",
+                   "detail": "" if lan else "Join the Wi-Fi your devices are on",
+                   "fix": "", "fixLabel": ""})
     paired = [d for d in devices if d.get("paired")]
     reachable = [d for d in paired if d.get("reachable")]
     checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
@@ -494,6 +1394,15 @@ def doctor():
 
 
 def fix(what):
+    if what == "search":
+        # What `kdeconnect-cli --refresh` does: the daemon announces itself on
+        # every network, and a device that hears it connects back. Nothing on
+        # the system changes, and connected devices stay connected.
+        try:
+            call(bus(), ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Looking for devices on the network")
     if what == "install":
         cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "kdeconnect"]
     elif what == "start":
@@ -505,6 +1414,9 @@ def fix(what):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return say("KDE Connect started")
         return say("Could not start KDE Connect", EXIT_FAILED)
+    elif what == "sshfs":
+        # KDE Connect mounts a device's storage with it (photos).
+        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "sshfs"]
     elif what == "firewall":
         lan = local_network()
         if not lan:
@@ -523,7 +1435,8 @@ def fix(what):
         return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
     if out.returncode != 0:
         return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
-    return say({"install": "KDE Connect installed", "firewall": "Firewall now allows KDE Connect from %s" % local_network()}[what])
+    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
+                "firewall": "Firewall now allows KDE Connect from %s" % local_network()}[what])
 
 
 
@@ -571,6 +1484,18 @@ def digits_key(number):
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def vcard_qp(value, key):
+    """A vCard 2.1 quoted-printable value (=C3=A1…) as text, in the charset
+    the property names (UTF-8 when it names none)."""
+    m = re.search(r"CHARSET=([A-Za-z0-9_-]+)", key)
+    charset = m.group(1) if m else "utf-8"
+    raw = quopri.decodestring(value.encode("ascii", "ignore"))
+    try:
+        return raw.decode(charset, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+
+
 def read_contacts(device_id):
     """Names by phone number, from the vCards KDE Connect syncs (if allowed).
     Returns ({digits_key: name}, [{"name", "number"}])."""
@@ -590,10 +1515,20 @@ def read_contacts(device_id):
         text = re.sub(r"\r?\n[ \t]", "", text)
         full = ""
         tels = []
-        for line in text.splitlines():
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            i += 1
             key, _, value = line.partition(":")
             key = key.upper()
             if key == "FN" or key.startswith("FN;"):
+                if "QUOTED-PRINTABLE" in key:
+                    # vCard 2.1: a soft break ends a line with "=".
+                    while value.endswith("=") and i < len(lines):
+                        value = value[:-1] + lines[i]
+                        i += 1
+                    value = vcard_qp(value, key)
                 full = value.strip()
             elif key == "TEL" or key.startswith("TEL;"):
                 tels.append(value.strip())
@@ -619,6 +1554,14 @@ class Sms:
         self.contacts, self.contact_list = read_contacts(device_id)
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
         self.thumbs = cache_dir()
+        # Earlier versions kept the phone's previews as they came (thumb_*):
+        # gone, so nothing shows them again.
+        for name in os.listdir(self.thumbs):
+            if name.startswith("thumb_") and name.endswith(".png"):
+                try:
+                    os.remove(os.path.join(self.thumbs, name))
+                except OSError:
+                    pass
 
     # -- output --
     def out(self, obj):
@@ -635,16 +1578,23 @@ class Sms:
     def attachment(self, a):
         part, mime, thumb64, uid = a
         entry = {"part": part, "mime": mime, "id": uid, "thumb": ""}
-        if thumb64:
-            # KDE Connect's thumbnails are PNG whatever the original was.
+        if thumb64 and len(thumb64) <= SAFE_SOURCE_MAX:
+            # The phone's preview (sent with the message) is shown only as a
+            # copy decoded in the sandbox (fit_image), never as it came.
             safe = re.sub(r"[^A-Za-z0-9_.-]", "_", "%s_%s" % (part, uid))[:120]
-            path = os.path.join(self.thumbs, "thumb_%s.png" % safe)
+            path = os.path.join(self.thumbs, "preview_%s.png" % safe)
             if not os.path.exists(path):
+                raw = path + ".raw"
                 try:
-                    with open(path, "wb") as f:
+                    with open(raw, "wb") as f:
                         f.write(base64.b64decode(thumb64))
+                    if not fit_image(raw, path, MESSAGE_PREVIEW_BOX):
+                        path = ""
                 except (OSError, ValueError):
                     path = ""
+                finally:
+                    if os.path.exists(raw):
+                        os.remove(raw)
             entry["thumb"] = path
         return entry
 
@@ -739,7 +1689,21 @@ class Sms:
             self.out({"ev": "removed", "thread": tid})
         elif signal == "attachmentReceived":
             file_path, file_name = params.unpack()
-            self.out({"ev": "attachment", "path": self.named(file_path, file_name), "name": file_name})
+            self.out(self.arrived(file_path, file_name))
+
+    def arrived(self, path, name):
+        """What the panel opens for a fetched attachment: a picture as a copy
+        decoded in the sandbox (never the phone's bytes; one that does not
+        decode is not opened), anything else as itself, under a name with
+        its type."""
+        mime = self.file_mimes.get(name, "")
+        if mime.startswith("image/"):
+            copy = safe_full_picture(path)
+            if not copy:
+                return {"ev": "error", "cmd": "attachment", "name": name,
+                        "message": "This picture could not be read safely, so it was not opened"}
+            return {"ev": "attachment", "path": copy, "name": name}
+        return {"ev": "attachment", "path": self.named(path, name), "name": name}
 
     def named(self, path, name):
         """The daemon saves attachments without an extension, which some
@@ -939,13 +1903,45 @@ def main(argv):
         except KeyboardInterrupt:
             pass
         return EXIT_OK
+    if argv[0] == "photos":
+        if len(argv) < 2:
+            return say("photos needs a device id", EXIT_FAILED)
+        count = int(argv[2]) if len(argv) > 2 and argv[2].isdigit() else PHOTO_COUNT
+        print(json.dumps(photos(argv[1], count), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "photos-cached":
+        if len(argv) < 2:
+            return say("photos-cached needs a device id", EXIT_FAILED)
+        print(json.dumps(cached_photos(argv[1]), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "save-file":
+        if len(argv) < 3:
+            return say("save-file needs a path and the device's name", EXIT_FAILED)
+        return save_file(argv[1], argv[2])
+    if argv[0] == "received-dismiss":
+        if len(argv) < 3:
+            return say("received-dismiss needs a device id and a path", EXIT_FAILED)
+        path = received_path(argv[1])
+        entries = load_received(path)
+        entries[:] = [e for e in entries if e.get("path") != argv[2]]
+        save_received(path, entries)
+        return EXIT_OK
+    if argv[0] == "open-file":
+        return open_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:], from_device="--from-device" in argv[2:])
+    if argv[0] == "safe-image":
+        # A safe copy of an image from the device (a track's art), for the
+        # panel to show: its path, or nothing.
+        print(safe_image(argv[1] if len(argv) > 1 else "", int(argv[2]) if len(argv) > 2 else ART_BOX))
+        return EXIT_OK
+    if argv[0] == "copy-file":
+        return copy_file(argv[1] if len(argv) > 1 else "")
     if argv[0] == "doctor":
         print(json.dumps(doctor()))
         return EXIT_OK
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "snapshot":
-        print(json.dumps(snapshot(bus()), indent=2, sort_keys=True, ensure_ascii=False))
+        print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK
     return act(argv)
 

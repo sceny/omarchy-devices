@@ -1,7 +1,60 @@
-# Changelog
+[Devices](README.md) › What's new
 
-Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
-`manifest.json`.
+# What's new
+
+Each version, newest first, grouped by what it touches. `omarchy plugin
+update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
+GitHub release with these notes.
+
+## 0.7.0 — 2026-10-02
+
+### Highlights
+
+- **Several devices**: a tab and a chip each, and settings for each one.
+- **Calls** ring in the bar; a missed call offers to call or text back.
+- **Gallery and Received**: the phone's newest photos and videos, and the
+  files it sent you.
+- **Setup**: checks with fixes, a QR code for the app (Android or iPhone),
+  a pairing pop-up with the key, and a demo phone to look around first.
+- **Make it yours**: edit the page in place, drag anything to reorder.
+- **Keyboard**: one cursor that slides, and messages fully by keyboard.
+- **Safety**: every image from the phone is decoded in a sandbox.
+
+### Issues
+
+- [#72](https://github.com/sceny/omarchy-devices/issues/72) Many devices, step 1: profiles, settings read as defaults, chips and attention
+- [#73](https://github.com/sceny/omarchy-devices/issues/73) Many devices, step 2: tabs, per-device pages, chips in the pill, the pairing card
+- [#74](https://github.com/sceny/omarchy-devices/issues/74) Many devices, step 3: Settings for devices
+- [#75](https://github.com/sceny/omarchy-devices/issues/75) Many devices, step 4: the Connection page and Reconnect
+- [#58](https://github.com/sceny/omarchy-devices/issues/58) Incoming and missed calls in the bar and the panel
+- [#65](https://github.com/sceny/omarchy-devices/issues/65) The phone's newest photos in the panel (Gallery)
+- [#37](https://github.com/sceny/omarchy-devices/issues/37) Inbox of files received from the device
+- [#81](https://github.com/sceny/omarchy-devices/issues/81) Edit a device's page in place
+- [#84](https://github.com/sceny/omarchy-devices/issues/84) The bar joins edit in place
+- [#92](https://github.com/sceny/omarchy-devices/issues/92) Pairing: a pop-up and a glow when a device asks to pair
+- [#62](https://github.com/sceny/omarchy-devices/issues/62) Preview the panel with a demo phone before setting up
+- [#64](https://github.com/sceny/omarchy-devices/issues/64) A QR code to install the phone app
+- [#69](https://github.com/sceny/omarchy-devices/issues/69) Find a paired device that is away, and say why when it cannot
+- [#105](https://github.com/sceny/omarchy-devices/issues/105) Gallery: decode the phone's files in a sandbox
+- [#107](https://github.com/sceny/omarchy-devices/issues/107) Images from the phone decoded by the shell, unsandboxed
+- [#100](https://github.com/sceny/omarchy-devices/issues/100) Gallery asked for the mount on every open after a failure
+- [#102](https://github.com/sceny/omarchy-devices/issues/102) Messages: a conversation opened while another loaded stayed on skeletons
+- [#108](https://github.com/sceny/omarchy-devices/issues/108) Demo mode showed the real device's nickname
+- [#67](https://github.com/sceny/omarchy-devices/issues/67) The line under the pill covered only part of it
+
+### Pull requests without an issue
+
+- [#111](https://github.com/sceny/omarchy-devices/pull/111) One keyboard cursor and one Esc everywhere, messages by keyboard, pictures open sandboxed
+- [#104](https://github.com/sceny/omarchy-devices/pull/104) The hand cursor over the panel's buttons
+- [#87](https://github.com/sceny/omarchy-devices/pull/87) The resting glyph with nothing paired
+- [#112](https://github.com/sceny/omarchy-devices/pull/112) The user guide: a picture per topic, from demo mode
+
+### Upgrading
+
+- **Received** and **Gallery** join your saved order at the end, switched
+  on; each shows only while it has something.
+- The Devices section is gone; its switch is ignored. Nothing in your
+  settings is rewritten.
 
 ## 0.6.1 — 2026-09-28
 

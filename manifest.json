@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "sceny.devices",
   "name": "Devices",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "author": "sceny",
   "license": "MIT",
   "description": "Your phones and tablets in the Omarchy bar through KDE Connect: battery, shortcuts, a media carousel with seek and volume, notifications with reply and dismiss, and a full text-message view.",
@@ -26,12 +26,15 @@
         "bubble"
       ],
       "batteryLowOnly": true,
+      "showCalls": true,
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
       "showShortcuts": true,
       "showMedia": true,
       "showNotifications": true,
+      "showReceived": true,
+      "showPhotos": true,
       "shortcuts": [
         "ring",
         "share",
@@ -42,7 +45,9 @@
         "devices",
         "actions",
         "media",
-        "notifications"
+        "notifications",
+        "received",
+        "photos"
       ]
     },
     "schema": [
@@ -75,6 +80,20 @@
         "description": "The phone's notifications, with reply and dismiss. Hidden while there are none."
       },
       {
+        "key": "showReceived",
+        "type": "boolean",
+        "label": "Show received files",
+        "defaultValue": true,
+        "description": "Files the device sent you: open, show in folder, forget. Hidden while there are none."
+      },
+      {
+        "key": "showPhotos",
+        "type": "boolean",
+        "label": "Show gallery",
+        "defaultValue": true,
+        "description": "The device's newest photos and videos. Hidden while there are none."
+      },
+      {
         "key": "sectionOrder",
         "type": "array",
         "label": "Section order",
@@ -82,7 +101,9 @@
           "devices",
           "actions",
           "media",
-          "notifications"
+          "notifications",
+          "received",
+          "photos"
         ],
         "items": {
           "type": "string",
@@ -90,7 +111,9 @@
             "devices",
             "actions",
             "media",
-            "notifications"
+            "notifications",
+            "received",
+            "photos"
           ]
         },
         "description": "The order of the sections under the header. Edited from the panel's settings page (gear icon)."
@@ -148,6 +171,13 @@
         "label": "Battery only when low",
         "defaultValue": true,
         "description": "The battery and its percent stay out of the bar until the charge is low. Off, they always show."
+      },
+      {
+        "key": "showCalls",
+        "type": "boolean",
+        "label": "Calls",
+        "defaultValue": true,
+        "description": "While the phone rings, the caller in the bar and over the panel; a missed call stays until closed."
       },
       {
         "key": "lowBatteryPercent",

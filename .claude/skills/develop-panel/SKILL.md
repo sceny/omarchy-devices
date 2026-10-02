@@ -52,9 +52,14 @@ checked live, and the merge waits for someone who checks it.
   sleep 2 && omarchy restart shell
   ```
 
-- **After every restart, confirm the panel answers:**
+- **After every restart, confirm the panel answers, from the new shell.**
+  The old shell can still answer IPC for a moment while it goes away; a
+  scripted step sent to it acts on its copy of the settings, which then
+  lands in `shell.json`. Wait for a new process first:
 
   ```bash
+  old=$(pgrep -x quickshell); omarchy restart shell
+  until p=$(pgrep -x quickshell) && [ "$p" != "$old" ]; do sleep 0.3; done
   timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices status
   ```
 
@@ -68,8 +73,24 @@ checked live, and the merge waits for someone who checks it.
 IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status                  # what the panel shows
 "${IPC[@]}" open ; "${IPC[@]}" close
-"${IPC[@]}" page settings           # also: main, messages
+"${IPC[@]}" page settings           # also: main, messages, connection
 "${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
+"${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
+"${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
+"${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
+"${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # Connection: a failing firewall (the gear's dot); Ignore / Undo
+"${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
+"${IPC[@]}" preview true            # Preview with a demo phone (the user's demo, with its strip); false: Back to setup
+"${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
+"${IPC[@]}" settingsScope <root|defaults|device> ; "${IPC[@]}" settingsRowsInfo   # a settings page and its rows
+"${IPC[@]}" pressSetting <index> ; "${IPC[@]}" nickname <text> ; "${IPC[@]}" pickIcon <hex> ; "${IPC[@]}" moveDevice <device> -1
+                                    # as a click would; anything changed in a demo (defaults too) is put back by `live`
+"${IPC[@]}" demoCall ringing        # demo only: a call on the viewed device (replaces the last); missed, none
+"${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card; never Call back in a test (it opens the phone's dialer)
+"${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc as the key; smsStatus shows newMessage
+"${IPC[@]}" move 0 1                 # an arrow key (dx dy): the cursor moves, the glide slides; never Enter (slowMotion 10 to watch)
+"${IPC[@]}" rightClickChip <device> ; "${IPC[@]}" edit   # edit in place (edit toggles); editBar/editBarFlag/editMoveBar, editSection/editShortcut/editMoveSection/editMoveShortcut
+                                    # edits write settings: run them in a demo, which `live` puts back
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>

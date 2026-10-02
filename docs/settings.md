@@ -2,23 +2,24 @@
 
 # Settings
 
-![Settings (demo data)](images/settings.png)
+Press `s` or the cog. With several devices, they are listed: drag one by
+its grip (the first opens with the panel), or open one for its own page.
 
-Press `s` or the cog.
+![Settings: three devices, the defaults, Connection and Add a device (demo data)](images/settings.png)
 
-- **Layout:** show, hide and order the sections. Fold any of them to one
-  line; folded shortcuts still work as a row of icons.
-- **Bar:** what the pill shows beside the glyph, in order. With
-  *Battery only when low* on, the battery stays hidden until it runs low.
-- **Shortcuts:** which ones, in what order.
-- **Setup:** the KDE Connect checks, with fixes, and the steps on the phone.
+- **Sections, shortcuts and the bar** are edited on the page itself (`E`).
+  *Defaults for all devices* sets them for devices that did not change
+  them.
+- **Connection** checks this computer; a red dot on the cog means a check
+  fails. *Ignore* one you will not fix.
+- **Add a device** pairs a new one.
 
 ## What is kept
 
 | What | Where |
 |---|---|
-| Layout, bar, shortcuts, folds, the device you follow, the last conversation | Omarchy's `shell.json`, this widget's entry |
-| Picture previews, which conversations you opened | `~/.cache/sceny.devices/` |
-| Unsent drafts | Memory only |
+| Layout, folds, bar, shortcuts, each device's nickname and order | Omarchy's `shell.json` |
+| Thumbnails, received files, copies of opened files | `~/.cache/sceny.devices/` |
+| Drafts, where the panel was | Memory only |
 
 Change settings in the panel, not in `shell.json` while the shell runs.

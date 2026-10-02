@@ -32,11 +32,17 @@ var GLYPH = {
   checked: "\u{F0132}",      // checkbox-marked
   unchecked: "\u{F0131}",    // checkbox-blank-outline
   reset: "\u{F099B}",        // restore
+  refresh: "\u{F0450}",      // refresh: look again (Reconnect)
   group: "\u{F0849}",        // account-group
   newMessage: "\u{F0653}",   // message-plus
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
+  folderOpen: "\u{F0770}",   // folder-open: shown in Files
+  googlePlay: "\u{F02BC}",   // google-play: the Android app's store
+  apple: "\u{F0035}",        // apple: the iPhone app (the font has no App Store mark)
   file: "\u{F021F}",         // file-image
+  document: "\u{F0219}",     // file-document: a received file that is not a picture
+  download: "\u{F01DA}",     // download: save a copy of a photo here
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
   check: "\u{F012C}",
@@ -47,7 +53,15 @@ var GLYPH = {
   wifiOff: "\u{F05AA}",
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
-  volumeOff: "\u{F0581}"     // volume-off
+  volumeOff: "\u{F0581}",    // volume-off
+  grip: "\u{F01DD}",         // drag-vertical: drag a row to move it
+  edit: "\u{F03EB}",         // pencil: edit the page in place
+  add: "\u{F0419}",          // plus-circle-outline: add a shortcut while editing
+  remove: "\u{F0376}",       // minus-circle: take one away while editing
+  callRing: "\u{F03F6}",     // phone-in-talk: a phone with waves (checked by rendering)
+  callMissed: "\u{F03FA}",   // phone-missed
+  callBack: "\u{F03F2}",     // phone
+  callText: "\u{F0369}"      // message-text
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -123,10 +137,15 @@ var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
-  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
+  { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
+  { key: "showPhotos", section: "photos", label: "Gallery", hint: "Its newest photos and videos" }
 ]
 
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications"]
+// A section added in a release joins a saved order at its default place
+// (normalizeSections), so Received and Photos come last for everyone who had
+// an order.
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -151,6 +170,23 @@ function normalizeSections(value) {
   for (var j = 0; j < DEFAULT_SECTIONS.length; j++)
     if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.splice(Math.min(j, out.length), 0, DEFAULT_SECTIONS[j])
   return out
+}
+
+// The sections the page can show, in order: the Devices section is gone
+// from the page (tabs and Settings do its work), so it is never moved past.
+function visibleSections(value) {
+  return normalizeSections(value).filter(function(k) { return k !== "devices" })
+}
+
+// A list with `key` moved to `target`'s place: before it when moving up, after
+// it when moving down (a drop on another row). Unknown keys: unchanged.
+function moveTo(list, key, target) {
+  var from = list.indexOf(key), to = list.indexOf(target)
+  if (from < 0 || to < 0 || from === to) return list.slice()
+  var next = list.slice()
+  next.splice(from, 1)
+  next.splice(to, 0, key)
+  return next
 }
 
 function shortcutByKey(key) {
@@ -214,13 +250,15 @@ function moveShortcut(order, key, delta) {
 // the layout switches in the sections' order, the bar indicators (chosen ones
 // in their order, then the rest) and the only-when-low option, the shortcuts
 // (the same way), then reset and the KDE Connect link.
-function settingsRows(flags, order, can, sections, bar, lowOnly) {
+// Each row of an order carries `pos` (its place) and `count` (how many share
+// the order), for its arrows and for dragging it.
+function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
   var rows = []
-  var sectionOrder = normalizeSections(sections)
+  var sectionOrder = visibleSections(sections)
   for (var i = 0; i < sectionOrder.length; i++) {
     var l = layoutBySection(sectionOrder[i])
     rows.push({ kind: "layout", key: l.key, section: l.section, label: l.label, hint: l.hint, on: layoutFlag(flags[l.key]),
-                first: i === 0, last: i === sectionOrder.length - 1 })
+                first: i === 0, last: i === sectionOrder.length - 1, pos: i, count: sectionOrder.length })
   }
   var chosen = bar ? normalizeBarIndicators(bar) : DEFAULT_BAR.slice()
   var others = []
@@ -230,11 +268,14 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     var ind = barIndicatorByKey(barKeys[n])
     var at = chosen.indexOf(ind.key)
     rows.push({ kind: "bar", key: ind.key, label: ind.label, hint: ind.hint, glyph: ind.glyph, on: at >= 0,
-                first: at === 0, last: at === chosen.length - 1 })
+                first: at === 0, last: at === chosen.length - 1, pos: at, count: chosen.length })
   }
-  // A switch, not a place in the pill: it decides when battery and % show.
+  // Switches, not places in the pill: when battery and % show, and whether
+  // calls show at all (in the pill and over the panel).
   rows.push({ kind: "barFlag", key: "batteryLowOnly", label: "Battery only when low",
               hint: "Off, the battery and % always show", on: lowOnly !== false })
+  rows.push({ kind: "barFlag", key: "showCalls", label: "Calls",
+              hint: "Who is calling, and a call missed until you close it", on: calls !== false })
   var rest = []
   for (var j = 0; j < SHORTCUTS.length; j++) if (order.indexOf(SHORTCUTS[j].key) < 0) rest.push(SHORTCUTS[j].key)
   var keys = order.concat(rest)
@@ -242,7 +283,7 @@ function settingsRows(flags, order, can, sections, bar, lowOnly) {
     var s = shortcutByKey(keys[k])
     var pos = order.indexOf(s.key)
     rows.push({ kind: "shortcut", key: s.key, label: s.label, hint: s.hint, glyph: s.glyph, on: pos >= 0,
-                first: pos === 0, last: pos === order.length - 1,
+                first: pos === 0, last: pos === order.length - 1, pos: pos, count: order.length,
                 available: !can || s.needs === "" || can[s.needs] === true })
   }
   rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
@@ -313,6 +354,23 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// KDE Connect cancels a pairing the other side has not accepted in this
+// long, on both sides: a constant compiled into it, not a setting and not on
+// D-Bus (kdeconnect-kde core/backends/pairinghandler.h, pairingTimeoutMsec =
+// 30 * 1000, at 97d6289). Change it here if KDE Connect ever changes it.
+var PAIR_TIMEOUT_S = 30
+
+// Seconds left for a pairing asked at `sinceMs`, never below 0.
+function pairSecondsLeft(sinceMs, nowMs) {
+  return Math.max(0, Math.min(PAIR_TIMEOUT_S, PAIR_TIMEOUT_S - Math.floor((nowMs - sinceMs) / 1000)))
+}
+
+// Actions whose result shows where they were clicked, with no toast: a
+// pairing card appears (Pair), becomes the device (Accept), goes (Reject,
+// Cancel). A failure still says so.
+var SHOWN_IN_PLACE = ["pair", "accept", "reject"]
+function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
+
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
   if (kind === "note") return { ms: 4000, fail: "" }
@@ -337,13 +395,13 @@ function lowBattery(device, threshold) {
 // What the pill can show beside the glyph. "bubble" is not text: a count
 // drawn on the glyph itself (BarWidget), so it costs no width.
 var BAR_INDICATORS = [
-  { key: "connection", glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
-  { key: "battery", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
-  { key: "percent", glyph: "%", label: "Battery %", hint: "The charge as a number" },
-  { key: "notifications", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
-  { key: "messages", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
-  { key: "playing", glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
-  { key: "bubble", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
+  { key: "connection", tile: "Link", sample: GLYPH.wifi, glyph: GLYPH.wifi, label: "Connection", hint: "Wi-Fi or Bluetooth; crossed out while away" },
+  { key: "battery", tile: "Battery", sample: "\u{F007E}", glyph: "\u{F007E}", label: "Battery", hint: "A glyph that fills with the charge" },
+  { key: "percent", tile: "Percent", sample: "80%", glyph: "%", label: "Battery %", hint: "The charge as a number" },
+  { key: "notifications", tile: "Alerts", sample: GLYPH.bell + " 3", glyph: GLYPH.bell, label: "Notifications", hint: "How many, beside a bell; nothing at 0" },
+  { key: "messages", tile: "Texts", sample: GLYPH.messages + " 2", glyph: GLYPH.messages, label: "Unread messages", hint: "How many, beside a bubble; nothing at 0" },
+  { key: "playing", tile: "Playing", sample: GLYPH.play, glyph: GLYPH.play, label: "Now playing", hint: "A play mark while something plays" },
+  { key: "bubble", tile: "Bubble", sample: "3", glyph: "\u{F0CA0}", label: "Notification bubble", hint: "A count on the device glyph; nothing at 0" }
 ]
 
 function barIndicatorByKey(key) {
@@ -378,30 +436,52 @@ function normalizeBarIndicators(value) {
 // follows the percent only when the battery glyph (which has its own) is not
 // shown.
 function barText(device, indicators, state) {
+  return barParts(device, indicators, state).map(function(p) { return p.text }).join(" ")
+}
+
+// The pill's text in parts, each drawn on its own so that only what is
+// urgent turns red: a low battery's glyph and percent, not the whole chip.
+// [{ text, urgent }], the device's glyph first.
+// Every part a chip can have, by key: a part keeps its key as the order
+// changes, so the bar slides it to its new place instead of redrawing.
+var BAR_PART_KEYS = ["glyph", "call", "connection", "battery", "percent", "notifications", "messages", "playing"]
+
+function barParts(device, indicators, state) {
   var st = state || {}
-  var text = deviceGlyph(device)
+  // `glyph`: the device's own icon when its user picked one (deviceIcon).
+  var parts = [{ key: "glyph", text: st.glyph || deviceGlyph(device), urgent: false }]
   var reachable = !!device && device.reachable === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
-  var parts = []
+  function add(key, text, urgent) { parts.push({ key: key, text: text, urgent: !!urgent }) }
+  // A call is news, not an indicator: it leads whatever else is chosen.
+  if (st.call && reachable) parts.push({ key: "call", text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
       if (!device) continue
-      if (!reachable) parts.push(GLYPH.wifiOff)
-      else parts.push(device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
+      if (!reachable) add(key, GLYPH.wifiOff)
+      else add(key, device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
       continue
     }
     if (!reachable) continue
-    if (key === "battery" && showBattery) parts.push(batteryGlyph(device, st.lowPercent))
-    else if (key === "percent" && showBattery)
-      parts.push(c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : ""))
-    else if (key === "notifications" && st.notifications > 0) parts.push(GLYPH.bell + " " + st.notifications)
-    else if (key === "messages" && st.messages > 0) parts.push(GLYPH.messages + " " + st.messages)
-    else if (key === "playing" && st.playing) parts.push(GLYPH.play)
+    if (key === "battery" && showBattery) { add(key, batteryGlyph(device, st.lowPercent), low); parts[parts.length - 1].battery = true }
+    else if (key === "percent" && showBattery) {
+      var pct = c + "%" + (charging(device) && indicators.indexOf("battery") < 0 ? GLYPH.bolt : "")
+      // Right after the battery glyph, the % is part of it: one piece, a
+      // thin space apart, not an indicator of its own. `glyph` and `suffix`
+      // draw it: a glyph's ink can run past its advance (the charging bolt),
+      // so the bar spaces the % from the ink, not from a character.
+      var prev = parts[parts.length - 1]
+      if (prev.battery) { prev.glyph = prev.text; prev.suffix = pct; prev.text += "\u2009" + pct }
+      else add(key, pct, low)
+    }
+    else if (key === "notifications" && st.notifications > 0) add(key, GLYPH.bell + " " + st.notifications)
+    else if (key === "messages" && st.messages > 0) add(key, GLYPH.messages + " " + st.messages)
+    else if (key === "playing" && st.playing) add(key, GLYPH.play)
   }
-  return parts.length ? text + " " + parts.join(" ") : text
+  return parts
 }
 
 // The number on the glyph, or 0 for none.
@@ -410,11 +490,21 @@ function barBubble(device, indicators, notifications) {
   return Math.max(0, notifications || 0)
 }
 
+// Ticking an indicator puts it at its natural place among the chosen ones
+// (the catalogue's order: connection, battery, %, counts, playing, bubble),
+// so % lands right after the battery. The order the user dragged is kept.
 function toggleBarIndicator(order, key) {
   var next = order.slice()
   var at = next.indexOf(key)
-  if (at >= 0) next.splice(at, 1)
-  else if (barIndicatorByKey(key)) next.push(key)
+  if (at >= 0) { next.splice(at, 1); return next }
+  if (!barIndicatorByKey(key)) return next
+  var rank = function(k) { for (var i = 0; i < BAR_INDICATORS.length; i++) if (BAR_INDICATORS[i].key === k) return i; return 99 }
+  var place = next.length
+  for (var j = next.length - 1; j >= 0; j--) {
+    if (rank(next[j]) < rank(key)) { place = j + 1; break }
+    place = j
+  }
+  next.splice(place, 0, key)
   return next
 }
 
@@ -471,6 +561,89 @@ function networkText(device) {
   return [signalGlyph(device), net].filter(function (p) { return p !== "" }).join(" ")
 }
 
+// ---- Calls, from KDE Connect's telephony plugin ----
+// The bridge keeps the device's last call event: { event: "ringing" |
+// "missed", number, name, at (ms) }. KDE Connect says when a call rings and
+// when one is missed (a declined call counts as missed), never when it is
+// answered or ends (#60, #61). So a ringing call counts as ringing for
+// RING_MS at most, which is about as long as a phone rings before voicemail
+// takes it. A missed call shows until the user closes it (`closedAt`: the
+// `at` of the last call closed), for MISSED_MS at most.
+var RING_MS = 45000
+var MISSED_MS = 30 * 60000
+
+// A ringing phone's beat, on the plugin's pace, like a ringtone: two rings,
+// a short gap between them, then a rest. In one ring the three sound waves
+// light from the inside out, one every MOTION.outMs, then fade together over
+// MOTION.inMs, while the handset rocks. The pill glows for each ring
+// (ringPhases), so the bar and the card ring together.
+var RING_BEAT = { angle: 10, waveMs: MOTION.outMs, fadeMs: MOTION.inMs, rings: 2, gapMs: 160, restMs: 1000, restWave: 0.3 }
+
+function ringMs() { return 3 * RING_BEAT.waveMs + RING_BEAT.fadeMs }
+
+// The beat as lit and dark spans, for the pill: [{ lit, ms }], looping.
+function ringPhases() {
+  var out = []
+  for (var i = 0; i < RING_BEAT.rings; i++) {
+    out.push({ lit: true, ms: ringMs() })
+    out.push({ lit: false, ms: i < RING_BEAT.rings - 1 ? RING_BEAT.gapMs : RING_BEAT.restMs })
+  }
+  return out
+}
+
+function callState(device, nowMs, closedAt) {
+  var c = device && device.reachable === true ? device.call : null
+  if (!c || (c.event !== "ringing" && c.event !== "missed")) return null
+  var at = Number(c.at) || 0
+  if (closedAt && at <= closedAt) return null
+  var age = nowMs - at
+  var hold = c.hold === true
+  // A demo call (`hold`) rings until closed, so the ring can be watched.
+  if (c.event === "ringing" && age > RING_MS && !hold) return null
+  if (c.event === "missed" && age > MISSED_MS) return null
+  var number = String(c.number || "").trim()
+  var name = String(c.name || "").trim()
+  return {
+    state: c.event, at: at, number: number, hold: hold, device: device ? String(device.id) : "",
+    who: name || (number ? formatNumber(number) : "Unknown number"),
+    // The number under the name, when there is a name to put it under.
+    detail: name && number ? formatNumber(number) : ""
+  }
+}
+
+// The call the card shows, from every device's (`calls`, by id; `order`,
+// the devices' ids in order): a ringing one first, else the latest missed.
+function shownCall(calls, order) {
+  var best = null
+  for (var i = 0; i < order.length; i++) {
+    var c = calls[order[i]]
+    if (!c) continue
+    if (c.state === "ringing") return c
+    if (!best || c.at > best.at) best = c
+  }
+  return best
+}
+
+// The card's small caps line: "INCOMING CALL", "MISSED CALL · 14:05".
+function callHeading(call) {
+  if (!call) return ""
+  return call.state === "ringing" ? "INCOMING CALL" : "MISSED CALL · " + clockTime(call.at)
+}
+
+// How long until the call's state can change on its own (ringing runs out,
+// missed expires), for the timer that re-reads it; -1 when nothing will.
+function callExpiresIn(call, nowMs) {
+  if (!call || (call.hold && call.state === "ringing")) return -1
+  return Math.max(0, call.at + (call.state === "ringing" ? RING_MS : MISSED_MS) - nowMs)
+}
+
+// A made-up call for demo mode: a fictional name and a 555 number. It rings
+// until closed (`hold`), so the ring can be watched at its own speed.
+function demoCall(kind, nowMs) {
+  if (kind !== "ringing" && kind !== "missed") return null
+  return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0), hold: true }
+}
+
 // Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
 // size of the text, since the bolt in it says charging. With no charge known
 // it says "CONNECTED". Away or down, just the status.
@@ -491,10 +664,12 @@ function batteryText(device) {
 }
 
 // `nowPlaying` is the playing phone player's line (Service.nowPlaying), since
-// media comes from MPRIS in the shell rather than from the snapshot.
-function tooltip(snapshot, device, nowPlaying, unreadMessages) {
+// media comes from MPRIS in the shell rather than from the snapshot. `call`
+// is Model.callState's, or null.
+function tooltip(snapshot, device, nowPlaying, unreadMessages, call) {
   if (!device) return statusWord(snapshot, device)
   var lines = [device.name + " — " + statusWord(snapshot, device)]
+  if (call) lines.push((call.state === "ringing" ? "Call from " : "Missed call from ") + call.who)
   var c = batteryCharge(device)
   if (c >= 0) lines.push("Battery " + c + "%" + (charging(device) ? ", charging" : ""))
   var n = device.notifications ? device.notifications.length : 0
@@ -613,12 +788,32 @@ function notificationTitle(n) {
 // the other states the panel has to draw.
 function demoSnapshot(live, kind) {
   if (kind === "down") return { daemon: false, demo: true, devices: [] }
+  // Several paired devices: the demo phone, a tablet with news, a laptop
+  // that is away. "many-pair" adds a device asking to pair.
+  if (kind === "many" || kind === "many-pair") {
+    var many = demoSnapshot(live, "")
+    // Made-up ids only, so nothing changed in this demo lands on a real
+    // device's settings (they are cleared on leaving demo).
+    many.devices[0].id = "demo"
+    many.devices.push(
+      { id: "demo-tab", name: "Galaxy Tab S9", type: "tablet", paired: true, reachable: true, links: ["LAN"],
+        can: { share: true, clipboard: true, media: true, notifications: true, ping: true, ring: true },
+        battery: { charge: 12, charging: false }, network: null,
+        notifications: [
+          { id: "demo-t1", key: "t1", app: "YouTube", title: "New from a channel you follow", text: "Ten minute bread, no knead", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
+          { id: "demo-t2", key: "t2", app: "Calendar", title: "Piano lesson", text: "Tomorrow at 17:00", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false }
+        ] },
+      { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: true, reachable: false, links: [], can: {}, notifications: [] })
+    if (kind === "many-pair")
+      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
+    return many
+  }
   if (kind === "devices") {
     var withOthers = demoSnapshot(live, "")
     withOthers.devices.push(
       { id: "demo-tab", name: "Galaxy Tab", type: "tablet", paired: true, reachable: false, links: [], can: {}, notifications: [] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: false, reachable: true, links: ["LAN"], can: {}, notifications: [] },
-      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return withOthers
   }
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
@@ -628,19 +823,25 @@ function demoSnapshot(live, kind) {
     can: { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true },
     battery: { charge: 55, charging: false }
   }))
-  // A neutral name, so a screenshot of demo mode shows no real device.
+  // A neutral name and an id of its own, so a screenshot of demo mode shows
+  // no real device: the real one's nickname, icon and place in the bar are
+  // kept under its id, and do not apply here (#108).
   dev.name = "Pixel 8"
+  dev.id = "demo"
   dev.reachable = kind !== "away"
+  // Away: where it was, as the bridge's cache would say it.
+  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
+  // "charging": the battery filling, for its glyph and % in the bar.
+  if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
   dev.can = { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true, ping: true }
   dev.network = { type: "5G", strength: 3 }
+  // Two, so the panel's other sections have room: a text message (reply,
+  // its own buttons, a long text) and a group chat (who said what).
   dev.notifications = [
-    { id: "demo-1", key: "k1", app: "WhatsApp", title: "Alex", text: "Are you still coming on Sunday? We are starting around six, bring the board game if you can find it.", ticker: "", dismissable: true, replyId: "r1", actions: ["Mark as read"], icon: "", silent: false },
-    { id: "demo-2", key: "k2", app: "Gmail", title: "Your invoice from Acme", text: "Invoice #4821 is ready to view.", ticker: "", dismissable: true, replyId: "", actions: ["Archive", "Reply"], icon: "", silent: false },
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
     { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
-    { id: "demo-3", key: "k3", app: "Calendar", title: "Team sync at 14:00", text: "Starts in 15 minutes", ticker: "", dismissable: false, replyId: "", actions: [], icon: "", silent: false }
   ]
   return { daemon: true, demo: true, devices: [dev] }
 }
@@ -778,67 +979,7 @@ function threadForNotification(n, threads) {
 }
 
 
-// ---- Devices ----
-
-// Every device KDE Connect knows, as rows for the Devices section: what it
-// is, where it stands, and what can be done with it. Anything that needs a
-// decision (a device asking to pair) comes first, then the one followed,
-// then the rest by how usable they are.
-function deviceRows(snapshot, currentId) {
-  var list = snapshot && snapshot.devices ? snapshot.devices : []
-  var rows = []
-  for (var i = 0; i < list.length; i++) {
-    var d = list[i]
-    if (!d) continue
-    var incoming = d.pairRequestedByPeer === true
-    var outgoing = d.pairRequested === true && !d.paired
-    var status
-    if (incoming) status = "Wants to pair"
-    else if (outgoing) status = "Waiting for it to accept"
-    else if (!d.paired) status = "Available to pair"
-    else if (d.reachable) status = "Connected" + (d.links && d.links.length ? " · " + (d.links[0] === "LAN" ? "Wi-Fi" : d.links[0]) : "")
-    else status = "Away"
-    var charge = batteryCharge(d)
-    rows.push({
-      id: d.id, name: d.name || "Unnamed device", type: d.type || "", glyph: deviceGlyph(d),
-      status: status + (charge >= 0 ? " · " + charge + "%" : ""),
-      current: !!currentId && d.id === currentId,
-      paired: d.paired === true, reachable: d.reachable === true,
-      incoming: incoming, outgoing: outgoing, key: d.verificationKey || ""
-    })
-  }
-  function rank(r) {
-    if (r.incoming) return 0
-    if (r.current) return 1
-    if (r.paired && r.reachable) return 2
-    if (r.paired) return 3
-    if (r.outgoing) return 4
-    return 5
-  }
-  rows.sort(function(a, b) { return rank(a) - rank(b) || a.name.localeCompare(b.name) })
-  return rows
-}
-
-// The section earns its place only when there is something to choose or
-// decide: a second paired device, one to pair with, or a request.
-function showDevicesSection(rows) {
-  var paired = 0
-  for (var i = 0; i < rows.length; i++) {
-    if (!rows[i].paired || rows[i].incoming) return true
-    paired++
-  }
-  return paired > 1
-}
-
 // ---- Collapsed sections: the one line shown in place of the content ----
-
-function devicesSummary(rows) {
-  var n = 0
-  for (var i = 0; i < rows.length; i++) if (rows[i].incoming) n++
-  if (n > 0) return n === 1 ? rows[0].name + " wants to pair" : n + " devices want to pair"
-  for (var j = 0; j < rows.length; j++) if (rows[j].current) return rows[j].name + " · " + rows[j].status
-  return rows.length + " devices"
-}
 
 function mediaSummary(title, artist, app) {
   var line = trackLine(title, artist)
@@ -866,12 +1007,15 @@ function collapsedState(value) {
 function layoutSummary(flags, sections) {
   var sectionOrder = normalizeSections(sections)
   var on = []
-  for (var i = 0; i < sectionOrder.length; i++) {
-    var l = layoutBySection(sectionOrder[i])
+  // The Devices section is gone from the main page (tabs and Settings do
+  // its work), so it is not counted.
+  var shown = visibleSections(sectionOrder)
+  for (var i = 0; i < shown.length; i++) {
+    var l = layoutBySection(shown[i])
     if (layoutFlag(flags[l.key])) on.push(l.label)
   }
   if (on.length === 0) return "Everything hidden"
-  if (on.length === LAYOUT.length && sectionOrder.join() === DEFAULT_SECTIONS.join()) return "Everything shown"
+  if (on.length === shown.length && shown.join() === DEFAULT_SECTIONS.filter(function(k) { return k !== "devices" }).join()) return "Everything shown"
   return on.join(", ")
 }
 
@@ -884,12 +1028,144 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
-function setupSummary(checks) {
-  var list = checks || []
+// ---- Connection: this computer, pairing, adding a device ----
+
+// The doctor's checks that are about this computer (the Connection page);
+// its paired and connected checks are the devices' own pages' business.
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+// Short names: the status beside each says the rest ("Running", "Closed").
+// One row per thing on this computer, named after it: a service's checks
+// (KDE Connect: installed, running) become one row that says which state it
+// is in, so other services (Bluetooth, scrcpy) can each have theirs.
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
+
+function computerChecks(checks) {
+  var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
+  var installed = null, running = null, rest = []
+  list.forEach(function(c) {
+    if (c.key === "installed") installed = c
+    else if (c.key === "running") running = c
+    else rest.push(c)
+  })
+  if (!installed && !running) return rest
+  // Not installed says so first; installed and stopped says Stopped.
+  var failing = installed && !installed.ok ? installed : (running && !running.ok ? running : null)
+  var kde = failing ? Object.assign({}, failing, { key: "kdeconnect" })
+    : { key: "kdeconnect", ok: true, label: "KDE Connect", status: running ? running.status || "Running" : installed.status, detail: "", fix: "", fixLabel: "" }
+  return [kde].concat(rest)
+}
+
+// Failing checks on this computer the user has not ignored: the gear's dot.
+function connectionIssues(checks, ignored) {
+  var skip = ignored || []
+  return computerChecks(checks).filter(function(c) { return !c.ok && skip.indexOf(c.key) < 0 }).length
+}
+
+function connectionSummary(checks, ignored) {
+  var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
-  var bad = 0
-  for (var i = 0; i < list.length; i++) if (!list[i].ok) bad++
-  return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
+  var n = connectionIssues(checks, ignored)
+  return n === 0 ? "All good" : (n === 1 ? "1 to fix" : n + " to fix")
+}
+
+// The Connection page's rows, in one list for the keyboard: this computer's
+// checks (status icon, name, short status, one action; a failing one can be
+// ignored). It checks what exists; Add a device (addDeviceRows) makes a new
+// pairing.
+function connectionRows(checks, ignored) {
+  var skip = ignored || []
+  var rows = computerChecks(checks).map(function(c) {
+    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
+             status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
+             fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
+  })
+  return rows
+}
+
+// The Add a device page's rows: devices asking to pair, then devices in
+// reach to pair with (`devices`: devicesListRows).
+function addDeviceRows(devices) {
+  var rows = []
+  ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
+  ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
+  return rows
+}
+
+// ---- A paired device that is away: where it was, and what to try ----
+
+// Whether an IPv4 address is inside a network written "192.168.1.0/24";
+// null when either cannot be read.
+function inNetwork(address, network) {
+  var m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(String(network || ""))
+  var a = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(address || ""))
+  if (!m || !a) return null
+  function num(x) { return ((Number(x[1]) * 256 + Number(x[2])) * 256 + Number(x[3])) * 256 + Number(x[4]) }
+  var size = Math.pow(2, 32 - Number(m[5]))
+  return Math.floor(num(a) / size) === Math.floor(num(m) / size)
+}
+
+// "just now", "5 min ago", "2 h ago", "3 days ago".
+function agoText(ms, nowMs) {
+  var s = Math.max(0, Math.round((nowMs - ms) / 1000))
+  if (s < 60) return "just now"
+  if (s < 3600) return Math.round(s / 60) + " min ago"
+  if (s < 86400) return Math.round(s / 3600) + " h ago"
+  var d = Math.round(s / 86400)
+  return d === 1 ? "a day ago" : d + " days ago"
+}
+
+// How long Reconnect waits for the device before saying it was not found.
+var SEARCH_MS = 8000
+
+// Samsung's advice (battery use Unrestricted) is for Samsung devices only.
+function isSamsung(device) { return /galaxy|samsung|^sm-/i.test(String(device && device.name || "")) }
+
+// What an away device's page says, as short lines: where it was last seen
+// (device.lastSeen, from the bridge's cache), whether that was another
+// network, and after a search that found nothing, what to try on it.
+// Causes are likely, never certain. `searchedAt`: when Reconnect last
+// started, 0 for never.
+function awayState(device, network, searchedAt, nowMs) {
+  var seen = device && device.lastSeen
+  var lines = []
+  if (seen && seen.at) {
+    var how = seen.link === "Bluetooth" ? "Bluetooth" : (seen.link === "LAN" ? "Wi-Fi" : "the network")
+    lines.push("Last seen on " + how + (seen.address ? " at " + seen.address : "") + ", " + agoText(seen.at, nowMs))
+    if (inNetwork(seen.address, network) === false)
+      lines.push("Likely on another network: this computer is on " + network)
+  } else {
+    lines.push("Not seen by this computer yet")
+  }
+  var searching = searchedAt > 0 && nowMs - searchedAt < SEARCH_MS
+  if (searchedAt > 0 && !searching)
+    lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
+      + (isSamsung(device) ? "; set the app's battery use to Unrestricted" : ""))
+  return { lines: lines, searching: searching }
+}
+
+// ---- Installing the app: its store pages, and a QR code for the phone ----
+
+var APP_LINKS = {
+  play: "https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp",
+  fdroid: "https://f-droid.org/packages/org.kde.kdeconnect_tp/",
+  appStore: "https://apps.apple.com/app/kde-connect/id1580245991"
+}
+
+// qrencode's text output (`qrencode -t ASCII -m 0 <url>`: a line per row,
+// two characters per module, "#" dark) as { size, dark: [row][col] }, or
+// null when it is not a square grid.
+function qrGrid(text) {
+  var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
+  var size = lines.length
+  if (size < 21) return null
+  var dark = []
+  for (var r = 0; r < size; r++) {
+    if (lines[r].length !== size * 2) return null
+    var row = []
+    for (var c = 0; c < size; c++) row.push(lines[r].charAt(2 * c) === "#")
+    dark.push(row)
+  }
+  return { size: size, dark: dark }
 }
 
 // ---- Demo messages: made-up conversations for screenshots and checks ----
@@ -937,5 +1213,591 @@ function demoConversation(nowMs, picture) {
     m(5, 12 * min, "Do we have enough chairs? Priya is bringing two friends"),
     m(6, 8 * min, "I'll grab the folding ones from the car", true),
     m(7, 4 * min, "Perfect, see you at six! Bring the board game 🎲")
+  ]
+}
+
+// ---- Many devices: profiles, order, attention, the pill's chips ----
+// (docs/design/multi-device.md). A device's profile is how the plugin shows
+// it; nothing about the device itself is stored.
+//
+// Storage, in this widget's shell.json entry: today's flat keys are the
+// defaults every device uses; `devices` maps a device id to what that device
+// changed, plus its identity; `deviceOrder` orders them. Nothing is written
+// on upgrade: old entries are read as they are (readSettings), and the new
+// keys appear only when the user changes something.
+
+// Settings a device can change away from the defaults, and how each is
+// cleaned. A device's change of a list is merged like the defaults are, so a
+// section or shortcut added in a later release still reaches it.
+var PROFILE_SETTINGS = {
+  barIndicators: function(v) { return normalizeBarIndicators(v) },
+  batteryLowOnly: function(v) { return layoutFlag(v) },
+  sectionOrder: function(v) { return normalizeSections(v) },
+  shortcuts: function(v) { return normalizeShortcuts(v) },
+  showShortcuts: function(v) { return layoutFlag(v) },
+  showMedia: function(v) { return layoutFlag(v) },
+  showNotifications: function(v) { return layoutFlag(v) },
+  showPhotos: function(v) { return layoutFlag(v) },
+  showReceived: function(v) { return layoutFlag(v) },
+  showCalls: function(v) { return layoutFlag(v) },
+  collapsed: function(v) { return collapsedState(v) }
+}
+
+// Identity: the device's own, never taken from the defaults.
+// bar: "always" | "attention" | "never" | "own" (own pills come later;
+// until then an own pill shows as "always").
+var BAR_PLACES = ["always", "attention", "never", "own"]
+
+function plainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v) }
+
+// The widget's entry as the rest of the plugin reads it: { defaults,
+// devices, order, raw }. `defaults` holds every profile setting, cleaned;
+// `devices` maps an id to its stored profile (identity and changes);
+// `order` is the stored order, else the old `deviceId` alone.
+function readSettings(entry) {
+  var e = plainObject(entry) ? entry : {}
+  var defaults = {}
+  for (var key in PROFILE_SETTINGS) defaults[key] = PROFILE_SETTINGS[key](e[key])
+  var devices = plainObject(e.devices) ? e.devices : {}
+  var order = []
+  if (Array.isArray(e.deviceOrder)) {
+    for (var i = 0; i < e.deviceOrder.length; i++) {
+      var id = String(e.deviceOrder[i] || "")
+      if (id && order.indexOf(id) < 0) order.push(id)
+    }
+  } else if (e.deviceId) {
+    order.push(String(e.deviceId))
+  }
+  return { defaults: defaults, devices: devices, order: order, raw: e }
+}
+
+// Paired devices in the user's order: the stored order first (those still
+// paired), then the rest as KDE Connect lists them, the reachable ones
+// before the away ones. The first is where the panel opens when it is
+// connected, and the one that shows "always" by default.
+function orderedDevices(snapshot, settings) {
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  var paired = list.filter(function(d) { return d && d.paired === true })
+  var byId = {}
+  paired.forEach(function(d) { byId[d.id] = d })
+  var out = []
+  settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
+  var rest = paired.filter(function(d) { return byId[d.id] })
+  // Connected first, otherwise as KDE Connect lists them. The engine's sort
+  // is not stable, so the list position breaks ties: a device joining the
+  // list must never swap two others (the first shows always, opens first).
+  var at = {}
+  rest.forEach(function(d, i) { at[d.id] = i })
+  rest.sort(function(a, b) { return ((b.reachable === true) - (a.reachable === true)) || (at[a.id] - at[b.id]) })
+  return out.concat(rest)
+}
+
+// One device's effective profile: identity from its own stored profile
+// (with defaults of its own: the first device shows always, the others with
+// attention), every other setting its change or the default. `custom` says
+// which settings the device changed.
+function resolveProfile(settings, device, isFirst) {
+  var stored = device && plainObject(settings.devices[device.id]) ? settings.devices[device.id] : {}
+  var bar = BAR_PLACES.indexOf(String(stored.bar)) >= 0 ? String(stored.bar) : (isFirst ? "always" : "attention")
+  var p = {
+    id: device ? String(device.id) : "",
+    nickname: String(stored.nickname || "").replace(/\s+/g, " ").trim(),
+    icon: /^[0-9A-Fa-f]{4,6}$/.test(String(stored.icon || "")) ? String(stored.icon).toUpperCase() : "",
+    bar: bar,
+    showInPanel: stored.showInPanel !== false,
+    custom: {}
+  }
+  for (var key in PROFILE_SETTINGS) {
+    if (stored[key] !== undefined && stored[key] !== null) {
+      p[key] = PROFILE_SETTINGS[key](stored[key])
+      p.custom[key] = true
+    } else {
+      p[key] = settings.defaults[key]
+    }
+  }
+  return p
+}
+
+// The name to show: the nickname, else the name KDE Connect reports.
+function deviceTitle(device, profile) {
+  return profile && profile.nickname ? profile.nickname : deviceLabel(device)
+}
+
+// The icon to show: the one picked, else the one for the device's kind.
+function deviceIcon(device, profile) {
+  if (profile && profile.icon) return String.fromCodePoint(parseInt(profile.icon, 16))
+  return deviceGlyph(device)
+}
+
+// What a device wants the user to see (the attention table). `st` is what
+// the snapshot does not carry: { notifications, messages, call: { state },
+// lowPercent }. Away is not attention; nothing from an away device is.
+function attention(device, profile, st) {
+  var s = st || {}
+  var here = !!device && device.reachable === true
+  var countsMessages = !!profile && (profile.barIndicators || []).indexOf("messages") >= 0
+  var a = {
+    notifications: here ? Math.max(0, s.notifications || 0) : 0,
+    messages: here && countsMessages ? Math.max(0, s.messages || 0) : 0,
+    ringing: here && !!s.call && s.call.state === "ringing",
+    missed: here && !!s.call && s.call.state === "missed",
+    lowBattery: here && lowBattery(device, s.lowPercent === undefined ? 15 : s.lowPercent)
+  }
+  a.any = a.notifications > 0 || a.messages > 0 || a.ringing || a.missed || a.lowBattery
+  return a
+}
+
+// The pill: one chip per device that shows, in order, and a resting glyph
+// when none does, so the pill never disappears (principle 4).
+//
+// `states` maps a device id to its attention inputs (see `attention`) plus
+// `playing`. A ringing device always gets a chip while it rings, whatever
+// its choice: a call is the one thing that overrides it. `pairing`: a device
+// is asking to pair (shown as a mark on the first chip or the resting glyph).
+//
+// Returns { chips: [{ id, glyph, text, bubble, dimmed, ringing, marks }],
+//           resting: null | { glyph, dimmed, ringing }, pairing }.
+function chips(snapshot, settings, states, pairing) {
+  var daemon = !!(snapshot && snapshot.daemon)
+  var devices = orderedDevices(snapshot, settings)
+  var out = []
+  for (var i = 0; i < devices.length; i++) {
+    var d = devices[i]
+    var p = resolveProfile(settings, d, i === 0)
+    var st = (states && states[d.id]) || {}
+    var a = attention(d, p, st)
+    var place = p.bar === "own" ? "always" : p.bar
+    var shows = a.ringing || place === "always" || (place === "attention" && a.any)
+    if (!shows) continue
+    var glyph = deviceIcon(d, p)
+    out.push({
+      id: String(d.id),
+      glyph: glyph,
+      // The chip's text: its icon and its indicators, as today's pill.
+      text: barText(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing , call: st.call }),
+      parts: barParts(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
+        notifications: a.notifications, messages: a.messages, playing: !!st.playing , call: st.call }),
+      bubble: barBubble(d, p.barIndicators, a.notifications),
+      dimmed: d.reachable !== true,
+      ringing: a.ringing,
+      marks: { missed: a.missed, lowBattery: a.lowBattery }
+    })
+  }
+  var resting = null
+  if (out.length === 0) {
+    if (!daemon || devices.length === 0) resting = { glyph: GLYPH.devices, dimmed: !daemon, ringing: false }
+    else resting = { glyph: deviceIcon(devices[0], resolveProfile(settings, devices[0], true)), dimmed: true, ringing: false }
+  }
+  return { chips: out, resting: resting, pairing: !!pairing }
+}
+
+// The device the panel opens on: the ringing one, else the first connected
+// one shown in the panel, else the first shown in the panel. `states` as
+// for chips. Returns the device, or null when nothing is paired.
+function openingDevice(snapshot, settings, states) {
+  var devices = orderedDevices(snapshot, settings)
+  var shown = devices.filter(function(d, i) { return resolveProfile(settings, d, i === 0).showInPanel })
+  for (var i = 0; i < devices.length; i++) {
+    var st = (states && states[devices[i].id]) || {}
+    if (devices[i].reachable === true && st.call && st.call.state === "ringing") return devices[i]
+  }
+  for (var j = 0; j < shown.length; j++) if (shown[j].reachable === true) return shown[j]
+  return shown.length > 0 ? shown[0] : (devices.length > 0 ? devices[0] : null)
+}
+
+// The entry with one device's profile changed: `changes` merges into its
+// stored profile (null removes a key: back to the default). The first
+// device's "always" is written down on its first change, so that reordering
+// later never changes how it shows. Other keys of the entry are untouched.
+function withProfile(entry, deviceId, changes, isFirst) {
+  var e = Object.assign({}, plainObject(entry) ? entry : {})
+  var devices = Object.assign({}, plainObject(e.devices) ? e.devices : {})
+  var p = Object.assign({}, plainObject(devices[deviceId]) ? devices[deviceId] : {})
+  if (isFirst && p.bar === undefined) p.bar = "always"
+  for (var key in changes) {
+    if (changes[key] === null || changes[key] === undefined) delete p[key]
+    else p[key] = changes[key]
+  }
+  devices[deviceId] = p
+  e.devices = devices
+  return e
+}
+
+// The entry with a new device order (ids). The old `deviceId` stays as it
+// was, for a downgrade.
+function withOrder(entry, ids) {
+  var e = Object.assign({}, plainObject(entry) ? entry : {})
+  e.deviceOrder = ids.map(String)
+  return e
+}
+
+// ---- Settings for devices (step 3) ----
+
+// Icons a device can take, all checked by rendering in the bar's Nerd Font.
+// `code` is what a profile stores (hex, no prefix).
+var ICON_CHOICES = [
+  { code: "F011C", label: "Phone" }, { code: "F011F", label: "Phone, older" },
+  { code: "F04F6", label: "Tablet" }, { code: "F0322", label: "Laptop" },
+  { code: "F0379", label: "Monitor" }, { code: "F0AAB", label: "Desktop" },
+  { code: "F0502", label: "TV" }, { code: "F02CB", label: "Headphones" },
+  { code: "F02DC", label: "Home" }, { code: "F00D6", label: "Work" },
+  { code: "F0A5E", label: "Family" }, { code: "F04CE", label: "Star" },
+  { code: "F02D1", label: "Heart" }, { code: "F0384", label: "Music" },
+  { code: "F06A9", label: "Robot" }
+]
+
+var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never" }
+
+// Which profile settings each settings group holds, for its Custom mark and
+// its "Use the defaults".
+var SETTING_GROUPS = {
+  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
+  bar: ["barIndicators", "batteryLowOnly", "showCalls"],
+  shortcuts: ["shortcuts"]
+}
+
+function groupCustom(custom, group) {
+  var keys = SETTING_GROUPS[group] || []
+  for (var i = 0; i < keys.length; i++) if (custom && custom[keys[i]]) return true
+  return false
+}
+
+// The Devices list at the top of Settings: every paired device in order,
+// then devices asking to pair, then devices in reach that could be paired.
+function devicesListRows(snapshot, settings, lowPercent) {
+  var ordered = orderedDevices(snapshot, settings)
+  var rows = []
+  for (var i = 0; i < ordered.length; i++) {
+    var d = ordered[i]
+    var p = resolveProfile(settings, d, i === 0)
+    rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
+                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : "Away",
+                away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1, pos: i, count: ordered.length })
+  }
+  // Asking to pair first (they wait on the user), then those in reach.
+  var list = snapshot && snapshot.devices ? snapshot.devices : []
+  list.forEach(function(o) {
+    if (o && o.paired !== true && o.pairRequestedByPeer === true)
+      rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
+                  status: "Wants to pair", pairKey: String(o.verificationKey || "") })
+  })
+  list.forEach(function(o) {
+    if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
+      rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
+                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair",
+                  pairKey: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
+  })
+  return rows
+}
+
+// Every row of the settings page, in one list so keyboard and mouse share a
+// cursor. `ctx`:
+//   scope: "root" | "defaults" | "device"
+//   single: one paired device or none (Settings is one flat page)
+//   devices: devicesListRows(...)            (root)
+//   identity: { nickname, icon, glyph, bar, showInPanel } (single root, device)
+//   edit: the profile being edited (defaults, or the device's), with custom
+//   can: the device's capabilities, for shortcuts it cannot do
+function settingsPageRows(ctx) {
+  var rows = []
+  var scope = ctx.scope || "root"
+  if (scope === "root") {
+    if (!ctx.single) (ctx.devices || []).forEach(function(r) { rows.push(r) })
+    else (ctx.devices || []).forEach(function(r) { if (r.kind !== "device") rows.push(r) })
+  }
+  var identity = ctx.identity && (scope === "device" || (scope === "root" && ctx.single))
+  if (identity) {
+    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
+    rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
+    if (scope === "device") {
+      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
+      rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
+    }
+  }
+  if (scope === "root" && !ctx.single) {
+    rows.push({ kind: "defaults", key: "defaults", label: "Defaults for all devices", hint: "Sections, bar and shortcuts for devices that did not change them, and for new ones" })
+  } else {
+    // A panel torn down mid-reload can ask with nothing to edit.
+    var e = ctx.edit || resolveProfile(readSettings({}), null, true)
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
+                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
+    // A device's page (and the one-device page) edits its sections,
+    // shortcuts and bar on the page itself (edit in place): here, a row
+    // that opens that. The defaults, with no page of their own, keep them.
+    var onPage = scope === "device" || (scope === "root" && ctx.single)
+    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
+                            hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
+    base.forEach(function(r) {
+      // The Devices section is gone from the main page (tabs, the pairing
+      // card and this list do its work); the kdeconnect row stays at root.
+      if (r.kind === "layout" && r.section === "devices") return
+      if (r.kind === "kdeconnect" || r.kind === "reset") return
+      if (onPage && (r.kind === "layout" || r.kind === "shortcut" || r.kind === "bar" || r.kind === "barFlag")) return
+      rows.push(r)
+    })
+    if (scope === "device") {
+      ["layout", "bar", "shortcuts"].forEach(function(g) {
+        if (groupCustom(e.custom, g))
+          rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
+                      hint: "This device changed it; the defaults apply again" })
+      })
+      rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
+    } else if (!onPage) {
+      rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
+    }
+  }
+  if (scope === "root") {
+    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
+    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
+    rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  }
+  return rows
+}
+
+// The entry with a new device order. A device whose place in the bar only
+// followed from its position (the first shows always, the others with news)
+// gets that place written down first, so moving devices never changes how
+// they show.
+function withDeviceOrder(entry, snapshot, ids) {
+  var before = readSettings(entry)
+  var ordered = orderedDevices(snapshot, before)
+  var e = plainObject(entry) ? entry : {}
+  var stored = plainObject(e.devices) ? e.devices : {}
+  var next = Object.assign({}, e)
+  for (var i = 0; i < ordered.length; i++) {
+    var id = String(ordered[i].id)
+    var nowFirst = ids.length > 0 && String(ids[0]) === id
+    var s = plainObject(stored[id]) ? stored[id] : {}
+    if (s.bar === undefined && (i === 0) !== nowFirst)
+      next = withProfile(next, id, { bar: i === 0 ? "always" : "attention" }, false)
+  }
+  return withOrder(next, ids)
+}
+
+// The order moved by one step for `id` (Shift+K / Shift+J, the arrows).
+function movedOrder(snapshot, settings, id, delta) {
+  var ids = orderedDevices(snapshot, settings).map(function(d) { return String(d.id) })
+  return moveShortcut(ids, String(id), delta)
+}
+
+// ---- Moving an item in an order (Reorder.qml) ----
+// `extent(i)` is item i's size along the axis; `gap` the space between two.
+
+// Where an item dragged by `off` from its place `from` would land: past an
+// item once it is past that item's middle.
+function reorderTarget(from, off, count, extent, gap) {
+  var t = from, edge = 0
+  if (off > 0) {
+    for (var i = from + 1; i < count; i++) {
+      edge += extent(i) + gap
+      if (off > edge - (extent(i) + gap) / 2) t = i; else break
+    }
+  } else if (off < 0) {
+    for (var j = from - 1; j >= 0; j--) {
+      edge -= extent(j) + gap
+      if (off < edge + (extent(j) + gap) / 2) t = j; else break
+    }
+  }
+  return t
+}
+
+// How far the moving item travels from `a` to land at `b`: the sizes of the
+// items it passes.
+function reorderOffset(a, b, extent, gap) {
+  var x = 0
+  for (var i = a + 1; i <= b; i++) x += extent(i) + gap
+  for (var j = b; j < a; j++) x -= extent(j) + gap
+  return x
+}
+
+// How far item `i` slides aside while the one at `from` would land at `to`:
+// by the moving item's size (`step`, its size plus the gap).
+function reorderShift(i, from, to, step) {
+  if (from < 0 || i === from) return 0
+  if (to > from && i > from && i <= to) return -step
+  if (to < from && i < from && i >= to) return step
+  return 0
+}
+
+// ---- Moving an item in a grid (the shortcut tiles while editing) ----
+
+// Where item `i` sits while the one at `from` would land at `to`: the
+// items between them step one place towards `from`.
+function reorderSlot(i, from, to) {
+  if (from < 0 || to < 0 || i === from) return i === from ? to : i
+  if (to > from && i > from && i <= to) return i - 1
+  if (to < from && i < from && i >= to) return i + 1
+  return i
+}
+
+// A grid slot's top left, for `columns` cells of `cw` by `ch`, `gap` apart.
+function gridSlot(k, columns, cw, ch, gap) {
+  var c = Math.max(1, columns)
+  return { x: (k % c) * (cw + gap), y: Math.floor(k / c) * (ch + gap) }
+}
+
+// The slot nearest to where a dragged item's middle is (it started in slot
+// `from` and moved by dx, dy), among `count` slots.
+function gridTarget(from, dx, dy, count, columns, cw, ch, gap) {
+  var start = gridSlot(from, columns, cw, ch, gap)
+  var mx = start.x + cw / 2 + dx, my = start.y + ch / 2 + dy
+  var best = from, bestD = Infinity
+  for (var k = 0; k < count; k++) {
+    var s = gridSlot(k, columns, cw, ch, gap)
+    var ddx = s.x + cw / 2 - mx, ddy = s.y + ch / 2 - my
+    var d = ddx * ddx + ddy * ddy
+    if (d < bestD) { bestD = d; best = k }
+  }
+  return best
+}
+
+// ---- Editing the page in place ----
+
+// The shortcut tiles while editing: the chosen ones in their order (`pos`,
+// they move), then every other one dimmed, to be added (`pos` -1).
+function editShortcutTiles(order, can) {
+  var chosen = shortcutTiles(order, can).map(function(t, i) { return Object.assign({ chosen: true, pos: i }, t) })
+  var rest = []
+  for (var i = 0; i < SHORTCUTS.length; i++)
+    if (order.indexOf(SHORTCUTS[i].key) < 0)
+      rest.push(Object.assign({ chosen: false, pos: -1 }, shortcutTiles([SHORTCUTS[i].key], can)[0]))
+  return chosen.concat(rest)
+}
+
+// Editing: every bar indicator as it looks in the bar (a sample), the
+// chosen ones in their order (with their place, for moving), then the rest.
+function editBarTiles(order) {
+  var chosen = normalizeBarIndicators(order)
+  var out = chosen.map(function(k, i) {
+    var ind = barIndicatorByKey(k)
+    return { key: k, glyph: ind.glyph, sample: ind.sample, label: ind.tile, hint: ind.label, chosen: true, pos: i }
+  })
+  for (var i = 0; i < BAR_INDICATORS.length; i++)
+    if (chosen.indexOf(BAR_INDICATORS[i].key) < 0)
+      out.push({ key: BAR_INDICATORS[i].key, glyph: BAR_INDICATORS[i].glyph, sample: BAR_INDICATORS[i].sample, label: BAR_INDICATORS[i].tile,
+                 hint: BAR_INDICATORS[i].label, chosen: false, pos: -1 })
+  return out
+}
+
+// What a section says while editing when it has nothing to show now.
+var SECTION_EMPTY = {
+  actions: "No shortcuts: add some below",
+  media: "Shows while the device plays something",
+  notifications: "Shows while there are notifications",
+  photos: "Shows its newest photos and videos",
+  received: "Shows the files it sends you"
+}
+
+// ---- Files: the device's newest photos (#65) and files it sent (#37) ----
+
+// "12 KB", "3.4 MB".
+function sizeText(bytes) {
+  var b = Number(bytes) || 0
+  if (b < 1024) return b + " B"
+  if (b < 1024 * 1024) return Math.round(b / 1024) + " KB"
+  var mb = b / (1024 * 1024)
+  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB"
+}
+
+var IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+function isImage(name) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(String(name || ""))
+  return !!m && IMAGE_EXTENSIONS.indexOf(m[1].toLowerCase()) >= 0
+}
+
+// A path as a file:// address, each part encoded apart (a name with # or ?
+// stays whole), as Omarchy's own panels build one.
+function fileUri(path) {
+  return "file://" + String(path || "").split("/").map(function(p) { return encodeURIComponent(p) }).join("/")
+}
+
+function photosSummary(photos) {
+  var list = photos || []
+  if (list.length === 0) return "Nothing new"
+  var videos = list.filter(function(p) { return p.video === true }).length
+  var parts = []
+  if (list.length > videos) parts.push(list.length - videos === 1 ? "1 photo" : (list.length - videos) + " photos")
+  if (videos > 0) parts.push(videos === 1 ? "1 video" : videos + " videos")
+  return parts.join(", ")
+}
+
+// Where the panel was when it closed, kept for a while: opened again within
+// KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the
+// conversation), else it starts on its main page. Not when it must open
+// elsewhere: setup (`openingScope`) or another device asked for (a chip).
+var KEEP_PLACE_MS = 5 * 60 * 1000
+function placeToResume(left, nowMs, ctx) {
+  if (!left || !(nowMs - left.at >= 0 && nowMs - left.at < KEEP_PLACE_MS)) return null
+  if (ctx && ctx.openingScope) return null
+  if (ctx && ctx.requested && ctx.requested !== left.device) return null
+  if (!left.settingsOpen && !left.messagesOpen && !(left.y > 0)) return null
+  return left
+}
+
+// A photo's identity: the same file is the same tile, wherever it moves.
+function photoIdentity(p) {
+  return String(p.path) + "|" + String(p.name)
+}
+
+// The steps that turn one list of keys into another, for a model whose
+// items should glide rather than be rebuilt: removals (from the end), then,
+// place by place, a move of an item already there or an insert.
+function listOps(oldKeys, newKeys) {
+  var ops = [], cur = oldKeys.slice()
+  for (var i = cur.length - 1; i >= 0; i--) {
+    if (newKeys.indexOf(cur[i]) < 0) { ops.push({ op: "remove", at: i }); cur.splice(i, 1) }
+  }
+  for (var j = 0; j < newKeys.length; j++) {
+    if (cur[j] === newKeys[j]) continue
+    var from = cur.indexOf(newKeys[j])
+    if (from > j) {
+      ops.push({ op: "move", from: from, to: j })
+      cur.splice(j, 0, cur.splice(from, 1)[0])
+    } else {
+      ops.push({ op: "insert", at: j, key: newKeys[j] })
+      cur.splice(j, 0, newKeys[j])
+    }
+  }
+  return ops
+}
+
+// What makes the tiles: a list with the same key is the same tiles, so a
+// state change (a read starting or ending) does not rebuild them.
+function photosKey(photos) {
+  return (photos || []).map(function(p) { return [p.path, p.at, p.thumb, p.video === true].join("|") }).join("\n")
+}
+
+// The newest file's name, and how many more.
+function receivedSummary(received) {
+  var list = received || []
+  if (list.length === 0) return "Nothing new"
+  return list.length === 1 ? String(list[0].name) : list[0].name + " and " + (list.length - 1) + " more"
+}
+
+// Demo: photos from the one local demo picture, each a different part of it
+// (`clip`: x, y, w, h as fractions), so a screenshot shows four of them;
+// and two received files that exist nowhere (demo only opens nothing).
+function demoPhotos(picture, nowMs, gallery) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  // Pictures put in the demo's gallery folder (not in the repository): up
+  // to eight, two rows, the second one shown as a video.
+  if (gallery && gallery.length > 0) {
+    return gallery.slice(0, 8).map(function(path, i) {
+      return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: path, thumb: path, at: now - (i * 7 + 2) * 60000,
+               album: i % 4 === 2 ? "Screenshots" : "Camera", video: i === 1, demo: true }
+    })
+  }
+  var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
+  return clips.map(function(c, i) {
+    return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
+             album: i === 2 ? "Screenshots" : "Camera", video: i === 1, clip: c, demo: true }
+  })
+}
+function demoReceived(nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  return [
+    { path: "/demo/Boarding pass.pdf", name: "Boarding pass.pdf", size: 184320, at: now - 25 * 60000 },
+    { path: "/demo/Recipe notes.txt", name: "Recipe notes.txt", size: 2150, at: now - 26 * 3600000 }
   ]
 }
