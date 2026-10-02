@@ -2,29 +2,34 @@
 
 # Messages
 
-![Messages (demo data)](images/messages.png)
-
 Middle-click the pill, or pick *Messages* in the panel.
 
-- Every conversation, newest first, with unread marks, an unread filter and
-  search over names, numbers and text.
-- The whole history loads as you scroll up; picture messages open full
-  size.
-- Reply, or start a new message with a search over your contacts.
-- The last conversation you had open comes back; drafts wait while you
-  switch.
+![Messages: conversations and a conversation with a picture (demo data)](images/messages.png)
 
-## Keys
+Every conversation, with unread marks, a filter and search. History loads
+as you scroll; pictures open full size. Drafts wait while you switch.
+
+## A new message
+
+Type a name or a number. Esc closes the suggestions and keeps what you
+typed, so a short code works too.
+
+![A new message with suggestions (demo data)](images/new-message.png)
+
+## By keyboard
+
+`l` moves into the conversation, where a highlight goes from message to
+message; Enter opens its picture or copies its text. `h` or Esc comes back.
+
+![A message highlighted from the keyboard (demo data)](images/message-cursor.png)
 
 | Key | Action |
 |---|---|
-| `j` `k` · `g` `G` | Move · first, last (↑ on the first: search) |
-| `l` `h` / → ← | Into the open conversation · back to the list |
-| Enter | Open and reply; on a message: open its picture, or copy its text |
-| `/` · `u` · `n` | Search · unread only · new message |
-| `i` | Reply to the open conversation |
-| PgUp PgDn | A page, on the side the keys are on; while writing a reply, the conversation |
-| Esc | Back (in *To*: first closes the suggestions, keeping what you typed) |
+| `j` `k` · `g` `G` | Move · first, last |
+| `l` `h` | Into the conversation · back |
+| Enter | Open and reply; on a message: its picture, or copy |
+| `/` · `u` · `n` · `i` | Search · unread · new · reply |
+| PgUp PgDn | A page |
+| Esc | Back |
 
-In the reply field, Enter sends and Esc steps back. Nothing but your own
-click or Enter puts the cursor there.
+Only your own click or Enter puts the cursor in the reply field.

@@ -243,7 +243,7 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(demoDev.id, "demo")
   assert.equal(M.deviceTitle(demoDev, M.resolveProfile(settings, demoDev, true)), "Pixel 8")
   assert.equal(M.deviceIcon(demoDev, M.resolveProfile(settings, demoDev, true)), M.deviceIcon(demoDev, null))
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 2, "a text message (reply, actions, a long text) and a group chat")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
   const away = M.demoSnapshot(snap(device({ reachable: false, can: { sms: false, ring: false } })), "").devices[0]
   assert.equal(away.reachable, true, "the demo device is here even when the real one is away")
@@ -721,6 +721,9 @@ test("files: a section of its own, joining saved orders at the end; sizes, image
   assert.equal(M.photosSummary([]), "Nothing new")
   assert.equal(M.receivedSummary([{ name: "a.pdf" }, { name: "b.txt" }]), "a.pdf and 1 more")
   assert.equal(M.receivedSummary([{ name: "a.pdf" }]), "a.pdf")
+  const own = M.demoPhotos("/x/picture.jpg", 0, Array.from({ length: 10 }, (_, i) => "/g/" + i + ".jpg"))
+  assert.equal(own.length, 8, "the demo's own pictures: two rows at most")
+  assert.ok(own.every(p => p.demo && !p.clip && p.thumb === p.path))
   const photos = M.demoPhotos("/x/picture.jpg", 0)
   assert.equal(photos.length, 4)
   assert.ok(photos.every(p => p.demo && p.clip.length === 4 && p.album))

@@ -2,32 +2,43 @@
 
 # The panel
 
-![The panel: shortcuts, Now playing and notifications (demo data)](images/panel.png)
+Click the pill. Every section folds to one line.
 
-- **Notifications:** reply, dismiss, and the app's buttons where KDE
-  Connect passes them on.
-- **Now playing:** the active player; the others a swipe or `h`/`l` away.
-- **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
-  Play/Pause, KDE Connect.
-- **Received:** files the phone sent (open, show in Files, forget).
-- **Gallery:** the newest photos and videos (open, copy, save, drag), and
-  the biggest albums in your file manager.
-- **Calls:** a ringing device's chip rings, and a card above the tabs
-  names the caller; a missed call stays, with *Call back* and *Text back*.
-- **Several devices:** a tab and a chip each. Pair, order and unpair in
-  [Settings](settings.md).
-- **Edit the page** (✎ on hovering the device's name, right-click the
-  page or the device's chip in the bar, or `E`): what the chip shows,
-  sections and shortcuts; drag, add, take away. ✓ keeps it; Esc undoes.
+![The panel: shortcuts, Now playing, notifications, received files and the Gallery (demo data)](images/panel.png)
+
+## Notifications
+
+Reply, dismiss, or press the app's own buttons. A chat shows who said what.
+
+![Notifications open, the other sections folded (demo data)](images/notifications.png)
+
+## Now playing
+
+The phone's active player: seek, skip, volume. The others are a swipe or
+`h` `l` away.
+
+![Now playing: cover, seek bar and volume (demo data)](images/now-playing.png)
+
+## Shortcuts
+
+Messages, send files, the clipboard, ring it, send a text or a link.
+
+![Shortcuts as tiles (demo data)](images/shortcuts.png)
+
+## Make it yours
+
+Press `E` (or right-click the page): choose what the chip in the bar
+shows, order and hide sections, pick shortcuts. ✓ keeps it; Esc undoes.
+
+![Editing the page: the bar chip, sections and shortcuts (demo data)](images/edit.png)
 
 ## Keys
 
 | Key | Action |
 |---|---|
-| `j` `k` / arrows | Move between rows |
+| `j` `k` / arrows · PgUp PgDn | Move · a page |
 | `h` `l` | Along the shortcuts, through the players |
 | Enter | Activate; play/pause on the player |
-| `[` `]` · `,` `.` · `-` `=` | Skip track · seek 10 s · volume |
+| `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `r` · `x` · `e` | Reply · dismiss · show all |
-| `s` · `E` | Settings · edit this page |
-| Esc | Back, then close |
+| `s` · `E` · Esc | Settings · edit · back |

@@ -427,8 +427,11 @@ Item {
       seenKeys[key] = true
       out.push({ name: name || "", number: number, title: name || Model.formatNumber(number), tid: tid })
     }
-    for (var c = 0; c < contacts.length && out.length < (limit || 8); c++)
-      consider(contacts[c].name, contacts[c].number, threadForAddress(contacts[c].number))
+    // Demo mode shows made-up people only: the phone's synced contacts are
+    // real, so they stay out of it (a screenshot of the demo is public).
+    var people = demo ? [] : contacts
+    for (var c = 0; c < people.length && out.length < (limit || 8); c++)
+      consider(people[c].name, people[c].number, threadForAddress(people[c].number))
     for (var i = 0; i < threadModel.count && out.length < (limit || 8); i++) {
       var t = threadModel.get(i)
       if (!t.group) consider(t.title !== Model.formatNumber(t.addresses) ? t.title : "", t.addresses, t.tid)

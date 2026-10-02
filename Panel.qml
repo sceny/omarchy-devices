@@ -1635,6 +1635,13 @@ Panel {
       return "ok"
     }
     // Esc on the panel (not in a text field), as the key would.
+    // Where the panel's card is on the desktop (for screenshots that show
+    // the panel and nothing else): x, y, width, height in global pixels.
+    function cardRect(): string {
+      var o = panel.cardOrigin
+      var sx = panel.screen ? panel.screen.x : 0, sy = panel.screen ? panel.screen.y : 0
+      return JSON.stringify({ x: Math.round(sx + o.x), y: Math.round(sy + o.y), w: Math.round(panel.contentWidth), h: Math.round(panel.contentHeight) })
+    }
     // The arrows, as pressed (dx, dy each -1, 0 or 1): never Enter, so a
     // check cannot open anything into a text field.
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
@@ -3774,7 +3781,7 @@ Panel {
     readonly property int place: root.drawnSections.indexOf(section)
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
-    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "PHOTOS" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "GALLERY" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
     readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
       : section === "photos" ? (root.photos.length > 0 ? Model.photosSummary(root.photos) : "")
