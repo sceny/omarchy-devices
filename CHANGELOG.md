@@ -65,13 +65,86 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   now undoes everything since editing began.
 - IPC: `rightClickChip`, `editBar`, `editBarFlag`, `editMoveBar`.
 
+- Received (#37): a section with the files the device sent you (open in its app,
+  show in Files, forget); they are kept in the cache. Their folders are
+  watched: a file renamed there is followed, and one deleted or moved away
+  leaves the list at once (where the system allows a watch; otherwise
+  within 30 s). Gone while there are none.
+- Gallery (#65): a section with the device's newest photos and videos,
+  found as the phone's own gallery finds them: all of its shared storage,
+  WhatsApp's included, but hidden and `.nomedia` folders and apps' private
+  ones; each folder is an album. Each folder's listing is kept, so only
+  what changed is read again. A small ring at the header's right shows
+  while the phone is read (the last photos show meanwhile); idle, a
+  refresh button takes its place while the pointer is on the header.
+  - Click a tile to open it: the file is copied here first (a ring on the
+    tile) and the copy opens, so a video plays at its own pace, not the
+    network's; the copies are a cache of 2 GB at most. From a tile's
+    corner, copy it or save a copy in Pictures/<device>, with its own date
+    and only once; or drag it into a window.
+  - The biggest albums open in the file manager (a folder icon); the row
+    scrolls sideways when they do not fit (the arrows at its edges, the
+    wheel, a swipe or a drag). Opening an album, or a received
+    file's folder, closes the panel; opening a photo or a file keeps it
+    open for the next.
+  - A file from the phone is decoded only in a sandbox: images through
+    glycin (each decode in its own bubblewrap sandbox), a video's frame
+    in one of ours (no network, no home, only that file); the panel
+    shows a JPEG made from the pixels, never the phone's file (#105).
+  - Read through KDE Connect, which needs `sshfs`: the section offers to
+    install it. When the storage cannot be opened, the section says so
+    with *Try again*, and asks again by itself only after 10 minutes, so
+    KDE Connect's error does not pop up on every open (#100).
+  - Received and Gallery join every saved order at the end, each with its
+    own switch; each is gone while it has nothing.
+- IPC: `filesInfo`, `dismissReceived`.
+- Connection and Add a device (#75), two Settings pages in place of the
+  Setup and Add a device folds. Connection checks this computer (KDE
+  Connect, the firewall, the network) with fixes; a check can be ignored,
+  and a failing one puts a red dot on the cog, which then opens
+  Connection. Add a device lists requests to pair, the steps on the
+  device and devices in reach to pair with. The panel opens on Add a
+  device while nothing is paired, and on Connection while KDE Connect is
+  down.
+- Reconnect (#69): an away device's page says where it was last seen
+  (kept across restarts) and whether that was another network, with
+  *Reconnect*: it looks for the device, then says what to try. Opening the
+  panel on an away device looks once by itself.
+- IPC: `page connection|addDevice`, `demoAway`, `reconnect`, `ignoreCheck`;
+  `demoSetup` stays until `live`.
+
+- Pairing (#92): a device asking to pair brings a card under the bar at
+  once (its key, *Accept*, *Reject*), and the first chip glows on the ring
+  beat while it waits; the card never takes the keyboard, and it waits
+  while the panel is open (the panel shows the request itself). A pairing
+  started from the panel shows no pop-up: it is a card on Add a device,
+  with the key and a countdown of KDE Connect's 30 seconds; not accepted
+  in time, its row says so; accepted, the card turns *✓ Paired* and the
+  panel goes to the device. The key reads the same everywhere: large, one
+  word, as KDE Connect shows it. Pairing actions no longer toast when they
+  work.
 - Preview with a demo phone (#62): before any device is set up, a button
-  under the setup steps shows the panel with made-up data (the Pixel 8,
+  on Add a device shows the panel with made-up data (the Pixel 8,
   its notifications, conversations and media), under a strip saying it is
   a demo, with *Back to setup*. A real device connecting ends it; leaving
   puts every setting back. IPC: `preview true|false`.
 
 ### Fixed
+- Images from the phone (notification icons, a track's art, a picture
+  message's preview) were decoded by the shell itself; they are now shown
+  only as copies decoded in a sandbox (glycin), as the Gallery's are, and
+  a received picture's preview too (#107).
+- Demo mode showed the real device's nickname (and icon, and place in the
+  bar); it now shows only its own (#108).
+- No hand cursor showed over the panel's buttons: the main page's
+  right-click area and the media swipe area held the arrow over them.
+- Messages: opening a conversation while another was still loading left
+  every conversation on skeletons until the shell restarted (#102).
+- A device joining could swap two others in the order (the first device:
+  the one always in the bar, opened first).
+- Settings pages without buttons ended in an empty band (Add a device,
+  Connection).
+- An error from the messages reader could stay on screen for good.
 - *Bar: use the defaults* left a device's *Calls* switch as it was.
 - While charging, the % beside the battery overlapped its bolt; it now
   starts past the glyph's ink.

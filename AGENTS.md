@@ -48,7 +48,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
-| `SetupChecks.qml` | KDE Connect setup checks (`kdeconnect-bridge doctor`) with fixes, and the phone steps |
+| `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
+| `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -183,6 +184,34 @@ Keep them; change one only with the owner.
   flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
   one device, Settings is one flat page. Moving a device writes down how
   each one shows in the bar, so moving never changes it.
+- **The gallery and received files are read, never kept beyond the cache**
+  (two sections, Gallery and Received, each gone while it has nothing).
+  The gallery is read from the device's storage (KDE Connect's sftp, which
+  needs `sshfs`) only when a panel opens on it, at most every 20 s, as
+  Android's media index finds it (no hidden, `.nomedia` or
+  `Android/data`/`obb` folders; the folder is the album); a failed mount
+  is asked for again only after 10 minutes or on *Try again*. Its
+  thumbnails, folder listings (`media-dirs.json`), the copies a click
+  opens (`open/`, 2 GB at most) and the list of received files
+  (`received-<device>.json`, from `shareReceived`) live in
+  `~/.cache/sceny.devices/`, never in `shell.json`. A received entry goes
+  when dismissed or when its file is gone. A check never opens a real
+  phone's photos: use the demo.
+- **An image from the device is decoded only in a sandbox, never by the
+  shell.** Gallery thumbnails, notification icons, a track's art, a
+  picture message's preview and a received picture are decoded through
+  GdkPixbuf (glycin: bubblewrap and a syscall filter per decode); a
+  video's frame comes from `ffmpegthumbnailer` in our own bubblewrap (no
+  network, no home, that one file read-only, limits on memory, time and
+  output). The shell loads only images the bridge wrote from the decoded
+  pixels (`safe/`, Gallery thumbnails, `sms/preview_*`); a QML `Image`
+  never points at a file the device sent. With no sandbox, there is no
+  picture, never an unsandboxed decode. Opening a file in its app (a
+  click) is the user's own choice of app, as in Files.
+- **Opening a place closes the panel; opening an item keeps it.** An
+  album, a file's folder (*Show in Files*) or KDE Connect's app opens a
+  window the user goes on in, so the panel closes; a gallery tile or a
+  received file opens and the panel stays, to open the next one.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.
@@ -193,6 +222,27 @@ Keep them; change one only with the owner.
   quick log check has already passed (an attached handler that does not
   exist, such as `Keys.onPageUpPressed`, does exactly that).
 
+- **Connection and Add a device are two Settings pages:** one checks what
+  exists, the other makes a new pairing. Connection (`settingsScope`
+  `connection`): this computer's checks (status icon, name, short status,
+  one action; *Ignore* stops a check lighting the gear's dot, kept in
+  `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
+  device (`addDevice`): requests to pair, the steps on the device, devices
+  in reach (it searches while open); the panel opens on it while nothing
+  is paired. An away device's page offers
+  *Reconnect* in place (a search, `fix search`; it never leaves the
+  page), and opening the panel on it searches once a minute at most.
+  Last seen comes from the bridge's cache (`last-seen.json`); causes are
+  worded as likely, and Samsung advice shows for Samsung devices only.
+- **Pairing comes forward, never over the keyboard.** A device asking to
+  pair brings `PairingPopup` under the bar (a layer surface with no
+  keyboard focus, input only on its card) and glows the first chip;
+  the panel never opens by itself, since it takes the keyboard. The
+  pop-up is for a device asking only: a pairing started from the panel
+  stays on its Add a device card (key, countdown of KDE Connect's 30 s,
+  `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
+  as KDE Connect shows it (one word). Pairing actions show their result
+  in place (`Model.shownInPlace`): no toast unless they fail.
 - **Fixes change the system only on a click.** `fix install` and `fix firewall`
   go through `pkexec` (one password prompt); the firewall rule is limited to
   the local network the default route is on, never opened to everyone.

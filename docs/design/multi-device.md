@@ -267,6 +267,14 @@ the device's own page in Settings (8), so each device has one place.
 failing check), the panel when nothing is paired, `page connection` over
 IPC.
 
+**As built (step 4, #75):** Connection is a Settings scope, so it has the
+settings page's transitions, cursor and back arrow (back goes to Settings).
+*Reconnect* sits on the away device's own page, under the header, where
+the checks used to be; it searches in place and shows the result there.
+In place of *Why not?*, a *Connection* button shows there while a check on
+this computer fails. Ignored checks are kept in `ignoredChecks`. The gear
+with a dot opens Connection directly.
+
 ### 6.1 Layout
 
 ```
@@ -276,7 +284,7 @@ IPC.
   ✓ Firewall           Open to 192.168.1.0/24
   ✓ Network            Wi-Fi · 192.168.1.0/24
  PAIRING REQUESTS
-  󰄜 Pixel 8            4E5A 3506                  [Accept] [Reject]
+  󰄜 Pixel 8            4E5A3506                  [Accept] [Reject]
  ADD A DEVICE
   1  Install KDE Connect on it        Google Play ↗  F-Droid ↗  [QR]
   2  Join this Wi-Fi (192.168.1.0/24)

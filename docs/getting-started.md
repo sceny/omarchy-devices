@@ -22,9 +22,10 @@ The pill lands on the right of the bar; move it with
 
 ## Set up KDE Connect
 
-Until a device connects, the panel lists what is missing (installed,
-running, firewall, a paired device), with a **Fix** button where it can.
-Fixes ask for your password; nothing changes without a click.
+Until a device is paired, the panel opens on **Add a device**: the steps
+on it, and devices in reach to pair with. **Connection** (in Settings)
+checks this computer (KDE Connect, the firewall, the network), with a
+**Fix** where it can; fixes ask for your password.
 
 **Preview with a demo phone**, under the steps, shows the panel with
 made-up data until yours is set up; nothing reaches a device.
