@@ -80,6 +80,21 @@ Panel {
     onTriggered: { root.shownPhotos = []; root.photosFading = false; root.photosClosing = false }
   }
   readonly property var photos: shownPhotos
+  // The tiles, one per photo, changed in place (Model.listOps) so they glide.
+  ListModel { id: photoModel }
+  onShownPhotosChanged: {
+    var keys = shownPhotos.map(Model.photoIdentity), old = []
+    for (var i = 0; i < photoModel.count; i++) old.push(photoModel.get(i).key)
+    Model.listOps(old, keys).forEach(function(o) {
+      if (o.op === "remove") photoModel.remove(o.at, 1)
+      else if (o.op === "move") photoModel.move(o.from, o.to, 1)
+      else photoModel.insert(o.at, { key: o.key, json: JSON.stringify(shownPhotos[o.at]) })
+    })
+    for (var j = 0; j < shownPhotos.length; j++) {
+      var json = JSON.stringify(shownPhotos[j])
+      if (photoModel.get(j).json !== json) photoModel.setProperty(j, "json", json)
+    }
+  }
   readonly property var photoInfo: phone ? phone.photoInfo : null
   readonly property var received: phone ? phone.received : []
   // Something to show, or a step that makes photos possible (sshfs, the
@@ -3085,25 +3100,56 @@ Panel {
                       }
                     }
 
-                    Grid {
+                    // The tiles are kept, one per photo (photoModel), so a
+                    // photo that goes fades out and the rest glide to their
+                    // new places, one that comes fades in: at the panel's
+                    // pace, and only once the page has settled.
+                    GridView {
                       id: photoGrid
                       visible: root.photos.length > 0
                       opacity: root.photosFading ? 0 : 1
                       Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
-                      width: parent.width
-                      columns: 4
-                      spacing: Style.space(6)
-                      readonly property real cell: (width - spacing * (columns - 1)) / columns
-                      Repeater {
-                        model: root.photos
+                      readonly property int columns: root.photoColumns
+                      readonly property real spacing: Style.space(6)
+                      readonly property real cell: (parent.width - spacing * (columns - 1)) / columns
+                      // A cell is a tile and the gap after it; the last gap
+                      // falls outside the section.
+                      width: parent.width + spacing
+                      height: Math.ceil(count / columns) * cellHeight - spacing
+                      cellWidth: cell + spacing
+                      cellHeight: cell + spacing
+                      interactive: false
+                      model: photoModel
+                      delegate: Item {
+                        required property string json
+                        required property int index
+                        width: photoGrid.cellWidth
+                        height: photoGrid.cellHeight
                         PhotoTile {
-                          required property var modelData
-                          required property int index
                           width: photoGrid.cell
                           height: photoGrid.cell
-                          photo: modelData
-                          place: index
+                          photo: JSON.parse(parent.json)
+                          place: parent.index
                         }
+                      }
+                      add: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      remove: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      displaced: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion }
+                      }
+                      move: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                    }
                       }
                     }
 

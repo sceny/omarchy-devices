@@ -1693,6 +1693,33 @@ function photosSummary(photos) {
   return parts.join(", ")
 }
 
+// A photo's identity: the same file is the same tile, wherever it moves.
+function photoIdentity(p) {
+  return String(p.path) + "|" + String(p.name)
+}
+
+// The steps that turn one list of keys into another, for a model whose
+// items should glide rather than be rebuilt: removals (from the end), then,
+// place by place, a move of an item already there or an insert.
+function listOps(oldKeys, newKeys) {
+  var ops = [], cur = oldKeys.slice()
+  for (var i = cur.length - 1; i >= 0; i--) {
+    if (newKeys.indexOf(cur[i]) < 0) { ops.push({ op: "remove", at: i }); cur.splice(i, 1) }
+  }
+  for (var j = 0; j < newKeys.length; j++) {
+    if (cur[j] === newKeys[j]) continue
+    var from = cur.indexOf(newKeys[j])
+    if (from > j) {
+      ops.push({ op: "move", from: from, to: j })
+      cur.splice(j, 0, cur.splice(from, 1)[0])
+    } else {
+      ops.push({ op: "insert", at: j, key: newKeys[j] })
+      cur.splice(j, 0, newKeys[j])
+    }
+  }
+  return ops
+}
+
 // What makes the tiles: a list with the same key is the same tiles, so a
 // state change (a read starting or ending) does not rebuild them.
 function photosKey(photos) {
