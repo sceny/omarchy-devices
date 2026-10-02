@@ -76,7 +76,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   does): click to open (a video plays); from a corner, copy it or save a
   copy in Pictures/<device>, with its own date and only once; drag it
   into a window. The biggest albums open in the file manager, wherever the
-  phone keeps them. The last photos show at once when the
+  phone keeps them. When the storage cannot be opened, the section says
+  so with *Try again*, and asks again by itself only after 10 minutes, so
+  KDE Connect's error does not pop up on every open (#100). The last photos show at once when the
   panel opens, while the phone is read again; when none are left, they
   fade and the section folds away. Photos are read from its storage
   through KDE Connect, which needs `sshfs`: the section offers to install

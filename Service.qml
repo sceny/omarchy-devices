@@ -718,9 +718,12 @@ Item {
     var id = String(device.id)
     var st = photoState[id]
     if (st && st.loading) return
-    // A good list is reused for 20 s; a failed look (no sshfs, storage not
-    // allowed) is tried again on the next open.
+    // A good list is reused for 20 s. A mount that failed is not asked for
+    // again on its own for 10 minutes: each attempt makes KDE Connect pop
+    // its error (#100); Try again asks at once. No sshfs asks for no mount,
+    // so it is checked on every open.
     if (!force && st && st.ok && Date.now() - st.at < 20000) return
+    if (!force && st && !st.ok && st.error && Date.now() - st.at < 600000) return
     setPhotoState(id, Object.assign({}, st || { photos: [] }, { loading: true, at: Date.now() }))
     // The first look since the shell started: the last list at once, from
     // the cache, while the device is read (that takes seconds).
