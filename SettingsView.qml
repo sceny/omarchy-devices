@@ -19,6 +19,8 @@ Column {
   property var setupFixing: ({})
   // This computer's network, for Add a device's steps.
   property string network: ""
+  property string appPlatform: "android"
+  signal appPlatformSet(string platform)
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
   // Pairings asked here: when each started (the card's countdown), and a
@@ -439,6 +441,10 @@ Column {
     visible: root.scopeKind === "addDevice"
     width: root.width
     network: root.network
+    // The app's QR code: on Add a device always, for a first device or another (#64).
+    showQr: root.scopeKind === "addDevice"
+    platform: root.appPlatform
+    onPlatformSet: function(p) { root.appPlatformSet(p) }
     foreground: root.foreground
     fontFamily: root.fontFamily
   }

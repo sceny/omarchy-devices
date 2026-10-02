@@ -38,6 +38,8 @@ var GLYPH = {
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
   folderOpen: "\u{F0770}",   // folder-open: shown in Files
+  googlePlay: "\u{F02BC}",   // google-play: the Android app's store
+  apple: "\u{F0035}",        // apple: the iPhone app (the font has no App Store mark)
   file: "\u{F021F}",         // file-image
   document: "\u{F0219}",     // file-document: a received file that is not a picture
   download: "\u{F01DA}",     // download: save a copy of a photo here
@@ -1140,6 +1142,31 @@ function awayState(device, network, searchedAt, nowMs) {
     lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
       + (isSamsung(device) ? "; set the app's battery use to Unrestricted" : ""))
   return { lines: lines, searching: searching }
+}
+
+// ---- Installing the app: its store pages, and a QR code for the phone ----
+
+var APP_LINKS = {
+  play: "https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp",
+  fdroid: "https://f-droid.org/packages/org.kde.kdeconnect_tp/",
+  appStore: "https://apps.apple.com/app/kde-connect/id1580245991"
+}
+
+// qrencode's text output (`qrencode -t ASCII -m 0 <url>`: a line per row,
+// two characters per module, "#" dark) as { size, dark: [row][col] }, or
+// null when it is not a square grid.
+function qrGrid(text) {
+  var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
+  var size = lines.length
+  if (size < 21) return null
+  var dark = []
+  for (var r = 0; r < size; r++) {
+    if (lines[r].length !== size * 2) return null
+    var row = []
+    for (var c = 0; c < size; c++) row.push(lines[r].charAt(2 * c) === "#")
+    dark.push(row)
+  }
+  return { size: size, dark: dark }
 }
 
 // ---- Demo messages: made-up conversations for screenshots and checks ----
