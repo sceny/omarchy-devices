@@ -338,6 +338,8 @@ Panel {
                        device: device ? String(device.id) : "", y: panelFlick ? panelFlick.contentY : 0 }
   }
   property var leftPlace: null
+  // The page's keyboard cursor, drawn once (CursorGlide, in pageHost).
+  property Item cursorGlide: null
 
   // Size animations (folds, the carousel, the cover) run for the user's own
   // changes only. A hidden page has no height, so while a page appears (or
@@ -1414,19 +1416,36 @@ Panel {
     }
   }
 
-  function scrollToCursor() {
-    if (focusSection !== "notifications" || !notifColumn) return
-    var item = notifColumn.children[notifIndex]
-    if (!item || !panelFlick) return
-    Qt.callLater(function() {
-      var y = item.mapToItem(panelFlick.contentItem, 0, 0).y
-      var margin = Style.space(6)
-      var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
-      if (y < panelFlick.contentY + margin) panelFlick.contentY = Math.max(0, y - margin)
-      else if (y + item.height > panelFlick.contentY + panelFlick.height - margin)
-        panelFlick.contentY = Math.min(maxY, y + item.height + margin - panelFlick.height)
-    })
+  // The page keeps the cursor in sight, gliding there at the panel's pace:
+  // whatever holds it (the glide's item), on the main page or in Settings.
+  function followCursor() {
+    var item = cursorGlide ? cursorGlide.target : null
+    if (!item || !panelFlick || !item.visible) return
+    var y = item.mapToItem(panelFlick.contentItem, 0, 0).y
+    var margin = Style.space(6)
+    var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
+    var to = panelFlick.contentY
+    if (y < panelFlick.contentY + margin) to = Math.max(0, y - margin)
+    else if (y + item.height > panelFlick.contentY + panelFlick.height - margin)
+      to = Math.min(maxY, y + item.height + margin - panelFlick.height)
+    glidePage(to)
   }
+  function scrollToCursor() { Qt.callLater(followCursor) }
+  // PgUp/PgDn on the main page and in Settings: a screen at a time.
+  function pageBy(pages) {
+    if (!panelFlick) return
+    var maxY = Math.max(0, panelFlick.contentHeight - panelFlick.height)
+    var base = pageGlide.running ? pageGlide.to : panelFlick.contentY
+    glidePage(Math.max(0, Math.min(maxY, base - pages * panelFlick.height * 0.85)))
+  }
+  function glidePage(to) {
+    pageGlide.stop()
+    if (Math.abs(to - panelFlick.contentY) < 0.5) return
+    pageGlide.from = panelFlick.contentY
+    pageGlide.to = to
+    pageGlide.start()
+  }
+  NumberAnimation { id: pageGlide; target: panelFlick; property: "contentY"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
 
   // Middle click on the bar pill: straight to messages.
   function openMessagesFromHotkey() {
@@ -1818,6 +1837,9 @@ Panel {
 
       onMoveRequested: function(dx, dy) {
         if (root.messagesOpen) { messagesView.moveKey(dx, dy); return }
+        // A key moved it: the cursor slides, and the page follows it.
+        if (root.cursorGlide) root.cursorGlide.keyedAt = Date.now()
+        Qt.callLater(root.followCursor)
         if (root.settingsOpen) {
           if (!root.cursorActive) { root.cursorActive = true; return }
           if (dy !== 0) root.settingsIndex = root.nextSettingsRow(root.settingsIndex, dy)
@@ -1855,6 +1877,16 @@ Panel {
       // conversation instead. Keys has no page-key handlers and a second
       // Keys.onPressed here would replace the catcher's own, so these are
       // window shortcuts, live only while messages are open.
+      Shortcut {
+        sequences: ["PgUp"]
+        enabled: root.opened && !root.messagesOpen
+        onActivated: root.pageBy(1)
+      }
+      Shortcut {
+        sequences: ["PgDown"]
+        enabled: root.opened && !root.messagesOpen
+        onActivated: root.pageBy(-1)
+      }
       Shortcut {
         sequences: ["PgUp"]
         enabled: root.opened && root.messagesOpen
@@ -2586,6 +2618,15 @@ Panel {
           Item {
             id: pageHost
             property real slide: 0
+            // The keyboard cursor of the main page and Settings: one
+            // highlight behind the page, sliding to the row, tile or card
+            // that holds it (CursorStop). Messages has its own.
+            CursorGlide {
+              shown: root.cursorActive && !root.showMessages
+              motion: root.motion
+              foreground: root.foreground
+              Component.onCompleted: root.cursorGlide = this
+            }
             readonly property real dpr: QW.Screen.devicePixelRatio > 0 ? QW.Screen.devicePixelRatio : 1
             width: parent.width
             height: pageColumn.implicitHeight
@@ -3651,6 +3692,7 @@ Panel {
                 width: parent.width
                 rows: root.settingsRows
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
+                cursorGlide: root.cursorGlide
                 // The groups show what the page edits: a device's own
                 // profile on its page, else the defaults.
                 shortcutsShown: root.editedProfile.showShortcuts
@@ -3742,7 +3784,8 @@ Panel {
     CursorSurface {
       width: parent.width
       implicitHeight: barRow.implicitHeight + Style.space(12)
-      hasCursor: root.cursorActive && root.focusSection === editBar.section
+      hasCursor: false
+      CursorStop { here: root.cursorActive && root.focusSection === editBar.section; glide: root.cursorGlide }
       foreground: root.foreground
       // Solid while it moves, so what it passes over never shows through.
       color: sectionMove.from >= 0 && sectionMove.from === editBar.place ? Qt.tint(root.bar ? root.bar.background : Color.background, fill)
@@ -3984,7 +4027,8 @@ Panel {
     property var photo: ({})
     property int place: 0
     readonly property string url: "file://" + encodeURI(String(photo.path || ""))
-    hasCursor: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place; glide: root.cursorGlide }
     foreground: root.foreground
     radius: Style.cornerRadius
     clip: true
@@ -4113,7 +4157,8 @@ Panel {
     id: rrow
     property var entry: ({})
     property int place: 0
-    hasCursor: root.cursorActive && root.focusSection === "received" && root.receivedIndex === place
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "received" && root.receivedIndex === place; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: rrowContent.implicitHeight + Style.space(10)
 
@@ -4268,7 +4313,8 @@ Panel {
       onTriggered: card.showProgress = card.playing
     }
 
-    hasCursor: root.cursorActive && root.focusSection === "media"
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "media"; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: cardContent.implicitHeight + Style.space(14)
     Component.onCompleted: {
@@ -4448,7 +4494,8 @@ Panel {
     property int tileIndex: 0
     readonly property bool working: root.phone ? root.phone.isBusy(action.key) : false
 
-    hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === tileIndex
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "actions" && root.actionIndex === tileIndex; glide: root.cursorGlide }
     foreground: root.foreground
     bordered: true
     opacity: action.enabled ? 1.0 : 0.4
@@ -4526,7 +4573,8 @@ Panel {
       || (!!latest && latest.text !== groups[groups.length - 1].text))
       : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
 
-    hasCursor: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(14)
 
