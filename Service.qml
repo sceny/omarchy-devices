@@ -796,9 +796,12 @@ Item {
   // exact type only and opens nothing; with no app for the type, it shows
   // the file in Files and the toast says so. Show in folder is Files with
   // the file selected.
-  function openPath(path) {
+  // `fromDevice`: a file the device sent (a picture opens as a sandboxed copy).
+  function openPath(path, fromDevice) {
     if (!path) return
-    var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
+    var cmd = [bridge, "open-file", String(path)]
+    if (fromDevice === true) cmd.push("--from-device")
+    var proc = actionComponent.createObject(root, { key: "open", command: cmd })
     proc.running = true
   }
   // A track's art from the phone, shown only as a safe copy the bridge makes

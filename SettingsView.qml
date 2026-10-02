@@ -15,6 +15,8 @@ Column {
 
   property var rows: []
   property int cursorIndex: -1
+  // The page's keyboard cursor (Panel's CursorGlide): rows mark where it stops.
+  property Item cursorGlide: null
   property bool shortcutsShown: true
   property var setupFixing: ({})
   // This computer's network, for Add a device's steps.
@@ -615,7 +617,8 @@ Column {
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("pair:" + row.id) || root.phone.isBusy("accept:" + row.id) || root.phone.isBusy("reject:" + row.id))
 
-    hasCursor: root.cursorIndex === rowIndex
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: listContent.implicitHeight + Style.space(12)
     readonly property int place: listRow.row.kind === "device" ? (listRow.row.pos || 0) : -1
@@ -900,7 +903,8 @@ Column {
     property int rowIndex: -1
     readonly property bool failing: row.ok !== true && row.ignored !== true
     readonly property bool fixing: root.setupFixing[row.fix] === true
-    hasCursor: root.cursorIndex === rowIndex
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: checkContent.implicitHeight + Style.space(12)
 
@@ -999,7 +1003,8 @@ Column {
 
     CursorSurface {
       width: parent.width
-      hasCursor: root.cursorIndex === idRow.rowIndex
+      hasCursor: false
+      CursorStop { here: root.cursorIndex === idRow.rowIndex; glide: root.cursorGlide }
       foreground: root.foreground
       implicitHeight: idContent.implicitHeight + Style.space(12)
 
@@ -1045,7 +1050,7 @@ Column {
 
         // Nickname: typed here; Enter keeps it, Esc leaves it as it was.
         // Blank goes back to the name KDE Connect reports.
-        TextField {
+        PanelField {
           id: nick
           visible: idRow.row.kind === "nickname"
           Layout.preferredWidth: Style.space(150)
@@ -1058,7 +1063,10 @@ Column {
           Component.onCompleted: if (idRow.row.kind === "nickname") root.nicknameField = nick
           onActiveFocusChanged: root.nicknameFocus(activeFocus)
           onAccepted: { root.nicknameSet(text); root.nicknameFocus(false) }
-          Keys.onEscapePressed: { text = idRow.row.value || ""; root.nicknameFocus(false) }
+          // Esc puts the saved nickname back and leaves.
+          escapeStep: "revert"
+          savedText: idRow.row.value || ""
+          onSteppedOut: root.nicknameFocus(false)
         }
 
         Text {
@@ -1137,7 +1145,8 @@ Column {
     property var row: ({})
     property int rowIndex: -1
 
-    hasCursor: root.cursorIndex === rowIndex
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
     implicitHeight: layoutContent.implicitHeight + Style.space(12)
     readonly property int place: layoutRow.row.kind === "layout" ? (layoutRow.row.pos || 0) : -1
@@ -1213,7 +1222,8 @@ Column {
     property var row: ({})
     property int rowIndex: -1
 
-    hasCursor: root.cursorIndex === rowIndex
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
     opacity: shortcutRow.row.kind !== "shortcut" || root.shortcutsShown ? 1.0 : 0.55
     implicitHeight: shortcutContent.implicitHeight + Style.space(10)

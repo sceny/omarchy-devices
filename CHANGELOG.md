@@ -142,11 +142,48 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   slides back. Drawn from `qrencode` (part of
   Omarchy); nothing is fetched from the web.
 
+- The panel opened again within five minutes goes back where it was (the
+  page, the Settings page, the device, the scroll, the conversation): a
+  look at a picture, then back to the conversation. Later, it opens on its
+  main page.
+
+- One keyboard cursor everywhere: on the main page and in Settings too,
+  the cursor is one highlight that slides from row, tile or card to the
+  next with the keys (and lands at once under the pointer), the page
+  gliding to keep it in sight; PgUp/PgDn move a screen at a time. Settings
+  now scrolls to follow its cursor.
+- Messages by keyboard: `l` or → moves the keys into the open
+  conversation and `h` or ← (or Esc) back to the list; there, the arrows
+  and PgUp/PgDn move a highlight from message to message, and Enter opens
+  a message's picture or copies its text. Only the side the keys are on
+  shows its highlight, which slides from row to row with the keys (and
+  lands at once under the pointer), the list or conversation gliding to
+  keep it in sight. ↑ on the first conversation goes to search.
+
 ### Fixed
+- New message: a typed number no one in the list has (a short code, a
+  new number) comes first as *This number*; and Esc in *To* closes the
+  suggestions, keeping what you typed. Enter took the first match.
+- Esc steps back the same way in every text field: what floats over it
+  closes first, then the field's own step (a draft stays, a search
+  clears, a setting goes back), then the field is left. The notification
+  reply no longer throws away what you wrote.
+- Contact names saved in the old vCard encoding (quoted-printable, as for
+  accented names) showed as `=C3=A1…`; they are decoded.
+- Messages: PageUp and PageDown were swapped. They now move through the
+  conversation list a page at a time, as the arrows move a row; while
+  writing a reply, they scroll the conversation.
+- Messages: a picture in HEIC (as newer phones send them) opened nothing
+  when clicked. A picture now opens from a full-size copy decoded in the
+  sandbox, so the viewer never reads the phone's bytes; other attachments
+  open in their app as Files would open them.
 - Images from the phone (notification icons, a track's art, a picture
   message's preview) were decoded by the shell itself; they are now shown
   only as copies decoded in a sandbox (glycin), as the Gallery's are, and
   a received picture's preview too (#107).
+- A picture opened from the phone (a gallery tile, a received picture, a
+  picture message) is a copy decoded in the sandbox; your viewer never
+  reads the phone's bytes.
 - Demo mode showed the real device's nickname (and icon, and place in the
   bar); it now shows only its own (#108).
 - No hand cursor showed over the panel's buttons: the main page's

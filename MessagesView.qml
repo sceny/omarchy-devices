@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -46,6 +47,16 @@ Item {
   // Any text field here holding the keyboard: the panel's key catcher stands
   // aside while one does.
   readonly property bool composerFocused: composer.activeFocus || toField.activeFocus || searchField.activeFocus
+  // Writing a reply: PgUp/PgDn scroll the conversation instead of the list.
+  readonly property bool typingReply: composer.activeFocus
+  // Where the keys go when no field has them: the conversation list, or the
+  // open conversation (l / → in, h / ← out, Esc out). Each side shows its
+  // highlight only while the keys go there.
+  property string pane: "list"
+  readonly property bool inConversation: pane === "conversation" && !!openRow && !typingReply
+  // The message the keys are on in the open conversation: 0 is the newest.
+  property int messageCursor: 0
+  signal reported(string text)
   readonly property var shown: sms ? sms.shownThreads : null
 
   // New message: recipients picked in the "To" field, as [{title, number}].
@@ -110,7 +121,15 @@ Item {
   // person, it is not a list to browse.
   function refreshSuggestions() {
     var typed = toField.text.trim()
-    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    var list = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    // What was typed, when it is a number nobody in the list has, comes
+    // first (as messaging apps show it): Enter or a click sends to it, the
+    // matches a ↓ away. Esc closing the suggestions does the same by key.
+    var digits = typed.replace(/\D/g, "")
+    if (/^\+?[\d\s().-]+$/.test(typed) && digits.length >= 3
+        && !list.some(function(c) { return String(c.number || "").replace(/\D/g, "") === digits }))
+      list = [{ title: Model.formatNumber(typed), number: typed, tid: -1, note: "This number" }].concat(list)
+    suggestions = list
     suggestionCursor = 0
   }
 
@@ -155,17 +174,125 @@ Item {
   function moveCursor(dy) {
     if (!shown || shown.count === 0) return
     if (!cursorActive) { cursorActive = true; return }
+    // Up from the first conversation: into search, as / does (and down from
+    // search comes back).
+    if (dy < 0 && threadCursor === 0) { focusSearch(); return }
     cursorTo(threadCursor + dy)
+  }
+
+  // The keys in messages: across (h/l, ←/→) between the list and the open
+  // conversation; up and down on whichever side has them.
+  function moveKey(dx, dy) {
+    if (dx > 0) { enterConversation(); return }
+    if (dx < 0) { pane = "list"; return }
+    if (dy === 0) return
+    if (pane === "conversation" && openRow) moveMessage(dy)
+    else moveCursor(dy)
+  }
+  function enterConversation() {
+    if (!openRow || messageList.count === 0 || pane === "conversation") return
+    pane = "conversation"
+    messageTo(Math.min(messageCursor, messageList.count - 1))
+  }
+  // Down is newer (towards the bottom, index 0), up is older.
+  function moveMessage(dy) { messageTo(messageCursor - dy) }
+  function messageTo(i) {
+    if (messageList.count === 0) return
+    messageGlide.stop()
+    var from = messageList.contentY
+    messageCursor = Math.max(0, Math.min(messageList.count - 1, i))
+    messageList.positionViewAtIndex(messageCursor, ListView.Contain)
+    glide(messageList, messageGlide, from, messageList.contentY)
+  }
+  // PgUp/PgDn in the conversation: the cursor a screen of messages at a time.
+  function pageMessage(pages) {
+    if (messageList.count === 0) return
+    var avg = messageList.contentHeight / Math.max(1, messageList.count)
+    messageTo(messageCursor + pages * Math.max(1, Math.floor(messageList.height / Math.max(1, avg)) - 1))
+  }
+  // Enter on a message: its picture opens (a copy made in the sandbox);
+  // otherwise its text goes on the clipboard.
+  function activateMessage() {
+    var m = view.sms ? view.sms.messages.get(messageCursor) : null
+    if (!m) return
+    var files = []
+    try { files = JSON.parse(m.attachments || "[]") } catch (e) {}
+    for (var i = 0; i < files.length; i++) {
+      if (String(files[i].mime).indexOf("image/") === 0) { view.sms.fetchAttachment(files[i].part, files[i].id, files[i].mime); return }
+    }
+    if (String(m.body || "") !== "") { copyText(m.body); return }
+    if (files.length > 0) view.sms.fetchAttachment(files[0].part, files[0].id, files[0].mime)
+  }
+  // The text goes to wl-copy over stdin, never on its command line.
+  Process {
+    id: textCopier
+    property string text: ""
+    command: ["wl-copy"]
+    stdinEnabled: true
+    onStarted: { write(text); text = ""; stdinEnabled = false }
+    onExited: { stdinEnabled = true; view.reported("Copied") }
+  }
+  function copyText(t) {
+    if (textCopier.running) return
+    textCopier.text = String(t)
+    textCopier.running = true
   }
 
   function cursorTo(i) {
     if (!shown || shown.count === 0) return
+    // The list glides to keep the cursor in sight, at the panel's pace, as
+    // the cursor moves (a jump, then the move, read as two steps). Where it
+    // goes is what positionViewAtIndex would set; it starts from where it is.
+    threadGlide.stop()
+    var from = threadList.contentY
+    cursorByPointer = false
     cursorActive = true
     threadCursor = Math.max(0, Math.min(shown.count - 1, i))
     threadList.positionViewAtIndex(threadCursor, ListView.Contain)
+    glide(threadList, threadGlide, from, threadList.contentY)
+  }
+
+  // Scrolling by key: from where the list is to where it goes, at the
+  // panel's pace (Model.MOTION); a key held down starts each glide from
+  // where the last one had got to.
+  function glide(list, anim, from, to) {
+    anim.stop()
+    list.contentY = from
+    if (Math.abs(to - from) < 0.5) return
+    anim.from = from
+    anim.to = to
+    anim.start()
+  }
+  NumberAnimation { id: threadGlide; target: threadList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+  NumberAnimation { id: messageGlide; target: messageList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+
+  // PgUp/PgDn on the conversation list: the cursor a screen of rows at a
+  // time, as the arrows move it one row; `pages` > 0 up.
+  function pageCursor(pages) {
+    if (!shown || shown.count === 0) return
+    var rowHeight = threadList.contentHeight / Math.max(1, threadList.count)
+    var rows = Math.max(1, Math.floor(threadList.height / Math.max(1, rowHeight)) - 1)
+    cursorTo((cursorActive ? threadCursor : 0) - pages * rows)
+  }
+
+  // Where the pointer last was on screen, so a row that slides under a still
+  // pointer (the keys scrolled the list) is told apart from the pointer
+  // moving onto it.
+  property point lastPointer: Qt.point(-1, -1)
+  // The cursor last moved by the pointer: the highlight lands at once.
+  property bool cursorByPointer: false
+  function pointerAt(area, index) {
+    var g = area.mapToGlobal(area.mouseX, area.mouseY)
+    var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
+    lastPointer = Qt.point(g.x, g.y)
+    if (!moved) return
+    cursorByPointer = true
+    cursorActive = true
+    threadCursor = index
   }
 
   function activateCursor() {
+    if (inConversation) { activateMessage(); return }
     if (!shown || threadCursor < 0 || threadCursor >= shown.count) return
     openThread(shown.get(threadCursor).tid, true)
   }
@@ -179,20 +306,27 @@ Item {
   // in "To" (its list goes with it), the new message, the search. False
   // when nothing is open here, so the panel closes messages.
   function goBack() {
+    if (pane === "conversation") { pane = "list"; return true }
     if (newMode && toField.text !== "") { toField.text = ""; return true }
     if (newMode) { cancelNew(); return true }
     if (searchField.text !== "") { searchField.text = ""; return true }
     return false
   }
 
-  // PgUp/PgDn: a screen of the open conversation. The list runs bottom to
-  // top, so "up" (older) is towards the end of the content.
+  // PgUp/PgDn: a screen of the open conversation, `pages` > 0 up (older).
+  // The list runs bottom to top, but contentY still grows downwards on
+  // screen, so up is a smaller contentY.
   function scrollMessages(pages) {
     if (!openRow || messageList.height <= 0) return
+    // Oldest at the top edge, newest at the bottom one. A conversation that
+    // fits has nothing to scroll: it stays at the bottom, as it opened.
+    var top = messageList.originY
+    var bottom = messageList.originY + messageList.contentHeight - messageList.height
+    if (bottom <= top) return
     var step = messageList.height * 0.85 * pages
-    var minY = messageList.originY
-    var maxY = messageList.originY + Math.max(0, messageList.contentHeight - messageList.height)
-    messageList.contentY = Math.max(minY, Math.min(maxY, messageList.contentY + step))
+    // From where a glide under way has got to, or from rest; to the next screen.
+    var base = messageGlide.running ? messageGlide.to : messageList.contentY
+    glide(messageList, messageGlide, messageList.contentY, Math.max(top, Math.min(bottom, base - step)))
   }
 
   // `typeHere` puts the cursor in the composer: for the user's own click or
@@ -200,6 +334,8 @@ Item {
   // another window could land in a text and Enter would send it.
   function openThread(tid, typeHere) {
     if (!sms) return
+    // Another conversation: the keys back on the list, its newest message next.
+    if (sms.openThreadId !== tid) { pane = "list"; messageCursor = 0 }
     stashDraft()
     newMode = false
     sms.openThread(tid)
@@ -210,7 +346,7 @@ Item {
     if (shown && shown !== sms.threads) {
       for (var j = 0; j < shown.count; j++) if (shown.get(j).tid === tid) { at = j; break }
     }
-    if (at >= 0 && at < (shown ? shown.count : 0)) { threadCursor = at; threadList.positionViewAtIndex(at, ListView.Contain) }
+    if (at >= 0 && at < (shown ? shown.count : 0)) { cursorByPointer = true; threadCursor = at; threadList.positionViewAtIndex(at, ListView.Contain) }
     if (typeHere) Qt.callLater(function() { composer.forceActiveFocus() })
   }
 
@@ -340,7 +476,7 @@ Item {
           }
         }
 
-        TextField {
+        PanelField {
           id: searchField
           Layout.fillWidth: true
           placeholderText: "Search conversations  /"
@@ -348,7 +484,8 @@ Item {
           font.family: view.fontFamily
           onTextChanged: if (view.sms) view.sms.setQuery(text)
           onAccepted: { if (view.shown && view.shown.count > 0) view.openThread(view.shown.get(0).tid, true) }
-          Keys.onEscapePressed: { if (text !== "") text = ""; else focus = false }
+          escapeStep: "clear"
+          onSteppedOut: focus = false
           Keys.onDownPressed: { focus = false; view.cursorTo(0) }
         }
 
@@ -429,6 +566,24 @@ Item {
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
+          // The cursor is one highlight that slides from row to row at the
+          // panel's pace when the keys move it, and lands at once where the
+          // pointer goes (it never trails the mouse). Writing a reply, it
+          // steps back: the keys go to the composer.
+          currentIndex: view.threadCursor
+          highlightFollowsCurrentItem: true
+          highlightMoveDuration: view.cursorByPointer ? 0 : Model.MOTION.inMs * view.motion
+          highlightMoveVelocity: -1
+          highlightResizeDuration: 0
+          highlightResizeVelocity: -1
+          highlight: CursorSurface {
+            width: threadList.width - Style.space(8)
+            hasCursor: true
+            foreground: view.foreground
+            opacity: view.cursorActive && !view.typingReply && view.pane === "list" ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+
           delegate: ThreadRow {
             width: threadList.width - Style.space(8)
           }
@@ -438,7 +593,7 @@ Item {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "j/k move · Enter open · / search · u unread · n new · i reply · PgUp/PgDn scroll · Esc back"
+          text: "j/k move · Enter open · / search · u unread · n new · h/l side · i reply · PgUp/PgDn page · Esc back"
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption
@@ -556,7 +711,7 @@ Item {
             }
           }
 
-          TextField {
+          PanelField {
             id: toField
             Layout.fillWidth: true
             placeholderText: view.recipients.length > 0 ? "Add someone else" : "To: name or number"
@@ -564,7 +719,13 @@ Item {
             font.family: view.fontFamily
             onTextChanged: view.refreshSuggestions()
             onAccepted: view.acceptTo()
-            Keys.onEscapePressed: view.goBack()
+            // Esc: the suggestions close and what was typed stays (Enter then
+            // sends to exactly that); then the field clears; then the new
+            // message is left. Typing brings the suggestions back.
+            escapeStep: "clear"
+            floating: view.suggestions.length > 0 && text.trim() !== ""
+            onCloseFloating: view.suggestions = []
+            onSteppedOut: view.goBack()
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {
@@ -633,7 +794,7 @@ Item {
               Text {
                 textFormat: Text.PlainText
                 visible: suggestion.modelData.name !== ""
-                text: Model.formatNumber(suggestion.modelData.number)
+                text: suggestion.modelData.note ? suggestion.modelData.note : Model.formatNumber(suggestion.modelData.number)
                 color: view.dim
                 font.family: view.fontFamily
                 font.pixelSize: Style.font.caption
@@ -719,6 +880,21 @@ Item {
           spacing: Style.space(6)
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          // The message the keys are on: one highlight that slides from
+          // message to message, shown only while the keys go here.
+          currentIndex: view.messageCursor
+          highlightFollowsCurrentItem: true
+          highlightMoveDuration: Model.MOTION.inMs * view.motion
+          highlightMoveVelocity: -1
+          highlightResizeDuration: 0
+          highlightResizeVelocity: -1
+          highlight: CursorSurface {
+            width: messageList.width
+            hasCursor: true
+            foreground: view.foreground
+            opacity: view.inConversation ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
 
           function maybeLoadMore() {
             if (!view.sms || !view.sms.hasMore || view.sms.loading) return
@@ -796,7 +972,7 @@ Item {
           Layout.fillWidth: true
           spacing: Style.space(6)
 
-          TextField {
+          PanelField {
             id: composer
             Layout.fillWidth: true
             placeholderText: !view.sms || !view.sms.reachable ? "The device is away"
@@ -805,7 +981,8 @@ Item {
             foreground: view.foreground
             font.family: view.fontFamily
             onAccepted: view.sendComposer()
-            Keys.onEscapePressed: view.blurComposer()
+            // Esc leaves the reply; the draft stays.
+            onSteppedOut: view.blurComposer()
           }
           // A new conversation waits for its thread to show up; the button
           // is the ring meanwhile.
@@ -854,7 +1031,11 @@ Item {
     required property bool group
 
     readonly property bool isOpen: !!view.sms && view.sms.openThreadId === tid
-    hasCursor: view.cursorActive && view.threadCursor === index
+    // Where the keys go, shown: the list cursor's highlight while they go to
+    // the list; writing a reply, it steps back (the open conversation keeps
+    // its selected look) and the composer's focus shows instead.
+    // The cursor is the list's sliding highlight (threadList.highlight).
+    hasCursor: false
     current: isOpen
     foreground: view.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(12)
@@ -863,7 +1044,11 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { view.cursorActive = true; view.threadCursor = row.index }
+      // The pointer takes the cursor only when it moves: rows the keys
+      // scroll under a resting pointer do not (they took it back from the
+      // arrow, which then seemed to scroll without moving).
+      onEntered: view.pointerAt(this, row.index)
+      onPositionChanged: view.pointerAt(this, row.index)
       onClicked: view.openThread(row.tid, true)
     }
 

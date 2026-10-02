@@ -18,12 +18,13 @@ Middle-click the pill, or pick *Messages* in the panel.
 
 | Key | Action |
 |---|---|
-| `j` `k` · `g` `G` | Move · first, last |
-| Enter | Open and reply |
+| `j` `k` · `g` `G` | Move · first, last (↑ on the first: search) |
+| `l` `h` / → ← | Into the open conversation · back to the list |
+| Enter | Open and reply; on a message: open its picture, or copy its text |
 | `/` · `u` · `n` | Search · unread only · new message |
 | `i` | Reply to the open conversation |
-| PgUp PgDn | Scroll the conversation |
-| Esc | Back |
+| PgUp PgDn | A page, on the side the keys are on; while writing a reply, the conversation |
+| Esc | Back (in *To*: first closes the suggestions, keeping what you typed) |
 
 In the reply field, Enter sends and Esc steps back. Nothing but your own
 click or Enter puts the cursor there.

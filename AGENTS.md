@@ -50,6 +50,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
+| `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -123,10 +125,14 @@ Keep them; change one only with the owner.
   and icon stays in the flat keys (`docs/design/multi-device.md`). New UI
   state follows the same path unless it is private: unsent message drafts
   stay in memory (they are message text) and read state lives in the cache.
-  Deliberately fresh on every open: the panel opens on its main page, on
-  the device asked for (a chip, IPC) else the first connected one in the
-  order, the media carousel on the active player, search empty, nothing
-  focused. The device viewed with a tab is not stored.
+  Opened again within five minutes of closing (`Model.KEEP_PLACE_MS`), the
+  panel goes back where it was: the page, the Settings page, the device,
+  the scroll, the conversation (a glance at a picture, then back). Later,
+  or when it must open elsewhere (setup, another device's chip), it opens
+  fresh: on its main page, on the device asked for (a chip, IPC) else the
+  first connected one in the order. Always: the media carousel on the
+  active player, edit mode off, nothing focused. Where it was is kept in
+  memory only, never stored.
 - **Settings are written only by the panel**, into this widget's
   `shell.json` entry (`updateEntryInline`), on the user's action (settings
   page, folding a section). Never on upgrade: old entries are read as they
@@ -206,8 +212,25 @@ Keep them; change one only with the owner.
   output). The shell loads only images the bridge wrote from the decoded
   pixels (`safe/`, Gallery thumbnails, `sms/preview_*`); a QML `Image`
   never points at a file the device sent. With no sandbox, there is no
-  picture, never an unsandboxed decode. Opening a file in its app (a
-  click) is the user's own choice of app, as in Files.
+  picture, never an unsandboxed decode. A picture opened full size (a
+  gallery tile, a received picture, a picture message's) is a JPEG made
+  the same way (`open/`); one that does not decode is not opened. Other
+  files open in their app (a click), the user's own choice of app, as in
+  Files.
+- **One keyboard cursor, drawn once per page.** On the main page and in
+  Settings, a row, tile or card holding the cursor carries a `CursorStop`
+  and draws no cursor of its own; the page's `CursorGlide` slides there at
+  `Model.MOTION` with the keys and lands at once under the pointer, and
+  the page glides to keep it in sight (`followCursor`). Messages does the
+  same with its lists' highlights. Inline buttons keep their own hover. A
+  new row, tile or card the keys reach uses `CursorStop`, not its own
+  `hasCursor`.
+- **Every text field is a `PanelField`**, so Esc steps back the same way
+  everywhere, one thing at a time: what floats over the field
+  (suggestions) closes and the text stays; then the field's own step
+  (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
+  left and the page's Esc takes over. A field never sets its own
+  `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a
