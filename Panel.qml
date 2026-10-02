@@ -215,6 +215,7 @@ Panel {
     }
     ScriptAction {
       script: {
+        root.leavePreviewNow()
         root.applyShownPage()
         pageHost.slide = root.pageDirection * pageSwap.travel
         if (panelFlick) panelFlick.contentY = 0
@@ -225,7 +226,10 @@ Panel {
       NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
     }
     // A change of mind mid-way (Esc right after opening) lands too.
-    onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+    onStopped: {
+      if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+      else root.leavePreviewNow()
+    }
   }
 
   // The same beat for changing the viewed device (switchDevice).
@@ -502,15 +506,25 @@ Panel {
     leaveDemo()
   }
   // Back to setup: out of the preview, onto the page it began from.
+  // One page change: whatever the preview had open (its messages, editing
+  // its page) gives way to the page it began from, and the demo turns live
+  // at the change's midpoint, while no page shows: the fading page never
+  // shows the real phone's data. On the same page, the page fades out and
+  // back in around the swap.
+  property bool leavePreviewAtSwap: false
   function backToSetup() {
     var from = previewFrom
-    // Whatever the preview had open (its messages, editing its page) closes
-    // with it: back is setup, never the real phone's messages.
-    if (messagesOpen) closeMessagesView()
     if (editing) stopEditing()
+    if (from !== "" && from !== "main") { openSettings(); openScope(from) }
+    else { messagesOpen = false; settingsOpen = false }
+    if (!opened) { endPreview(); return }
+    leavePreviewAtSwap = true
+    if (!pageSwap.running) { pageDirection = -1; pageSwap.restart() }
+  }
+  function leavePreviewNow() {
+    if (!leavePreviewAtSwap) return
+    leavePreviewAtSwap = false
     endPreview()
-    if (from !== "" && from !== "main") { if (!settingsOpen) openSettings(); openScope(from) }
-    else closeSettings()
   }
   readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
   // A real device connecting ends the preview: the panel shows it instead.
