@@ -3816,27 +3816,35 @@ Panel {
       onEntered: { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
       onClicked: root.openPhoto(tile.photo)
     }
-    PanelActionButton {
+    // Save and copy read the file over the network: each turns into the
+    // ring while it works, and stays while it does, pointer on the tile or not.
+    readonly property bool saving: !!root.phone && root.phone.isBusy("save:" + String(photo.path || ""))
+    readonly property bool copying: !!root.phone && root.phone.isBusy("copy:" + String(photo.path || ""))
+    WaitButton {
       id: saveTile
       anchors.top: parent.top
       anchors.right: copyTile.left
-      visible: tileHover.hovered
-      iconText: Model.GLYPH.download
+      visible: tileHover.hovered || tile.saving
+      glyph: Model.GLYPH.download
+      waiting: tile.saving
+      motion: root.motion
       tooltipText: "Save a copy in Pictures"
       foreground: "white"
       fontFamily: root.fontFamily
-      onClicked: if (root.phone) root.phone.savePhoto(tile.photo.path)
+      onClicked: if (root.phone && !tile.saving) root.phone.savePhoto(tile.photo.path)
     }
-    PanelActionButton {
+    WaitButton {
       id: copyTile
       anchors.top: parent.top
       anchors.right: parent.right
-      visible: tileHover.hovered
-      iconText: Model.GLYPH.clipboard
+      visible: tileHover.hovered || tile.copying
+      glyph: Model.GLYPH.clipboard
+      waiting: tile.copying
+      motion: root.motion
       tooltipText: tile.photo.video ? "Copy the file" : "Copy the image"
       foreground: "white"
       fontFamily: root.fontFamily
-      onClicked: if (root.phone) root.phone.copyFile(tile.photo.path)
+      onClicked: if (root.phone && !tile.copying) root.phone.copyFile(tile.photo.path)
     }
     PanelToolTip {
       visible: tileMouse.containsMouse
