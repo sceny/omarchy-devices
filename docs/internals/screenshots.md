@@ -17,8 +17,8 @@ before and after.
 2. Start the made-up player: `tools/demo-player ~/.cache/sceny.devices/demo/cover.png &`
    (any square image as the cover). The demo's Gallery shows up to eight
    pictures from `~/.cache/sceny.devices/demo/gallery/` (yours, not in the
-   repository; none with a person, a watermark in the middle, or someone
-   else's characters).
+   repository; no one recognisable, no watermark in the middle, no
+   one else's characters).
 3. The pointer off the panel *before* `open` (else the cursor shows).
    `demo ""`, the Gallery in view (Shortcuts folded, `moveSection`), `open`,
    then `grim -o <monitor> main.png`; `messages`, `openThread 9001`, then
