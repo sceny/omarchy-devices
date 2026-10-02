@@ -190,10 +190,13 @@ Item {
   // screen, so up is a smaller contentY.
   function scrollMessages(pages) {
     if (!openRow || messageList.height <= 0) return
+    // Oldest at the top edge, newest at the bottom one. A conversation that
+    // fits has nothing to scroll: it stays at the bottom, as it opened.
+    var top = messageList.originY
+    var bottom = messageList.originY + messageList.contentHeight - messageList.height
+    if (bottom <= top) return
     var step = messageList.height * 0.85 * pages
-    var minY = messageList.originY
-    var maxY = messageList.originY + Math.max(0, messageList.contentHeight - messageList.height)
-    messageList.contentY = Math.max(minY, Math.min(maxY, messageList.contentY - step))
+    messageList.contentY = Math.max(top, Math.min(bottom, messageList.contentY - step))
   }
 
   // `typeHere` puts the cursor in the composer: for the user's own click or
