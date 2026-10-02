@@ -147,6 +147,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   look at a picture, then back to the conversation. Later, it opens on its
   main page.
 
+- One keyboard cursor everywhere: on the main page and in Settings too,
+  the cursor is one highlight that slides from row, tile or card to the
+  next with the keys (and lands at once under the pointer), the page
+  gliding to keep it in sight; PgUp/PgDn move a screen at a time. Settings
+  now scrolls to follow its cursor.
 - Messages by keyboard: `l` or → moves the keys into the open
   conversation and `h` or ← (or Esc) back to the list; there, the arrows
   and PgUp/PgDn move a highlight from message to message, and Enter opens

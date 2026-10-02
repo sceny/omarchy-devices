@@ -1635,6 +1635,9 @@ Panel {
       return "ok"
     }
     // Esc on the panel (not in a text field), as the key would.
+    // The arrows, as pressed (dx, dy each -1, 0 or 1): never Enter, so a
+    // check cannot open anything into a text field.
+    function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, open: root.opened }) }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }

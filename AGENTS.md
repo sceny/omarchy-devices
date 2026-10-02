@@ -51,6 +51,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -216,6 +217,14 @@ Keep them; change one only with the owner.
   the same way (`open/`); one that does not decode is not opened. Other
   files open in their app (a click), the user's own choice of app, as in
   Files.
+- **One keyboard cursor, drawn once per page.** On the main page and in
+  Settings, a row, tile or card holding the cursor carries a `CursorStop`
+  and draws no cursor of its own; the page's `CursorGlide` slides there at
+  `Model.MOTION` with the keys and lands at once under the pointer, and
+  the page glides to keep it in sight (`followCursor`). Messages does the
+  same with its lists' highlights. Inline buttons keep their own hover. A
+  new row, tile or card the keys reach uses `CursorStop`, not its own
+  `hasCursor`.
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step
