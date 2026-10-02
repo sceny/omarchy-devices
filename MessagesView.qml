@@ -162,13 +162,14 @@ Item {
 
   function cursorTo(i) {
     if (!shown || shown.count === 0) return
-    cursorActive = true
-    threadCursor = Math.max(0, Math.min(shown.count - 1, i))
     // The list glides to keep the cursor in sight, at the panel's pace, as
     // the cursor moves (a jump, then the move, read as two steps). Where it
     // goes is what positionViewAtIndex would set; it starts from where it is.
     threadGlide.stop()
     var from = threadList.contentY
+    cursorByPointer = false
+    cursorActive = true
+    threadCursor = Math.max(0, Math.min(shown.count - 1, i))
     threadList.positionViewAtIndex(threadCursor, ListView.Contain)
     glide(threadList, threadGlide, from, threadList.contentY)
   }
@@ -200,11 +201,14 @@ Item {
   // pointer (the keys scrolled the list) is told apart from the pointer
   // moving onto it.
   property point lastPointer: Qt.point(-1, -1)
+  // The cursor last moved by the pointer: the highlight lands at once.
+  property bool cursorByPointer: false
   function pointerAt(area, index) {
     var g = area.mapToGlobal(area.mouseX, area.mouseY)
     var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
     lastPointer = Qt.point(g.x, g.y)
     if (!moved) return
+    cursorByPointer = true
     cursorActive = true
     threadCursor = index
   }
@@ -260,7 +264,7 @@ Item {
     if (shown && shown !== sms.threads) {
       for (var j = 0; j < shown.count; j++) if (shown.get(j).tid === tid) { at = j; break }
     }
-    if (at >= 0 && at < (shown ? shown.count : 0)) { threadCursor = at; threadList.positionViewAtIndex(at, ListView.Contain) }
+    if (at >= 0 && at < (shown ? shown.count : 0)) { cursorByPointer = true; threadCursor = at; threadList.positionViewAtIndex(at, ListView.Contain) }
     if (typeHere) Qt.callLater(function() { composer.forceActiveFocus() })
   }
 
@@ -478,6 +482,24 @@ Item {
           spacing: Style.space(2)
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+
+          // The cursor is one highlight that slides from row to row at the
+          // panel's pace when the keys move it, and lands at once where the
+          // pointer goes (it never trails the mouse). Writing a reply, it
+          // steps back: the keys go to the composer.
+          currentIndex: view.threadCursor
+          highlightFollowsCurrentItem: true
+          highlightMoveDuration: view.cursorByPointer ? 0 : Model.MOTION.inMs * view.motion
+          highlightMoveVelocity: -1
+          highlightResizeDuration: 0
+          highlightResizeVelocity: -1
+          highlight: CursorSurface {
+            width: threadList.width - Style.space(8)
+            hasCursor: true
+            foreground: view.foreground
+            opacity: view.cursorActive && !view.typingReply ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
 
           delegate: ThreadRow {
             width: threadList.width - Style.space(8)
@@ -907,7 +929,8 @@ Item {
     // Where the keys go, shown: the list cursor's highlight while they go to
     // the list; writing a reply, it steps back (the open conversation keeps
     // its selected look) and the composer's focus shows instead.
-    hasCursor: view.cursorActive && view.threadCursor === index && !view.typingReply
+    // The cursor is the list's sliding highlight (threadList.highlight).
+    hasCursor: false
     current: isOpen
     foreground: view.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(12)
