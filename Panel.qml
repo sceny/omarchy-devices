@@ -3150,8 +3150,6 @@ Panel {
                         NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
                       }
                     }
-                      }
-                    }
 
                     // Everything else: the biggest albums (Camera,
                     // Screenshots, …), wherever this phone keeps them,
