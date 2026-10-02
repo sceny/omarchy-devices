@@ -869,7 +869,10 @@ Item {
     required property bool group
 
     readonly property bool isOpen: !!view.sms && view.sms.openThreadId === tid
-    hasCursor: view.cursorActive && view.threadCursor === index
+    // Where the keys go, shown: the list cursor's highlight while they go to
+    // the list; writing a reply, it steps back (the open conversation keeps
+    // its selected look) and the composer's focus shows instead.
+    hasCursor: view.cursorActive && view.threadCursor === index && !view.typingReply
     current: isOpen
     foreground: view.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(12)
