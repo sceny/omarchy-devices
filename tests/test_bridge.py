@@ -183,6 +183,11 @@ class Contacts(unittest.TestCase):
             with open(os.path.join(folder, "b.vcf"), "w") as f:
                 # A folded line: the continuation starts with a space.
                 f.write("BEGIN:VCARD\r\nFN:Sam\r\n  Example\r\nTEL:+15145550150\r\nEND:VCARD\r\n")
+            with open(os.path.join(folder, "c.vcf"), "w") as f:
+                # vCard 2.1 quoted-printable, a soft break ("=" at the end)
+                # inside: "Zoë Ábaco".
+                f.write("BEGIN:VCARD\r\nVERSION:2.1\r\nFN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=5A=6F=C3=AB=20=C3=81=\r\n"
+                        "=62=61=63=6F\r\nTEL:+15145550177\r\nEND:VCARD\r\n")
             old = os.environ.get("HOME")
             os.environ["HOME"] = home
             try:
@@ -193,7 +198,8 @@ class Contacts(unittest.TestCase):
         self.assertEqual(names["5145550123"], "Alex Example")
         self.assertEqual(names["5145550199"], "Alex Example")
         self.assertEqual(names["5145550150"], "Sam Example")
-        self.assertEqual(len(entries), 3)
+        self.assertEqual(names["5145550177"], "Zoë Ábaco", "quoted-printable, decoded")
+        self.assertEqual(len(entries), 4)
 
     def test_no_folder_means_no_contacts(self):
         with tempfile.TemporaryDirectory() as home:

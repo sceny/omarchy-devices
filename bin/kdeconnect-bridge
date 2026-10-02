@@ -49,6 +49,7 @@ import ipaddress
 import json
 import shutil
 import os
+import quopri
 import re
 import subprocess
 import sys
@@ -1475,6 +1476,18 @@ def digits_key(number):
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def vcard_qp(value, key):
+    """A vCard 2.1 quoted-printable value (=C3=A1…) as text, in the charset
+    the property names (UTF-8 when it names none)."""
+    m = re.search(r"CHARSET=([A-Za-z0-9_-]+)", key)
+    charset = m.group(1) if m else "utf-8"
+    raw = quopri.decodestring(value.encode("ascii", "ignore"))
+    try:
+        return raw.decode(charset, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
+
+
 def read_contacts(device_id):
     """Names by phone number, from the vCards KDE Connect syncs (if allowed).
     Returns ({digits_key: name}, [{"name", "number"}])."""
@@ -1494,10 +1507,20 @@ def read_contacts(device_id):
         text = re.sub(r"\r?\n[ \t]", "", text)
         full = ""
         tels = []
-        for line in text.splitlines():
+        lines = text.splitlines()
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            i += 1
             key, _, value = line.partition(":")
             key = key.upper()
             if key == "FN" or key.startswith("FN;"):
+                if "QUOTED-PRINTABLE" in key:
+                    # vCard 2.1: a soft break ends a line with "=".
+                    while value.endswith("=") and i < len(lines):
+                        value = value[:-1] + lines[i]
+                        i += 1
+                    value = vcard_qp(value, key)
                 full = value.strip()
             elif key == "TEL" or key.startswith("TEL;"):
                 tels.append(value.strip())

@@ -121,7 +121,15 @@ Item {
   // person, it is not a list to browse.
   function refreshSuggestions() {
     var typed = toField.text.trim()
-    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    var list = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    // What was typed, when it is a number nobody in the list has, comes
+    // first: Enter sends to it (a short code, a new number); the matches
+    // are a ↓ away.
+    var digits = typed.replace(/\D/g, "")
+    if (/^\+?[\d\s().-]+$/.test(typed) && digits.length >= 3
+        && !list.some(function(c) { return String(c.number || "").replace(/\D/g, "") === digits }))
+      list = [{ title: Model.formatNumber(typed), number: typed, tid: -1, note: "This number" }].concat(list)
+    suggestions = list
     suggestionCursor = 0
   }
 
@@ -779,7 +787,7 @@ Item {
               Text {
                 textFormat: Text.PlainText
                 visible: suggestion.modelData.name !== ""
-                text: Model.formatNumber(suggestion.modelData.number)
+                text: suggestion.modelData.note ? suggestion.modelData.note : Model.formatNumber(suggestion.modelData.number)
                 color: view.dim
                 font.family: view.fontFamily
                 font.pixelSize: Style.font.caption
