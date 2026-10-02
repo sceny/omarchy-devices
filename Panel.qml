@@ -485,8 +485,11 @@ Panel {
   // ---- Preview: a demo phone before any device is set up (#62) ----
   // The demo, entered from the setup checks, with a strip saying so. Nothing
   // in it reaches a device; leaving it puts every setting back.
+  // Where the preview began (Add a device, or the main page), for Back to setup.
+  property string previewFrom: ""
   function startPreview() {
     if (!phone || phone.preview) return
+    previewFrom = settingsOpen ? settingsScope : "main"
     enterDemo("")
     phone.preview = true
     settingsOpen = false
@@ -498,10 +501,12 @@ Panel {
     phone.showLive()
     leaveDemo()
   }
-  // Back to setup: out of the preview, onto Add a device, where it began.
+  // Back to setup: out of the preview, onto the page it began from.
   function backToSetup() {
+    var from = previewFrom
     endPreview()
-    if (!device) openAddDevice()
+    if (from !== "" && from !== "main") { if (!settingsOpen) openSettings(); openScope(from) }
+    else closeSettings()
   }
   readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
   // A real device connecting ends the preview: the panel shows it instead.
