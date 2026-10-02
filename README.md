@@ -13,7 +13,7 @@ media and photos, without picking it up.
   to call or text back.
 - **[Now playing and shortcuts](docs/panel.md)**: the phone's player; ring
   it, send files, the clipboard, a link.
-- **[Photos and files](docs/photos-and-files.md)**: its newest photos and
+- **[Gallery and files](docs/gallery-and-files.md)**: its newest photos and
   videos, and the files it sent you.
 - **[Several devices](docs/calls-and-devices.md)**: a tab and a chip each.
 - **[Setup](docs/getting-started.md)**: checks with fixes, a QR code for the
@@ -41,7 +41,7 @@ media and photos, without picking it up.
 [Getting started](docs/getting-started.md) ·
 [The panel](docs/panel.md) ·
 [Messages](docs/messages.md) ·
-[Photos and files](docs/photos-and-files.md) ·
+[Gallery and files](docs/gallery-and-files.md) ·
 [Calls and devices](docs/calls-and-devices.md) ·
 [Settings](docs/settings.md) ·
 [Troubleshooting](docs/troubleshooting.md)

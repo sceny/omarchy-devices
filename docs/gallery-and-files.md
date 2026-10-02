@@ -1,6 +1,6 @@
-[Devices](../README.md) › Photos and files
+[Devices](../README.md) › Gallery and files
 
-# Photos and files
+# Gallery and files
 
 ## Gallery
 
