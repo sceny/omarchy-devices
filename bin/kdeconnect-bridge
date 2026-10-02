@@ -380,7 +380,7 @@ MEDIA_DEPTH = 12
 MEDIA_SCAN_SEC = 60
 MEDIA_THREADS = 16
 MEDIA_DIRS = "media-dirs.json"
-ALBUM_LINKS = 3
+ALBUM_LINKS = 8
 MOUNT_TIMEOUT_MS = 30000
 
 
@@ -744,7 +744,62 @@ def default_app(path):
     return Gio.AppInfo.get_default_for_type(ctype, False)
 
 
-def open_file(path, launch=None):
+# Files from the device are opened from a copy here: an app reading over the
+# network plays a video slower than its pace. The copies are a cache, the
+# oldest removed first past OPEN_CACHE_MAX.
+OPEN_CACHE_MAX = 2 << 30
+
+
+def open_cache():
+    path = os.path.join(state_dir(), "open")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def local_copy(path, cache=None, limit=OPEN_CACHE_MAX):
+    """A copy of the device's file in the cache, under its own name (apps
+    show it): the one already there while the file is unchanged."""
+    cache = cache or open_cache()
+    st = os.stat(path)
+    folder = os.path.join(cache, hashlib.sha1(path.encode()).hexdigest()[:16])
+    target = os.path.join(folder, os.path.basename(path))
+    try:
+        t = os.stat(target)
+        if t.st_size == st.st_size and int(t.st_mtime) == int(st.st_mtime):
+            os.utime(folder)
+            return target
+    except OSError:
+        pass
+    os.makedirs(folder, exist_ok=True)
+    tmp = target + ".part"
+    shutil.copyfile(path, tmp)
+    os.utime(tmp, (st.st_atime, st.st_mtime))
+    os.replace(tmp, target)
+    os.utime(folder)
+    trim_cache(cache, limit, keep=folder)
+    return target
+
+
+def trim_cache(cache, limit, keep=None):
+    """Removes the least recently opened copies until the cache fits."""
+    entries = []
+    for name in os.listdir(cache):
+        folder = os.path.join(cache, name)
+        try:
+            size = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder))
+            entries.append((os.stat(folder).st_mtime, folder, size))
+        except OSError:
+            continue
+    total = sum(e[2] for e in entries)
+    for _at, folder, size in sorted(entries):
+        if total <= limit:
+            break
+        if folder != keep:
+            shutil.rmtree(folder, ignore_errors=True)
+            total -= size
+
+
+def open_file(path, launch=None, local=False):
     """Opens a file in its app, as Omarchy launches apps (uwsm-app), or
     when no app can open its type, shows it selected in Files and says so.
     `launch` runs a command (replaced in tests)."""
@@ -752,6 +807,11 @@ def open_file(path, launch=None):
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     if not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
+    if local and os.path.isfile(path):
+        try:
+            path = local_copy(path)
+        except OSError as error:
+            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
     if default_app(path) is None:
         launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
         ext = os.path.splitext(path)[1] or "these"
@@ -1603,7 +1663,7 @@ def main(argv):
         save_received(path, entries)
         return EXIT_OK
     if argv[0] == "open-file":
-        return open_file(argv[1] if len(argv) > 1 else "")
+        return open_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:])
     if argv[0] == "copy-file":
         return copy_file(argv[1] if len(argv) > 1 else "")
     if argv[0] == "doctor":

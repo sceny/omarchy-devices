@@ -705,7 +705,8 @@ Item {
   readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
   readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
       albums: [{ name: "Camera", path: "/demo/DCIM/Camera", count: 842 }, { name: "Screenshots", path: "/demo/Pictures/Screenshots", count: 211 },
-               { name: "WhatsApp", path: "/demo/Pictures/WhatsApp", count: 96 }] }
+               { name: "WhatsApp Images", path: "/demo/WhatsApp Images", count: 96 }, { name: "WhatsApp Video", path: "/demo/WhatsApp Video", count: 41 },
+               { name: "Download", path: "/demo/Download", count: 18 }] }
     : (device ? photoState[String(device.id)] || null : null)
   readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
   function setPhotoState(id, value) {
@@ -791,6 +792,17 @@ Item {
   function openPath(path) {
     if (!path) return
     var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
+    proc.running = true
+  }
+  // A file on the device: copied here first (the bridge keeps a few in the
+  // cache), then opened, so the app reads a local file: a video plays at
+  // its pace, not the network's. The tile shows a ring meanwhile.
+  function openFromDevice(path) {
+    if (!path) return
+    var key = "open:" + String(path)
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "open-file", String(path), "--local"] })
     proc.running = true
   }
   function revealPath(path) {

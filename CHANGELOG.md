@@ -71,20 +71,24 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   leaves the list at once (where the system allows a watch; otherwise
   within 30 s). Gone while there are none.
 - Gallery (#65): a section with the device's newest photos and videos,
-  found as the phone's own gallery finds them (all of its shared storage,
-  WhatsApp's included; hidden and `.nomedia` folders and apps' private
-  ones left out), each folder an album; each folder's listing is kept, so
-  only what changed is read again: click to open (a video plays); from a corner, copy it or save a
-  copy in Pictures/<device>, with its own date and only once; drag it
-  into a window. The biggest albums open in the file manager (a folder icon), wherever the
-  phone keeps them. When the storage cannot be opened, the section says
-  so with *Try again*, and asks again by itself only after 10 minutes, so
-  KDE Connect's error does not pop up on every open (#100). The last photos show at once when the
-  panel opens, while the phone is read again; when none are left, they
-  fade and the section folds away. Photos are read from its storage
-  through KDE Connect, which needs `sshfs`: the section offers to install
-  it. Both sections join every saved order at the end, each with its own
-  switch.
+  found as the phone's own gallery finds them: all of its shared storage,
+  WhatsApp's included, but hidden and `.nomedia` folders and apps' private
+  ones; each folder is an album. Each folder's listing is kept, so only
+  what changed is read again, and a small ring beside the title shows
+  while the phone is read; the last photos show meanwhile.
+  - Click a tile to open it: the file is copied here first (a ring on the
+    tile) and the copy opens, so a video plays at its own pace, not the
+    network's; the copies are a cache of 2 GB at most. From a tile's
+    corner, copy it or save a copy in Pictures/<device>, with its own date
+    and only once; or drag it into a window.
+  - The biggest albums open in the file manager (a folder icon); the row
+    scrolls sideways when they do not fit.
+  - Read through KDE Connect, which needs `sshfs`: the section offers to
+    install it. When the storage cannot be opened, the section says so
+    with *Try again*, and asks again by itself only after 10 minutes, so
+    KDE Connect's error does not pop up on every open (#100).
+  - Received and Gallery join every saved order at the end, each with its
+    own switch; each is gone while it has nothing.
 - IPC: `filesInfo`, `dismissReceived`.
 - Connection and Add a device (#75), two Settings pages in place of the
   Setup and Add a device folds. Connection checks this computer (KDE

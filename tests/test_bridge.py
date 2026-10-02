@@ -354,8 +354,9 @@ class Photos(unittest.TestCase):
                               ("b.png", "Screenshots"), ("a.jpg", "Camera")],
                              "newest first; media only; hidden, .nomedia and Android/data, obb left out")
             self.assertEqual([p["video"] for p in found], [False, True, True, True, False, False])
-            links = bridge.album_links(albums)
-            self.assertEqual([(l["name"], l["count"]) for l in links], [("Camera", 2), ("Download", 1), ("Screenshots", 1)])
+            links = bridge.album_links(albums, 3)
+            self.assertEqual([(l["name"], l["count"]) for l in links], [("Camera", 2), ("Download", 1), ("Screenshots", 1)],
+                             "the biggest first, then by name")
             self.assertEqual(os.path.relpath(links[0]["path"], root), "DCIM/Camera")
 
     def test_a_folder_whose_date_did_not_change_is_not_listed_again(self):
@@ -496,6 +497,59 @@ class PhotoCacheAndSave(unittest.TestCase):
                 self.assertEqual(sorted(os.listdir(folder)), ["IMG_1 (2).jpg", "IMG_1.jpg"], "another file beside it")
             finally:
                 bridge.pictures_dir = saved
+
+
+class OpenFromDevice(unittest.TestCase):
+    """A file from the device opens from a local copy, kept while unchanged;
+    the cache drops the oldest copies past its limit."""
+
+    def test_copied_once_and_again_when_changed(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "VID_1.mp4")
+            open(src, "w").write("abc")
+            os.utime(src, (1000, 1000))
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            first = bridge.local_copy(src, cache)
+            self.assertEqual(os.path.basename(first), "VID_1.mp4", "under its own name")
+            self.assertEqual(open(first).read(), "abc")
+            self.assertEqual(os.path.getmtime(first), 1000)
+            os.utime(first, (1000, 1000))
+            open(first, "w").write("xyz")  # same size: taken as the same file
+            os.utime(first, (1000, 1000))
+            self.assertEqual(open(bridge.local_copy(src, cache)).read(), "xyz", "not copied again")
+            open(src, "w").write("abcd")
+            os.utime(src, (2000, 2000))
+            self.assertEqual(open(bridge.local_copy(src, cache)).read(), "abcd", "copied again once it changed")
+
+    def test_the_cache_drops_the_oldest(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            for i, name in enumerate(["a.mp4", "b.mp4", "c.mp4"]):
+                src = os.path.join(d, name)
+                open(src, "w").write("x" * 10)
+                bridge.local_copy(src, cache, limit=25)
+                folder = os.path.dirname(bridge.local_copy(src, cache, limit=25))
+                os.utime(folder, (1000 + i, 1000 + i))
+            bridge.trim_cache(cache, 25)
+            left = sorted(f for folder in os.listdir(cache) for f in os.listdir(os.path.join(cache, folder)))
+            self.assertEqual(left, ["b.mp4", "c.mp4"])
+
+    def test_opening_with_local_opens_the_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "IMG_1.jpg")
+            open(src, "w").write("x")
+            saved = (bridge.state_dir, bridge.default_app)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            ran = []
+            try:
+                self.assertEqual(bridge.open_file(src, launch=ran.append, local=True), bridge.EXIT_OK)
+            finally:
+                bridge.state_dir, bridge.default_app = saved
+            self.assertEqual(ran[0][:4], ["uwsm-app", "--", "gio", "open"])
+            self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")), "the copy, not the device's file")
 
 
 class ReceivedFolderWatch(unittest.TestCase):

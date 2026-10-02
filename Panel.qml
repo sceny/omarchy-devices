@@ -96,7 +96,7 @@ Panel {
   function openPhoto(photo) {
     if (!photo) return
     if (photo.demo) { if (phone) phone.report("Demo: a made-up photo", false); return }
-    if (phone) phone.openPath(photo.path)
+    if (phone) phone.openFromDevice(photo.path)
   }
   function openReceived(entry) {
     if (!entry) return
@@ -3031,7 +3031,9 @@ Panel {
                     motion: root.motion
                     animate: root.settled
                     width: parent.width
-                    title: "PHOTOS"
+                    title: "GALLERY"
+                    canBusy: true
+                    busy: !!root.photoInfo && root.photoInfo.loading === true
                     folded: root.isCollapsed("photos")
                     summary: Model.photosSummary(root.photos)
                     onToggled: root.toggleCollapsed("photos")
@@ -3102,24 +3104,37 @@ Panel {
                     // Screenshots, …), wherever this phone keeps them,
                     // opened in the file manager (the storage KDE Connect
                     // mounted). Only from a fresh look: the cached list may
-                    // predate the mount.
-                    RowLayout {
+                    // predate the mount. Wider than the panel, they scroll
+                    // sideways (a swipe or a drag; the wheel still scrolls
+                    // the page); while they fit, they sit at the right.
+                    Flickable {
+                      id: albumStrip
                       width: parent.width
+                      height: albumRow.implicitHeight
                       visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.albums
                         && root.photoInfo.albums.length > 0 && !root.photoInfo.cached
-                      spacing: Style.space(4)
-                      Item { Layout.fillWidth: true }
-                      Repeater {
-                        model: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums : []
-                        Button {
-                          required property var modelData
-                          text: modelData.name
-                          iconText: Model.GLYPH.folderOpen
-                          tooltipText: modelData.count + " in " + modelData.name + ": opens the album in your file manager"
-                          foreground: root.foreground
-                          fontFamily: root.fontFamily
-                          fontSize: Style.font.bodySmall
-                          onClicked: root.openPhotoFolder(modelData.path)
+                      contentWidth: Math.max(width, albumRow.implicitWidth)
+                      contentHeight: height
+                      flickableDirection: Flickable.HorizontalFlick
+                      boundsBehavior: Flickable.StopAtBounds
+                      interactive: albumRow.implicitWidth > width
+                      clip: true
+                      Row {
+                        id: albumRow
+                        x: Math.max(0, albumStrip.width - implicitWidth)
+                        spacing: Style.space(4)
+                        Repeater {
+                          model: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums : []
+                          Button {
+                            required property var modelData
+                            text: modelData.name
+                            iconText: Model.GLYPH.folderOpen
+                            tooltipText: modelData.count + " in " + modelData.name + ": opens the album in your file manager"
+                            foreground: root.foreground
+                            fontFamily: root.fontFamily
+                            fontSize: Style.font.bodySmall
+                            onClicked: root.openPhotoFolder(modelData.path)
+                          }
                         }
                       }
                     }
@@ -3628,6 +3643,24 @@ Panel {
         font.family: root.fontFamily
         font.pixelSize: Style.font.heading
       }
+    }
+    // Opening: the file comes over first (a local copy), with a ring.
+    readonly property bool opening: !!root.phone && root.phone.isBusy("open:" + String(photo.path || ""))
+    Rectangle {
+      anchors.centerIn: parent
+      visible: tileOpenRing.visible
+      width: Style.font.heading * 1.6
+      height: width
+      radius: width / 2
+      color: Qt.rgba(0, 0, 0, 0.55)
+    }
+    WaitRing {
+      id: tileOpenRing
+      anchors.centerIn: parent
+      running: tile.opening
+      motion: root.motion
+      color: "white"
+      size: Style.font.heading
     }
     // A video: a play mark in the corner, as galleries draw it.
     Rectangle {
