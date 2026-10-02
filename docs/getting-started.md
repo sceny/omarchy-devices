@@ -32,8 +32,7 @@ made-up data until yours is set up; nothing reaches a device.
 
 ![Preview with a demo phone](images/preview.png)
 
-On the phone (while nothing is paired, the panel shows a QR code to scan
-for the app):
+On the phone (*Add a device* shows a QR code to scan for the app):
 
 1. Open KDE Connect, pick the computer and pair.
 2. Grant **notification access**, **SMS**, **contacts** (names instead of
