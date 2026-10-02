@@ -38,6 +38,8 @@ var GLYPH = {
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
   folderOpen: "\u{F0770}",   // folder-open: shown in Files
+  googlePlay: "\u{F02BC}",   // google-play: the Android app's store
+  apple: "\u{F0035}",        // apple: the iPhone app (the font has no App Store mark)
   file: "\u{F021F}",         // file-image
   document: "\u{F0219}",     // file-document: a received file that is not a picture
   download: "\u{F01DA}",     // download: save a copy of a photo here

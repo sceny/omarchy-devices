@@ -116,10 +116,11 @@ Column {
         Layout.topMargin: Style.space(6)
         spacing: Style.space(4)
         Repeater {
-          model: [{ key: "android", label: "Android" }, { key: "ios", label: "iPhone" }]
+          model: [{ key: "android", label: "Android", glyph: Model.GLYPH.googlePlay }, { key: "ios", label: "iPhone", glyph: Model.GLYPH.apple }]
           Button {
             required property var modelData
             text: modelData.label
+            iconText: modelData.glyph
             selected: root.platform === modelData.key
             bordered: true
             foreground: root.foreground
