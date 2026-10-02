@@ -558,4 +558,14 @@ Item {
     interval: 3000
     onTriggered: if (sms.active && !proc.running) proc.running = true
   }
+  // Started and stopped here, not by a binding alone: the restart above
+  // assigns `running`, which drops `running: sms.active`, and the reader
+  // then stayed stopped after messages went inactive and back (a demo, the
+  // phone away). Another device: a reader for it.
+  onActiveChanged: proc.running = sms.active
+  onDeviceIdChanged: {
+    if (!proc.running) return
+    proc.running = false
+    Qt.callLater(function() { proc.running = sms.active })
+  }
 }
