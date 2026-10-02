@@ -91,10 +91,12 @@ Panel {
   property int photoIndex: 0
   property int receivedIndex: 0
   readonly property int photoColumns: 4
-  // A folder the strip reads (Camera, Screenshots), in the file manager.
+  // Opening a place (an album, a file's folder, KDE Connect) closes the
+  // panel: the user goes on in that window. Opening an item (a photo, a
+  // received file) keeps it open, to open the next one.
   function openPhotoFolder(path) {
     if (phone && phone.demo) { phone.report("Demo: made-up photos", false); return }
-    if (phone) phone.openPath(path)
+    if (phone) { phone.openPath(path); root.close() }
   }
   function openPhoto(photo) {
     if (!photo) return
@@ -109,7 +111,7 @@ Panel {
   function showReceivedFolder(entry) {
     if (!entry) return
     if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
-    if (phone) phone.revealPath(entry.path)
+    if (phone) { phone.revealPath(entry.path); root.close() }
   }
   readonly property var shortcutOrder: profile.shortcuts
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
@@ -3158,20 +3160,48 @@ Panel {
                           if (wheel.accepted) albumStrip.contentX = x
                         }
                       }
-                      // More to either side: the edge fades, so the row
-                      // reads as one that goes on, not one cut off.
+                      NumberAnimation {
+                        id: albumGlide
+                        target: albumStrip
+                        property: "contentX"
+                        duration: Model.MOTION.inMs * root.motion
+                        easing.type: Easing.OutCubic
+                      }
+                      function glideAlbums(dir) {
+                        var most = Math.max(0, albumStrip.contentWidth - albumStrip.width)
+                        albumGlide.stop()
+                        albumGlide.to = Math.max(0, Math.min(most, albumStrip.contentX + dir * albumStrip.width * 0.75))
+                        albumGlide.start()
+                      }
+                      // More to either side: the edge fades and an arrow
+                      // shows (it moves the row along), so the row reads as
+                      // one that goes on even when a link ends at the edge.
                       Repeater {
                         model: [{ left: true }, { left: false }]
                         Rectangle {
+                          id: albumEdge
                           required property var modelData
                           readonly property color panel: root.bar ? root.bar.background : Color.background
                           parent: albumStrip
                           anchors.left: modelData.left ? parent.left : undefined
                           anchors.right: modelData.left ? undefined : parent.right
-                          width: Style.space(28)
+                          width: Style.space(40)
                           height: parent.height
                           opacity: modelData.left ? (albumStrip.atXBeginning ? 0 : 1) : (albumStrip.atXEnd ? 0 : 1)
+                          visible: opacity > 0
                           Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                          PanelActionButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: albumEdge.modelData.left ? parent.left : undefined
+                            anchors.right: albumEdge.modelData.left ? undefined : parent.right
+                            iconText: albumEdge.modelData.left ? Model.GLYPH.left : Model.GLYPH.right
+                            tooltipText: albumEdge.modelData.left ? "Earlier albums" : "More albums"
+                            size: Style.space(20)
+                            fontSize: Style.font.body
+                            foreground: root.foreground
+                            fontFamily: root.fontFamily
+                            onClicked: albumStrip.glideAlbums(albumEdge.modelData.left ? -1 : 1)
+                          }
                           gradient: Gradient {
                             orientation: Gradient.Horizontal
                             GradientStop { position: 0; color: modelData.left ? panel : Qt.rgba(panel.r, panel.g, panel.b, 0) }

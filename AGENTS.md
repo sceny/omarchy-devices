@@ -197,6 +197,10 @@ Keep them; change one only with the owner.
   `~/.cache/sceny.devices/`, never in `shell.json`. A received entry goes
   when dismissed or when its file is gone. A check never opens a real
   phone's photos: use the demo.
+- **Opening a place closes the panel; opening an item keeps it.** An
+  album, a file's folder (*Show in Files*) or KDE Connect's app opens a
+  window the user goes on in, so the panel closes; a gallery tile or a
+  received file opens and the panel stays, to open the next one.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.
