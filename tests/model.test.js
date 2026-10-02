@@ -243,7 +243,7 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(demoDev.id, "demo")
   assert.equal(M.deviceTitle(demoDev, M.resolveProfile(settings, demoDev, true)), "Pixel 8")
   assert.equal(M.deviceIcon(demoDev, M.resolveProfile(settings, demoDev, true)), M.deviceIcon(demoDev, null))
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 2, "a text message (reply, actions, a long text) and a group chat")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
   const away = M.demoSnapshot(snap(device({ reachable: false, can: { sms: false, ring: false } })), "").devices[0]
   assert.equal(away.reachable, true, "the demo device is here even when the real one is away")
