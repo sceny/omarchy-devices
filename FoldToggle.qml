@@ -14,6 +14,10 @@ Item {
   // A small picture beside the summary while folded (the media cover).
   property string thumb: ""
   property bool folded: false
+  // A slow read under way (Gallery): a small ring beside the title. Its
+  // place is kept while it is hidden, so the header never moves.
+  property bool canBusy: false
+  property bool busy: false
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
   // Transitions stretch with the panel's slow motion, and pause while a page
@@ -58,6 +62,19 @@ Item {
       text: fold.title
       foreground: fold.foreground
       fontFamily: fold.fontFamily
+    }
+    Item {
+      Layout.preferredWidth: fold.canBusy ? Style.font.caption : 0
+      Layout.preferredHeight: Style.font.caption
+      Layout.rightMargin: fold.canBusy ? Style.space(8) : 0
+      Layout.alignment: Qt.AlignVCenter
+      WaitRing {
+        anchors.centerIn: parent
+        running: fold.busy
+        motion: fold.motion
+        color: fold.dim
+        size: Style.font.caption
+      }
     }
     Image {
       id: foldThumb

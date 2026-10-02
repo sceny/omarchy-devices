@@ -288,6 +288,119 @@ class Calls(unittest.TestCase):
         self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))
 
 
+class Received(unittest.TestCase):
+    """Files the device sends: newest first, once each, gone when their
+    file is gone; text and links are not files."""
+
+    def test_a_file_arrives_and_leaves(self):
+        with tempfile.TemporaryDirectory() as d:
+            a = os.path.join(d, "report one.pdf")
+            open(a, "w").write("x" * 10)
+            entries = []
+            self.assertTrue(bridge.note_received(entries, "file://" + a.replace(" ", "%20"), 5))
+            self.assertEqual(entries[0], {"path": a, "name": "report one.pdf", "size": 10, "at": 5})
+            self.assertFalse(bridge.note_received(entries, "https://example.org", 6), "a link is not a file")
+            self.assertFalse(bridge.note_received(entries, "file:///nowhere/at/all.txt", 6), "nothing there")
+            self.assertTrue(bridge.note_received(entries, "file://" + a, 7))
+            self.assertEqual(len(entries), 1, "the same file once")
+            self.assertEqual(entries[0]["at"], 7)
+            os.remove(a)
+            self.assertTrue(bridge.prune_received(entries))
+            self.assertEqual(entries, [])
+
+    def test_the_list_is_capped(self):
+        with tempfile.TemporaryDirectory() as d:
+            entries = []
+            for i in range(bridge.RECEIVED_MAX + 3):
+                p = os.path.join(d, "f%d" % i)
+                open(p, "w").close()
+                bridge.note_received(entries, "file://" + p, i)
+            self.assertEqual(len(entries), bridge.RECEIVED_MAX)
+            self.assertEqual(entries[0]["name"], "f%d" % (bridge.RECEIVED_MAX + 2), "newest first")
+
+    def test_the_file_round_trips(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "received.json")
+            bridge.save_received(path, [{"path": "/x", "name": "x", "size": 1, "at": 2}])
+            self.assertEqual(bridge.load_received(path)[0]["name"], "x")
+            self.assertEqual(bridge.load_received(os.path.join(d, "none.json")), [])
+
+
+class Photos(unittest.TestCase):
+    """The newest photos and videos as the phone's gallery finds them
+    (Android's media index): all of shared storage but hidden folders,
+    .nomedia folders and apps' private ones; the album is the folder that
+    holds the file. A made-up tree here."""
+
+    def tree(self, root, files):
+        for i, rel in enumerate(files):
+            p = os.path.join(root, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").close()
+            os.utime(p, (1000 + i, 1000 + i))
+
+    def test_the_gallery_newest_first_album_by_folder(self):
+        with tempfile.TemporaryDirectory() as root:
+            wa = "Android/media/com.whatsapp/WhatsApp/Media/"
+            self.tree(root, ["DCIM/Camera/a.jpg", "Pictures/Screenshots/b.png", "DCIM/Camera/clip.MP4",
+                             wa + "WhatsApp Video/v.mp4", wa + "WhatsApp Video/Sent/s.mp4", "Download/d.jpg",
+                             "DCIM/Camera/notes.txt", "DCIM/Camera/.hidden.jpg", "DCIM/.thumbnails/t.jpg",
+                             wa + "WhatsApp Images/Private/.nomedia", wa + "WhatsApp Images/Private/p.jpg",
+                             "Android/data/app/x.jpg", "Android/obb/app/y.jpg"])
+            found, albums, _, complete = bridge.scan_media([root])
+            self.assertTrue(complete)
+            self.assertEqual([(p["name"], p["album"]) for p in found],
+                             [("d.jpg", "Download"), ("s.mp4", "Sent"), ("v.mp4", "WhatsApp Video"), ("clip.MP4", "Camera"),
+                              ("b.png", "Screenshots"), ("a.jpg", "Camera")],
+                             "newest first; media only; hidden, .nomedia and Android/data, obb left out")
+            self.assertEqual([p["video"] for p in found], [False, True, True, True, False, False])
+            links = bridge.album_links(albums, 3)
+            self.assertEqual([(l["name"], l["count"]) for l in links], [("Camera", 2), ("Download", 1), ("Screenshots", 1)],
+                             "the biggest first, then by name")
+            self.assertEqual(os.path.relpath(links[0]["path"], root), "DCIM/Camera")
+
+    def test_a_folder_whose_date_did_not_change_is_not_listed_again(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.tree(root, ["DCIM/Camera/a.jpg", "Pictures/b.jpg"])
+            _, _, folders, _ = bridge.scan_media([root])
+            listed = []
+            saved = bridge.os.scandir
+            bridge.os.scandir = lambda path: (listed.append(os.path.relpath(path, root)), saved(path))[1]
+            try:
+                self.tree(root, ["Pictures/c.jpg"])
+                os.utime(os.path.join(root, "Pictures"), ns=(10**18, 10**18))
+                found, _, _, _ = bridge.scan_media([root], folders)
+            finally:
+                bridge.os.scandir = saved
+            self.assertEqual(listed, ["Pictures"], "only the folder that changed")
+            self.assertEqual(sorted(p["name"] for p in found), ["a.jpg", "b.jpg", "c.jpg"])
+
+    def test_out_of_time_known_folders_count_and_new_ones_wait(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.tree(root, ["DCIM/Camera/a.jpg"])
+            _, _, folders, _ = bridge.scan_media([root])
+            self.tree(root, ["Movies/m.mp4"])
+            late = iter([0] + [100] * 50)
+            found, _, _, complete = bridge.scan_media([root], folders, clock=lambda: next(late), seconds=1)
+            self.assertEqual([p["name"] for p in found], ["a.jpg"], "what was known stays")
+            self.assertFalse(complete)
+            found, _, _, complete = bridge.scan_media([root], folders)
+            self.assertEqual(sorted(p["name"] for p in found), ["a.jpg", "m.mp4"])
+            self.assertTrue(complete)
+
+    def test_a_root_inside_another_is_read_once(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.tree(root, ["DCIM/Camera/a.jpg"])
+            found, _, _, _ = bridge.scan_media([os.path.join(root, "DCIM", "Camera"), root])
+            self.assertEqual([(p["name"], p["album"]) for p in found], [("a.jpg", "Camera")])
+
+    def test_without_sshfs_it_says_so(self):
+        saved = bridge.shutil.which
+        bridge.shutil.which = lambda name: None
+        try:
+            self.assertEqual(bridge.photos("p1"), {"ok": False, "missing": "sshfs"})
+        finally:
+            bridge.shutil.which = saved
 class LastSeen(unittest.TestCase):
     """Where a paired device was last connected, kept for its away page."""
 
@@ -342,3 +455,205 @@ class Search(unittest.TestCase):
         finally:
             bridge.bus, bridge.call = saved
         self.assertEqual(calls, [(bridge.ROOT, bridge.IFACE + ".daemon", "forceOnNetworkChange", ())])
+
+
+class PhotoCacheAndSave(unittest.TestCase):
+    """The last photo list shown at once, and a photo saved in Pictures."""
+
+    def test_the_cached_list_keeps_photos_whose_thumbnail_is_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: d
+            try:
+                cache = bridge.photos_cache("p1")
+                thumb = os.path.join(cache, "t1.jpg")
+                open(thumb, "w").close()
+                bridge.save_received(os.path.join(cache, bridge.PHOTO_LIST),
+                                     [{"name": "a.jpg", "thumb": thumb}, {"name": "b.jpg", "thumb": os.path.join(cache, "gone.jpg")}])
+                got = bridge.cached_photos("p1")
+                self.assertEqual([p["name"] for p in got["photos"]], ["a.jpg"])
+                self.assertTrue(got["cached"])
+                self.assertEqual(bridge.cached_photos("p2"), {"ok": False, "none": True})
+            finally:
+                bridge.state_dir = saved
+
+    def test_a_saved_photo_keeps_its_date_and_is_saved_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.pictures_dir
+            bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
+            try:
+                src = os.path.join(d, "IMG_1.jpg")
+                open(src, "w").write("x")
+                os.utime(src, (1000, 1000))
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
+                    self.assertEqual(bridge.save_file(src, "Pixel 8"), bridge.EXIT_OK)
+                folder = os.path.join(d, "Pictures", "Pixel 8")
+                self.assertEqual(os.listdir(folder), ["IMG_1.jpg"], "the same file is not saved twice")
+                self.assertEqual(os.path.getmtime(os.path.join(folder, "IMG_1.jpg")), 1000, "with its own date")
+                open(src, "w").write("another")
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    bridge.save_file(src, "Pixel 8")
+                self.assertEqual(sorted(os.listdir(folder)), ["IMG_1 (2).jpg", "IMG_1.jpg"], "another file beside it")
+            finally:
+                bridge.pictures_dir = saved
+
+
+class OpenFromDevice(unittest.TestCase):
+    """A file from the device opens from a local copy, kept while unchanged;
+    the cache drops the oldest copies past its limit."""
+
+    def test_copied_once_and_again_when_changed(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "VID_1.mp4")
+            open(src, "w").write("abc")
+            os.utime(src, (1000, 1000))
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            first = bridge.local_copy(src, cache)
+            self.assertEqual(os.path.basename(first), "VID_1.mp4", "under its own name")
+            self.assertEqual(open(first).read(), "abc")
+            self.assertEqual(os.path.getmtime(first), 1000)
+            os.utime(first, (1000, 1000))
+            open(first, "w").write("xyz")  # same size: taken as the same file
+            os.utime(first, (1000, 1000))
+            self.assertEqual(open(bridge.local_copy(src, cache)).read(), "xyz", "not copied again")
+            open(src, "w").write("abcd")
+            os.utime(src, (2000, 2000))
+            self.assertEqual(open(bridge.local_copy(src, cache)).read(), "abcd", "copied again once it changed")
+
+    def test_the_cache_drops_the_oldest(self):
+        with tempfile.TemporaryDirectory() as d:
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            for i, name in enumerate(["a.mp4", "b.mp4", "c.mp4"]):
+                src = os.path.join(d, name)
+                open(src, "w").write("x" * 10)
+                bridge.local_copy(src, cache, limit=25)
+                folder = os.path.dirname(bridge.local_copy(src, cache, limit=25))
+                os.utime(folder, (1000 + i, 1000 + i))
+            bridge.trim_cache(cache, 25)
+            left = sorted(f for folder in os.listdir(cache) for f in os.listdir(os.path.join(cache, folder)))
+            self.assertEqual(left, ["b.mp4", "c.mp4"])
+
+    def test_opening_with_local_opens_the_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "IMG_1.jpg")
+            open(src, "w").write("x")
+            saved = (bridge.state_dir, bridge.default_app)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            ran = []
+            try:
+                self.assertEqual(bridge.open_file(src, launch=ran.append, local=True), bridge.EXIT_OK)
+            finally:
+                bridge.state_dir, bridge.default_app = saved
+            self.assertEqual(ran[0][:4], ["uwsm-app", "--", "gio", "open"])
+            self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")), "the copy, not the device's file")
+
+
+class ReceivedFolderWatch(unittest.TestCase):
+    """The folders of received files are watched: a rename is followed, a
+    delete or move-away goes at once; a watch the system refuses changes
+    nothing (the 30 s existence check still works)."""
+
+    def test_a_rename_is_followed(self):
+        entries = [{"path": "/d/a.pdf", "name": "a.pdf"}, {"path": "/d/b.txt", "name": "b.txt"}]
+        self.assertTrue(bridge.rename_received(entries, "/d/a.pdf", "/d/report.pdf"))
+        self.assertEqual(entries[0], {"path": "/d/report.pdf", "name": "report.pdf"})
+        self.assertFalse(bridge.rename_received(entries, "/d/none", "/d/x"))
+        self.assertFalse(bridge.rename_received(entries, "/d/b.txt", ""), "no new name: not a rename")
+
+    def test_a_refused_watch_is_skipped_silently(self):
+        def refuse(folder, callback):
+            raise bridge.GLib.Error("Too many open files")
+        watch = bridge.FolderWatch(lambda *a: None, make_monitor=refuse)
+        with contextlib.redirect_stderr(open(os.devnull, "w")) as err:
+            watch.sync({"/d"})
+        self.assertEqual(watch.monitors, {})
+
+    def test_watches_follow_the_folders_that_hold_listed_files(self):
+        made, cancelled = [], []
+
+        class Fake:
+            def __init__(self, folder):
+                self.folder = folder
+
+            def cancel(self):
+                cancelled.append(self.folder)
+
+        def make(folder, callback):
+            made.append(folder)
+            return Fake(folder)
+
+        watch = bridge.FolderWatch(lambda *a: None, make_monitor=make)
+        watch.sync({"/a", "/b", ""})
+        self.assertEqual(sorted(made), ["/a", "/b"], "one watch per folder; none for an empty path")
+        watch.sync({"/b"})
+        self.assertEqual(cancelled, ["/a"], "a folder no longer holding a listed file is let go")
+        watch.sync({"/b"})
+        self.assertEqual(sorted(made), ["/a", "/b"], "an existing watch is kept, not made again")
+
+    def test_a_real_folder_reports_a_rename_and_a_delete(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "a.pdf")
+            open(src, "w").close()
+            events = []
+            watch = bridge.FolderWatch(lambda kind, path, new: events.append((kind, os.path.basename(path), os.path.basename(new))))
+            watch.sync({d})
+            ctx = bridge.GLib.MainContext.default()
+
+            def pump(until):
+                deadline = bridge.GLib.get_monotonic_time() + 2000000
+                while not until() and bridge.GLib.get_monotonic_time() < deadline:
+                    ctx.iteration(False)
+
+            os.rename(src, os.path.join(d, "report.pdf"))
+            pump(lambda: any(e[0] == "renamed" for e in events))
+            self.assertIn(("renamed", "a.pdf", "report.pdf"), events)
+            os.remove(os.path.join(d, "report.pdf"))
+            pump(lambda: any(e[0] == "gone" for e in events))
+            self.assertIn(("gone", "report.pdf", ""), events)
+            watch.sync(set())
+            self.assertEqual(watch.monitors, {})
+
+
+class OpenFile(unittest.TestCase):
+    """A file opens in its app as the desktop sees it (GIO, following a
+    type's parents), through uwsm-app; with no app, it is shown in Files."""
+
+    def run_open(self, path, app):
+        launched = []
+        saved = bridge.default_app
+        bridge.default_app = lambda p: app
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")), contextlib.redirect_stderr(open(os.devnull, "w")):
+                code = bridge.open_file(path, launch=launched.append)
+        finally:
+            bridge.default_app = saved
+        return code, launched
+
+    def test_with_an_app_it_opens_through_uwsm(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "a b#1.json")
+            open(f, "w").close()
+            code, launched = self.run_open(f, object())
+            self.assertEqual(code, bridge.EXIT_OK)
+            self.assertEqual(launched, [["uwsm-app", "--", "gio", "open", f]])
+
+    def test_without_an_app_it_is_shown_in_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "a b#1.xyz")
+            open(f, "w").close()
+            code, launched = self.run_open(f, None)
+            self.assertEqual(code, bridge.EXIT_CANCELLED)
+            self.assertEqual(launched[0][:4], ["uwsm-app", "--", "nautilus", "--select"])
+            self.assertTrue(launched[0][4].endswith("/a%20b%231.xyz"), "each part encoded apart")
+
+    def test_a_gone_file_opens_nothing(self):
+        code, launched = self.run_open("/nowhere/at/all.pdf", object())
+        self.assertEqual((code, launched), (bridge.EXIT_FAILED, []))
+
+    def test_json_is_text_to_gio(self):
+        self.assertTrue(bridge.Gio.content_type_is_a("application/json", "text/plain"),
+                        "why GIO finds a text editor for JSON where xdg-open finds nothing")

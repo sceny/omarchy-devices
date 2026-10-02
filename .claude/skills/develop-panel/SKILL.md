@@ -77,6 +77,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
 "${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
 "${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
+"${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
 "${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # Connection: a failing firewall (the gear's dot); Ignore / Undo
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
 "${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name

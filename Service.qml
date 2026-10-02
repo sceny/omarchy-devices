@@ -43,7 +43,9 @@ Item {
     smsService.showDemo()
   }
 
+  function showLiveFiles() { dismissedFiles = ({}) }
   function showLive() {
+    showLiveFiles()
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
@@ -693,6 +695,128 @@ Item {
     id: statusTimer
     interval: 3500
     onTriggered: { root.actionStatus = ""; root.actionFailed = false }
+  }
+
+  // ---- Files: the viewed device's newest photos (#65), files it sent (#37) ----
+  // Photos are asked for when a panel opens on the device (at most every
+  // 20 s): the bridge mounts its storage (KDE Connect's sftp) and lists
+  // them. Per device: { loading, ok, missing, error, photos, at }.
+  property var photoState: ({})
+  readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
+  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
+      albums: [{ name: "Camera", path: "/demo/DCIM/Camera", count: 842 }, { name: "Screenshots", path: "/demo/Pictures/Screenshots", count: 211 },
+               { name: "WhatsApp Images", path: "/demo/WhatsApp Images", count: 96 }, { name: "WhatsApp Video", path: "/demo/WhatsApp Video", count: 41 },
+               { name: "Download", path: "/demo/Download", count: 18 }] }
+    : (device ? photoState[String(device.id)] || null : null)
+  readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
+  function setPhotoState(id, value) {
+    var next = Object.assign({}, photoState)
+    next[id] = value
+    photoState = next
+  }
+  function refreshPhotos(force) {
+    if (demo || !device || device.reachable !== true || !(device.can && device.can.files)) return
+    var id = String(device.id)
+    var st = photoState[id]
+    if (st && st.loading) return
+    // A good list is reused for 20 s. A mount that failed is not asked for
+    // again on its own for 10 minutes: each attempt makes KDE Connect pop
+    // its error (#100); Try again asks at once. No sshfs asks for no mount,
+    // so it is checked on every open.
+    if (!force && st && st.ok && Date.now() - st.at < 20000) return
+    if (!force && st && !st.ok && st.error && Date.now() - st.at < 600000) return
+    setPhotoState(id, Object.assign({}, st || { photos: [] }, { loading: true, at: Date.now() }))
+    // The first look since the shell started: the last list at once, from
+    // the cache, while the device is read (that takes seconds).
+    if (!st) {
+      var cached = photosComponent.createObject(root, { deviceId: id, cachedRun: true, command: [bridge, "photos-cached", id] })
+      cached.running = true
+    }
+    var proc = photosComponent.createObject(root, { deviceId: id, command: [bridge, "photos", id] })
+    proc.running = true
+  }
+  // A copy of a photo in Pictures/<device>/; the toast says where.
+  function savePhoto(path) {
+    if (demo) { report("Demo: a made-up photo", false); return }
+    if (!device || isBusy("save")) return
+    setBusy("save", true)
+    var proc = actionComponent.createObject(root, { key: "save", command: [bridge, "save-file", path, Model.deviceLabel(device)] })
+    proc.running = true
+  }
+  Component {
+    id: photosComponent
+    Process {
+      id: photosProc
+      property string deviceId: ""
+      // The cached list: shown only while the real look has not answered.
+      property bool cachedRun: false
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var r = null
+          try { r = JSON.parse(text) } catch (e) { r = { ok: false, error: "Could not read its storage" } }
+          if (photosProc.cachedRun) {
+            var now = root.photoState[photosProc.deviceId]
+            if (r.ok && now && now.loading && !now.ok)
+              root.setPhotoState(photosProc.deviceId, Object.assign({}, now, { ok: true, photos: r.photos, cached: true }))
+          } else {
+            root.setPhotoState(photosProc.deviceId, Object.assign({ photos: [] }, r, { loading: false, at: Date.now() }))
+          }
+          photosProc.destroy()
+        }
+      }
+    }
+  }
+
+  // Received files: from the snapshot, less the ones dismissed here (they
+  // leave the bridge's list at its next snapshot).
+  property var dismissedFiles: ({})
+  readonly property var received: {
+    if (demo) return Model.demoReceived().filter(function(r) { return !dismissedFiles[r.path] })
+    var list = device && device.received ? device.received : []
+    return list.filter(function(r) { return !dismissedFiles[r.path] })
+  }
+  function dismissReceived(entry) {
+    if (!entry || !device) return
+    var next = Object.assign({}, dismissedFiles)
+    next[entry.path] = true
+    dismissedFiles = next
+    if (!demo) Quickshell.execDetached([bridge, "received-dismiss", String(device.id), entry.path])
+  }
+  // Opening, as Omarchy's own panels do: through uwsm-app, so the app runs
+  // as the user's (its own scope, like one from the launcher), not as a
+  // child of the shell. The bridge picks the app as GIO does, as Files does
+  // (a type's parents count: JSON is text), where xdg-open looks up the
+  // exact type only and opens nothing; with no app for the type, it shows
+  // the file in Files and the toast says so. Show in folder is Files with
+  // the file selected.
+  function openPath(path) {
+    if (!path) return
+    var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
+    proc.running = true
+  }
+  // A file on the device: copied here first (the bridge keeps a few in the
+  // cache), then opened, so the app reads a local file: a video plays at
+  // its pace, not the network's. The tile shows a ring meanwhile.
+  function openFromDevice(path) {
+    if (!path) return
+    var key = "open:" + String(path)
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "open-file", String(path), "--local"] })
+    proc.running = true
+  }
+  function revealPath(path) {
+    if (!path) return
+    Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", Model.fileUri(path)])
+  }
+
+  // The file on the clipboard (an image as image data).
+  function copyFile(path) {
+    if (demo) { report("Copied", false); return }
+    if (isBusy("copy")) return
+    setBusy("copy", true)
+    var proc = actionComponent.createObject(root, { key: "copy", command: [bridge, "copy-file", path] })
+    proc.running = true
   }
 
   Component {

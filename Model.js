@@ -37,7 +37,10 @@ var GLYPH = {
   newMessage: "\u{F0653}",   // message-plus
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
+  folderOpen: "\u{F0770}",   // folder-open: shown in Files
   file: "\u{F021F}",         // file-image
+  document: "\u{F0219}",     // file-document: a received file that is not a picture
+  download: "\u{F01DA}",     // download: save a copy of a photo here
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
   check: "\u{F012C}",
@@ -132,10 +135,15 @@ var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
-  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
+  { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
+  { key: "showPhotos", section: "photos", label: "Gallery", hint: "Its newest photos and videos" }
 ]
 
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications"]
+// A section added in a release joins a saved order at its default place
+// (normalizeSections), so Received and Photos come last for everyone who had
+// an order.
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -1200,6 +1208,8 @@ var PROFILE_SETTINGS = {
   showShortcuts: function(v) { return layoutFlag(v) },
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
+  showPhotos: function(v) { return layoutFlag(v) },
+  showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   collapsed: function(v) { return collapsedState(v) }
 }
@@ -1413,7 +1423,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
+  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1481,7 +1491,7 @@ function settingsPageRows(ctx) {
   } else {
     // A panel torn down mid-reload can ask with nothing to edit.
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
     // A device's page (and the one-device page) edits its sections,
     // shortcuts and bar on the page itself (edit in place): here, a row
@@ -1645,5 +1655,72 @@ function editBarTiles(order) {
 var SECTION_EMPTY = {
   actions: "No shortcuts: add some below",
   media: "Shows while the device plays something",
-  notifications: "Shows while there are notifications"
+  notifications: "Shows while there are notifications",
+  photos: "Shows its newest photos and videos",
+  received: "Shows the files it sends you"
+}
+
+// ---- Files: the device's newest photos (#65) and files it sent (#37) ----
+
+// "12 KB", "3.4 MB".
+function sizeText(bytes) {
+  var b = Number(bytes) || 0
+  if (b < 1024) return b + " B"
+  if (b < 1024 * 1024) return Math.round(b / 1024) + " KB"
+  var mb = b / (1024 * 1024)
+  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB"
+}
+
+var IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+function isImage(name) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(String(name || ""))
+  return !!m && IMAGE_EXTENSIONS.indexOf(m[1].toLowerCase()) >= 0
+}
+
+// A path as a file:// address, each part encoded apart (a name with # or ?
+// stays whole), as Omarchy's own panels build one.
+function fileUri(path) {
+  return "file://" + String(path || "").split("/").map(function(p) { return encodeURIComponent(p) }).join("/")
+}
+
+function photosSummary(photos) {
+  var list = photos || []
+  if (list.length === 0) return "Nothing new"
+  var videos = list.filter(function(p) { return p.video === true }).length
+  var parts = []
+  if (list.length > videos) parts.push(list.length - videos === 1 ? "1 photo" : (list.length - videos) + " photos")
+  if (videos > 0) parts.push(videos === 1 ? "1 video" : videos + " videos")
+  return parts.join(", ")
+}
+
+// What makes the tiles: a list with the same key is the same tiles, so a
+// state change (a read starting or ending) does not rebuild them.
+function photosKey(photos) {
+  return (photos || []).map(function(p) { return [p.path, p.at, p.thumb, p.video === true].join("|") }).join("\n")
+}
+
+// The newest file's name, and how many more.
+function receivedSummary(received) {
+  var list = received || []
+  if (list.length === 0) return "Nothing new"
+  return list.length === 1 ? String(list[0].name) : list[0].name + " and " + (list.length - 1) + " more"
+}
+
+// Demo: photos from the one local demo picture, each a different part of it
+// (`clip`: x, y, w, h as fractions), so a screenshot shows four of them;
+// and two received files that exist nowhere (demo only opens nothing).
+function demoPhotos(picture, nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
+  return clips.map(function(c, i) {
+    return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
+             album: i === 2 ? "Screenshots" : "Camera", video: i === 1, clip: c, demo: true }
+  })
+}
+function demoReceived(nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  return [
+    { path: "/demo/Boarding pass.pdf", name: "Boarding pass.pdf", size: 184320, at: now - 25 * 60000 },
+    { path: "/demo/Recipe notes.txt", name: "Recipe notes.txt", size: 2150, at: now - 26 * 3600000 }
+  ]
 }
