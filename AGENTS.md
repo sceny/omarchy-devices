@@ -184,14 +184,19 @@ Keep them; change one only with the owner.
   flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
   one device, Settings is one flat page. Moving a device writes down how
   each one shows in the bar, so moving never changes it.
-- **Photos and received files are read, never kept beyond the cache**
-  (two sections, each gone while it has nothing). Photos are read from
-  the device's storage (KDE Connect's sftp, which needs `sshfs`) only when
-  a panel opens on it, at most every 20 s; their thumbnails and the list
-  of received files (`received-<device>.json`, from `shareReceived`) live
-  in `~/.cache/sceny.devices/`, never in `shell.json`. A received entry
-  goes when dismissed or when its file is gone. A check never opens a
-  real phone's photos: use the demo.
+- **The gallery and received files are read, never kept beyond the cache**
+  (two sections, Gallery and Received, each gone while it has nothing).
+  The gallery is read from the device's storage (KDE Connect's sftp, which
+  needs `sshfs`) only when a panel opens on it, at most every 20 s, as
+  Android's media index finds it (no hidden, `.nomedia` or
+  `Android/data`/`obb` folders; the folder is the album); a failed mount
+  is asked for again only after 10 minutes or on *Try again*. Its
+  thumbnails, folder listings (`media-dirs.json`), the copies a click
+  opens (`open/`, 2 GB at most) and the list of received files
+  (`received-<device>.json`, from `shareReceived`) live in
+  `~/.cache/sceny.devices/`, never in `shell.json`. A received entry goes
+  when dismissed or when its file is gone. A check never opens a real
+  phone's photos: use the demo.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.

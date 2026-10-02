@@ -3108,8 +3108,8 @@ Panel {
                     // opened in the file manager (the storage KDE Connect
                     // mounted). Only from a fresh look: the cached list may
                     // predate the mount. Wider than the panel, they scroll
-                    // sideways (a swipe or a drag; the wheel still scrolls
-                    // the page); while they fit, they sit at the right.
+                    // sideways (the wheel, a swipe or a drag); while they
+                    // fit, they sit at the right.
                     Flickable {
                       id: albumStrip
                       width: parent.width
@@ -3138,6 +3138,24 @@ Panel {
                             fontSize: Style.font.bodySmall
                             onClicked: root.openPhotoFolder(modelData.path)
                           }
+                        }
+                      }
+                      // The wheel moves the row while it has more that way;
+                      // at an end, the page scrolls as usual. Over the links:
+                      // no button taken, and the cursor stays theirs.
+                      MouseArea {
+                        parent: albumStrip
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        cursorShape: undefined
+                        onWheel: function(wheel) {
+                          var d = wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0
+                            ? (wheel.pixelDelta.x !== 0 ? wheel.pixelDelta.x : wheel.pixelDelta.y)
+                            : (wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.angleDelta.y) / 2
+                          var most = Math.max(0, albumStrip.contentWidth - albumStrip.width)
+                          var x = Math.max(0, Math.min(most, albumStrip.contentX - d))
+                          wheel.accepted = albumStrip.interactive && x !== albumStrip.contentX
+                          if (wheel.accepted) albumStrip.contentX = x
                         }
                       }
                       // More to either side: the edge fades, so the row

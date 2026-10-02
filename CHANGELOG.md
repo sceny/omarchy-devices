@@ -82,7 +82,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
     corner, copy it or save a copy in Pictures/<device>, with its own date
     and only once; or drag it into a window.
   - The biggest albums open in the file manager (a folder icon); the row
-    scrolls sideways when they do not fit.
+    scrolls sideways when they do not fit (the wheel, a swipe or a
+    drag).
   - Read through KDE Connect, which needs `sshfs`: the section offers to
     install it. When the storage cannot be opened, the section says so
     with *Try again*, and asks again by itself only after 10 minutes, so
