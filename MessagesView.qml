@@ -185,14 +185,15 @@ Item {
     return false
   }
 
-  // PgUp/PgDn: a screen of the open conversation. The list runs bottom to
-  // top, so "up" (older) is towards the end of the content.
+  // PgUp/PgDn: a screen of the open conversation, `pages` > 0 up (older).
+  // The list runs bottom to top, but contentY still grows downwards on
+  // screen, so up is a smaller contentY.
   function scrollMessages(pages) {
     if (!openRow || messageList.height <= 0) return
     var step = messageList.height * 0.85 * pages
     var minY = messageList.originY
     var maxY = messageList.originY + Math.max(0, messageList.contentHeight - messageList.height)
-    messageList.contentY = Math.max(minY, Math.min(maxY, messageList.contentY + step))
+    messageList.contentY = Math.max(minY, Math.min(maxY, messageList.contentY - step))
   }
 
   // `typeHere` puts the cursor in the composer: for the user's own click or
