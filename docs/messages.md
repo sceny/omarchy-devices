@@ -24,7 +24,7 @@ Middle-click the pill, or pick *Messages* in the panel.
 | `/` · `u` · `n` | Search · unread only · new message |
 | `i` | Reply to the open conversation |
 | PgUp PgDn | A page, on the side the keys are on; while writing a reply, the conversation |
-| Esc | Back |
+| Esc | Back (in *To*: first closes the suggestions, keeping what you typed) |
 
 In the reply field, Enter sends and Esc steps back. Nothing but your own
 click or Enter puts the cursor there.

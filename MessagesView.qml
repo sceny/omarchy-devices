@@ -121,15 +121,7 @@ Item {
   // person, it is not a list to browse.
   function refreshSuggestions() {
     var typed = toField.text.trim()
-    var list = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
-    // What was typed, when it is a number nobody in the list has, comes
-    // first: Enter sends to it (a short code, a new number); the matches
-    // are a ↓ away.
-    var digits = typed.replace(/\D/g, "")
-    if (/^\+?[\d\s().-]+$/.test(typed) && digits.length >= 3
-        && !list.some(function(c) { return String(c.number || "").replace(/\D/g, "") === digits }))
-      list = [{ title: Model.formatNumber(typed), number: typed, tid: -1, note: "This number" }].concat(list)
-    suggestions = list
+    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
     suggestionCursor = 0
   }
 
@@ -718,7 +710,14 @@ Item {
             font.family: view.fontFamily
             onTextChanged: view.refreshSuggestions()
             onAccepted: view.acceptTo()
-            Keys.onEscapePressed: view.goBack()
+            // Esc closes the suggestions first and keeps what was typed (Enter
+            // then sends to exactly that: a short code, a new number); then
+            // it clears the field, then leaves the new message. Typing
+            // brings the suggestions back.
+            Keys.onEscapePressed: {
+              if (view.suggestions.length > 0 && text.trim() !== "") view.suggestions = []
+              else view.goBack()
+            }
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {
@@ -787,7 +786,7 @@ Item {
               Text {
                 textFormat: Text.PlainText
                 visible: suggestion.modelData.name !== ""
-                text: suggestion.modelData.note ? suggestion.modelData.note : Model.formatNumber(suggestion.modelData.number)
+                text: Model.formatNumber(suggestion.modelData.number)
                 color: view.dim
                 font.family: view.fontFamily
                 font.pixelSize: Style.font.caption
