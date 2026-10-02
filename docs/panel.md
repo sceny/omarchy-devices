@@ -4,7 +4,7 @@
 
 Click the pill. Every section folds to one line.
 
-![The panel: shortcuts, Now playing and notifications (demo data)](images/panel.png)
+![The panel: shortcuts, Now playing, notifications, received files and the Gallery (demo data)](images/panel.png)
 
 ## Notifications
 

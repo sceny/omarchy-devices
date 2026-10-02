@@ -15,8 +15,12 @@ before and after.
 1. Put the panel's monitor on an empty workspace, and the pointer off the
    panel (`hyprctl dispatch 'hl.dsp.cursor.move({ x = 300, y = 700 })'`).
 2. Start the made-up player: `tools/demo-player ~/.cache/sceny.devices/demo/cover.png &`
-   (any square image as the cover).
-3. `demo ""`, the sections in their default order (`moveSection`), `open`,
+   (any square image as the cover). The demo's Gallery shows up to eight
+   pictures from `~/.cache/sceny.devices/demo/gallery/` (yours, not in the
+   repository; none with a person, a watermark in the middle, or someone
+   else's characters).
+3. The pointer off the panel *before* `open` (else the cursor shows).
+   `demo ""`, the Gallery in view (Shortcuts folded, `moveSection`), `open`,
    then `grim -o <monitor> main.png`; `messages`, `openThread 9001`, then
    `grim -o <monitor> messages.png`.
 4. `tools/listing-image main.png messages.png preview.png`. If the panel's

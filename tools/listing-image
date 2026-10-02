@@ -42,7 +42,7 @@ magick "$tmp/base.png" \
   -draw "roundrectangle ${PILL_BOX} 6,6" \
   -draw "line 1690,330 2018,330" \
   -draw "line 1770,490 2018,490" \
-  -draw "line 1770,760 2018,760" \
+  -draw "line 1770,860 2018,860" \
   -stroke none \
   "$tmp/pill.png" -geometry +1600+60 -composite \
   "$tmp/msgs-shadow.png" -geometry +70+520 -composite \
@@ -57,11 +57,11 @@ magick "$tmp/base.png" \
   -annotate +112+470 'YOUR TEXTS' \
   -annotate +1330+300 'NOW PLAYING' \
   -annotate +1330+460 'GALLERY' \
-  -annotate +1330+712 'NOTIFICATIONS' \
+  -annotate +1330+812 'NOTIFICATIONS' \
   -font "$REGULAR" -pointsize 24 -fill "$FG" \
   -annotate +330+470 'every conversation, reply from the keyboard' \
   -annotate +1330+334 'cover, seek and volume' \
   -annotate +1330+494 'its newest photos and videos' \
-  -annotate +1330+746 'reply, dismiss, and each chat' \
-  -annotate +1330+778 'the way the phone shows it' \
+  -annotate +1330+846 'reply, dismiss, and each chat' \
+  -annotate +1330+878 'the way the phone shows it' \
   -strip "$out"

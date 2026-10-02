@@ -9,7 +9,7 @@ Click one to open it; from a corner, copy it or save it in
 `Pictures/<device>`; or drag it into a window. Below, the biggest albums
 open in Files.
 
-![Gallery: four photos, a video marked with play, and album links (demo data)](images/gallery.png)
+![Gallery: two rows of photos, a video marked with play, and album links (demo data)](images/gallery.png)
 
 The Gallery needs `sshfs` (the section offers to install it) and storage
 access in the app. A ring by its title means the phone is being read.
