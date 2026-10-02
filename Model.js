@@ -32,11 +32,15 @@ var GLYPH = {
   checked: "\u{F0132}",      // checkbox-marked
   unchecked: "\u{F0131}",    // checkbox-blank-outline
   reset: "\u{F099B}",        // restore
+  refresh: "\u{F0450}",      // refresh: look again (Reconnect)
   group: "\u{F0849}",        // account-group
   newMessage: "\u{F0653}",   // message-plus
   picture: "\u{F0976}",      // image
   video: "\u{F0567}",        // video
+  folderOpen: "\u{F0770}",   // folder-open: shown in Files
   file: "\u{F021F}",         // file-image
+  document: "\u{F0219}",     // file-document: a received file that is not a picture
+  download: "\u{F01DA}",     // download: save a copy of a photo here
   left: "\u{F0141}",         // chevron-left
   right: "\u{F0142}",        // chevron-right
   check: "\u{F012C}",
@@ -131,10 +135,15 @@ var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
-  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" }
+  { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
+  { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
+  { key: "showPhotos", section: "photos", label: "Gallery", hint: "Its newest photos and videos" }
 ]
 
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications"]
+// A section added in a release joins a saved order at its default place
+// (normalizeSections), so Received and Photos come last for everyone who had
+// an order.
+var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -343,6 +352,23 @@ function withoutNotification(snapshot, id) {
 // How long to wait for the answer, and what to say when it never comes.
 // A notification action or a reply may leave the notification as it was,
 // and a skip may land on a track with the same title, so those end quietly; the rest report that the device did not answer.
+// KDE Connect cancels a pairing the other side has not accepted in this
+// long, on both sides: a constant compiled into it, not a setting and not on
+// D-Bus (kdeconnect-kde core/backends/pairinghandler.h, pairingTimeoutMsec =
+// 30 * 1000, at 97d6289). Change it here if KDE Connect ever changes it.
+var PAIR_TIMEOUT_S = 30
+
+// Seconds left for a pairing asked at `sinceMs`, never below 0.
+function pairSecondsLeft(sinceMs, nowMs) {
+  return Math.max(0, Math.min(PAIR_TIMEOUT_S, PAIR_TIMEOUT_S - Math.floor((nowMs - sinceMs) / 1000)))
+}
+
+// Actions whose result shows where they were clicked, with no toast: a
+// pairing card appears (Pair), becomes the device (Accept), goes (Reject,
+// Cancel). A failure still says so.
+var SHOWN_IN_PLACE = ["pair", "accept", "reject"]
+function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
+
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
   if (kind === "note") return { ms: 4000, fail: "" }
@@ -777,7 +803,7 @@ function demoSnapshot(live, kind) {
         ] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: true, reachable: false, links: [], can: {}, notifications: [] })
     if (kind === "many-pair")
-      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      many.devices.push({ id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return many
   }
   if (kind === "devices") {
@@ -785,7 +811,7 @@ function demoSnapshot(live, kind) {
     withOthers.devices.push(
       { id: "demo-tab", name: "Galaxy Tab", type: "tablet", paired: true, reachable: false, links: [], can: {}, notifications: [] },
       { id: "demo-laptop", name: "Work laptop", type: "laptop", paired: false, reachable: true, links: ["LAN"], can: {}, notifications: [] },
-      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A 3506", links: ["LAN"], can: {}, notifications: [] })
+      { id: "demo-new", name: "Pixel Tablet", type: "tablet", paired: false, reachable: true, pairRequestedByPeer: true, verificationKey: "4E5A3506", links: ["LAN"], can: {}, notifications: [] })
     return withOthers
   }
   if (kind === "none") return { daemon: true, demo: true, devices: [] }
@@ -795,9 +821,14 @@ function demoSnapshot(live, kind) {
     can: { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true },
     battery: { charge: 55, charging: false }
   }))
-  // A neutral name, so a screenshot of demo mode shows no real device.
+  // A neutral name and an id of its own, so a screenshot of demo mode shows
+  // no real device: the real one's nickname, icon and place in the bar are
+  // kept under its id, and do not apply here (#108).
   dev.name = "Pixel 8"
+  dev.id = "demo"
   dev.reachable = kind !== "away"
+  // Away: where it was, as the bridge's cache would say it.
+  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
   // "charging": the battery filling, for its glyph and % in the bar.
   if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
@@ -996,12 +1027,119 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
-function setupSummary(checks) {
-  var list = checks || []
+// ---- Connection: this computer, pairing, adding a device ----
+
+// The doctor's checks that are about this computer (the Connection page);
+// its paired and connected checks are the devices' own pages' business.
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+// Short names: the status beside each says the rest ("Running", "Closed").
+// One row per thing on this computer, named after it: a service's checks
+// (KDE Connect: installed, running) become one row that says which state it
+// is in, so other services (Bluetooth, scrcpy) can each have theirs.
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
+
+function computerChecks(checks) {
+  var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
+  var installed = null, running = null, rest = []
+  list.forEach(function(c) {
+    if (c.key === "installed") installed = c
+    else if (c.key === "running") running = c
+    else rest.push(c)
+  })
+  if (!installed && !running) return rest
+  // Not installed says so first; installed and stopped says Stopped.
+  var failing = installed && !installed.ok ? installed : (running && !running.ok ? running : null)
+  var kde = failing ? Object.assign({}, failing, { key: "kdeconnect" })
+    : { key: "kdeconnect", ok: true, label: "KDE Connect", status: running ? running.status || "Running" : installed.status, detail: "", fix: "", fixLabel: "" }
+  return [kde].concat(rest)
+}
+
+// Failing checks on this computer the user has not ignored: the gear's dot.
+function connectionIssues(checks, ignored) {
+  var skip = ignored || []
+  return computerChecks(checks).filter(function(c) { return !c.ok && skip.indexOf(c.key) < 0 }).length
+}
+
+function connectionSummary(checks, ignored) {
+  var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
-  var bad = 0
-  for (var i = 0; i < list.length; i++) if (!list[i].ok) bad++
-  return bad === 0 ? "All good" : (bad === 1 ? "1 thing to fix" : bad + " things to fix")
+  var n = connectionIssues(checks, ignored)
+  return n === 0 ? "All good" : (n === 1 ? "1 to fix" : n + " to fix")
+}
+
+// The Connection page's rows, in one list for the keyboard: this computer's
+// checks (status icon, name, short status, one action; a failing one can be
+// ignored). It checks what exists; Add a device (addDeviceRows) makes a new
+// pairing.
+function connectionRows(checks, ignored) {
+  var skip = ignored || []
+  var rows = computerChecks(checks).map(function(c) {
+    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
+             status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
+             fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
+  })
+  return rows
+}
+
+// The Add a device page's rows: devices asking to pair, then devices in
+// reach to pair with (`devices`: devicesListRows).
+function addDeviceRows(devices) {
+  var rows = []
+  ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
+  ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
+  return rows
+}
+
+// ---- A paired device that is away: where it was, and what to try ----
+
+// Whether an IPv4 address is inside a network written "192.168.1.0/24";
+// null when either cannot be read.
+function inNetwork(address, network) {
+  var m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/.exec(String(network || ""))
+  var a = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(String(address || ""))
+  if (!m || !a) return null
+  function num(x) { return ((Number(x[1]) * 256 + Number(x[2])) * 256 + Number(x[3])) * 256 + Number(x[4]) }
+  var size = Math.pow(2, 32 - Number(m[5]))
+  return Math.floor(num(a) / size) === Math.floor(num(m) / size)
+}
+
+// "just now", "5 min ago", "2 h ago", "3 days ago".
+function agoText(ms, nowMs) {
+  var s = Math.max(0, Math.round((nowMs - ms) / 1000))
+  if (s < 60) return "just now"
+  if (s < 3600) return Math.round(s / 60) + " min ago"
+  if (s < 86400) return Math.round(s / 3600) + " h ago"
+  var d = Math.round(s / 86400)
+  return d === 1 ? "a day ago" : d + " days ago"
+}
+
+// How long Reconnect waits for the device before saying it was not found.
+var SEARCH_MS = 8000
+
+// Samsung's advice (battery use Unrestricted) is for Samsung devices only.
+function isSamsung(device) { return /galaxy|samsung|^sm-/i.test(String(device && device.name || "")) }
+
+// What an away device's page says, as short lines: where it was last seen
+// (device.lastSeen, from the bridge's cache), whether that was another
+// network, and after a search that found nothing, what to try on it.
+// Causes are likely, never certain. `searchedAt`: when Reconnect last
+// started, 0 for never.
+function awayState(device, network, searchedAt, nowMs) {
+  var seen = device && device.lastSeen
+  var lines = []
+  if (seen && seen.at) {
+    var how = seen.link === "Bluetooth" ? "Bluetooth" : (seen.link === "LAN" ? "Wi-Fi" : "the network")
+    lines.push("Last seen on " + how + (seen.address ? " at " + seen.address : "") + ", " + agoText(seen.at, nowMs))
+    if (inNetwork(seen.address, network) === false)
+      lines.push("Likely on another network: this computer is on " + network)
+  } else {
+    lines.push("Not seen by this computer yet")
+  }
+  var searching = searchedAt > 0 && nowMs - searchedAt < SEARCH_MS
+  if (searchedAt > 0 && !searching)
+    lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
+      + (isSamsung(device) ? "; set the app's battery use to Unrestricted" : ""))
+  return { lines: lines, searching: searching }
 }
 
 // ---- Installing the app: its store pages, and a QR code for the phone ----
@@ -1097,6 +1235,8 @@ var PROFILE_SETTINGS = {
   showShortcuts: function(v) { return layoutFlag(v) },
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
+  showPhotos: function(v) { return layoutFlag(v) },
+  showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   collapsed: function(v) { return collapsedState(v) }
 }
@@ -1141,7 +1281,12 @@ function orderedDevices(snapshot, settings) {
   var out = []
   settings.order.forEach(function(id) { if (byId[id]) { out.push(byId[id]); delete byId[id] } })
   var rest = paired.filter(function(d) { return byId[d.id] })
-  rest.sort(function(a, b) { return (b.reachable === true) - (a.reachable === true) })
+  // Connected first, otherwise as KDE Connect lists them. The engine's sort
+  // is not stable, so the list position breaks ties: a device joining the
+  // list must never swap two others (the first shows always, opens first).
+  var at = {}
+  rest.forEach(function(d, i) { at[d.id] = i })
+  rest.sort(function(a, b) { return ((b.reachable === true) - (a.reachable === true)) || (at[a.id] - at[b.id]) })
   return out.concat(rest)
 }
 
@@ -1305,7 +1450,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "sectionOrder"],
+  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1333,12 +1478,13 @@ function devicesListRows(snapshot, settings, lowPercent) {
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer === true)
       rows.push({ kind: "request", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: "Wants to pair" + (o.verificationKey ? " · key " + o.verificationKey : "") })
+                  status: "Wants to pair", pairKey: String(o.verificationKey || "") })
   })
   list.forEach(function(o) {
     if (o && o.paired !== true && o.pairRequestedByPeer !== true && o.reachable === true)
       rows.push({ kind: "available", id: String(o.id), glyph: deviceGlyph(o), title: String(o.name || "A device"), name: String(o.name || ""),
-                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair", waiting: o.pairRequested === true })
+                  status: o.pairRequested === true ? "Waiting for it to accept" : "Available to pair",
+                  pairKey: o.pairRequested === true ? String(o.verificationKey || "") : "", waiting: o.pairRequested === true })
   })
   return rows
 }
@@ -1372,7 +1518,7 @@ function settingsPageRows(ctx) {
   } else {
     // A panel torn down mid-reload can ask with nothing to edit.
     var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications },
+    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
                             e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
     // A device's page (and the one-device page) edits its sections,
     // shortcuts and bar on the page itself (edit in place): here, a row
@@ -1399,7 +1545,11 @@ function settingsPageRows(ctx) {
       rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
     }
   }
-  if (scope === "root") rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  if (scope === "root") {
+    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
+    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
+    rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+  }
   return rows
 }
 
@@ -1532,5 +1682,99 @@ function editBarTiles(order) {
 var SECTION_EMPTY = {
   actions: "No shortcuts: add some below",
   media: "Shows while the device plays something",
-  notifications: "Shows while there are notifications"
+  notifications: "Shows while there are notifications",
+  photos: "Shows its newest photos and videos",
+  received: "Shows the files it sends you"
+}
+
+// ---- Files: the device's newest photos (#65) and files it sent (#37) ----
+
+// "12 KB", "3.4 MB".
+function sizeText(bytes) {
+  var b = Number(bytes) || 0
+  if (b < 1024) return b + " B"
+  if (b < 1024 * 1024) return Math.round(b / 1024) + " KB"
+  var mb = b / (1024 * 1024)
+  return (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " MB"
+}
+
+var IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "gif", "heic"]
+function isImage(name) {
+  var m = /\.([A-Za-z0-9]+)$/.exec(String(name || ""))
+  return !!m && IMAGE_EXTENSIONS.indexOf(m[1].toLowerCase()) >= 0
+}
+
+// A path as a file:// address, each part encoded apart (a name with # or ?
+// stays whole), as Omarchy's own panels build one.
+function fileUri(path) {
+  return "file://" + String(path || "").split("/").map(function(p) { return encodeURIComponent(p) }).join("/")
+}
+
+function photosSummary(photos) {
+  var list = photos || []
+  if (list.length === 0) return "Nothing new"
+  var videos = list.filter(function(p) { return p.video === true }).length
+  var parts = []
+  if (list.length > videos) parts.push(list.length - videos === 1 ? "1 photo" : (list.length - videos) + " photos")
+  if (videos > 0) parts.push(videos === 1 ? "1 video" : videos + " videos")
+  return parts.join(", ")
+}
+
+// A photo's identity: the same file is the same tile, wherever it moves.
+function photoIdentity(p) {
+  return String(p.path) + "|" + String(p.name)
+}
+
+// The steps that turn one list of keys into another, for a model whose
+// items should glide rather than be rebuilt: removals (from the end), then,
+// place by place, a move of an item already there or an insert.
+function listOps(oldKeys, newKeys) {
+  var ops = [], cur = oldKeys.slice()
+  for (var i = cur.length - 1; i >= 0; i--) {
+    if (newKeys.indexOf(cur[i]) < 0) { ops.push({ op: "remove", at: i }); cur.splice(i, 1) }
+  }
+  for (var j = 0; j < newKeys.length; j++) {
+    if (cur[j] === newKeys[j]) continue
+    var from = cur.indexOf(newKeys[j])
+    if (from > j) {
+      ops.push({ op: "move", from: from, to: j })
+      cur.splice(j, 0, cur.splice(from, 1)[0])
+    } else {
+      ops.push({ op: "insert", at: j, key: newKeys[j] })
+      cur.splice(j, 0, newKeys[j])
+    }
+  }
+  return ops
+}
+
+// What makes the tiles: a list with the same key is the same tiles, so a
+// state change (a read starting or ending) does not rebuild them.
+function photosKey(photos) {
+  return (photos || []).map(function(p) { return [p.path, p.at, p.thumb, p.video === true].join("|") }).join("\n")
+}
+
+// The newest file's name, and how many more.
+function receivedSummary(received) {
+  var list = received || []
+  if (list.length === 0) return "Nothing new"
+  return list.length === 1 ? String(list[0].name) : list[0].name + " and " + (list.length - 1) + " more"
+}
+
+// Demo: photos from the one local demo picture, each a different part of it
+// (`clip`: x, y, w, h as fractions), so a screenshot shows four of them;
+// and two received files that exist nowhere (demo only opens nothing).
+function demoPhotos(picture, nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  var clips = [[0, 0, 1, 1], [0.1, 0.35, 0.5, 0.5], [0.45, 0.05, 0.5, 0.5], [0.2, 0.5, 0.45, 0.45]]
+  return clips.map(function(c, i) {
+    return { name: "PXL_2026092" + i + (i === 1 ? ".mp4" : ".jpg"), path: picture || "", thumb: picture || "", at: now - (i * 7 + 2) * 60000,
+             album: i === 2 ? "Screenshots" : "Camera", video: i === 1, clip: c, demo: true }
+  })
+}
+function demoReceived(nowMs) {
+  var now = nowMs === undefined ? Date.now() : nowMs
+  return [
+    { path: "/demo/Boarding pass.pdf", name: "Boarding pass.pdf", size: 184320, at: now - 25 * 60000 },
+    { path: "/demo/Recipe notes.txt", name: "Recipe notes.txt", size: 2150, at: now - 26 * 3600000 }
+  ]
 }

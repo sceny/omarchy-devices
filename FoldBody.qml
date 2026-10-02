@@ -14,7 +14,10 @@ Item {
   width: parent ? parent.width : 0
   height: open ? bodyColumn.implicitHeight : 0
   implicitHeight: height
-  visible: height > 0.5
+  // Open, it stays visible even at height 0: a hidden item's children count
+  // as hidden, so its content would measure 0 and it could never grow (a
+  // section that starts hidden, such as Files, stayed an empty header).
+  visible: open || height > 0.5
   clip: true
   opacity: open ? 1 : 0
 

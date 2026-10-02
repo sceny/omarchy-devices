@@ -314,11 +314,14 @@ Item {
       return
     }
     start()
-    if (tid === openThreadId && messageModel.count > 0) return
+    if (tid === openThreadId && (messageModel.count > 0 || loading)) return
     openThreadId = tid
     messageModel.clear()
     loadedCount = 0
     hasMore = true
+    // The page still on its way is the previous conversation's; its answer
+    // is dropped (another thread), so this one is asked for now.
+    loading = false
     markSeen(tid)
     loadMore()
   }
@@ -519,7 +522,17 @@ Item {
 
     stdout: SplitParser {
       onRead: function(line) {
-        try { sms.handle(JSON.parse(line)) } catch (e) { sms.lastError = "Unreadable update from kdeconnect-bridge" }
+        var ev = null
+        try { ev = JSON.parse(line) } catch (e) {
+          // Clears like any error; the length only (the line may hold message text).
+          console.warn("sceny.devices sms: an unreadable line, " + String(line).length + " characters")
+          sms.lastError = "Unreadable update from kdeconnect-bridge"
+          errorClear.restart()
+          return
+        }
+        // A fault here is the panel's, not the bridge's: logged, with the
+        // event's type only.
+        try { sms.handle(ev) } catch (e2) { console.warn("sceny.devices sms: " + e2 + " while handling " + ev.ev) }
       }
     }
 

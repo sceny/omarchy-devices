@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window as QW
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -42,6 +43,92 @@ Panel {
   readonly property bool showShortcuts: profile.showShortcuts
   readonly property bool showMedia: profile.showMedia
   readonly property bool showNotifications: profile.showNotifications
+  readonly property bool showPhotos: profile.showPhotos
+  readonly property bool showReceived: profile.showReceived
+  // Files: the device's newest photos (#65) and the files it sent (#37).
+  // The photos drawn: the device's, except when they go to none. Then the
+  // tiles fade, the section folds closed, and only then are they gone (no
+  // blink, no jump, no empty section left open).
+  readonly property var livePhotos: phone ? phone.photos : []
+  property var shownPhotos: []
+  property bool photosFading: false
+  property bool photosClosing: false
+  onLivePhotosChanged: {
+    if (livePhotos.length > 0) {
+      photoLeave.stop(); photoClose.stop()
+      photosFading = false; photosClosing = false
+      // The same photos keep their tiles: a read starting or ending gives a
+      // new list, and new tiles would restart a tile's ring and reload its
+      // picture (a blink).
+      if (Model.photosKey(livePhotos) !== Model.photosKey(shownPhotos)) shownPhotos = livePhotos
+    } else if (shownPhotos.length > 0 && !photosFading) {
+      photosFading = true
+      photoLeave.restart()
+    }
+  }
+  Timer {
+    id: photoLeave
+    interval: Model.MOTION.outMs * root.motion
+    onTriggered: {
+      // Nothing else in the section: it folds closed before it goes.
+      if (!root.photosHint) { root.photosClosing = true; photoClose.restart() }
+      else { root.shownPhotos = []; root.photosFading = false }
+    }
+  }
+  Timer {
+    id: photoClose
+    interval: Model.MOTION.inMs * root.motion
+    onTriggered: { root.shownPhotos = []; root.photosFading = false; root.photosClosing = false }
+  }
+  readonly property var photos: shownPhotos
+  // The tiles, one per photo, changed in place (Model.listOps) so they glide.
+  ListModel { id: photoModel }
+  onShownPhotosChanged: {
+    var keys = shownPhotos.map(Model.photoIdentity), old = []
+    for (var i = 0; i < photoModel.count; i++) old.push(photoModel.get(i).key)
+    Model.listOps(old, keys).forEach(function(o) {
+      if (o.op === "remove") photoModel.remove(o.at, 1)
+      else if (o.op === "move") photoModel.move(o.from, o.to, 1)
+      else photoModel.insert(o.at, { key: o.key, json: JSON.stringify(shownPhotos[o.at]) })
+    })
+    for (var j = 0; j < shownPhotos.length; j++) {
+      var json = JSON.stringify(shownPhotos[j])
+      if (photoModel.get(j).json !== json) photoModel.setProperty(j, "json", json)
+    }
+  }
+  readonly property var photoInfo: phone ? phone.photoInfo : null
+  readonly property var received: phone ? phone.received : []
+  // Something to show, or a step that makes photos possible (sshfs, the
+  // phone's storage permission).
+  readonly property bool photosHint: !!photoInfo && photoInfo.ok === false
+  readonly property bool hasPhotos: photos.length > 0 || photosHint
+  // The keyboard cursor in Files: the photos (a grid of four), then the
+  // received files.
+  property int photoIndex: 0
+  property int receivedIndex: 0
+  readonly property int photoColumns: 4
+  // Opening a place (an album, a file's folder, KDE Connect) closes the
+  // panel: the user goes on in that window. Opening an item (a photo, a
+  // received file) keeps it open, to open the next one.
+  function openPhotoFolder(path) {
+    if (phone && phone.demo) { phone.report("Demo: made-up photos", false); return }
+    if (phone) { phone.openPath(path); root.close() }
+  }
+  function openPhoto(photo) {
+    if (!photo) return
+    if (photo.demo) { if (phone) phone.report("Demo: a made-up photo", false); return }
+    if (phone) phone.openFromDevice(photo.path)
+  }
+  function openReceived(entry) {
+    if (!entry) return
+    if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
+    if (phone) phone.openPath(entry.path)
+  }
+  function showReceivedFolder(entry) {
+    if (!entry) return
+    if (String(entry.path).indexOf("/demo/") === 0) { if (phone) phone.report("Demo: a made-up file", false); return }
+    if (phone) { phone.revealPath(entry.path); root.close() }
+  }
   readonly property var shortcutOrder: profile.shortcuts
   // What the bar pill shows beside the glyph (Bar settings; BarWidget draws it).
   readonly property var barIndicators: Model.normalizeBarIndicators(setting("barIndicators", null))
@@ -88,6 +175,8 @@ Panel {
   }
 
   onTargetPageChanged: {
+    // Leaving the preview runs its own change (previewSwap).
+    if (previewLeaving) return
     if (targetPage === shownPage && !pageSwap.running) return
     // Closed, or just opening: nothing to show off, the panel fades in anyway.
     if (!opened) { snapPage(); return }
@@ -112,11 +201,11 @@ Panel {
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -140,6 +229,51 @@ Panel {
     }
     // A change of mind mid-way (Esc right after opening) lands too.
     onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+  }
+
+  // Leaving the preview (backToSetup): the still of the old page fades and
+  // slides out, the real page and the panel's size take over at the
+  // midpoint, and the page comes in: the same beat as pageSwap.
+  SequentialAnimation {
+    id: previewSwap
+    ParallelAnimation {
+      NumberAnimation { target: previewStripCard; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageStill; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageStill; property: "x"; from: 0; to: pageSwap.travel; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+    }
+    ScriptAction {
+      script: {
+        pageStill.visible = false
+        pageStill.source = ""
+        pageStill.x = 0
+        pageStill.opacity = 1
+        previewStrip.held = false
+        root.applyShownPage()
+        root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+        root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
+        pageColumn.opacity = 1
+        pageHost.opacity = 0
+        pageHost.slide = -pageSwap.travel
+        if (panelFlick) panelFlick.contentY = 0
+      }
+    }
+    ParallelAnimation {
+      NumberAnimation { target: pageHost; property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+      NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+    }
+    onStopped: {
+      root.previewLeaving = false
+      previewStrip.held = false
+      previewStripCard.opacity = 1
+      pageStill.visible = false
+      pageStill.source = ""
+      pageColumn.opacity = 1
+      pageHost.opacity = 1
+      pageHost.slide = 0
+      root.applyShownPage()
+      root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+      root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
+    }
   }
 
   // The same beat for changing the viewed device (switchDevice).
@@ -173,7 +307,8 @@ Panel {
 
   // The setup checks run while a panel shows them: nothing connected, or
   // the settings page open.
-  readonly property bool wantsSetup: opened && ((showMain && !reachable) || showSettings)
+  // Always while open: the gear's dot says when a check on this computer fails.
+  readonly property bool wantsSetup: opened
   property bool countedSetup: false
   onWantsSetupChanged: {
     if (!phone || wantsSetup === countedSetup) return
@@ -242,11 +377,135 @@ Panel {
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
-  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true,
+  readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true, showPhotos: true, showReceived: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
-  readonly property var settingsRows: Model.settingsPageRows({
+  // ---- Connection (a settings scope): this computer, pairing, adding ----
+  // Checks the user chose not to fix (a firewall on a Bluetooth-only
+  // machine): they no longer light the gear's dot.
+  readonly property var ignoredChecks: {
+    var v = setting("ignoredChecks", [])
+    return Array.isArray(v) ? v : []
+  }
+  readonly property var setupChecks: phone ? phone.setupChecks : []
+  readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
+  function ignoreCheck(key, on) {
+    var next = ignoredChecks.filter(function(k) { return k !== key })
+    if (on) next.push(key)
+    persistSettings({ ignoredChecks: next.length > 0 ? next : undefined })
+  }
+  // Nothing to show on the main page without them: KDE Connect down (the
+  // panel opens on Connection, what is broken), or nothing paired (it opens
+  // on Add a device, what to do next).
+  readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? "connection" : (pairedDevices.length === 0 ? "addDevice" : ""))
+  // The viewed device away: where it was and what Reconnect found.
+  readonly property var awayInfo: Model.awayState(device, phone ? phone.setupNetwork : "", phone ? phone.searchedAt : 0,
+                                                  phone ? phone.awayClock : Date.now())
+  function openConnection() {
+    if (!settingsOpen) openSettings()
+    openScope("connection")
+  }
+  function openAddDevice() {
+    if (!settingsOpen) openSettings()
+    openScope("addDevice")
+  }
+  // A pairing on Add a device that completes: its card says so in place
+  // (✓ Paired with …) for a moment, then the panel goes to the device's
+  // page. No toast: the card and the page say it. Adding another is the
+  // gear → Add a device again.
+  property var pairingIds: ({})       // id -> "request" | "available": cards shown here
+  property var justPaired: null       // { id, title, glyph, kind }
+  // A pairing asked here: when it started (the card counts down KDE
+  // Connect's 30 s), and what became of one that was not accepted in time
+  // (said on its row, in place). A cancel the user pressed says nothing.
+  property var pairingSince: ({})     // id -> ms
+  property var pairingNotes: ({})     // id -> "Not accepted in time"
+  property var pairingCancelled: ({}) // id -> true
+  property real pairClock: Date.now()
+  Timer {
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice" && Object.keys(root.pairingSince).length > 0
+    interval: 1000
+    repeat: true
+    onTriggered: root.pairClock = Date.now()
+  }
+  function cancelPairing(id) {
+    var c = Object.assign({}, pairingCancelled)
+    c[String(id)] = true
+    pairingCancelled = c
+    if (phone) phone.rejectPairing(id)
+  }
+  function pairWithHere(id) {
+    var n = Object.assign({}, pairingNotes)
+    delete n[String(id)]
+    pairingNotes = n
+    if (phone) phone.pairWith(id)
+  }
+  function isPaired(id) {
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === String(id)) return true
+    return false
+  }
+  onSettingsRowsChanged: {
+    if (settingsScope !== "addDevice") return
+    var next = Object.assign({}, pairingIds), since = Object.assign({}, pairingSince), notes = Object.assign({}, pairingNotes)
+    var cancelled = Object.assign({}, pairingCancelled), changed = false
+    var waiting = {}
+    settingsRows.forEach(function(r) {
+      if ((r.kind === "request" || r.kind === "available") && r.pairKey) {
+        waiting[r.id] = true
+        if (next[r.id] !== r.kind) { next[r.id] = r.kind; changed = true }
+        if (r.kind === "available" && !since[r.id]) { since[r.id] = Date.now(); changed = true }
+      }
+    })
+    // A pairing asked here that is no longer waiting and not paired: KDE
+    // Connect gave up on it (30 s), unless the user cancelled it.
+    Object.keys(since).forEach(function(id) {
+      if (waiting[id] || isPaired(id)) return
+      if (!cancelled[id]) notes[id] = "Not accepted in time"
+      delete since[id]
+      delete next[id]
+      delete cancelled[id]
+      changed = true
+    })
+    if (changed) { pairingIds = next; pairingSince = since; pairingNotes = notes; pairingCancelled = cancelled; pairClock = Date.now() }
+  }
+  onPairedDevicesChanged: {
+    if (!opened || !showSettings || settingsScope !== "addDevice") return
+    for (var i = 0; i < pairedDevices.length; i++) {
+      var d = pairedDevices[i], kind = pairingIds[String(d.id)]
+      if (!kind) continue
+      var next = Object.assign({}, pairingIds)
+      delete next[String(d.id)]
+      pairingIds = next
+      justPaired = { id: String(d.id), title: Model.deviceLabel(d), glyph: Model.deviceGlyph(d), kind: kind }
+      pairedMove.restart()
+      return
+    }
+  }
+  Timer {
+    id: pairedMove
+    interval: 1200
+    onTriggered: {
+      var p = root.justPaired
+      root.justPaired = null
+      if (!p || !root.opened || !root.showSettings || root.settingsScope !== "addDevice") return
+      if (root.phone) root.phone.view(p.id)
+      root.closeSettings()
+    }
+  }
+  // While Add a device shows, it looks for new devices.
+  Timer {
+    running: root.opened && root.showSettings && root.settingsScope === "addDevice"
+    interval: 30000
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (root.phone) root.phone.searchDevices(true)
+  }
+
+  readonly property var settingsRows: settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+    : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
+    : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
+    connection: Model.connectionSummary(setupChecks, ignoredChecks),
     devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
@@ -271,6 +530,67 @@ Panel {
     if (!phone.demo || phone.settingsBeforeDemo === null) phone.settingsBeforeDemo = JSON.parse(JSON.stringify(root.settings || {}))
     phone.showDemo(kind)
   }
+  // ---- Preview: a demo phone before any device is set up (#62) ----
+  // The demo, entered from the setup checks, with a strip saying so. Nothing
+  // in it reaches a device; leaving it puts every setting back.
+  // Where the preview began (Add a device, or the main page), for Back to setup.
+  property string previewFrom: ""
+  function startPreview() {
+    if (!phone || phone.preview) return
+    previewFrom = settingsOpen ? settingsScope : "main"
+    enterDemo("")
+    phone.preview = true
+    settingsOpen = false
+    messagesOpen = false
+    if (panelFlick) panelFlick.contentY = 0
+  }
+  function endPreview() {
+    if (!phone || !phone.preview) return
+    phone.showLive()
+    leaveDemo()
+  }
+  // Back to setup: out of the preview, onto the page it began from.
+  // One page change: whatever the preview had open (its messages, editing
+  // its page) gives way to the page it began from, and the demo turns live
+  // at the change's midpoint, while no page shows: the fading page never
+  // shows the real phone's data. On the same page, the page fades out and
+  // back in around the swap.
+  // Turning the demo live rebuilds the whole panel for the real device
+  // (about 0.1 s): done in the middle of a page change, it froze the change
+  // and the slide-in then jumped. So the page is captured first and shown
+  // still while the demo turns live underneath (a click's latency, nothing
+  // moving), and only then does the change run, on a fresh clock
+  // (previewSwap): the still fades out, the real page comes in, and the
+  // panel's size follows at the same beat.
+  property bool previewLeaving: false
+  function backToSetup() {
+    if (!opened || previewLeaving) { if (!opened) finishBackToSetup(); return }
+    previewLeaving = true
+    previewStrip.held = true
+    cardWidth = cardWidth
+    cardHeight = cardHeight
+    pageHost.grabToImage(function(result) {
+      pageStill.source = result.url
+      pageStill.visible = true
+      pageColumn.opacity = 0
+      finishBackToSetup()
+      Qt.callLater(function() { previewSwap.restart() })
+    }, Qt.size(pageHost.width * pageHost.dpr, pageHost.height * pageHost.dpr))
+  }
+  function finishBackToSetup() {
+    var from = previewFrom
+    if (editing) stopEditing()
+    if (from !== "" && from !== "main") { openSettings(); openScope(from) }
+    else { messagesOpen = false; settingsOpen = false }
+    endPreview()
+  }
+
+  readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
+  // A real device connecting ends the preview: the panel shows it instead.
+  readonly property bool liveConnected: !!phone && !!phone.liveSnapshot
+    && (phone.liveSnapshot.devices || []).some(function(d) { return d && d.paired === true && d.reachable === true })
+  onLiveConnectedChanged: if (liveConnected) endPreview()
+
   function leaveDemo() {
     var before = phone ? phone.settingsBeforeDemo : null
     if (!before) { forgetDemoProfiles(); return }
@@ -404,7 +724,7 @@ Panel {
   // Edits show at once (the page, the pill); Esc puts back what was there
   // when editing began, ✓ and E keep them. What editing can change: the
   // profiles (several devices) or the flat keys (one device).
-  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications",
+  readonly property var editKeys: ["devices", "sectionOrder", "showShortcuts", "showMedia", "showNotifications", "showPhotos", "showReceived",
                                    "shortcuts", "barIndicators", "batteryLowOnly", "showCalls"]
   property var editBefore: null
   function startEditing() {
@@ -614,6 +934,7 @@ Panel {
     if (!phone || pendingDevice === "") return
     editing = false
     phone.view(pendingDevice)
+    phone.refreshPhotos(false)
     if (editOnArrival) { editOnArrival = false; startEditing() }
     pendingDevice = ""
     browsedName = ""
@@ -668,6 +989,8 @@ Panel {
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
       else if (key === "notifications" && showNotifications && notifications.length > 0) s.push(key)
+      else if (key === "photos" && showPhotos && hasPhotos) s.push(key)
+      else if (key === "received" && showReceived && received.length > 0) s.push(key)
     }
     return s
   }
@@ -776,7 +1099,7 @@ Panel {
     else if (row.kind === "device") openScope(row.id)
     else if (row.kind === "defaults") openScope("defaults")
     else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
-    else if (row.kind === "available" && phone && !row.waiting) phone.pairWith(row.id)
+    else if (row.kind === "available" && phone && !row.waiting) pairWithHere(row.id)
     else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
     else if (row.kind === "icon") iconPicking = !iconPicking
     else if (row.kind === "barPlace") cycleBarPlace()
@@ -785,6 +1108,8 @@ Panel {
     else if (row.kind === "editPage") { if (editingDevice && scopeDevice) phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
+    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
+    else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -991,6 +1316,8 @@ Panel {
     if (s.length === 0) return
     if (s.indexOf(focusSection) < 0) focusSection = s[0]
     if (notifIndex >= notifications.length) notifIndex = Math.max(0, notifications.length - 1)
+    if (photoIndex >= photos.length) photoIndex = Math.max(0, photos.length - 1)
+    if (receivedIndex >= received.length) receivedIndex = Math.max(0, received.length - 1)
   }
 
   function moveCursor(dx, dy) {
@@ -1000,7 +1327,17 @@ Panel {
     if (dx !== 0) {
       if (focusSection === "actions") actionIndex = Math.max(0, Math.min(actions.length - 1, actionIndex + dx))
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
+      else if (focusSection === "photos") photoIndex = Math.max(0, Math.min(photos.length - 1, photoIndex + dx))
       return
+    }
+    // Photos are a grid of four; j/k walk its rows before leaving it.
+    if (focusSection === "photos" && !isCollapsed("photos")) {
+      var down = photoIndex + dy * photoColumns
+      if (down >= 0 && down < photos.length) { photoIndex = down; return }
+    }
+    if (focusSection === "received" && !isCollapsed("received")) {
+      var step = receivedIndex + dy
+      if (step >= 0 && step < received.length) { receivedIndex = step; return }
     }
     // The shortcuts are a grid: j/k walk its rows before leaving it. Folded,
     // they are one row of icons in the header.
@@ -1021,6 +1358,8 @@ Panel {
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
     if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
+    if (focusSection === "photos") photoIndex = dy > 0 ? 0 : Math.max(0, photos.length - 1)
+    if (focusSection === "received") receivedIndex = dy > 0 ? 0 : Math.max(0, received.length - 1)
     scrollToCursor()
   }
 
@@ -1029,7 +1368,7 @@ Panel {
     // Editing: Enter shows or hides the section under the cursor.
     if (editing) { toggleSectionShown(focusSection); return }
     // A folded section opens on Enter; its content is not there to act on.
-    if ((focusSection === "media" || focusSection === "notifications") && isCollapsed(focusSection)) {
+    if ((focusSection === "media" || focusSection === "notifications" || focusSection === "photos" || focusSection === "received") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
       return
     }
@@ -1041,6 +1380,10 @@ Panel {
       if (shownCard) shownCard.togglePlaying()
     } else if (focusSection === "notifications") {
       openReply(notifications[notifIndex])
+    } else if (focusSection === "photos") {
+      openPhoto(photos[photoIndex])
+    } else if (focusSection === "received") {
+      openReceived(received[receivedIndex])
     }
   }
 
@@ -1070,15 +1413,21 @@ Panel {
     pageMenuOpen = false
     // The device asked for (a chip, IPC), else the first connected one.
     if (phone) phone.viewOnOpen()
+    // A paired device that is away is looked for once (Service.searchIfAway).
+    if (phone) phone.searchIfAway()
     deviceSwap.stop()
     pendingDevice = ""
     // Positions are kept current while closed (Service), but re-read now too,
     // so the seek bar is already where it belongs when the panel shows.
     if (phone) phone.refreshPositions()
+    // The newest photos, asked for when the panel opens (Service.refreshPhotos).
+    if (phone) phone.refreshPhotos(false)
     cursorActive = false
     browsedName = ""
     settingsOpen = false
     messagesOpen = false
+    // Nothing paired, or KDE Connect down: straight to Connection.
+    if (openingScope !== "") { settingsOpen = true; settingsScope = openingScope; settingsIndex = 0 }
     snapPage()
     replyingTo = ""
     replyFocused = false
@@ -1119,6 +1468,8 @@ Panel {
     // For checking the transitions: open a page as a click would.
     function page(name: string): string {
       if (name === "settings") root.openSettings()
+      else if (name === "connection") root.openConnection()
+      else if (name === "addDevice") root.openAddDevice()
       else if (name === "messages") root.openMessagesView(-1)
       else { root.settingsOpen = false; root.messagesOpen = false }
       return root.targetPage
@@ -1126,18 +1477,36 @@ Panel {
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
-    // Sample failing checks, to look at the fix buttons (replaced by the next
-    // real check within 10 s).
+    // Demo: sample failing checks on this computer, to look at the fixes and
+    // the gear's dot (kept until `live`; a demo starts if none runs).
     function demoSetup(): string {
       if (!root.phone) return "no service"
+      if (!root.phone.demo) root.enterDemo("")
+      root.phone.demoChecks = true
+      root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.setupChecks = [
-        { key: "installed", ok: true, label: "KDE Connect installed", detail: "", fix: "", fixLabel: "" },
-        { key: "running", ok: false, label: "KDE Connect running", detail: "It starts at login; it is not running now", fix: "start", fixLabel: "Start" },
-        { key: "firewall", ok: false, label: "Firewall lets devices in", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
-        { key: "paired", ok: false, label: "A device is paired", detail: "Open KDE Connect on the phone or tablet and pair it with this computer", fix: "", fixLabel: "" }
+        { key: "installed", ok: true, label: "KDE Connect installed", status: "Installed", detail: "", fix: "", fixLabel: "" },
+        { key: "running", ok: true, label: "KDE Connect running", status: "Running", detail: "", fix: "", fixLabel: "" },
+        { key: "firewall", ok: false, label: "Firewall lets devices in", status: "Closed", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
+        { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" }
       ]
+      return JSON.stringify({ issues: root.computerIssues })
+    }
+    // Demo: the phone away, last seen 12 minutes ago on this network.
+    function demoAway(): string {
+      if (!root.phone) return "no service"
+      root.enterDemo("away")
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.searchedAt = 0
       return "ok"
     }
+    // Reconnect on the viewed device, as its button would; what it shows.
+    function reconnect(): string {
+      if (root.phone) root.phone.searchDevices(false)
+      return JSON.stringify(root.awayInfo)
+    }
+    // A check ignored (or not), as its Ignore / Undo would.
+    function ignoreCheck(key: string, on: bool): string { root.ignoreCheck(key, on); return JSON.stringify({ ignored: root.ignoredChecks, issues: root.computerIssues }) }
     // Demo only: press a notification's action as a click would, to check
     // what follows in the panel. Refused on live data, where it would act on
     // the phone.
@@ -1216,7 +1585,7 @@ Panel {
     // Checks while editing, as a click or a drag would: a section's switch, a
     // shortcut or bar indicator added or taken away, a section or a chosen
     // tile moved (glide), a bar switch.
-    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications }) }
+    function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications, photos: root.profile.showPhotos, received: root.profile.showReceived }) }
     function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
     function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
     function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
@@ -1315,7 +1684,22 @@ Panel {
       root.openReply(n)
       return "ok"
     }
+    // Files: what the section holds; a received file forgotten, as its ×.
+    function filesInfo(): string {
+      return JSON.stringify({ photos: root.photos.map(function(p) { return p.name }), received: root.received.map(function(r) { return r.name }),
+        albums: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums.map(function(a) { return a.name }) : [],
+        state: root.photoInfo ? { ok: root.photoInfo.ok, missing: root.photoInfo.missing || "" } : null })
+    }
+    function dismissReceived(index: int): string {
+      if (root.phone) root.phone.dismissReceived(root.received[index])
+      return JSON.stringify(root.received.map(function(r) { return r.name }))
+    }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
+    // Preview with a demo phone (on) or Back to setup (off), as the buttons would.
+    function preview(on: bool): string {
+      if (on) root.startPreview(); else root.backToSetup()
+      return JSON.stringify({ preview: !!root.phone && root.phone.preview, demo: !!root.phone && root.phone.demo })
+    }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
@@ -1338,6 +1722,8 @@ Panel {
     function status(): string {
       return JSON.stringify({
         opened: root.opened,
+        messagesOpen: root.messagesOpen,
+        preview: !!root.phone && root.phone.preview,
         editing: root.editing,
         call: root.call,
         daemon: root.phone ? root.phone.daemon : false,
@@ -1361,7 +1747,8 @@ Panel {
         busy: root.phone ? Object.keys(root.phone.busy) : [],
         watchError: root.phone ? root.phone.watchError : "",
         settingsOpen: root.settingsOpen,
-        layout: { showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications },
+        layout: { showShortcuts: root.showShortcuts, showMedia: root.showMedia, showNotifications: root.showNotifications, showPhotos: root.showPhotos, showReceived: root.showReceived },
+        files: { photos: root.photos.length, received: root.received.length, state: root.photoInfo ? { ok: root.photoInfo.ok, loading: !!root.photoInfo.loading, missing: root.photoInfo.missing || "", error: root.photoInfo.error || "" } : null },
         shortcuts: root.shortcutOrder,
         sections: root.sections,
         shownPlayer: root.shownPlayer,
@@ -1407,6 +1794,10 @@ Panel {
         else root.activateCursor()
       }
       onDeleteRequested: {
+        if (root.mainView && root.cursorActive && root.focusSection === "received") {
+          if (root.phone) root.phone.dismissReceived(root.received[root.receivedIndex])
+          return
+        }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
           var n = root.notifications[root.notifIndex]
           if (n && n.dismissable) root.phone.dismiss(n)
@@ -1593,6 +1984,9 @@ Panel {
           z: 50
           enabled: root.showMain && !root.editing
           acceptedButtons: Qt.RightButton
+          // A MouseArea claims the arrow from the start; this one covers the
+          // page, so it gives the cursor back to the controls under it.
+          cursorShape: undefined
           onClicked: function(m) { var p = mapToItem(keyCatcher, m.x, m.y); root.openPageMenu(p.x, p.y) }
         }
 
@@ -1604,6 +1998,72 @@ Panel {
           // animating, so the page never re-flows during a page change.
           width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - 2 * root.pageGutter
           spacing: Style.space(12)
+
+          // ---- Preview: says the phone is a demo, with the way back ----
+          // Leaving with Back to setup, it stays until the page change's
+          // midpoint, fading with the old page, then folds away with the
+          // panel's resize: closing at the click moved the page under it.
+          FoldBody {
+            id: previewStrip
+            property bool held: false
+            open: (!!root.phone && root.phone.preview) || held
+            motion: root.motion
+            animate: root.settled
+            BorderSurface {
+              id: previewStripCard
+              width: parent.width
+              implicitHeight: previewRow.implicitHeight + Style.space(14)
+              radius: Style.cornerRadius
+              color: Style.selectedFillFor(root.foreground, Color.accent)
+              borderSpec: Border.controlSpec("hover-cursor", root.foreground, Color.accent)
+              RowLayout {
+                id: previewRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(8)
+                spacing: Style.space(10)
+                Text {
+                  text: Model.GLYPH.devices
+                  color: Color.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.icon
+                }
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Demo: set up KDE Connect to see your phone"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                  }
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Made-up data; nothing here reaches a device"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+                }
+                Button {
+                  text: "Back to setup"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.backToSetup()
+                }
+              }
+            }
+          }
 
           // ---- The pairing card: a device asking to pair, at the top, above
           //      the tabs (it is about all devices, not the one viewed),
@@ -1634,14 +2094,16 @@ Panel {
               // Clicks on the card stay on the card.
               MouseArea { anchors.fill: parent }
 
+              // The same pattern as the pop-up (PairingPopup): the device and
+              // what it asks; then the key and the answer on one row.
               RowLayout {
                 id: pairRow
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(12)
-                anchors.rightMargin: Style.space(10)
-                spacing: Style.space(10)
+                anchors.leftMargin: Style.space(14)
+                anchors.rightMargin: Style.space(12)
+                spacing: Style.space(14)
 
                 Text {
                   textFormat: Text.PlainText
@@ -1649,59 +2111,54 @@ Panel {
                   color: Color.accent
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.display
-                  Layout.alignment: Qt.AlignVCenter
+                  Layout.alignment: Qt.AlignTop
+                  Layout.topMargin: Style.space(2)
                 }
-                Column {
+                ColumnLayout {
                   Layout.fillWidth: true
-                  Layout.alignment: Qt.AlignVCenter
-                  spacing: Style.space(2)
+                  spacing: Style.space(8)
                   Text {
-                    width: parent.width
+                    Layout.fillWidth: true
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
-                    text: "WANTS TO PAIR"
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                  }
-                  Text {
-                    width: parent.width
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    text: pairCard.shown ? Model.deviceLabel(pairCard.shown) : ""
+                    text: (pairCard.shown ? Model.deviceLabel(pairCard.shown) : "") + " wants to pair"
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.bold: true
                   }
-                  Text {
-                    width: parent.width
-                    visible: text !== ""
-                    textFormat: Text.PlainText
-                    elide: Text.ElideRight
-                    // Compare it with the one the device shows.
-                    text: pairCard.shown && pairCard.shown.verificationKey ? "Key " + pairCard.shown.verificationKey : ""
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
+                  RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(8)
+                    PairingKey {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignBottom
+                      key: pairCard.shown ? String(pairCard.shown.verificationKey || "") : ""
+                      caption: "check it matches"
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+                    Item { Layout.fillWidth: true; visible: !pairCard.shown || !pairCard.shown.verificationKey }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: pairCard.waiting ? "Waiting…" : "Accept"
+                      bordered: true
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
+                    }
+                    Button {
+                      Layout.alignment: Qt.AlignBottom
+                      text: "Reject"
+                      enabled: !pairCard.waiting
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.bodySmall
+                      onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
+                    }
                   }
-                }
-                Button {
-                  text: "Accept"
-                  bordered: true
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.acceptPairing(pairCard.shown.id)
-                }
-                Button {
-                  text: "Reject"
-                  enabled: !pairCard.waiting
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: if (root.phone && pairCard.shown) root.phone.rejectPairing(pairCard.shown.id)
                 }
               }
             }
@@ -1848,10 +2305,11 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: "Settings"
+            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: root.openSettings()
+            onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
+            GearDot { visible: root.computerIssues > 0 }
           }
 
           Flickable {
@@ -2027,7 +2485,8 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
+            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
+                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
@@ -2064,14 +2523,16 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: root.showMain ? "Settings" : "Back"
+                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: {
                     if (root.messagesOpen) root.closeMessagesView()
                     else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+                    else if (root.computerIssues > 0) root.openConnection()
                     else root.openSettings()
                   }
+                  GearDot { visible: root.showMain && root.computerIssues > 0 }
                 }
               }
             }
@@ -2084,6 +2545,7 @@ Panel {
           Item {
             id: pageHost
             property real slide: 0
+            readonly property real dpr: QW.Screen.devicePixelRatio > 0 ? QW.Screen.devicePixelRatio : 1
             width: parent.width
             height: pageColumn.implicitHeight
             implicitHeight: pageColumn.implicitHeight
@@ -2267,7 +2729,7 @@ Panel {
               //      nothing: the media cards and a half-typed text keep their state ----
               Item {
                 id: sectionsBox
-                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn })
+                readonly property var items: ({ actions: actionsColumn, media: mediaColumn, notifications: notificationsColumn, photos: photosColumn, received: receivedSection })
                 readonly property real gap: Style.space(12)
                 function topOf(key) {
                   var y = 0
@@ -2516,7 +2978,7 @@ Panel {
                         ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist,
                             Model.playerApp(root.shownPlayerObject.identity, root.device ? root.device.name : ""))
                         : ""
-                      thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl ? root.shownPlayerObject.trackArtUrl : ""
+                      thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl && root.phone ? root.phone.artFor(root.shownPlayerObject.trackArtUrl) : ""
                       onToggled: root.toggleCollapsed("media")
                     }
 
@@ -2632,6 +3094,8 @@ Panel {
                       MouseArea {
                         anchors.fill: parent
                         acceptedButtons: Qt.NoButton
+                        // Over the cards: the cursor stays the buttons' own.
+                        cursorShape: undefined
                         property real pending: 0
                         onWheel: function(wheel) {
                           var dx = wheel.angleDelta.x
@@ -2742,43 +3206,375 @@ Panel {
                     }
                   }
                 }
+
+                // ---- Gallery: the newest photos and videos on the device
+                //      (click opens; copy, save, drag), and a link per folder
+                //      for all of them in the file manager ----
+                Column {
+                  id: photosColumn
+                  y: sectionsBox.topOf("photos")
+                  // Folding closed when its last photos went (see shownPhotos).
+                  height: root.photosClosing ? 0 : implicitHeight
+                  clip: root.photosClosing
+                  Behavior on height { enabled: root.photosClosing; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("photos") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("photos") ? 10 : 0
+                  visible: root.showMain && root.drawnSections.indexOf("photos") >= 0
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  PanelSeparator { visible: root.separatedAbove("photos"); foreground: root.foreground }
+
+                  EditBar { section: "photos"; item: photosColumn }
+
+                  FoldToggle {
+                    visible: !root.editing
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    motion: root.motion
+                    animate: root.settled
+                    width: parent.width
+                    title: "GALLERY"
+                    canBusy: true
+                    busy: !!root.photoInfo && root.photoInfo.loading === true
+                    refreshTip: "Look at the phone again"
+                    onRefreshRequested: if (root.phone) root.phone.refreshPhotos(true)
+                    folded: root.isCollapsed("photos")
+                    summary: Model.photosSummary(root.photos)
+                    onToggled: root.toggleCollapsed("photos")
+                  }
+
+                  FoldBody {
+                    motion: root.motion
+                    animate: root.settled
+                    open: !root.isCollapsed("photos") && !root.editing
+                    spacing: Style.space(8)
+
+                    // Photos need sshfs, or the phone's leave to read its storage.
+                    RowLayout {
+                      visible: root.photosHint
+                      width: parent.width
+                      spacing: Style.space(10)
+                      Text {
+                        Layout.fillWidth: true
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        text: root.photoInfo && root.photoInfo.missing === "sshfs"
+                          ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
+                          : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                      Button {
+                        readonly property bool installing: !!root.phone && root.phone.setupFixing["sshfs"] === true
+                        text: root.photoInfo && root.photoInfo.missing === "sshfs" ? (installing ? "Installing…" : "Install") : "Try again"
+                        enabled: !installing
+                        tooltipText: root.photoInfo && root.photoInfo.missing === "sshfs" ? "Asks for your password" : (root.photoInfo ? root.photoInfo.error || "" : "")
+                        bordered: true
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: {
+                          if (!root.phone) return
+                          if (root.photoInfo && root.photoInfo.missing === "sshfs") root.phone.fixSetup("sshfs")
+                          else root.phone.refreshPhotos(true)
+                        }
+                      }
+                    }
+
+                    // The tiles are kept, one per photo (photoModel), so a
+                    // photo that goes fades out and the rest glide to their
+                    // new places, one that comes fades in: at the panel's
+                    // pace, and only once the page has settled.
+                    GridView {
+                      id: photoGrid
+                      visible: root.photos.length > 0
+                      opacity: root.photosFading ? 0 : 1
+                      Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+                      readonly property int columns: root.photoColumns
+                      readonly property real spacing: Style.space(6)
+                      readonly property real cell: (parent.width - spacing * (columns - 1)) / columns
+                      // A cell is a tile and the gap after it; the last gap
+                      // falls outside the section.
+                      width: parent.width + spacing
+                      height: Math.ceil(count / columns) * cellHeight - spacing
+                      cellWidth: cell + spacing
+                      cellHeight: cell + spacing
+                      interactive: false
+                      model: photoModel
+                      delegate: Item {
+                        required property string json
+                        required property int index
+                        width: photoGrid.cellWidth
+                        height: photoGrid.cellHeight
+                        PhotoTile {
+                          width: photoGrid.cell
+                          height: photoGrid.cell
+                          photo: JSON.parse(parent.json)
+                          place: parent.index
+                        }
+                      }
+                      add: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; from: 0; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      remove: Transition {
+                        enabled: root.settled
+                        NumberAnimation { property: "opacity"; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      displaced: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                        NumberAnimation { property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion }
+                      }
+                      move: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                    }
+
+                    // Everything else: the biggest albums (Camera,
+                    // Screenshots, …), wherever this phone keeps them,
+                    // opened in the file manager (the storage KDE Connect
+                    // mounted). Only from a fresh look: the cached list may
+                    // predate the mount. Wider than the panel, they scroll
+                    // sideways (the wheel, a swipe or a drag); while they
+                    // fit, they sit at the right.
+                    Flickable {
+                      id: albumStrip
+                      width: parent.width
+                      height: albumRow.implicitHeight
+                      visible: root.photos.length > 0 && !!root.photoInfo && !!root.photoInfo.albums
+                        && root.photoInfo.albums.length > 0 && !root.photoInfo.cached
+                      contentWidth: Math.max(width, albumRow.implicitWidth)
+                      contentHeight: height
+                      flickableDirection: Flickable.HorizontalFlick
+                      boundsBehavior: Flickable.StopAtBounds
+                      interactive: albumRow.implicitWidth > width
+                      clip: true
+                      Row {
+                        id: albumRow
+                        x: Math.max(0, albumStrip.width - implicitWidth)
+                        spacing: Style.space(4)
+                        Repeater {
+                          model: root.photoInfo && root.photoInfo.albums ? root.photoInfo.albums : []
+                          Button {
+                            required property var modelData
+                            text: modelData.name
+                            iconText: Model.GLYPH.folderOpen
+                            tooltipText: modelData.count + " in " + modelData.name + ": opens the album in your file manager"
+                            foreground: root.foreground
+                            fontFamily: root.fontFamily
+                            fontSize: Style.font.bodySmall
+                            onClicked: root.openPhotoFolder(modelData.path)
+                          }
+                        }
+                      }
+                      // The wheel moves the row while it has more that way;
+                      // at an end, the page scrolls as usual. Over the links:
+                      // no button taken, and the cursor stays theirs.
+                      MouseArea {
+                        parent: albumStrip
+                        anchors.fill: parent
+                        acceptedButtons: Qt.NoButton
+                        cursorShape: undefined
+                        onWheel: function(wheel) {
+                          var d = wheel.pixelDelta.x !== 0 || wheel.pixelDelta.y !== 0
+                            ? (wheel.pixelDelta.x !== 0 ? wheel.pixelDelta.x : wheel.pixelDelta.y)
+                            : (wheel.angleDelta.x !== 0 ? wheel.angleDelta.x : wheel.angleDelta.y) / 2
+                          var most = Math.max(0, albumStrip.contentWidth - albumStrip.width)
+                          var x = Math.max(0, Math.min(most, albumStrip.contentX - d))
+                          wheel.accepted = albumStrip.interactive && x !== albumStrip.contentX
+                          if (wheel.accepted) albumStrip.contentX = x
+                        }
+                      }
+                      NumberAnimation {
+                        id: albumGlide
+                        target: albumStrip
+                        property: "contentX"
+                        duration: Model.MOTION.inMs * root.motion
+                        easing.type: Easing.OutCubic
+                      }
+                      function glideAlbums(dir) {
+                        var most = Math.max(0, albumStrip.contentWidth - albumStrip.width)
+                        albumGlide.stop()
+                        albumGlide.to = Math.max(0, Math.min(most, albumStrip.contentX + dir * albumStrip.width * 0.75))
+                        albumGlide.start()
+                      }
+                      // More to either side: the edge fades and an arrow
+                      // shows (it moves the row along), so the row reads as
+                      // one that goes on even when a link ends at the edge.
+                      Repeater {
+                        model: [{ left: true }, { left: false }]
+                        Rectangle {
+                          id: albumEdge
+                          required property var modelData
+                          readonly property color panel: root.bar ? root.bar.background : Color.background
+                          parent: albumStrip
+                          anchors.left: modelData.left ? parent.left : undefined
+                          anchors.right: modelData.left ? undefined : parent.right
+                          width: Style.space(40)
+                          height: parent.height
+                          opacity: modelData.left ? (albumStrip.atXBeginning ? 0 : 1) : (albumStrip.atXEnd ? 0 : 1)
+                          visible: opacity > 0
+                          Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                          PanelActionButton {
+                            anchors.verticalCenter: parent.verticalCenter
+                            anchors.left: albumEdge.modelData.left ? parent.left : undefined
+                            anchors.right: albumEdge.modelData.left ? undefined : parent.right
+                            iconText: albumEdge.modelData.left ? Model.GLYPH.left : Model.GLYPH.right
+                            tooltipText: albumEdge.modelData.left ? "Earlier albums" : "More albums"
+                            size: Style.space(20)
+                            fontSize: Style.font.body
+                            foreground: root.foreground
+                            fontFamily: root.fontFamily
+                            onClicked: albumStrip.glideAlbums(albumEdge.modelData.left ? -1 : 1)
+                          }
+                          gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: modelData.left ? panel : Qt.rgba(panel.r, panel.g, panel.b, 0) }
+                            GradientStop { position: 1; color: modelData.left ? Qt.rgba(panel.r, panel.g, panel.b, 0) : panel }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+
+                // ---- Received: the files the device sent (open, show in folder,
+                //      forget); gone while there are none ----
+                Column {
+                  id: receivedSection
+                  y: sectionsBox.topOf("received")
+                  transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("received") : -1 }
+                  z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("received") ? 10 : 0
+                  visible: root.showMain && root.drawnSections.indexOf("received") >= 0
+                  width: parent.width
+                  spacing: Style.space(8)
+
+                  PanelSeparator { visible: root.separatedAbove("received"); foreground: root.foreground }
+
+                  EditBar { section: "received"; item: receivedSection }
+
+                  FoldToggle {
+                    visible: !root.editing
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    motion: root.motion
+                    animate: root.settled
+                    width: parent.width
+                    title: "RECEIVED"
+                    folded: root.isCollapsed("received")
+                    summary: Model.receivedSummary(root.received)
+                    onToggled: root.toggleCollapsed("received")
+                  }
+
+                  FoldBody {
+                    motion: root.motion
+                    animate: root.settled
+                    open: !root.isCollapsed("received") && !root.editing
+                    spacing: Style.space(2)
+
+                    Column {
+                      id: receivedColumn
+                      width: parent.width
+                      spacing: Style.space(2)
+                      Repeater {
+                        model: root.received
+                        ReceivedRow {
+                          required property var modelData
+                          required property int index
+                          width: receivedColumn.width
+                          entry: modelData
+                          place: index
+                        }
+                      }
+                    }
+                  }
+                }
               }
 
               // ---- Away, not paired, or KDE Connect down ----
+              // Away: where it was last seen, and Reconnect, in place (the
+              // search runs here and the result lands here). Nothing paired
+              // or KDE Connect down: the way to Connection.
               Column {
                 id: awayColumn
                 visible: root.showMain && !root.reachable
                 width: parent.width
-                spacing: Style.space(10)
+                spacing: Style.space(8)
+                readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon
 
                 Text {
                   textFormat: Text.PlainText
                   width: parent.width
                   wrapMode: Text.WordWrap
-                  color: root.dim
+                  color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   text: {
                     if (!root.phone || !root.snapshot) return "Looking for your devices…"
-                    if (!root.phone.daemon) return "Start it to reach your devices. It normally starts by itself when you log in."
-                    if (!root.device) return "No device is paired yet. Open KDE Connect on your phone or tablet and pair it with this computer."
-                    return root.device.name + " is away. It reconnects by itself when it is on the same network with the KDE Connect app running."
+                    if (!root.phone.daemon) return "KDE Connect is not running."
+                    if (!root.device) return "No device is paired yet."
+                    return Model.deviceLabel(root.device) + " is away"
                   }
                 }
 
-                // What stands in the way, with a fix for what can be fixed here.
-                SetupChecks {
-                  visible: !!root.snapshot
-                  width: parent.width
-                  checks: root.phone ? root.phone.setupChecks : []
-                  busyFixes: root.phone ? root.phone.setupFixing : ({})
-                  showPhoneSteps: !root.device
-                  // No device paired yet: a QR code for the app (#64).
-                  showQr: !root.device
+                Repeater {
+                  model: awayColumn.away ? root.awayInfo.lines : []
+                  Text {
+                    required property string modelData
+                    textFormat: Text.PlainText
+                    width: awayColumn.width
+                    wrapMode: Text.WordWrap
+                    text: modelData
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                  }
+                }
+
+                Row {
+                  spacing: Style.space(8)
+                  Button {
+                    visible: awayColumn.away
+                    text: root.awayInfo.searching ? "Looking…" : "Reconnect"
+                    iconText: root.awayInfo.searching ? "\u{F0996}" : Model.GLYPH.refresh
+                    iconSpinning: root.awayInfo.searching
+                    enabled: !root.awayInfo.searching
+                    tooltipText: "Looks for it on the network; connected devices stay connected"
+                    bordered: true
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    onClicked: if (root.phone) root.phone.searchDevices(false)
+                  }
+                  Button {
+                    visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
+                    readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection")
+                    iconText: Model.GLYPH.chevronRight
+                    bordered: true
+                    foreground: root.computerIssues > 0 ? root.urgent : root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    onClicked: adding ? root.openAddDevice() : root.openConnection()
+                  }
+                }
+
+                // Before any device is set up: what the panel will show,
+                // with a made-up phone (#62).
+                Button {
+                  visible: root.canPreview
+                  text: "Preview with a demo phone"
+                  iconText: Model.GLYPH.phone
+                  tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
+                  bordered: true
                   foreground: root.foreground
-                  urgent: root.urgent
                   fontFamily: root.fontFamily
-                  onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.startPreview()
                 }
               }
 
@@ -2816,19 +3612,22 @@ Panel {
                 // profile on its page, else the defaults.
                 shortcutsShown: root.editedProfile.showShortcuts
                 collapsed: root.collapsed
-                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications })
+                flags: ({ showShortcuts: root.editedProfile.showShortcuts, showMedia: root.editedProfile.showMedia, showNotifications: root.editedProfile.showNotifications, showPhotos: root.editedProfile.showPhotos, showReceived: root.editedProfile.showReceived })
                 order: root.editedProfile.shortcuts
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.editingDevice ? "device" : (root.settingsScope === "defaults" ? "defaults" : "root")
+                scopeKind: root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
                 phone: root.phone
                 panelBackground: root.bar ? root.bar.background : Color.background
-                onRejectRequested: function(id) { if (root.phone) root.phone.rejectPairing(id) }
+                onRejectRequested: function(id) { root.cancelPairing(id) }
+                pairingNotes: root.pairingNotes
+                pairingSince: root.pairingSince
+                pairClock: root.pairClock
                 onDeviceMoveRequested: function(id, delta) { root.moveDevice(id, delta) }
                 onNicknameSet: function(text) {
                   var t = String(text || "").replace(/\s+/g, " ").trim()
@@ -2844,9 +3643,13 @@ Panel {
                 motion: root.motion
                 animate: root.settled
                 onFoldToggled: function(key) { root.toggleCollapsed(key) }
-                setupChecks: root.phone ? root.phone.setupChecks : []
                 setupFixing: root.phone ? root.phone.setupFixing : ({})
+                network: root.phone ? root.phone.setupNetwork : ""
+                justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
+                canPreview: root.canPreview
+                onPreviewRequested: root.startPreview()
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }
@@ -2855,6 +3658,16 @@ Panel {
                 onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
+
+            }
+            // The old page held still while the demo turns live (backToSetup).
+            Image {
+              id: pageStill
+              visible: false
+              width: pageHost.width
+              height: sourceSize.height / pageHost.dpr
+              asynchronous: false
+              cache: false
             }
           }
         }
@@ -2871,9 +3684,11 @@ Panel {
     readonly property int place: root.drawnSections.indexOf(section)
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
-    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : "NOTIFICATIONS")
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "PHOTOS" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
     readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
+      : section === "photos" ? (root.photos.length > 0 ? Model.photosSummary(root.photos) : "")
+      : section === "received" ? (root.received.length > 0 ? Model.receivedSummary(root.received) : "")
       : (root.notifications.length > 0 ? Model.notificationsSummary(root.notifications) : "")
     open: root.editing
     motion: root.motion
@@ -3016,6 +3831,18 @@ Panel {
     }
   }
 
+  // A failing check on this computer: a dot on the gear, until it is fixed
+  // or ignored (Connection).
+  component GearDot: Rectangle {
+    anchors.right: parent.right
+    anchors.top: parent.top
+    anchors.margins: Style.space(3)
+    width: Math.max(5, Math.round(Style.font.caption * 0.55))
+    height: width
+    radius: width / 2
+    color: root.urgent
+  }
+
   // Editing the bar: an indicator as the bar shows it, with a small caption.
   // A chosen one drags to another place (barMove) and a click takes it away;
   // the others (dimmed) are added with a click.
@@ -3104,6 +3931,226 @@ Panel {
     }
   }
 
+  // Files: one of the device's newest photos, square. A click opens it, the
+  // corner button copies it, a drag drops the file into a window. In demo,
+  // a part of the one demo picture (`clip`), so four look like four.
+  component PhotoTile: CursorSurface {
+    id: tile
+    property var photo: ({})
+    property int place: 0
+    readonly property string url: "file://" + encodeURI(String(photo.path || ""))
+    hasCursor: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place
+    foreground: root.foreground
+    radius: Style.cornerRadius
+    clip: true
+
+    Item {
+      anchors.fill: parent
+      anchors.margins: Style.space(2)
+      clip: true
+      Image {
+        readonly property var c: tile.photo.clip || [0, 0, 1, 1]
+        width: parent.width / c[2]
+        height: parent.height / c[3]
+        x: -c[0] * width
+        y: -c[1] * height
+        source: tile.photo.thumb ? "file://" + encodeURI(tile.photo.thumb) : ""
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        smooth: true
+        sourceSize.width: 512
+      }
+      // Without a thumbnail (or the demo picture): the kind of picture.
+      Text {
+        anchors.centerIn: parent
+        visible: !tile.photo.thumb
+        text: tile.photo.video ? Model.GLYPH.video : Model.GLYPH.picture
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.heading
+      }
+    }
+    // Opening: the file comes over first (a local copy), with a ring.
+    readonly property bool opening: !!root.phone && root.phone.isBusy("open:" + String(photo.path || ""))
+    Rectangle {
+      anchors.centerIn: parent
+      visible: tileOpenRing.visible
+      opacity: tileOpenRing.opacity
+      width: Style.font.heading * 1.6
+      height: width
+      radius: width / 2
+      color: Qt.rgba(0, 0, 0, 0.55)
+    }
+    WaitRing {
+      id: tileOpenRing
+      anchors.centerIn: parent
+      running: tile.opening
+      motion: root.motion
+      color: "white"
+      size: Style.font.heading
+    }
+    // A video: a play mark in the corner, as galleries draw it.
+    Rectangle {
+      visible: tile.photo.video === true
+      anchors.left: parent.left
+      anchors.bottom: parent.bottom
+      anchors.margins: Style.space(6)
+      width: Style.font.heading
+      height: width
+      radius: width / 2
+      color: Qt.rgba(0, 0, 0, 0.55)
+      Text {
+        anchors.centerIn: parent
+        text: Model.GLYPH.play
+        color: "white"
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+    }
+    // The file itself, for a drop into another window.
+    Drag.active: tileDrag.active
+    Drag.dragType: Drag.Automatic
+    Drag.supportedActions: Qt.CopyAction
+    Drag.mimeData: ({ "text/uri-list": tile.url })
+    DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
+    // Hover without taking it from the buttons: ↗ shows only on this tile.
+    HoverHandler { id: tileHover }
+
+    MouseArea {
+      id: tileMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
+      onClicked: root.openPhoto(tile.photo)
+    }
+    // Save and copy read the file over the network: each turns into the
+    // ring while it works, and stays while it does, pointer on the tile or not.
+    readonly property bool saving: !!root.phone && root.phone.isBusy("save:" + String(photo.path || ""))
+    readonly property bool copying: !!root.phone && root.phone.isBusy("copy:" + String(photo.path || ""))
+    WaitButton {
+      id: saveTile
+      anchors.top: parent.top
+      anchors.right: copyTile.left
+      visible: tileHover.hovered || tile.saving
+      glyph: Model.GLYPH.download
+      waiting: tile.saving
+      motion: root.motion
+      tooltipText: "Save a copy in Pictures"
+      foreground: "white"
+      fontFamily: root.fontFamily
+      onClicked: if (root.phone && !tile.saving) root.phone.savePhoto(tile.photo.path)
+    }
+    WaitButton {
+      id: copyTile
+      anchors.top: parent.top
+      anchors.right: parent.right
+      visible: tileHover.hovered || tile.copying
+      glyph: Model.GLYPH.clipboard
+      waiting: tile.copying
+      motion: root.motion
+      tooltipText: tile.photo.video ? "Copy the file" : "Copy the image"
+      foreground: "white"
+      fontFamily: root.fontFamily
+      onClicked: if (root.phone && !tile.copying) root.phone.copyFile(tile.photo.path)
+    }
+    PanelToolTip {
+      visible: tileMouse.containsMouse
+      text: (tile.photo.album || "Photo") + (tile.photo.video ? " · video" : "") + " · " + Model.threadTime(tile.photo.at, Date.now())
+        + (tile.photo.video ? " · click to play" : " · click to open") + ", drag into a window"
+    }
+  }
+
+  // Received: a file the device sent. A click (or Enter) opens it in its
+  // app, as Omarchy opens files (uwsm-app); the folder button shows it
+  // selected in Files; × forgets it here (the file stays).
+  component ReceivedRow: CursorSurface {
+    id: rrow
+    property var entry: ({})
+    property int place: 0
+    hasCursor: root.cursorActive && root.focusSection === "received" && root.receivedIndex === place
+    foreground: root.foreground
+    implicitHeight: rrowContent.implicitHeight + Style.space(10)
+
+    MouseArea {
+      id: rrowMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place }
+      onClicked: root.openReceived(rrow.entry)
+    }
+    PanelToolTip {
+      visible: rrowMouse.containsMouse
+      text: "Open in its app"
+    }
+    RowLayout {
+      id: rrowContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(4)
+      spacing: Style.space(10)
+      Item {
+        Layout.preferredWidth: Style.space(28)
+        Layout.preferredHeight: Style.space(28)
+        Image {
+          anchors.fill: parent
+          visible: status === Image.Ready
+          // The bridge's safe copy (decoded in the sandbox), never the file.
+          source: rrow.entry.preview ? "file://" + encodeURI(rrow.entry.preview) : ""
+          fillMode: Image.PreserveAspectCrop
+          asynchronous: true
+          sourceSize.width: 64
+        }
+        Text {
+          anchors.centerIn: parent
+          visible: parent.children[0].status !== Image.Ready
+          text: Model.isImage(rrow.entry.name) ? Model.GLYPH.picture : Model.GLYPH.document
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading
+        }
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: rrow.entry.name || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          elide: Text.ElideMiddle
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: Model.sizeText(rrow.entry.size) + " · " + Model.threadTime(rrow.entry.at, Date.now())
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      PanelActionButton {
+        iconText: Model.GLYPH.folderOpen
+        tooltipText: "Show in Files"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.showReceivedFolder(rrow.entry)
+      }
+      PanelActionButton {
+        iconText: Model.GLYPH.close
+        tooltipText: "Forget it here (the file stays)"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: if (root.phone) root.phone.dismissReceived(rrow.entry)
+      }
+    }
+  }
+
   component MediaCard: CursorSurface {
     id: card
     property var player: null
@@ -3144,6 +4191,7 @@ Panel {
     // A real change of art (or a track with none) still lands, 2 s later.
     readonly property string reportedArt: player && player.trackArtUrl ? String(player.trackArtUrl) : ""
     property string artUrl: reportedArt
+    onArtUrlChanged: if (root.phone) root.phone.requestArt(artUrl)
     onReportedArtChanged: {
       if (reportedArt !== "") { artUrl = reportedArt; artClear.stop() }
       else artClear.restart()
@@ -3178,7 +4226,10 @@ Panel {
     hasCursor: root.cursorActive && root.focusSection === "media"
     foreground: root.foreground
     implicitHeight: cardContent.implicitHeight + Style.space(14)
-    Component.onCompleted: root.cardsBuilt += 1
+    Component.onCompleted: {
+      root.cardsBuilt += 1
+      if (root.phone) root.phone.requestArt(artUrl)
+    }
 
     // Drag the card sideways to page the carousel, as on the phone. Buttons
     // and the seek bar sit above this and keep their own presses.
@@ -3225,7 +4276,8 @@ Panel {
             // retainWhileLoading keeps the old picture up until the new one is
             // ready, so a reload never shows a gap.
             visible: source != "" && status !== Image.Error && status !== Image.Null
-            source: card.artUrl
+            // The phone's art, as a safe copy (decoded in the sandbox).
+            source: root.phone ? root.phone.artFor(card.artUrl) : ""
             retainWhileLoading: true
             fillMode: Image.PreserveAspectCrop
             asynchronous: true

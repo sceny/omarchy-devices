@@ -14,6 +14,13 @@ Item {
   // A small picture beside the summary while folded (the media cover).
   property string thumb: ""
   property bool folded: false
+  // A section read from the device (Gallery): at the header's right, a
+  // small ring while it is read, else a refresh button while the pointer
+  // is on the header (no chrome at rest). Its place is kept, so the header
+  // never moves.
+  property bool canBusy: false
+  property bool busy: false
+  property string refreshTip: "Look again"
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
   // Transitions stretch with the panel's slow motion, and pause while a page
@@ -22,6 +29,7 @@ Item {
   property bool animate: true
   readonly property color dim: Qt.darker(foreground, 1.55)
   signal toggled()
+  signal refreshRequested()
 
   implicitHeight: foldRow.implicitHeight
   implicitWidth: foldRow.implicitWidth
@@ -91,5 +99,38 @@ Item {
       elide: Text.ElideRight
       Behavior on opacity { enabled: fold.animate; NumberAnimation { duration: (fold.folded ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
     }
+    Item {
+      visible: fold.canBusy
+      Layout.preferredWidth: Style.space(20)
+      Layout.preferredHeight: Style.space(20)
+      Layout.leftMargin: Style.space(6)
+      Layout.alignment: Qt.AlignVCenter
+      // One at a time, at the panel's pace: the one leaving fades out, and
+      // only once it is gone does the other fade in.
+      WaitRing {
+        id: foldRing
+        anchors.centerIn: parent
+        running: fold.busy && !foldRefresh.visible
+        motion: fold.motion
+        color: fold.dim
+        size: Style.font.caption
+      }
+      PanelActionButton {
+        id: foldRefresh
+        anchors.centerIn: parent
+        size: Style.space(20)
+        fontSize: Style.font.caption
+        iconText: Model.GLYPH.refresh
+        tooltipText: fold.refreshTip
+        foreground: fold.foreground
+        fontFamily: fold.fontFamily
+        readonly property bool wanted: !fold.busy && foldHover.hovered && !foldRing.visible
+        opacity: wanted ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (foldRefresh.wanted ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
+        onClicked: fold.refreshRequested()
+      }
+    }
   }
+  HoverHandler { id: foldHover; enabled: fold.canBusy }
 }

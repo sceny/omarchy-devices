@@ -43,10 +43,21 @@ Item {
     smsService.showDemo()
   }
 
+  // A demo the user started from the panel, before any device is set up
+  // (Preview with a demo phone): the panel says it is one, and a real
+  // device connecting ends it.
+  property bool preview: false
+
+  function showLiveFiles() { dismissedFiles = ({}) }
   function showLive() {
+    preview = false
+    showLiveFiles()
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    searchedAt = 0
+    demoChecks = false
+    runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
   // The settings read as defaults plus per-device profiles (Model.readSettings),
@@ -112,8 +123,10 @@ Item {
   readonly property var ringPhases: Model.ringPhases()
   property int ringPhase: 0
   readonly property bool ringLit: ringing && ringPhases[ringPhase].lit
+  // A device asking to pair glows on the same beat (the first chip's glyph).
+  readonly property bool pairLit: !!pairingRequest && ringPhases[ringPhase].lit
   Timer {
-    running: root.ringing
+    running: root.ringing || !!root.pairingRequest
     repeat: true
     interval: root.ringPhases[root.ringPhase].ms
     onRunningChanged: root.ringPhase = 0
@@ -396,13 +409,13 @@ Item {
         : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
       if (done) {
         changed = true
-        if (w.said) report(w.said, false)
+        if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
         continue
       }
       if (now > w.until) {
         changed = true
         if (w.fail !== "") report(w.fail, true)
-        else if (w.said) report(w.said, false)
+        else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false)
         continue
       }
       next[key] = w
@@ -434,22 +447,46 @@ Item {
       property string key: ""
       property string verb: ""
       property string note: ""
-      interval: 900
+      // A demo device "accepts" a pairing asked here a few seconds after its
+      // key shows, as a real one would once the user taps Accept on it.
+      interval: verb === "paired" ? 3000 : 900
       running: true
       onTriggered: {
         if ((verb === "dismiss" || verb === "action") && root.demo && root.snapshot)
           root.snapshot = Model.withoutNotification(root.snapshot, note)
+        // Demo Pair: the device waits to accept, showing a made-up key.
+        if (verb === "pair" && root.demo && root.snapshot) {
+          var pid = key.split(":")[1]
+          var pcopy = JSON.parse(JSON.stringify(root.snapshot))
+          ;(pcopy.devices || []).forEach(function(d) { if (d.id === pid) { d.pairRequested = true; d.verificationKey = "7C192B4D" } })
+          root.snapshot = pcopy
+          demoComponent.createObject(root, { key: key, verb: "paired", note: "" })
+        }
+        if (verb === "paired" && root.demo && root.snapshot) {
+          var aid = key.split(":")[1]
+          var acopy = JSON.parse(JSON.stringify(root.snapshot))
+          ;(acopy.devices || []).forEach(function(d) {
+            if (d.id === aid && d.pairRequested === true) { d.pairRequested = false; d.paired = true; d.verificationKey = "" }
+          })
+          root.snapshot = acopy
+          demoClick.destroy()
+          return
+        }
         // A demo pairing request answered: accepted, the device is paired;
-        // rejected, it goes.
+        // rejected (or a pairing asked here, cancelled), it goes back.
         if ((verb === "accept" || verb === "reject") && root.demo && root.snapshot) {
           var id = key.split(":")[1]
           var copy = JSON.parse(JSON.stringify(root.snapshot))
-          copy.devices = (copy.devices || []).filter(function(d) { return verb === "accept" || d.id !== id })
-          copy.devices.forEach(function(d) { if (d.id === id) { d.pairRequestedByPeer = false; d.paired = true } })
+          copy.devices = (copy.devices || []).filter(function(d) { return verb === "accept" || d.id !== id || d.pairRequested === true })
+          copy.devices.forEach(function(d) {
+            if (d.id !== id) return
+            if (verb === "accept") { d.pairRequestedByPeer = false; d.paired = true }
+            else { d.pairRequested = false; d.verificationKey = "" }
+          })
           root.snapshot = copy
         }
         root.setBusy(key, false)
-        root.report("Demo mode: nothing was sent to the device", false)
+        if (!Model.shownInPlace(verb)) root.report("Demo mode: nothing was sent to the device", false)
         demoClick.destroy()
       }
     }
@@ -461,9 +498,52 @@ Item {
   property var setupChecks: []
   property int setupWanted: 0          // panels showing the checks right now
   property var setupFixing: ({})
+  // This computer's network ("192.168.1.0/24"), from the doctor.
+  property string setupNetwork: ""
 
+  // ---- Reconnect: look for devices again (Model.awayState) ----
+  // When the last search started (Reconnect, the panel opening on an away
+  // device, the Connection page), and a clock for "12 min ago" and for
+  // when the search has run out.
+  property real searchedAt: 0
+  property real awayClock: Date.now()
+
+  // `quiet`: a search the panel makes by itself, with no toast.
+  function searchDevices(quiet) {
+    if (!daemon) return
+    searchedAt = Date.now()
+    awayClock = searchedAt
+    searchRecheck.restart()
+    // Demo: the page goes through looking and not found; nothing is sent.
+    if (demo) return
+    if (quiet) Quickshell.execDetached([bridge, "fix", "search"])
+    else fixSetup("search")
+  }
+
+  // Opening a panel on a paired device that is away looks for it once, at
+  // most once a minute: a lost link is usually found again this way.
+  function searchIfAway() {
+    if (device && device.paired && device.reachable !== true && Date.now() - searchedAt > 60000) searchDevices(true)
+  }
+
+  Timer {
+    id: searchRecheck
+    interval: Model.SEARCH_MS + 100
+    onTriggered: { root.awayClock = Date.now(); root.runDoctor() }
+  }
+  // "12 min ago" stays right while a panel is open.
+  Timer {
+    interval: 30000
+    repeat: true
+    running: root.setupWanted > 0
+    onTriggered: root.awayClock = Date.now()
+  }
+
+  // Sample checks from a demo (demoSetup) stay until live again; otherwise a
+  // demo shows this computer's real checks (they hold no device data).
+  property bool demoChecks: false
   function runDoctor() {
-    if (doctorProc.running) return
+    if (doctorProc.running || demoChecks) return
     doctorProc.running = true
   }
 
@@ -488,7 +568,11 @@ Item {
     stdout: StdioCollector {
       id: doctorOut
       onStreamFinished: {
-        try { root.setupChecks = JSON.parse(text).checks || [] } catch (e) {}
+        try {
+          var report = JSON.parse(text)
+          root.setupChecks = report.checks || []
+          root.setupNetwork = String(report.network || "")
+        } catch (e) {}
       }
     }
   }
@@ -617,6 +701,162 @@ Item {
     id: statusTimer
     interval: 3500
     onTriggered: { root.actionStatus = ""; root.actionFailed = false }
+  }
+
+  // ---- Files: the viewed device's newest photos (#65), files it sent (#37) ----
+  // Photos are asked for when a panel opens on the device (at most every
+  // 20 s): the bridge mounts its storage (KDE Connect's sftp) and lists
+  // them. Per device: { loading, ok, missing, error, photos, at }.
+  property var photoState: ({})
+  readonly property string demoPicture: smsService.cacheBase + "/demo/picture.jpg"
+  readonly property var photoInfo: demo ? { ok: true, photos: Model.demoPhotos(demoPicture),
+      albums: [{ name: "Camera", path: "/demo/DCIM/Camera", count: 842 }, { name: "Screenshots", path: "/demo/Pictures/Screenshots", count: 211 },
+               { name: "WhatsApp Images", path: "/demo/WhatsApp Images", count: 96 }, { name: "WhatsApp Video", path: "/demo/WhatsApp Video", count: 41 },
+               { name: "Download", path: "/demo/Download", count: 18 }] }
+    : (device ? photoState[String(device.id)] || null : null)
+  readonly property var photos: photoInfo && photoInfo.ok ? photoInfo.photos : []
+  function setPhotoState(id, value) {
+    var next = Object.assign({}, photoState)
+    next[id] = value
+    photoState = next
+  }
+  function refreshPhotos(force) {
+    if (demo || !device || device.reachable !== true || !(device.can && device.can.files)) return
+    var id = String(device.id)
+    var st = photoState[id]
+    if (st && st.loading) return
+    // A good list is reused for 20 s. A mount that failed is not asked for
+    // again on its own for 10 minutes: each attempt makes KDE Connect pop
+    // its error (#100); Try again asks at once. No sshfs asks for no mount,
+    // so it is checked on every open.
+    if (!force && st && st.ok && Date.now() - st.at < 20000) return
+    if (!force && st && !st.ok && st.error && Date.now() - st.at < 600000) return
+    setPhotoState(id, Object.assign({}, st || { photos: [] }, { loading: true, at: Date.now() }))
+    // The first look since the shell started: the last list at once, from
+    // the cache, while the device is read (that takes seconds).
+    if (!st) {
+      var cached = photosComponent.createObject(root, { deviceId: id, cachedRun: true, command: [bridge, "photos-cached", id] })
+      cached.running = true
+    }
+    var proc = photosComponent.createObject(root, { deviceId: id, command: [bridge, "photos", id] })
+    proc.running = true
+  }
+  // A copy of a photo in Pictures/<device>/; the toast says where.
+  function savePhoto(path) {
+    if (demo) { report("Demo: a made-up photo", false); return }
+    var key = "save:" + String(path)
+    if (!device || isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "save-file", path, Model.deviceLabel(device)] })
+    proc.running = true
+  }
+  Component {
+    id: photosComponent
+    Process {
+      id: photosProc
+      property string deviceId: ""
+      // The cached list: shown only while the real look has not answered.
+      property bool cachedRun: false
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var r = null
+          try { r = JSON.parse(text) } catch (e) { r = { ok: false, error: "Could not read its storage" } }
+          if (photosProc.cachedRun) {
+            var now = root.photoState[photosProc.deviceId]
+            if (r.ok && now && now.loading && !now.ok)
+              root.setPhotoState(photosProc.deviceId, Object.assign({}, now, { ok: true, photos: r.photos, cached: true }))
+          } else {
+            root.setPhotoState(photosProc.deviceId, Object.assign({ photos: [] }, r, { loading: false, at: Date.now() }))
+          }
+          photosProc.destroy()
+        }
+      }
+    }
+  }
+
+  // Received files: from the snapshot, less the ones dismissed here (they
+  // leave the bridge's list at its next snapshot).
+  property var dismissedFiles: ({})
+  readonly property var received: {
+    if (demo) return Model.demoReceived().filter(function(r) { return !dismissedFiles[r.path] })
+    var list = device && device.received ? device.received : []
+    return list.filter(function(r) { return !dismissedFiles[r.path] })
+  }
+  function dismissReceived(entry) {
+    if (!entry || !device) return
+    var next = Object.assign({}, dismissedFiles)
+    next[entry.path] = true
+    dismissedFiles = next
+    if (!demo) Quickshell.execDetached([bridge, "received-dismiss", String(device.id), entry.path])
+  }
+  // Opening, as Omarchy's own panels do: through uwsm-app, so the app runs
+  // as the user's (its own scope, like one from the launcher), not as a
+  // child of the shell. The bridge picks the app as GIO does, as Files does
+  // (a type's parents count: JSON is text), where xdg-open looks up the
+  // exact type only and opens nothing; with no app for the type, it shows
+  // the file in Files and the toast says so. Show in folder is Files with
+  // the file selected.
+  function openPath(path) {
+    if (!path) return
+    var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
+    proc.running = true
+  }
+  // A track's art from the phone, shown only as a safe copy the bridge makes
+  // (decoded in glycin's sandbox): url -> file:// of the copy, "" while there
+  // is none. Asked once per url; a url that is not a local file has none.
+  property var safeArt: ({})
+  function artFor(url) { return safeArt[String(url || "")] || "" }
+  function requestArt(url) {
+    var u = String(url || "")
+    if (u === "" || safeArt[u] !== undefined) return
+    var next = Object.keys(safeArt).length > 200 ? {} : Object.assign({}, safeArt)
+    next[u] = ""
+    safeArt = next
+    if (u.indexOf("file://") !== 0) return
+    var proc = artComponent.createObject(root, { url: u, command: [bridge, "safe-image", decodeURIComponent(u.slice(7)), "512"] })
+    proc.running = true
+  }
+  Component {
+    id: artComponent
+    Process {
+      id: artProc
+      property string url: ""
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var path = String(text || "").trim()
+          var next = Object.assign({}, root.safeArt)
+          next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
+          root.safeArt = next
+          artProc.destroy()
+        }
+      }
+    }
+  }
+
+  // A file on the device: copied here first (the bridge keeps a few in the
+  // cache), then opened, so the app reads a local file: a video plays at
+  // its pace, not the network's. The tile shows a ring meanwhile.
+  function openFromDevice(path) {
+    if (!path) return
+    var key = "open:" + String(path)
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "open-file", String(path), "--local"] })
+    proc.running = true
+  }
+  function revealPath(path) {
+    if (!path) return
+    Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", Model.fileUri(path)])
+  }
+
+  // The file on the clipboard (an image as image data).
+  function copyFile(path) {
+    if (demo) { report("Copied", false); return }
+    var key = "copy:" + String(path)
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", path] })
+    proc.running = true
   }
 
   Component {

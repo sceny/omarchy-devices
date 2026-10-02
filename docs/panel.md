@@ -4,17 +4,17 @@
 
 ![The panel: shortcuts, Now playing and notifications (demo data)](images/panel.png)
 
-- **Notifications:** reply, dismiss, and the app's own buttons where KDE
-  Connect passes them on. A chat shows its latest message; *Show all* the
-  rest.
-- **Now playing:** the active player first; the others are a swipe, `h`/`l`
-  or the arrows away.
-- **Shortcuts:** Ring, Send files, Clipboard, Send text (to the phone's
-  clipboard; Ctrl+Enter pings it), Messages, Ping, Play/Pause, KDE Connect.
+- **Notifications:** reply, dismiss, and the app's buttons where KDE
+  Connect passes them on.
+- **Now playing:** the active player; the others a swipe or `h`/`l` away.
+- **Shortcuts:** Ring, Send files, Clipboard, Send text, Messages, Ping,
+  Play/Pause, KDE Connect.
+- **Received:** files the phone sent (open, show in Files, forget).
+- **Gallery:** the newest photos and videos (open, copy, save, drag), and
+  the biggest albums in your file manager.
 - **Calls:** a ringing device's chip rings, and a card above the tabs
   names the caller; a missed call stays, with *Call back* and *Text back*.
-- **Several devices:** a tab each, and a chip each in the bar (the first
-  always, the others with news). Pair, order and unpair in
+- **Several devices:** a tab and a chip each. Pair, order and unpair in
   [Settings](settings.md).
 - **Edit the page** (✎ on hovering the device's name, right-click the
   page or the device's chip in the bar, or `E`): what the chip shows,

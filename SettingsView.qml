@@ -16,8 +16,16 @@ Column {
   property var rows: []
   property int cursorIndex: -1
   property bool shortcutsShown: true
-  property var setupChecks: []
   property var setupFixing: ({})
+  // This computer's network, for Add a device's steps.
+  property string network: ""
+  // A pairing that just completed here: ✓ in place of its card, for a moment.
+  property var justPaired: null
+  // Pairings asked here: when each started (the card's countdown), and a
+  // note for one that was not accepted in time (on its row).
+  property var pairingNotes: ({})
+  property var pairingSince: ({})
+  property real pairClock: 0
   // Folding, like the main page's sections, and remembered the same way.
   property var collapsed: ({})
   property var flags: ({})
@@ -48,6 +56,10 @@ Column {
   signal barMoveRequested(string key, int delta)
   signal hovered(int index)
   signal fixRequested(string what)
+  signal ignoreRequested(string key, bool on)
+  // Nothing set up yet: a look at the panel with a made-up phone (#62).
+  property bool canPreview: false
+  signal previewRequested()
   signal foldToggled(string key)
   signal rejectRequested(string id)
   signal deviceMoveRequested(string id, int delta)
@@ -67,7 +79,7 @@ Column {
     return false
   }
   readonly property bool hasGroups: firstIndex("layout") >= 0
-  readonly property bool hasList: hasKind(["device", "request", "available"])
+  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && hasKind(["device", "request", "available"])
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
   function groupTitle(title, group) {
     return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
@@ -354,79 +366,141 @@ Column {
     }
   }
 
-  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
+  // ---- Connection and Add a device: rows that open the Connection page ----
+  Item { visible: root.firstIndex("connection") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("connection") >= 0; foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "connection" || modelData.kind === "addDevice"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
 
-  // ---- Add a device: the steps on it (pairing starts there) ----
-  FoldToggle {
-    visible: root.scopeKind === "root"
-    width: root.width
-    title: "ADD A DEVICE"
-    summary: "Install KDE Connect on it, same Wi-Fi, pair from it"
-    folded: root.collapsed["addDevice"] !== false
+  // ---- Connection: this computer (checking what exists). Add a device:
+  //      requests to pair, the steps on it, devices in reach (making a new
+  //      pairing) ----
+  PanelSectionHeader {
+    visible: root.scopeKind === "connection"
+    text: "THIS COMPUTER"
     foreground: root.foreground
     fontFamily: root.fontFamily
-    motion: root.motion
-    animate: root.animate
-    onToggled: root.foldToggled("addDevice")
+  }
+  Text {
+    visible: root.scopeKind === "connection" && root.firstIndex("check") < 0
+    textFormat: Text.PlainText
+    text: "Checking…"
+    color: root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.bodySmall
+  }
+  Repeater {
+    model: root.rows
+    CheckRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "check"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
   }
 
-  FoldBody {
-    visible: root.scopeKind === "root"
-    open: root.collapsed["addDevice"] === false
-    motion: root.motion
-    animate: root.animate
-    spacing: Style.space(6)
-
-      SetupChecks {
-        width: root.width
-        checks: []
-        showPhoneSteps: true
-        foreground: root.foreground
-        urgent: Color.urgent
-        fontFamily: root.fontFamily
-      }
-  }
-
-  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
-
-  // ---- Setup ----
-  FoldToggle {
-    visible: root.scopeKind === "root"
-    width: root.width
-    title: "SETUP"
-    summary: Model.setupSummary(root.setupChecks)
-    folded: root.isFolded("setup")
+  PanelSectionHeader {
+    visible: root.firstIndex("request") >= 0 && root.scopeKind === "addDevice"
+    text: "PAIRING REQUESTS"
     foreground: root.foreground
     fontFamily: root.fontFamily
-    motion: root.motion
-    animate: root.animate
-    onToggled: root.foldToggled("setup")
+  }
+  Repeater {
+    model: root.scopeKind === "addDevice" ? root.rows : []
+    PairingCardRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "request"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "request" }
+
+  PanelSectionHeader {
+    visible: root.scopeKind === "addDevice"
+    text: "ON THE DEVICE"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  SetupChecks {
+    visible: root.scopeKind === "addDevice"
+    width: root.width
+    network: root.network
+    // The app's QR code: on Add a device always, for a first device or another (#64).
+    showQr: root.scopeKind === "addDevice"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  Text {
+    visible: root.scopeKind === "addDevice"
+    width: root.width
+    textFormat: Text.PlainText
+    wrapMode: Text.WordWrap
+    text: root.firstIndex("available") >= 0 ? "In reach, to pair with:" : "Looking for new devices… they show here with Pair."
+    color: root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+  }
+  Repeater {
+    model: root.scopeKind === "addDevice" ? root.rows : []
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "available" && !modelData.pairKey
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  // A pairing this computer asked for, waiting on the device: a card.
+  Repeater {
+    model: root.scopeKind === "addDevice" ? root.rows : []
+    PairingCardRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "available" && !!modelData.pairKey
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
+
+  // Not ready to pair: what the panel shows once a phone is set up, with a
+  // made-up one. Last, after pairing, which comes first.
+  Button {
+    visible: root.scopeKind === "addDevice" && root.canPreview
+    text: "Preview with a demo phone"
+    iconText: Model.GLYPH.phone
+    tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
+    bordered: true
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    fontSize: Style.font.bodySmall
+    onClicked: root.previewRequested()
   }
 
-  FoldBody {
-    visible: root.scopeKind === "root"
-    open: !root.isFolded("setup")
-    motion: root.motion
-    animate: root.animate
-    spacing: Style.space(6)
-
-      SetupChecks {
-        width: root.width
-        checks: root.setupChecks
-        busyFixes: root.setupFixing
-        showPhoneSteps: true
-        foreground: root.foreground
-        urgent: Color.urgent
-        fontFamily: root.fontFamily
-        onFixRequested: function(what) { root.fixRequested(what) }
-      }
-  }
-
-  Item { width: 1; height: Style.space(2) }
+  // The page's buttons (Unpair, Reset shortcuts, KDE Connect settings):
+  // their row takes room only when one of them shows (hidden buttons still
+  // left it 44 px tall, an empty band at the bottom of Add a device).
+  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0 || firstIndex("kdeconnect") >= 0
+  Item { visible: root.hasButtons; width: 1; height: Style.space(2) }
 
   Row {
+    visible: root.hasButtons
     spacing: Style.space(8)
 
     Button {
@@ -603,11 +677,21 @@ Column {
           textFormat: Text.PlainText
           Layout.fillWidth: true
           visible: text !== ""
-          text: listRow.row.status || listRow.row.hint || ""
-          color: root.dim
+          readonly property string note: root.pairingNotes[listRow.row.id] || ""
+          text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
+          color: note !== "" ? Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+        // Pairing: the key to compare, drawn as on the pop-up.
+        PairingKey {
+          Layout.topMargin: Style.space(4)
+          key: listRow.row.pairKey || ""
+          caption: listRow.row.kind === "request" ? "check it matches" : "accept on it if it matches"
+          compact: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
         }
       }
 
@@ -633,7 +717,7 @@ Column {
       }
 
       Text {
-        visible: listRow.row.kind === "device" || listRow.row.kind === "defaults" || listRow.row.kind === "editPage"
+        visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
@@ -647,6 +731,256 @@ Column {
         font.family: root.fontFamily
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
+      }
+    }
+  }
+
+  // A pairing that just completed: its card, turned ✓, before the panel goes
+  // to the device.
+  component PairedCard: BorderSurface {
+    width: root.width
+    implicitHeight: pairedRow.implicitHeight + 2 * Style.space(12)
+    radius: Style.cornerRadius
+    color: root.panelBackground
+    borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+    RowLayout {
+      id: pairedRow
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(14)
+      anchors.rightMargin: Style.space(12)
+      spacing: Style.space(14)
+      Text {
+        text: root.justPaired ? root.justPaired.glyph : ""
+        color: Color.accent
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.display
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(2)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: Model.GLYPH.check + "  Paired with " + (root.justPaired ? root.justPaired.title : "")
+          color: Color.accent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          elide: Text.ElideRight
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: "Opening it…"
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+    }
+  }
+
+  // A pairing in progress, on Add a device: a card, as the pop-up and the
+  // panel's pairing card draw it (the device, what it asks; the key and the
+  // answer on one row).
+  component PairingCardRow: Column {
+    id: pcard
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool incoming: row.kind === "request"
+    readonly property bool working: !!root.phone && (root.phone.isBusy("accept:" + row.id) || root.phone.isBusy("reject:" + row.id))
+    spacing: 0
+
+    BorderSurface {
+      width: parent.width
+      implicitHeight: pcardContent.implicitHeight + 2 * Style.space(12)
+      radius: Style.cornerRadius
+      color: root.panelBackground
+      borderSpec: Border.controlSpec(root.cursorIndex === pcard.rowIndex ? "hover-cursor" : "focus", root.foreground, Color.accent)
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: root.hovered(pcard.rowIndex)
+      }
+
+      RowLayout {
+        id: pcardContent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(14)
+        anchors.rightMargin: Style.space(12)
+        spacing: Style.space(14)
+
+        Text {
+          Layout.alignment: Qt.AlignTop
+          Layout.topMargin: Style.space(2)
+          text: pcard.row.glyph || ""
+          color: Color.accent
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.display
+        }
+        ColumnLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(8)
+          RowLayout {
+            Layout.fillWidth: true
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              text: pcard.incoming ? (pcard.row.title || "A device") + " wants to pair" : "Pairing with " + (pcard.row.title || "a device")
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+              font.bold: true
+              elide: Text.ElideRight
+            }
+            // KDE Connect gives up after 30 s: how long is left.
+            Text {
+              readonly property real since: root.pairingSince[pcard.row.id] || 0
+              visible: !pcard.incoming && since > 0
+              textFormat: Text.PlainText
+              text: Model.pairSecondsLeft(since, root.pairClock) + " s"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            PairingKey {
+              Layout.fillWidth: true
+              Layout.alignment: Qt.AlignBottom
+              key: pcard.row.pairKey || ""
+              caption: pcard.incoming ? "check it matches" : "accept on it if it matches"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+            Item { Layout.fillWidth: true; visible: !pcard.row.pairKey }
+            Button {
+              Layout.alignment: Qt.AlignBottom
+              visible: pcard.incoming
+              text: pcard.working ? "Waiting…" : "Accept"
+              enabled: !pcard.working
+              bordered: true
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: root.activated(pcard.rowIndex)
+            }
+            Button {
+              Layout.alignment: Qt.AlignBottom
+              text: pcard.incoming ? "Reject" : "Cancel"
+              enabled: !pcard.working
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: root.rejectRequested(pcard.row.id)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // A check on this computer: its status icon, name, short status and one
+  // action (its fix), with a line of detail while it fails. A failing one
+  // can be ignored (it stops lighting the gear's dot) and brought back.
+  component CheckRow: CursorSurface {
+    id: checkRow
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool failing: row.ok !== true && row.ignored !== true
+    readonly property bool fixing: root.setupFixing[row.fix] === true
+    hasCursor: root.cursorIndex === rowIndex
+    foreground: root.foreground
+    implicitHeight: checkContent.implicitHeight + Style.space(12)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      onEntered: root.hovered(checkRow.rowIndex)
+    }
+
+    RowLayout {
+      id: checkContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(10)
+
+      Text {
+        Layout.alignment: Qt.AlignVCenter
+        Layout.preferredWidth: Style.space(20)
+        horizontalAlignment: Text.AlignHCenter
+        text: checkRow.row.ok === true ? Model.GLYPH.check : Model.GLYPH.alert
+        color: checkRow.failing ? Color.urgent : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(10)
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            text: checkRow.row.label || ""
+            color: checkRow.failing ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: Text.ElideRight
+          }
+          Text {
+            textFormat: Text.PlainText
+            text: checkRow.row.ignored === true ? "Ignored" : (checkRow.row.status || "")
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+        Text {
+          Layout.fillWidth: true
+          visible: checkRow.failing && text !== ""
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: checkRow.row.detail || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      Button {
+        visible: checkRow.failing && (checkRow.row.fix || "") !== ""
+        Layout.alignment: Qt.AlignVCenter
+        text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
+        iconText: checkRow.fixing ? "\u{F0996}" : ""
+        iconSpinning: checkRow.fixing
+        enabled: !checkRow.fixing
+        tooltipText: checkRow.row.fix === "install" || checkRow.row.fix === "firewall" ? "Asks for your password" : ""
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: root.fixRequested(checkRow.row.fix)
+      }
+      Button {
+        visible: checkRow.row.ok !== true
+        Layout.alignment: Qt.AlignVCenter
+        text: checkRow.row.ignored === true ? "Undo" : "Ignore"
+        tooltipText: checkRow.row.ignored === true ? "Light the gear's dot again while it fails" : "Leave it as it is; the gear's dot stops showing it"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
       }
     }
   }
