@@ -108,6 +108,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   work.
 
 ### Fixed
+- Messages: opening a conversation while another was still loading left
+  every conversation on skeletons until the shell restarted (#102).
 - A device joining could swap two others in the order (the first device:
   the one always in the bar, opened first).
 - Settings pages without buttons ended in an empty band (Add a device,
