@@ -22,7 +22,7 @@ Middle-click the pill, or pick *Messages* in the panel.
 | Enter | Open and reply |
 | `/` · `u` · `n` | Search · unread only · new message |
 | `i` | Reply to the open conversation |
-| PgUp PgDn | Scroll the conversation |
+| PgUp PgDn | A page of conversations; while writing a reply, the conversation |
 | Esc | Back |
 
 In the reply field, Enter sends and Esc steps back. Nothing but your own

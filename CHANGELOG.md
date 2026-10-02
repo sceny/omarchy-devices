@@ -148,7 +148,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   main page.
 
 ### Fixed
-- Messages: PageUp and PageDown were swapped.
+- Messages: PageUp and PageDown were swapped. They now move through the
+  conversation list a page at a time, as the arrows move a row; while
+  writing a reply, they scroll the conversation.
 - Messages: a picture in HEIC (as newer phones send them) opened nothing
   when clicked. A picture now opens from a full-size copy decoded in the
   sandbox, so the viewer never reads the phone's bytes; other attachments

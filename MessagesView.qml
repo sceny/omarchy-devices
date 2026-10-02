@@ -46,6 +46,8 @@ Item {
   // Any text field here holding the keyboard: the panel's key catcher stands
   // aside while one does.
   readonly property bool composerFocused: composer.activeFocus || toField.activeFocus || searchField.activeFocus
+  // Writing a reply: PgUp/PgDn scroll the conversation instead of the list.
+  readonly property bool typingReply: composer.activeFocus
   readonly property var shown: sms ? sms.shownThreads : null
 
   // New message: recipients picked in the "To" field, as [{title, number}].
@@ -163,6 +165,15 @@ Item {
     cursorActive = true
     threadCursor = Math.max(0, Math.min(shown.count - 1, i))
     threadList.positionViewAtIndex(threadCursor, ListView.Contain)
+  }
+
+  // PgUp/PgDn on the conversation list: the cursor a screen of rows at a
+  // time, as the arrows move it one row; `pages` > 0 up.
+  function pageCursor(pages) {
+    if (!shown || shown.count === 0) return
+    var rowHeight = threadList.contentHeight / Math.max(1, threadList.count)
+    var rows = Math.max(1, Math.floor(threadList.height / Math.max(1, rowHeight)) - 1)
+    cursorTo((cursorActive ? threadCursor : 0) - pages * rows)
   }
 
   function activateCursor() {
@@ -442,7 +453,7 @@ Item {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "j/k move · Enter open · / search · u unread · n new · i reply · PgUp/PgDn scroll · Esc back"
+          text: "j/k move · Enter open · / search · u unread · n new · i reply · PgUp/PgDn page · Esc back"
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption

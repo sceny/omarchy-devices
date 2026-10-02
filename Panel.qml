@@ -1850,18 +1850,20 @@ Panel {
         else root.close()
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
-      // PgUp/PgDn scroll the open conversation. Keys has no page-key handlers
-      // and a second Keys.onPressed here would replace the catcher's own, so
-      // these are window shortcuts, live only while messages are open.
+      // PgUp/PgDn in messages: the conversation list a screen at a time, as
+      // the arrows move it a row; while writing a reply, the open
+      // conversation instead. Keys has no page-key handlers and a second
+      // Keys.onPressed here would replace the catcher's own, so these are
+      // window shortcuts, live only while messages are open.
       Shortcut {
         sequences: ["PgUp"]
         enabled: root.opened && root.messagesOpen
-        onActivated: if (messagesView) messagesView.scrollMessages(1)
+        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(1); else messagesView.pageCursor(1) }
       }
       Shortcut {
         sequences: ["PgDown"]
         enabled: root.opened && root.messagesOpen
-        onActivated: if (messagesView) messagesView.scrollMessages(-1)
+        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(-1); else messagesView.pageCursor(-1) }
       }
       onTextKey: function(t) {
         if (root.messagesOpen) {
