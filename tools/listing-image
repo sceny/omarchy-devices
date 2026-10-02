@@ -40,8 +40,8 @@ magick "$main" \
 magick "$tmp/base.png" \
   -stroke "$ACCENT" -strokewidth 3 -fill none \
   -draw "roundrectangle ${PILL_BOX} 6,6" \
-  -draw "line 1790,292 2018,292" \
-  -draw "line 1690,432 2018,432" \
+  -draw "line 1690,330 2018,330" \
+  -draw "line 1770,490 2018,490" \
   -draw "line 1770,760 2018,760" \
   -stroke none \
   "$tmp/pill.png" -geometry +1600+60 -composite \
@@ -55,13 +55,13 @@ magick "$tmp/base.png" \
   -font "$BOLD" -pointsize 24 -fill "$ACCENT" \
   -annotate +1600+222 'NOTIFICATIONS IN YOUR BAR ↗' \
   -annotate +112+470 'YOUR TEXTS' \
-  -annotate +1330+262 'SHORTCUTS' \
-  -annotate +1330+386 'NOW PLAYING' \
+  -annotate +1330+300 'NOW PLAYING' \
+  -annotate +1330+460 'GALLERY' \
   -annotate +1330+712 'NOTIFICATIONS' \
   -font "$REGULAR" -pointsize 24 -fill "$FG" \
   -annotate +330+470 'every conversation, reply from the keyboard' \
-  -annotate +1330+296 'send files, clipboard, a link' \
-  -annotate +1330+420 'cover, seek and volume' \
+  -annotate +1330+334 'cover, seek and volume' \
+  -annotate +1330+494 'its newest photos and videos' \
   -annotate +1330+746 'reply, dismiss, and each chat' \
   -annotate +1330+778 'the way the phone shows it' \
   -strip "$out"

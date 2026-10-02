@@ -4,7 +4,7 @@ Your phone in the [Omarchy](https://omarchy.org) bar, through
 [KDE Connect](https://kdeconnect.kde.org/): notifications, texts, calls,
 media and photos, without picking it up.
 
-![Devices in the Omarchy bar: the pill with its notification bubble, the panel with shortcuts, Now playing and notifications, and the messages view with a conversation (demo data)](preview.png)
+![Devices in the Omarchy bar: the pill with its notification bubble, the panel with Now playing, the Gallery and notifications, and the messages view with a conversation (demo data)](preview.png)
 
 - **[Notifications](docs/panel.md)**: reply, dismiss, the app's own buttons.
 - **[Messages](docs/messages.md)**: every conversation and picture; reply
