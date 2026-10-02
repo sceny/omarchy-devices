@@ -3039,6 +3039,8 @@ Panel {
                     title: "GALLERY"
                     canBusy: true
                     busy: !!root.photoInfo && root.photoInfo.loading === true
+                    refreshTip: "Look at the phone again"
+                    onRefreshRequested: if (root.phone) root.phone.refreshPhotos(true)
                     folded: root.isCollapsed("photos")
                     summary: Model.photosSummary(root.photos)
                     onToggled: root.toggleCollapsed("photos")

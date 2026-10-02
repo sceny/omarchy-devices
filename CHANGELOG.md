@@ -74,8 +74,9 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   found as the phone's own gallery finds them: all of its shared storage,
   WhatsApp's included, but hidden and `.nomedia` folders and apps' private
   ones; each folder is an album. Each folder's listing is kept, so only
-  what changed is read again, and a small ring beside the title shows
-  while the phone is read; the last photos show meanwhile.
+  what changed is read again. A small ring at the header's right shows
+  while the phone is read (the last photos show meanwhile); idle, a
+  refresh button takes its place while the pointer is on the header.
   - Click a tile to open it: the file is copied here first (a ring on the
     tile) and the copy opens, so a video plays at its own pace, not the
     network's; the copies are a cache of 2 GB at most. From a tile's

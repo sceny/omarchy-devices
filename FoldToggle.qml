@@ -14,10 +14,13 @@ Item {
   // A small picture beside the summary while folded (the media cover).
   property string thumb: ""
   property bool folded: false
-  // A slow read under way (Gallery): a small ring beside the title. Its
-  // place is kept while it is hidden, so the header never moves.
+  // A section read from the device (Gallery): at the header's right, a
+  // small ring while it is read, else a refresh button while the pointer
+  // is on the header (no chrome at rest). Its place is kept, so the header
+  // never moves.
   property bool canBusy: false
   property bool busy: false
+  property string refreshTip: "Look again"
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
   // Transitions stretch with the panel's slow motion, and pause while a page
@@ -26,6 +29,7 @@ Item {
   property bool animate: true
   readonly property color dim: Qt.darker(foreground, 1.55)
   signal toggled()
+  signal refreshRequested()
 
   implicitHeight: foldRow.implicitHeight
   implicitWidth: foldRow.implicitWidth
@@ -63,19 +67,6 @@ Item {
       foreground: fold.foreground
       fontFamily: fold.fontFamily
     }
-    Item {
-      Layout.preferredWidth: fold.canBusy ? Style.font.caption : 0
-      Layout.preferredHeight: Style.font.caption
-      Layout.rightMargin: fold.canBusy ? Style.space(8) : 0
-      Layout.alignment: Qt.AlignVCenter
-      WaitRing {
-        anchors.centerIn: parent
-        running: fold.busy
-        motion: fold.motion
-        color: fold.dim
-        size: Style.font.caption
-      }
-    }
     Image {
       id: foldThumb
       readonly property bool shown: fold.folded && fold.thumb !== "" && status !== Image.Error
@@ -108,5 +99,33 @@ Item {
       elide: Text.ElideRight
       Behavior on opacity { enabled: fold.animate; NumberAnimation { duration: (fold.folded ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
     }
+    Item {
+      visible: fold.canBusy
+      Layout.preferredWidth: Style.space(20)
+      Layout.preferredHeight: Style.space(20)
+      Layout.leftMargin: Style.space(6)
+      Layout.alignment: Qt.AlignVCenter
+      WaitRing {
+        anchors.centerIn: parent
+        running: fold.busy
+        motion: fold.motion
+        color: fold.dim
+        size: Style.font.caption
+      }
+      PanelActionButton {
+        anchors.centerIn: parent
+        size: Style.space(20)
+        fontSize: Style.font.caption
+        iconText: Model.GLYPH.refresh
+        tooltipText: fold.refreshTip
+        foreground: fold.foreground
+        fontFamily: fold.fontFamily
+        opacity: !fold.busy && foldHover.hovered ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
+        onClicked: fold.refreshRequested()
+      }
+    }
   }
+  HoverHandler { id: foldHover; enabled: fold.canBusy }
 }
