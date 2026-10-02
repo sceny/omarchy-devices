@@ -108,6 +108,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   work.
 
 ### Fixed
+- No hand cursor showed over the panel's buttons: the main page's
+  right-click area and the media swipe area held the arrow over them.
 - Messages: opening a conversation while another was still loading left
   every conversation on skeletons until the shell restarted (#102).
 - A device joining could swap two others in the order (the first device:

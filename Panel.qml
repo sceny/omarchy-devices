@@ -1847,6 +1847,9 @@ Panel {
           z: 50
           enabled: root.showMain && !root.editing
           acceptedButtons: Qt.RightButton
+          // A MouseArea claims the arrow from the start; this one covers the
+          // page, so it gives the cursor back to the controls under it.
+          cursorShape: undefined
           onClicked: function(m) { var p = mapToItem(keyCatcher, m.x, m.y); root.openPageMenu(p.x, p.y) }
         }
 
@@ -2887,6 +2890,8 @@ Panel {
                       MouseArea {
                         anchors.fill: parent
                         acceptedButtons: Qt.NoButton
+                        // Over the cards: the cursor stays the buttons' own.
+                        cursorShape: undefined
                         property real pending: 0
                         onWheel: function(wheel) {
                           var dx = wheel.angleDelta.x
