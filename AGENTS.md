@@ -197,6 +197,14 @@ Keep them; change one only with the owner.
   `~/.cache/sceny.devices/`, never in `shell.json`. A received entry goes
   when dismissed or when its file is gone. A check never opens a real
   phone's photos: use the demo.
+- **A file from the device is decoded only in a sandbox.** Images go
+  through GdkPixbuf (glycin: bubblewrap and a syscall filter per decode);
+  a video's frame comes from `ffmpegthumbnailer` in our own bubblewrap (no
+  network, no home, that one file read-only, limits on memory, time and
+  output). The shell loads only JPEGs the bridge wrote from the decoded
+  pixels. With no sandbox, there is no thumbnail, never an unsandboxed
+  decode. Opening a file in its app (a click) is the user's own choice of
+  app, as in Files.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a

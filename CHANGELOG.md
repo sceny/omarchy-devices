@@ -86,6 +86,10 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
     wheel, a swipe or a drag)). Opening an album, or a received
     file's folder, closes the panel; opening a photo or a file keeps it
     open for the next.
+  - A file from the phone is decoded only in a sandbox: images through
+    glycin (each decode in its own bubblewrap sandbox), a video's frame
+    in one of ours (no network, no home, only that file); the panel
+    shows a JPEG made from the pixels, never the phone's file (#105).
   - Read through KDE Connect, which needs `sshfs`: the section offers to
     install it. When the storage cannot be opened, the section says so
     with *Try again*, and asks again by itself only after 10 minutes, so

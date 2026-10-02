@@ -52,6 +52,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 
@@ -600,26 +601,95 @@ def thumb_name(photo):
     return hashlib.sha1(("%s|%d" % (photo["path"], photo["at"])).encode()).hexdigest()[:20] + ".jpg"
 
 
+# A file from the phone is untrusted: a crafted image or video could exploit
+# a decoder. Nothing here decodes it in this process or the shell's:
+# - images go through GdkPixbuf, which on Omarchy decodes with glycin: each
+#   decode in its own bubblewrap sandbox with a syscall filter;
+# - a video's frame comes from ffmpegthumbnailer inside a bubblewrap sandbox
+#   of ours (no network, no home, only that one file, read-only; limits on
+#   memory, time and output), and is then decoded as an image is;
+# - what the shell loads is a JPEG written here from the decoded pixels.
+# Without the sandbox (no bwrap), a video gets no thumbnail; a photo larger
+# than THUMB_MAX_BYTES gets none either. A tile without one shows its kind.
+THUMB_SIZE = 256
+THUMB_MAX_BYTES = 64 << 20
+SANDBOX_SEC = 30
+SANDBOX_MEMORY = 2 << 30
+SANDBOX_OUTPUT = 32 << 20
+
+
+def sandbox_args(cmd, inputs, out_dir):
+    """bwrap around `cmd`: /usr read-only, nothing of the user's but the
+    `inputs` ({path: inside}, read-only) and `out_dir` (at /out); no network,
+    no other process, no environment."""
+    args = ["bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--clearenv",
+            "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
+            "--symlink", "usr/bin", "/bin", "--ro-bind-try", "/etc/ld.so.cache", "/etc/ld.so.cache",
+            "--dev", "/dev", "--tmpfs", "/tmp", "--setenv", "HOME", "/tmp"]
+    for path, inside in inputs.items():
+        args += ["--ro-bind", path, inside]
+    return args + ["--bind", out_dir, "/out", "--"] + cmd
+
+
+def sandbox_limits():
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (SANDBOX_MEMORY, SANDBOX_MEMORY))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (SANDBOX_OUTPUT, SANDBOX_OUTPUT))
+    resource.setrlimit(resource.RLIMIT_CPU, (SANDBOX_SEC, SANDBOX_SEC))
+
+
+def video_frame(src, out_dir):
+    """A frame of the video as a PNG in out_dir, made in the sandbox; None
+    without one."""
+    if not shutil.which("bwrap"):
+        return None
+    cmd = ["/usr/bin/ffmpegthumbnailer", "-i", "/in/video", "-o", "/out/frame.png", "-s", "512", "-c", "png"]
+    try:
+        subprocess.run(sandbox_args(cmd, {src: "/in/video"}, out_dir), capture_output=True,
+                       timeout=SANDBOX_SEC, preexec_fn=sandbox_limits)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    frame = os.path.join(out_dir, "frame.png")
+    return frame if os.path.isfile(frame) and not os.path.islink(frame) else None
+
+
+def square_thumb(src, dst, size=THUMB_SIZE):
+    """A size x size JPEG of the image's middle, from its decoded pixels
+    (GdkPixbuf: glycin's sandbox on Omarchy). False when it cannot be read."""
+    try:
+        gi.require_version("GdkPixbuf", "2.0")
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(src, size * 3, size * 3, True)
+        pix = pix.apply_embedded_orientation() or pix
+        w, h = pix.get_width(), pix.get_height()
+        scale = size / min(w, h)
+        sw, sh = max(size, round(w * scale)), max(size, round(h * scale))
+        scaled = pix.scale_simple(sw, sh, GdkPixbuf.InterpType.BILINEAR)
+        square = scaled.new_subpixbuf((sw - size) // 2, (sh - size) // 2, size, size).copy()
+        tmp = dst + ".part"
+        square.savev(tmp, "jpeg", ["quality"], ["85"])
+        os.replace(tmp, dst)
+        return True
+    except (GLib.Error, ValueError, ImportError, OSError, ZeroDivisionError):
+        return False
+
+
 def make_thumb(src, dst, video=False):
-    """A square 256 px thumbnail (ImageMagick; a video's frame from
-    ffmpegthumbnailer; both part of Omarchy). False when there is none."""
-    frame = dst + ".frame.png"
+    """A square thumbnail of a file from the device, decoded only in a
+    sandbox (see above). False when there is none."""
     try:
         if video:
-            subprocess.run(["ffmpegthumbnailer", "-i", src, "-o", frame, "-s", "512", "-c", "png"],
-                           capture_output=True, timeout=30)
-            if not os.path.isfile(frame):
-                return False
-            src = frame
-        subprocess.run(["magick", src + "[0]", "-auto-orient", "-thumbnail", "256x256^",
-                        "-gravity", "center", "-extent", "256x256", "-quality", "85", dst],
-                       capture_output=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        pass
-    finally:
-        if video and os.path.exists(frame):
-            os.remove(frame)
-    return os.path.isfile(dst)
+            work = tempfile.mkdtemp(dir=os.path.dirname(dst))
+            try:
+                frame = video_frame(src, work)
+                return bool(frame) and square_thumb(frame, dst)
+            finally:
+                shutil.rmtree(work, ignore_errors=True)
+        if os.path.getsize(src) > THUMB_MAX_BYTES:
+            return False
+        return square_thumb(src, dst)
+    except OSError:
+        return False
 
 
 def photos(device_id, count=PHOTO_COUNT):
