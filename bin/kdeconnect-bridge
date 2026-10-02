@@ -666,6 +666,12 @@ def square_thumb(src, dst, size=THUMB_SIZE):
         sw, sh = max(size, round(w * scale)), max(size, round(h * scale))
         scaled = pix.scale_simple(sw, sh, GdkPixbuf.InterpType.BILINEAR)
         square = scaled.new_subpixbuf((sw - size) // 2, (sh - size) // 2, size, size).copy()
+        if square.get_has_alpha():
+            # JPEG has no alpha (a PNG screenshot has): flattened on black.
+            flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, size, size)
+            flat.fill(0x000000ff)
+            square.composite(flat, 0, 0, size, size, 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
+            square = flat
         tmp = dst + ".part"
         square.savev(tmp, "jpeg", ["quality"], ["85"])
         os.replace(tmp, dst)

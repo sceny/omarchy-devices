@@ -561,13 +561,14 @@ class SandboxedThumbs(unittest.TestCase):
         from gi.repository import GdkPixbuf
         with tempfile.TemporaryDirectory() as d:
             src, dst = os.path.join(d, "IMG.png"), os.path.join(d, "t.jpg")
-            pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 600, 300)
-            pix.fill(0x3366ccff)
-            pix.savev(src, "png", [], [])
-            self.assertTrue(bridge.make_thumb(src, dst))
-            self.assertEqual(open(dst, "rb").read(2), b"\xff\xd8", "a JPEG of ours")
-            out = GdkPixbuf.Pixbuf.new_from_file(dst)
-            self.assertEqual((out.get_width(), out.get_height()), (256, 256))
+            for alpha in (False, True):  # a PNG screenshot has alpha; JPEG has none
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, alpha, 8, 600, 300)
+                pix.fill(0x3366ccff)
+                pix.savev(src, "png", [], [])
+                self.assertTrue(bridge.make_thumb(src, dst), "alpha %s" % alpha)
+                self.assertEqual(open(dst, "rb").read(2), b"\xff\xd8", "a JPEG of ours")
+                out = GdkPixbuf.Pixbuf.new_from_file(dst)
+                self.assertEqual((out.get_width(), out.get_height()), (256, 256))
 
     @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
     def test_something_that_is_not_an_image_gets_none(self):
