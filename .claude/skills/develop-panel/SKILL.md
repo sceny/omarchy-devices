@@ -80,6 +80,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
 "${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # Connection: a failing firewall (the gear's dot); Ignore / Undo
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
+"${IPC[@]}" preview true            # Preview with a demo phone (the user's demo, with its strip); false: Back to setup
 "${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
 "${IPC[@]}" settingsScope <root|defaults|device> ; "${IPC[@]}" settingsRowsInfo   # a settings page and its rows
 "${IPC[@]}" pressSetting <index> ; "${IPC[@]}" nickname <text> ; "${IPC[@]}" pickIcon <hex> ; "${IPC[@]}" moveDevice <device> -1

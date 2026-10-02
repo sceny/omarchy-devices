@@ -43,8 +43,14 @@ Item {
     smsService.showDemo()
   }
 
+  // A demo the user started from the panel, before any device is set up
+  // (Preview with a demo phone): the panel says it is one, and a real
+  // device connecting ends it.
+  property bool preview: false
+
   function showLiveFiles() { dismissedFiles = ({}) }
   function showLive() {
+    preview = false
     showLiveFiles()
     demo = false
     snapshot = liveSnapshot

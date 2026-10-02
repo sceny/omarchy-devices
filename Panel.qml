@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Window as QW
 import Quickshell
 import Quickshell.Io
 import qs.Commons
@@ -174,6 +175,8 @@ Panel {
   }
 
   onTargetPageChanged: {
+    // Leaving the preview runs its own change (previewSwap).
+    if (previewLeaving) return
     if (targetPage === shownPage && !pageSwap.running) return
     // Closed, or just opening: nothing to show off, the panel fades in anyway.
     if (!opened) { snapPage(); return }
@@ -198,11 +201,11 @@ Panel {
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running || deviceSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -226,6 +229,51 @@ Panel {
     }
     // A change of mind mid-way (Esc right after opening) lands too.
     onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+  }
+
+  // Leaving the preview (backToSetup): the still of the old page fades and
+  // slides out, the real page and the panel's size take over at the
+  // midpoint, and the page comes in: the same beat as pageSwap.
+  SequentialAnimation {
+    id: previewSwap
+    ParallelAnimation {
+      NumberAnimation { target: previewStripCard; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageStill; property: "opacity"; from: 1; to: 0; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+      NumberAnimation { target: pageStill; property: "x"; from: 0; to: pageSwap.travel; duration: Model.MOTION.outMs * root.motion; easing.type: Easing.InCubic }
+    }
+    ScriptAction {
+      script: {
+        pageStill.visible = false
+        pageStill.source = ""
+        pageStill.x = 0
+        pageStill.opacity = 1
+        previewStrip.held = false
+        root.applyShownPage()
+        root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+        root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
+        pageColumn.opacity = 1
+        pageHost.opacity = 0
+        pageHost.slide = -pageSwap.travel
+        if (panelFlick) panelFlick.contentY = 0
+      }
+    }
+    ParallelAnimation {
+      NumberAnimation { target: pageHost; property: "opacity"; to: 1; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+      NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+    }
+    onStopped: {
+      root.previewLeaving = false
+      previewStrip.held = false
+      previewStripCard.opacity = 1
+      pageStill.visible = false
+      pageStill.source = ""
+      pageColumn.opacity = 1
+      pageHost.opacity = 1
+      pageHost.slide = 0
+      root.applyShownPage()
+      root.cardWidth = Qt.binding(function() { return root.targetCardWidth })
+      root.cardHeight = Qt.binding(function() { return root.targetCardHeight })
+    }
   }
 
   // The same beat for changing the viewed device (switchDevice).
@@ -482,6 +530,67 @@ Panel {
     if (!phone.demo || phone.settingsBeforeDemo === null) phone.settingsBeforeDemo = JSON.parse(JSON.stringify(root.settings || {}))
     phone.showDemo(kind)
   }
+  // ---- Preview: a demo phone before any device is set up (#62) ----
+  // The demo, entered from the setup checks, with a strip saying so. Nothing
+  // in it reaches a device; leaving it puts every setting back.
+  // Where the preview began (Add a device, or the main page), for Back to setup.
+  property string previewFrom: ""
+  function startPreview() {
+    if (!phone || phone.preview) return
+    previewFrom = settingsOpen ? settingsScope : "main"
+    enterDemo("")
+    phone.preview = true
+    settingsOpen = false
+    messagesOpen = false
+    if (panelFlick) panelFlick.contentY = 0
+  }
+  function endPreview() {
+    if (!phone || !phone.preview) return
+    phone.showLive()
+    leaveDemo()
+  }
+  // Back to setup: out of the preview, onto the page it began from.
+  // One page change: whatever the preview had open (its messages, editing
+  // its page) gives way to the page it began from, and the demo turns live
+  // at the change's midpoint, while no page shows: the fading page never
+  // shows the real phone's data. On the same page, the page fades out and
+  // back in around the swap.
+  // Turning the demo live rebuilds the whole panel for the real device
+  // (about 0.1 s): done in the middle of a page change, it froze the change
+  // and the slide-in then jumped. So the page is captured first and shown
+  // still while the demo turns live underneath (a click's latency, nothing
+  // moving), and only then does the change run, on a fresh clock
+  // (previewSwap): the still fades out, the real page comes in, and the
+  // panel's size follows at the same beat.
+  property bool previewLeaving: false
+  function backToSetup() {
+    if (!opened || previewLeaving) { if (!opened) finishBackToSetup(); return }
+    previewLeaving = true
+    previewStrip.held = true
+    cardWidth = cardWidth
+    cardHeight = cardHeight
+    pageHost.grabToImage(function(result) {
+      pageStill.source = result.url
+      pageStill.visible = true
+      pageColumn.opacity = 0
+      finishBackToSetup()
+      Qt.callLater(function() { previewSwap.restart() })
+    }, Qt.size(pageHost.width * pageHost.dpr, pageHost.height * pageHost.dpr))
+  }
+  function finishBackToSetup() {
+    var from = previewFrom
+    if (editing) stopEditing()
+    if (from !== "" && from !== "main") { openSettings(); openScope(from) }
+    else { messagesOpen = false; settingsOpen = false }
+    endPreview()
+  }
+
+  readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
+  // A real device connecting ends the preview: the panel shows it instead.
+  readonly property bool liveConnected: !!phone && !!phone.liveSnapshot
+    && (phone.liveSnapshot.devices || []).some(function(d) { return d && d.paired === true && d.reachable === true })
+  onLiveConnectedChanged: if (liveConnected) endPreview()
+
   function leaveDemo() {
     var before = phone ? phone.settingsBeforeDemo : null
     if (!before) { forgetDemoProfiles(); return }
@@ -1586,6 +1695,11 @@ Panel {
       return JSON.stringify(root.received.map(function(r) { return r.name }))
     }
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
+    // Preview with a demo phone (on) or Back to setup (off), as the buttons would.
+    function preview(on: bool): string {
+      if (on) root.startPreview(); else root.backToSetup()
+      return JSON.stringify({ preview: !!root.phone && root.phone.preview, demo: !!root.phone && root.phone.demo })
+    }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
     function toggleLayout(key: string): string { root.toggleLayout(key); return "ok" }
     // Scripted: shows the send-text composer with `text` in it, never focused.
@@ -1608,6 +1722,8 @@ Panel {
     function status(): string {
       return JSON.stringify({
         opened: root.opened,
+        messagesOpen: root.messagesOpen,
+        preview: !!root.phone && root.phone.preview,
         editing: root.editing,
         call: root.call,
         daemon: root.phone ? root.phone.daemon : false,
@@ -1882,6 +1998,72 @@ Panel {
           // animating, so the page never re-flows during a page change.
           width: panelFlick.width + (root.targetCardWidth - root.cardWidth) - 2 * root.pageGutter
           spacing: Style.space(12)
+
+          // ---- Preview: says the phone is a demo, with the way back ----
+          // Leaving with Back to setup, it stays until the page change's
+          // midpoint, fading with the old page, then folds away with the
+          // panel's resize: closing at the click moved the page under it.
+          FoldBody {
+            id: previewStrip
+            property bool held: false
+            open: (!!root.phone && root.phone.preview) || held
+            motion: root.motion
+            animate: root.settled
+            BorderSurface {
+              id: previewStripCard
+              width: parent.width
+              implicitHeight: previewRow.implicitHeight + Style.space(14)
+              radius: Style.cornerRadius
+              color: Style.selectedFillFor(root.foreground, Color.accent)
+              borderSpec: Border.controlSpec("hover-cursor", root.foreground, Color.accent)
+              RowLayout {
+                id: previewRow
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(12)
+                anchors.rightMargin: Style.space(8)
+                spacing: Style.space(10)
+                Text {
+                  text: Model.GLYPH.devices
+                  color: Color.accent
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.icon
+                }
+                ColumnLayout {
+                  Layout.fillWidth: true
+                  spacing: Style.space(1)
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Demo: set up KDE Connect to see your phone"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                    wrapMode: Text.WordWrap
+                  }
+                  Text {
+                    Layout.fillWidth: true
+                    textFormat: Text.PlainText
+                    text: "Made-up data; nothing here reaches a device"
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    wrapMode: Text.WordWrap
+                  }
+                }
+                Button {
+                  text: "Back to setup"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.backToSetup()
+                }
+              }
+            }
+          }
 
           // ---- The pairing card: a device asking to pair, at the top, above
           //      the tabs (it is about all devices, not the one viewed),
@@ -2363,6 +2545,7 @@ Panel {
           Item {
             id: pageHost
             property real slide: 0
+            readonly property real dpr: QW.Screen.devicePixelRatio > 0 ? QW.Screen.devicePixelRatio : 1
             width: parent.width
             height: pageColumn.implicitHeight
             implicitHeight: pageColumn.implicitHeight
@@ -3379,6 +3562,20 @@ Panel {
                     onClicked: adding ? root.openAddDevice() : root.openConnection()
                   }
                 }
+
+                // Before any device is set up: what the panel will show,
+                // with a made-up phone (#62).
+                Button {
+                  visible: root.canPreview
+                  text: "Preview with a demo phone"
+                  iconText: Model.GLYPH.phone
+                  tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
+                  bordered: true
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.startPreview()
+                }
               }
 
               // ---- Text messages, in place of everything above but the header ----
@@ -3451,6 +3648,8 @@ Panel {
                 justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
+                canPreview: root.canPreview
+                onPreviewRequested: root.startPreview()
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }
@@ -3460,6 +3659,15 @@ Panel {
                 onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
               }
 
+            }
+            // The old page held still while the demo turns live (backToSetup).
+            Image {
+              id: pageStill
+              visible: false
+              width: pageHost.width
+              height: sourceSize.height / pageHost.dpr
+              asynchronous: false
+              cache: false
             }
           }
         }

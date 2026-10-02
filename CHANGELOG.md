@@ -84,7 +84,7 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
     and only once; or drag it into a window.
   - The biggest albums open in the file manager (a folder icon); the row
     scrolls sideways when they do not fit (the arrows at its edges, the
-    wheel, a swipe or a drag)). Opening an album, or a received
+    wheel, a swipe or a drag). Opening an album, or a received
     file's folder, closes the panel; opening a photo or a file keeps it
     open for the next.
   - A file from the phone is decoded only in a sandbox: images through
@@ -123,6 +123,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   panel goes to the device. The key reads the same everywhere: large, one
   word, as KDE Connect shows it. Pairing actions no longer toast when they
   work.
+- Preview with a demo phone (#62): before any device is set up, a button
+  on Add a device shows the panel with made-up data (the Pixel 8,
+  its notifications, conversations and media), under a strip saying it is
+  a demo, with *Back to setup*. A real device connecting ends it; leaving
+  puts every setting back. IPC: `preview true|false`.
 
 ### Fixed
 - Images from the phone (notification icons, a track's art, a picture

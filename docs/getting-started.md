@@ -27,6 +27,11 @@ on it, and devices in reach to pair with. **Connection** (in Settings)
 checks this computer (KDE Connect, the firewall, the network), with a
 **Fix** where it can; fixes ask for your password.
 
+**Preview with a demo phone**, under the steps, shows the panel with
+made-up data until yours is set up; nothing reaches a device.
+
+![Preview with a demo phone](images/preview.png)
+
 On the phone:
 
 1. Open KDE Connect, pick the computer and pair.
