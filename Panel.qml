@@ -498,6 +498,12 @@ Panel {
     phone.showLive()
     leaveDemo()
   }
+  // Back to setup: out of the preview, onto Add a device, where it began.
+  function backToSetup() {
+    endPreview()
+    if (!device) openAddDevice()
+  }
+  readonly property bool canPreview: !!snapshot && !device && !!phone && !phone.preview
   // A real device connecting ends the preview: the panel shows it instead.
   readonly property bool liveConnected: !!phone && !!phone.liveSnapshot
     && (phone.liveSnapshot.devices || []).some(function(d) { return d && d.paired === true && d.reachable === true })
@@ -1609,7 +1615,7 @@ Panel {
     function live(): string { if (root.phone) root.phone.showLive(); root.leaveDemo(); return "live" }
     // Preview with a demo phone (on) or Back to setup (off), as the buttons would.
     function preview(on: bool): string {
-      if (on) root.startPreview(); else root.endPreview()
+      if (on) root.startPreview(); else root.backToSetup()
       return JSON.stringify({ preview: !!root.phone && root.phone.preview, demo: !!root.phone && root.phone.demo })
     }
     function settings(): string { root.openFromHotkey(); root.openSettings(); return "ok" }
@@ -1963,7 +1969,7 @@ Panel {
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
-                  onClicked: root.endPreview()
+                  onClicked: root.backToSetup()
                 }
               }
             }
@@ -3469,7 +3475,7 @@ Panel {
                 // Before any device is set up: what the panel will show,
                 // with a made-up phone (#62).
                 Button {
-                  visible: !!root.snapshot && !root.device && !!root.phone && !root.phone.preview
+                  visible: root.canPreview
                   text: "Preview with a demo phone"
                   iconText: Model.GLYPH.phone
                   tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
@@ -3551,6 +3557,8 @@ Panel {
                 justPaired: root.justPaired
                 onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
+                canPreview: root.canPreview
+                onPreviewRequested: root.startPreview()
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onActivated: function(index) { root.activateSetting(index) }

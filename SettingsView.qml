@@ -57,6 +57,9 @@ Column {
   signal hovered(int index)
   signal fixRequested(string what)
   signal ignoreRequested(string key, bool on)
+  // Nothing set up yet: a look at the panel with a made-up phone (#62).
+  property bool canPreview: false
+  signal previewRequested()
   signal foldToggled(string key)
   signal rejectRequested(string id)
   signal deviceMoveRequested(string id, int delta)
@@ -473,6 +476,20 @@ Column {
     }
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
+
+  // Not ready to pair: what the panel shows once a phone is set up, with a
+  // made-up one. Last, after pairing, which comes first.
+  Button {
+    visible: root.scopeKind === "addDevice" && root.canPreview
+    text: "Preview with a demo phone"
+    iconText: Model.GLYPH.phone
+    tooltipText: "What the panel shows once a phone is set up; made-up data, nothing reaches a device"
+    bordered: true
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    fontSize: Style.font.bodySmall
+    onClicked: root.previewRequested()
+  }
 
   // The page's buttons (Unpair, Reset shortcuts, KDE Connect settings):
   // their row takes room only when one of them shows (hidden buttons still
