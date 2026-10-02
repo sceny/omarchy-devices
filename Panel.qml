@@ -665,8 +665,14 @@ Panel {
   }
   property bool iconPicking: false
   // The header names the device a settings page edits, else the viewed one.
-  readonly property var heroDevice: showSettings && editingDevice ? scopeDevice : device
-  readonly property var heroProfile: showSettings && editingDevice ? scopeProfile : profile
+  // A page about no one device names none: Connection, Add a device, and
+  // with several devices the list and the defaults. The header then reads
+  // Devices, with the plugin's own glyph. A device's page, and with one
+  // device all of Settings (its settings), name the device.
+  readonly property bool heroNeutral: showSettings
+    && (settingsScope === "connection" || settingsScope === "addDevice" || (manyDevices && !editingDevice))
+  readonly property var heroDevice: heroNeutral ? null : (showSettings && editingDevice ? scopeDevice : device)
+  readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
   property bool nicknameFocused: false
 
@@ -2491,11 +2497,11 @@ Panel {
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.heroDevice && root.heroDevice.reachable === true ? 1.0 : 0.45
+            iconOpacity: root.heroNeutral || (root.heroDevice && root.heroDevice.reachable === true) ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
-                text: Model.deviceIcon(root.heroDevice, root.heroProfile)
+                text: root.heroNeutral ? Model.GLYPH.devices : Model.deviceIcon(root.heroDevice, root.heroProfile)
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
