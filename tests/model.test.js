@@ -234,6 +234,15 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(M.metaLine(M.demoSnapshot(null, "down"), null), "KDE Connect is not running")
   assert.equal(M.metaLine(M.demoSnapshot(null, "none"), null), "No paired device")
   assert.equal(M.pickDevice(M.demoSnapshot(null, "away"), "").reachable, false)
+  // The real device's identity stays with it: its nickname and icon do not
+  // show on the demo (#108).
+  const live = { daemon: true, devices: [{ id: "real1", name: "Galaxy", type: "phone", paired: true, reachable: true }] }
+  const settings = M.readSettings({ devices: { real1: { nickname: "My phone", icon: "F04CE" } } })
+  assert.equal(M.deviceTitle(live.devices[0], M.resolveProfile(settings, live.devices[0], true)), "My phone", "the real one keeps it")
+  const demoDev = M.pickDevice(M.demoSnapshot(live, "one"), "")
+  assert.equal(demoDev.id, "demo")
+  assert.equal(M.deviceTitle(demoDev, M.resolveProfile(settings, demoDev, true)), "Pixel 8")
+  assert.equal(M.deviceIcon(demoDev, M.resolveProfile(settings, demoDev, true)), M.deviceIcon(demoDev, null))
   assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "reply, actions, a long text, a group chat, not dismissable")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
   const away = M.demoSnapshot(snap(device({ reachable: false, can: { sms: false, ring: false } })), "").devices[0]

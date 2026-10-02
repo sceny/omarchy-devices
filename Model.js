@@ -821,8 +821,11 @@ function demoSnapshot(live, kind) {
     can: { ring: true, clipboard: true, share: true, sms: true, media: true, notifications: true },
     battery: { charge: 55, charging: false }
   }))
-  // A neutral name, so a screenshot of demo mode shows no real device.
+  // A neutral name and an id of its own, so a screenshot of demo mode shows
+  // no real device: the real one's nickname, icon and place in the bar are
+  // kept under its id, and do not apply here (#108).
   dev.name = "Pixel 8"
+  dev.id = "demo"
   dev.reachable = kind !== "away"
   // Away: where it was, as the bridge's cache would say it.
   dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null

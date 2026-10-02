@@ -129,6 +129,8 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   message's preview) were decoded by the shell itself; they are now shown
   only as copies decoded in a sandbox (glycin), as the Gallery's are, and
   a received picture's preview too (#107).
+- Demo mode showed the real device's nickname (and icon, and place in the
+  bar); it now shows only its own (#108).
 - No hand cursor showed over the panel's buttons: the main page's
   right-click area and the media swipe area held the arrow over them.
 - Messages: opening a conversation while another was still loading left
