@@ -105,14 +105,18 @@ Item {
       Layout.preferredHeight: Style.space(20)
       Layout.leftMargin: Style.space(6)
       Layout.alignment: Qt.AlignVCenter
+      // One at a time, at the panel's pace: the one leaving fades out, and
+      // only once it is gone does the other fade in.
       WaitRing {
+        id: foldRing
         anchors.centerIn: parent
-        running: fold.busy
+        running: fold.busy && !foldRefresh.visible
         motion: fold.motion
         color: fold.dim
         size: Style.font.caption
       }
       PanelActionButton {
+        id: foldRefresh
         anchors.centerIn: parent
         size: Style.space(20)
         fontSize: Style.font.caption
@@ -120,9 +124,10 @@ Item {
         tooltipText: fold.refreshTip
         foreground: fold.foreground
         fontFamily: fold.fontFamily
-        opacity: !fold.busy && foldHover.hovered ? 1 : 0
+        readonly property bool wanted: !fold.busy && foldHover.hovered && !foldRing.visible
+        opacity: wanted ? 1 : 0
         visible: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: (foldRefresh.wanted ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
         onClicked: fold.refreshRequested()
       }
     }
