@@ -18,7 +18,7 @@ trap 'rm -rf "$tmp"' EXIT
 BG='#111C18' FG='#C1C497' ACCENT='#509475'
 BOLD=JetBrainsMono-NF-Bold REGULAR=JetBrainsMono-NF-Regular
 
-MSGS_CARD=1173x907+1382+40   # the messages view in MESSAGES.png
+MSGS_CARD=1205x907+1350+40   # the messages view in MESSAGES.png
 PILL=108x34+2250+0           # the pill in the bar
 PILL_BOX="2244,3 2362,35"    # an outline around it
 
@@ -40,9 +40,9 @@ magick "$main" \
 magick "$tmp/base.png" \
   -stroke "$ACCENT" -strokewidth 3 -fill none \
   -draw "roundrectangle ${PILL_BOX} 6,6" \
-  -draw "line 1790,300 2018,300" \
-  -draw "line 1690,428 2018,428" \
-  -draw "line 1770,1128 2018,1128" \
+  -draw "line 1790,292 2018,292" \
+  -draw "line 1690,432 2018,432" \
+  -draw "line 1770,760 2018,760" \
   -stroke none \
   "$tmp/pill.png" -geometry +1600+60 -composite \
   "$tmp/msgs-shadow.png" -geometry +70+520 -composite \
@@ -50,18 +50,18 @@ magick "$tmp/base.png" \
   -font "$BOLD" -pointsize 72 -annotate +110+150 'Your phone,' \
   -annotate +110+236 'in the Omarchy bar' \
   -font "$REGULAR" -pointsize 30 -fill "$FG" \
-  -annotate +112+340 'Notifications, texts and media from your Android phone,' \
-  -annotate +112+382 'through KDE Connect.' \
+  -annotate +112+340 'Notifications, texts, calls, media and photos' \
+  -annotate +112+382 'from your phone, through KDE Connect.' \
   -font "$BOLD" -pointsize 24 -fill "$ACCENT" \
   -annotate +1600+222 'NOTIFICATIONS IN YOUR BAR ↗' \
   -annotate +112+470 'YOUR TEXTS' \
-  -annotate +1330+268 'SHORTCUTS' \
-  -annotate +1330+382 'NOW PLAYING' \
-  -annotate +1330+1080 'NOTIFICATIONS' \
+  -annotate +1330+262 'SHORTCUTS' \
+  -annotate +1330+386 'NOW PLAYING' \
+  -annotate +1330+712 'NOTIFICATIONS' \
   -font "$REGULAR" -pointsize 24 -fill "$FG" \
   -annotate +330+470 'every conversation, reply from the keyboard' \
-  -annotate +1330+302 'send files, clipboard, a link' \
-  -annotate +1330+416 'cover, seek and volume' \
-  -annotate +1330+1114 'reply, dismiss, and each chat' \
-  -annotate +1330+1146 'the way the phone shows it' \
+  -annotate +1330+296 'send files, clipboard, a link' \
+  -annotate +1330+420 'cover, seek and volume' \
+  -annotate +1330+746 'reply, dismiss, and each chat' \
+  -annotate +1330+778 'the way the phone shows it' \
   -strip "$out"
