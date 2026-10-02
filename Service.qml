@@ -795,6 +795,38 @@ Item {
     var proc = actionComponent.createObject(root, { key: "open", command: [bridge, "open-file", String(path)] })
     proc.running = true
   }
+  // A track's art from the phone, shown only as a safe copy the bridge makes
+  // (decoded in glycin's sandbox): url -> file:// of the copy, "" while there
+  // is none. Asked once per url; a url that is not a local file has none.
+  property var safeArt: ({})
+  function artFor(url) { return safeArt[String(url || "")] || "" }
+  function requestArt(url) {
+    var u = String(url || "")
+    if (u === "" || safeArt[u] !== undefined) return
+    var next = Object.keys(safeArt).length > 200 ? {} : Object.assign({}, safeArt)
+    next[u] = ""
+    safeArt = next
+    if (u.indexOf("file://") !== 0) return
+    var proc = artComponent.createObject(root, { url: u, command: [bridge, "safe-image", decodeURIComponent(u.slice(7)), "512"] })
+    proc.running = true
+  }
+  Component {
+    id: artComponent
+    Process {
+      id: artProc
+      property string url: ""
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var path = String(text || "").trim()
+          var next = Object.assign({}, root.safeArt)
+          next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
+          root.safeArt = next
+          artProc.destroy()
+        }
+      }
+    }
+  }
+
   // A file on the device: copied here first (the bridge keeps a few in the
   // cache), then opened, so the app reads a local file: a video plays at
   // its pace, not the network's. The tile shows a ring meanwhile.

@@ -2795,7 +2795,7 @@ Panel {
                         ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist,
                             Model.playerApp(root.shownPlayerObject.identity, root.device ? root.device.name : ""))
                         : ""
-                      thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl ? root.shownPlayerObject.trackArtUrl : ""
+                      thumb: root.shownPlayerObject && root.shownPlayerObject.trackArtUrl && root.phone ? root.phone.artFor(root.shownPlayerObject.trackArtUrl) : ""
                       onToggled: root.toggleCollapsed("media")
                     }
 
@@ -3890,7 +3890,8 @@ Panel {
         Image {
           anchors.fill: parent
           visible: status === Image.Ready
-          source: Model.isImage(rrow.entry.name) && String(rrow.entry.path).indexOf("/demo/") !== 0 ? "file://" + encodeURI(rrow.entry.path) : ""
+          // The bridge's safe copy (decoded in the sandbox), never the file.
+          source: rrow.entry.preview ? "file://" + encodeURI(rrow.entry.preview) : ""
           fillMode: Image.PreserveAspectCrop
           asynchronous: true
           sourceSize.width: 64
@@ -3982,6 +3983,8 @@ Panel {
     // A real change of art (or a track with none) still lands, 2 s later.
     readonly property string reportedArt: player && player.trackArtUrl ? String(player.trackArtUrl) : ""
     property string artUrl: reportedArt
+    onArtUrlChanged: if (root.phone) root.phone.requestArt(artUrl)
+    Component.onCompleted: if (root.phone) root.phone.requestArt(artUrl)
     onReportedArtChanged: {
       if (reportedArt !== "") { artUrl = reportedArt; artClear.stop() }
       else artClear.restart()
@@ -4063,7 +4066,8 @@ Panel {
             // retainWhileLoading keeps the old picture up until the new one is
             // ready, so a reload never shows a gap.
             visible: source != "" && status !== Image.Error && status !== Image.Null
-            source: card.artUrl
+            // The phone's art, as a safe copy (decoded in the sandbox).
+            source: root.phone ? root.phone.artFor(card.artUrl) : ""
             retainWhileLoading: true
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
