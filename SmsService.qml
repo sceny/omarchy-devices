@@ -314,11 +314,14 @@ Item {
       return
     }
     start()
-    if (tid === openThreadId && messageModel.count > 0) return
+    if (tid === openThreadId && (messageModel.count > 0 || loading)) return
     openThreadId = tid
     messageModel.clear()
     loadedCount = 0
     hasMore = true
+    // The page still on its way is the previous conversation's; its answer
+    // is dropped (another thread), so this one is asked for now.
+    loading = false
     markSeen(tid)
     loadMore()
   }
