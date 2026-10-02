@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -48,6 +49,14 @@ Item {
   readonly property bool composerFocused: composer.activeFocus || toField.activeFocus || searchField.activeFocus
   // Writing a reply: PgUp/PgDn scroll the conversation instead of the list.
   readonly property bool typingReply: composer.activeFocus
+  // Where the keys go when no field has them: the conversation list, or the
+  // open conversation (l / → in, h / ← out, Esc out). Each side shows its
+  // highlight only while the keys go there.
+  property string pane: "list"
+  readonly property bool inConversation: pane === "conversation" && !!openRow && !typingReply
+  // The message the keys are on in the open conversation: 0 is the newest.
+  property int messageCursor: 0
+  signal reported(string text)
   readonly property var shown: sms ? sms.shownThreads : null
 
   // New message: recipients picked in the "To" field, as [{title, number}].
@@ -157,7 +166,68 @@ Item {
   function moveCursor(dy) {
     if (!shown || shown.count === 0) return
     if (!cursorActive) { cursorActive = true; return }
+    // Up from the first conversation: into search, as / does (and down from
+    // search comes back).
+    if (dy < 0 && threadCursor === 0) { focusSearch(); return }
     cursorTo(threadCursor + dy)
+  }
+
+  // The keys in messages: across (h/l, ←/→) between the list and the open
+  // conversation; up and down on whichever side has them.
+  function moveKey(dx, dy) {
+    if (dx > 0) { enterConversation(); return }
+    if (dx < 0) { pane = "list"; return }
+    if (dy === 0) return
+    if (pane === "conversation" && openRow) moveMessage(dy)
+    else moveCursor(dy)
+  }
+  function enterConversation() {
+    if (!openRow || messageList.count === 0 || pane === "conversation") return
+    pane = "conversation"
+    messageTo(Math.min(messageCursor, messageList.count - 1))
+  }
+  // Down is newer (towards the bottom, index 0), up is older.
+  function moveMessage(dy) { messageTo(messageCursor - dy) }
+  function messageTo(i) {
+    if (messageList.count === 0) return
+    messageGlide.stop()
+    var from = messageList.contentY
+    messageCursor = Math.max(0, Math.min(messageList.count - 1, i))
+    messageList.positionViewAtIndex(messageCursor, ListView.Contain)
+    glide(messageList, messageGlide, from, messageList.contentY)
+  }
+  // PgUp/PgDn in the conversation: the cursor a screen of messages at a time.
+  function pageMessage(pages) {
+    if (messageList.count === 0) return
+    var avg = messageList.contentHeight / Math.max(1, messageList.count)
+    messageTo(messageCursor + pages * Math.max(1, Math.floor(messageList.height / Math.max(1, avg)) - 1))
+  }
+  // Enter on a message: its picture opens (a copy made in the sandbox);
+  // otherwise its text goes on the clipboard.
+  function activateMessage() {
+    var m = view.sms ? view.sms.messages.get(messageCursor) : null
+    if (!m) return
+    var files = []
+    try { files = JSON.parse(m.attachments || "[]") } catch (e) {}
+    for (var i = 0; i < files.length; i++) {
+      if (String(files[i].mime).indexOf("image/") === 0) { view.sms.fetchAttachment(files[i].part, files[i].id, files[i].mime); return }
+    }
+    if (String(m.body || "") !== "") { copyText(m.body); return }
+    if (files.length > 0) view.sms.fetchAttachment(files[0].part, files[0].id, files[0].mime)
+  }
+  // The text goes to wl-copy over stdin, never on its command line.
+  Process {
+    id: textCopier
+    property string text: ""
+    command: ["wl-copy"]
+    stdinEnabled: true
+    onStarted: { write(text); text = ""; stdinEnabled = false }
+    onExited: { stdinEnabled = true; view.reported("Copied") }
+  }
+  function copyText(t) {
+    if (textCopier.running) return
+    textCopier.text = String(t)
+    textCopier.running = true
   }
 
   function cursorTo(i) {
@@ -214,6 +284,7 @@ Item {
   }
 
   function activateCursor() {
+    if (inConversation) { activateMessage(); return }
     if (!shown || threadCursor < 0 || threadCursor >= shown.count) return
     openThread(shown.get(threadCursor).tid, true)
   }
@@ -227,6 +298,7 @@ Item {
   // in "To" (its list goes with it), the new message, the search. False
   // when nothing is open here, so the panel closes messages.
   function goBack() {
+    if (pane === "conversation") { pane = "list"; return true }
     if (newMode && toField.text !== "") { toField.text = ""; return true }
     if (newMode) { cancelNew(); return true }
     if (searchField.text !== "") { searchField.text = ""; return true }
@@ -254,6 +326,8 @@ Item {
   // another window could land in a text and Enter would send it.
   function openThread(tid, typeHere) {
     if (!sms) return
+    // Another conversation: the keys back on the list, its newest message next.
+    if (sms.openThreadId !== tid) { pane = "list"; messageCursor = 0 }
     stashDraft()
     newMode = false
     sms.openThread(tid)
@@ -497,7 +571,7 @@ Item {
             width: threadList.width - Style.space(8)
             hasCursor: true
             foreground: view.foreground
-            opacity: view.cursorActive && !view.typingReply ? 1 : 0
+            opacity: view.cursorActive && !view.typingReply && view.pane === "list" ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
           }
 
@@ -510,7 +584,7 @@ Item {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "j/k move · Enter open · / search · u unread · n new · i reply · PgUp/PgDn page · Esc back"
+          text: "j/k move · Enter open · / search · u unread · n new · h/l side · i reply · PgUp/PgDn page · Esc back"
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption
@@ -791,6 +865,21 @@ Item {
           spacing: Style.space(6)
           boundsBehavior: Flickable.StopAtBounds
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          // The message the keys are on: one highlight that slides from
+          // message to message, shown only while the keys go here.
+          currentIndex: view.messageCursor
+          highlightFollowsCurrentItem: true
+          highlightMoveDuration: Model.MOTION.inMs * view.motion
+          highlightMoveVelocity: -1
+          highlightResizeDuration: 0
+          highlightResizeVelocity: -1
+          highlight: CursorSurface {
+            width: messageList.width
+            hasCursor: true
+            foreground: view.foreground
+            opacity: view.inConversation ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
 
           function maybeLoadMore() {
             if (!view.sms || !view.sms.hasMore || view.sms.loading) return

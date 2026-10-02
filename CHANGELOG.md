@@ -147,6 +147,14 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   look at a picture, then back to the conversation. Later, it opens on its
   main page.
 
+- Messages by keyboard: `l` or → moves the keys into the open
+  conversation and `h` or ← (or Esc) back to the list; there, the arrows
+  and PgUp/PgDn move a highlight from message to message, and Enter opens
+  a message's picture or copies its text. Only the side the keys are on
+  shows its highlight, which slides from row to row with the keys (and
+  lands at once under the pointer), the list or conversation gliding to
+  keep it in sight. ↑ on the first conversation goes to search.
+
 ### Fixed
 - Messages: PageUp and PageDown were swapped. They now move through the
   conversation list a page at a time, as the arrows move a row; while

@@ -1817,7 +1817,7 @@ Panel {
       blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
 
       onMoveRequested: function(dx, dy) {
-        if (root.messagesOpen) { if (dy !== 0) messagesView.moveCursor(dy); return }
+        if (root.messagesOpen) { messagesView.moveKey(dx, dy); return }
         if (root.settingsOpen) {
           if (!root.cursorActive) { root.cursorActive = true; return }
           if (dy !== 0) root.settingsIndex = root.nextSettingsRow(root.settingsIndex, dy)
@@ -1858,12 +1858,12 @@ Panel {
       Shortcut {
         sequences: ["PgUp"]
         enabled: root.opened && root.messagesOpen
-        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(1); else messagesView.pageCursor(1) }
+        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(1); else if (messagesView.inConversation) messagesView.pageMessage(1); else messagesView.pageCursor(1) }
       }
       Shortcut {
         sequences: ["PgDown"]
         enabled: root.opened && root.messagesOpen
-        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(-1); else messagesView.pageCursor(-1) }
+        onActivated: if (messagesView) { if (messagesView.typingReply) messagesView.scrollMessages(-1); else if (messagesView.inConversation) messagesView.pageMessage(-1); else messagesView.pageCursor(-1) }
       }
       onTextKey: function(t) {
         if (root.messagesOpen) {
@@ -3629,6 +3629,7 @@ Panel {
                 sms: root.sms
                 bar: root.bar
                 onThreadOpened: function(tid) { root.rememberThread(tid) }
+                onReported: function(text) { if (root.phone) root.phone.report(text, false) }
                 onUnreadToggled: root.toggleUnreadOnly()
                 // A text field here let go of the keyboard (Esc, a click
                 // away): the panel's keys take it back, so the next Esc
