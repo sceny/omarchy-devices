@@ -1045,7 +1045,7 @@ Column {
 
         // Nickname: typed here; Enter keeps it, Esc leaves it as it was.
         // Blank goes back to the name KDE Connect reports.
-        TextField {
+        PanelField {
           id: nick
           visible: idRow.row.kind === "nickname"
           Layout.preferredWidth: Style.space(150)
@@ -1058,7 +1058,10 @@ Column {
           Component.onCompleted: if (idRow.row.kind === "nickname") root.nicknameField = nick
           onActiveFocusChanged: root.nicknameFocus(activeFocus)
           onAccepted: { root.nicknameSet(text); root.nicknameFocus(false) }
-          Keys.onEscapePressed: { text = idRow.row.value || ""; root.nicknameFocus(false) }
+          // Esc puts the saved nickname back and leaves.
+          escape: "revert"
+          savedText: idRow.row.value || ""
+          onLeft: root.nicknameFocus(false)
         }
 
         Text {

@@ -156,10 +156,13 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   keep it in sight. ↑ on the first conversation goes to search.
 
 ### Fixed
-- New message: Esc in the *To* field closes the suggestions and keeps
-  what you typed, so Enter sends to exactly that (a short code, a new
-  number); Enter always took the first match. A second Esc clears the
-  field, a third leaves the new message.
+- New message: a typed number no one in the list has (a short code, a
+  new number) comes first as *This number*; and Esc in *To* closes the
+  suggestions, keeping what you typed. Enter took the first match.
+- Esc steps back the same way in every text field: what floats over it
+  closes first, then the field's own step (a draft stays, a search
+  clears, a setting goes back), then the field is left. The notification
+  reply no longer throws away what you wrote.
 - Contact names saved in the old vCard encoding (quoted-printable, as for
   accented names) showed as `=C3=A1…`; they are decoded.
 - Messages: PageUp and PageDown were swapped. They now move through the

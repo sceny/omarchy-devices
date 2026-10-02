@@ -50,6 +50,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
+| `PanelField.qml` | every text field: Esc steps back the same way everywhere |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
@@ -214,6 +215,12 @@ Keep them; change one only with the owner.
   full size is a JPEG made the same way (`open/`); one that does not
   decode is not opened. Other files open in their app (a click), the
   user's own choice of app, as in Files.
+- **Every text field is a `PanelField`**, so Esc steps back the same way
+  everywhere, one thing at a time: what floats over the field
+  (suggestions) closes and the text stays; then the field's own step
+  (`keep` a draft, `clear` a search, `revert` a setting); then the field is
+  left and the page's Esc takes over. A field never sets its own
+  `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a

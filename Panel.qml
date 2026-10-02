@@ -2935,14 +2935,15 @@ Panel {
                       width: parent.width
                       spacing: Style.space(6)
 
-                      TextField {
+                      PanelField {
                         id: composerField
                         Layout.fillWidth: true
                         placeholderText: "Text or a link for " + Model.deviceLabel(root.device)
                         foreground: root.foreground
                         font.family: root.fontFamily
                         onActiveFocusChanged: root.composerFocused = activeFocus
-                        Keys.onEscapePressed: root.closeComposer()
+                        // Esc closes it; the text stays for next time.
+                        onLeft: root.closeComposer()
                         // Enter is taken here, not in onAccepted: TextInput passes
                         // it on, and the key catcher would run the tile again.
                         Keys.onPressed: function(event) {
@@ -4764,13 +4765,15 @@ Panel {
           visible: row.replying
           spacing: Style.space(6)
 
-          TextField {
+          PanelField {
             id: replyField
             Layout.fillWidth: true
             placeholderText: "Reply to " + Model.notificationTitle(row.note)
             foreground: root.foreground
             font.family: root.fontFamily
             onActiveFocusChanged: root.replyFocused = activeFocus
+            // Esc closes the reply; what was written stays (it threw it away).
+            onLeft: root.closeReply()
             onAccepted: {
               if (text.trim() === "") return
               root.phone.reply(row.note, text)
@@ -4785,7 +4788,6 @@ Panel {
               event.accepted = true
               accepted()
             }
-            Keys.onEscapePressed: { text = ""; root.closeReply() }
           }
           PanelActionButton {
             iconText: Model.GLYPH.send

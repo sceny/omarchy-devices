@@ -121,7 +121,15 @@ Item {
   // person, it is not a list to browse.
   function refreshSuggestions() {
     var typed = toField.text.trim()
-    suggestions = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    var list = sms && (typed !== "" || recipients.length === 0) ? sms.candidates(typed, 8) : []
+    // What was typed, when it is a number nobody in the list has, comes
+    // first (as messaging apps show it): Enter or a click sends to it, the
+    // matches a ↓ away. Esc closing the suggestions does the same by key.
+    var digits = typed.replace(/\D/g, "")
+    if (/^\+?[\d\s().-]+$/.test(typed) && digits.length >= 3
+        && !list.some(function(c) { return String(c.number || "").replace(/\D/g, "") === digits }))
+      list = [{ title: Model.formatNumber(typed), number: typed, tid: -1, note: "This number" }].concat(list)
+    suggestions = list
     suggestionCursor = 0
   }
 
@@ -468,7 +476,7 @@ Item {
           }
         }
 
-        TextField {
+        PanelField {
           id: searchField
           Layout.fillWidth: true
           placeholderText: "Search conversations  /"
@@ -476,7 +484,8 @@ Item {
           font.family: view.fontFamily
           onTextChanged: if (view.sms) view.sms.setQuery(text)
           onAccepted: { if (view.shown && view.shown.count > 0) view.openThread(view.shown.get(0).tid, true) }
-          Keys.onEscapePressed: { if (text !== "") text = ""; else focus = false }
+          escape: "clear"
+          onLeft: focus = false
           Keys.onDownPressed: { focus = false; view.cursorTo(0) }
         }
 
@@ -702,7 +711,7 @@ Item {
             }
           }
 
-          TextField {
+          PanelField {
             id: toField
             Layout.fillWidth: true
             placeholderText: view.recipients.length > 0 ? "Add someone else" : "To: name or number"
@@ -710,14 +719,13 @@ Item {
             font.family: view.fontFamily
             onTextChanged: view.refreshSuggestions()
             onAccepted: view.acceptTo()
-            // Esc closes the suggestions first and keeps what was typed (Enter
-            // then sends to exactly that: a short code, a new number); then
-            // it clears the field, then leaves the new message. Typing
-            // brings the suggestions back.
-            Keys.onEscapePressed: {
-              if (view.suggestions.length > 0 && text.trim() !== "") view.suggestions = []
-              else view.goBack()
-            }
+            // Esc: the suggestions close and what was typed stays (Enter then
+            // sends to exactly that); then the field clears; then the new
+            // message is left. Typing brings the suggestions back.
+            escape: "clear"
+            floating: view.suggestions.length > 0 && text.trim() !== ""
+            onCloseFloating: view.suggestions = []
+            onLeft: view.goBack()
             Keys.onDownPressed: view.suggestionCursor = Math.min(view.suggestions.length - 1, view.suggestionCursor + 1)
             Keys.onUpPressed: view.suggestionCursor = Math.max(0, view.suggestionCursor - 1)
             Keys.onPressed: function(event) {
@@ -786,7 +794,7 @@ Item {
               Text {
                 textFormat: Text.PlainText
                 visible: suggestion.modelData.name !== ""
-                text: Model.formatNumber(suggestion.modelData.number)
+                text: suggestion.modelData.note ? suggestion.modelData.note : Model.formatNumber(suggestion.modelData.number)
                 color: view.dim
                 font.family: view.fontFamily
                 font.pixelSize: Style.font.caption
@@ -964,7 +972,7 @@ Item {
           Layout.fillWidth: true
           spacing: Style.space(6)
 
-          TextField {
+          PanelField {
             id: composer
             Layout.fillWidth: true
             placeholderText: !view.sms || !view.sms.reachable ? "The device is away"
@@ -973,7 +981,8 @@ Item {
             foreground: view.foreground
             font.family: view.fontFamily
             onAccepted: view.sendComposer()
-            Keys.onEscapePressed: view.blurComposer()
+            // Esc leaves the reply; the draft stays.
+            onLeft: view.blurComposer()
           }
           // A new conversation waits for its thread to show up; the button
           // is the ring meanwhile.
