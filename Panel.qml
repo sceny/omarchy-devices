@@ -151,8 +151,18 @@ Panel {
   property bool showSettings: false
   property bool showMessages: false
   readonly property bool showMain: !showSettings && !showMessages
-  readonly property string targetPage: messagesOpen ? "messages" : (settingsOpen ? "settings" : "main")
-  readonly property string shownPage: showMessages ? "messages" : (showSettings ? "settings" : "main")
+  // Each page of Settings (the list, Connection, Add a device, a device's
+  // page) is a page of its own, so moving between them animates too: the
+  // scope opened is the target (targetScope), and the one shown
+  // (settingsScope) changes with the page, at the change's midpoint.
+  readonly property string targetPage: messagesOpen ? "messages" : (settingsOpen ? "settings/" + targetScope : "main")
+  readonly property string shownPage: showMessages ? "messages" : (showSettings ? "settings/" + settingsScope : "main")
+  // Back (the new page from the left) to the main page, and to the Settings
+  // list from one of its pages; forward otherwise.
+  function directionTo(target) {
+    if (target === "main") return -1
+    return target === "settings/root" && shownPage.indexOf("settings/") === 0 ? -1 : 1
+  }
   // +1 moves forward (the new page comes in from the right), -1 goes back.
   property int pageDirection: 1
   // Stretches every transition; 1 normally. The `slowMotion` IPC sets it, so
@@ -162,6 +172,7 @@ Panel {
   function applyShownPage() {
     showSettings = settingsOpen
     showMessages = messagesOpen
+    settingsScope = targetScope
   }
 
   // Land on the target page at once, no transition (the panel opening).
@@ -180,7 +191,7 @@ Panel {
     if (targetPage === shownPage && !pageSwap.running) return
     // Closed, or just opening: nothing to show off, the panel fades in anyway.
     if (!opened) { snapPage(); return }
-    pageDirection = targetPage === "main" ? -1 : 1
+    pageDirection = directionTo(targetPage)
     pageSwap.restart()
   }
 
@@ -228,7 +239,7 @@ Panel {
       NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
     }
     // A change of mind mid-way (Esc right after opening) lands too.
-    onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.targetPage === "main" ? -1 : 1; pageSwap.restart() }
+    onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.directionTo(root.targetPage); pageSwap.restart() }
   }
 
   // Leaving the preview (backToSetup): the still of the old page fades and
@@ -358,6 +369,7 @@ Panel {
   // What the settings page edits: "root" (the device list, or with one
   // device the whole flat page), "defaults", or a device's id (its page).
   property string settingsScope: "root"
+  property string targetScope: "root"
   readonly property var pairedDevices: phone ? phone.ordered : []
   readonly property bool singleDevice: pairedDevices.length <= 1
   readonly property var scopeDevice: {
@@ -514,7 +526,7 @@ Panel {
   })
 
   function openScope(scope) {
-    settingsScope = scope
+    targetScope = scope
     settingsIndex = 0
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
@@ -1210,7 +1222,7 @@ Panel {
     composerFocused = false
     settingsOpen = true
     settingsIndex = 0
-    settingsScope = "root"
+    targetScope = "root"
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1433,7 +1445,7 @@ Panel {
     settingsOpen = false
     messagesOpen = false
     // Nothing paired, or KDE Connect down: straight to Connection.
-    if (openingScope !== "") { settingsOpen = true; settingsScope = openingScope; settingsIndex = 0 }
+    if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
     snapPage()
     replyingTo = ""
     replyFocused = false
@@ -1561,6 +1573,7 @@ Panel {
         if (!d) return "no device " + key
         root.openScope(String(d.id))
       }
+      root.snapPage()
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
