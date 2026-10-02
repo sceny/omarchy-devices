@@ -3137,6 +3137,27 @@ Panel {
                           }
                         }
                       }
+                      // More to either side: the edge fades, so the row
+                      // reads as one that goes on, not one cut off.
+                      Repeater {
+                        model: [{ left: true }, { left: false }]
+                        Rectangle {
+                          required property var modelData
+                          readonly property color panel: root.bar ? root.bar.background : Color.background
+                          parent: albumStrip
+                          anchors.left: modelData.left ? parent.left : undefined
+                          anchors.right: modelData.left ? undefined : parent.right
+                          width: Style.space(28)
+                          height: parent.height
+                          opacity: modelData.left ? (albumStrip.atXBeginning ? 0 : 1) : (albumStrip.atXEnd ? 0 : 1)
+                          Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                          gradient: Gradient {
+                            orientation: Gradient.Horizontal
+                            GradientStop { position: 0; color: modelData.left ? panel : Qt.rgba(panel.r, panel.g, panel.b, 0) }
+                            GradientStop { position: 1; color: modelData.left ? Qt.rgba(panel.r, panel.g, panel.b, 0) : panel }
+                          }
+                        }
+                      }
                     }
                   }
                 }
