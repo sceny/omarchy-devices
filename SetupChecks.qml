@@ -116,28 +116,23 @@ Column {
         }
       }
 
-      // Which phone the code is for.
+      // Which phone the code is for: two choices, as Settings draws one
+      // (bordered, the chosen one filled), with room around the code.
       Row {
         visible: step.modelData.qr === true && root.showQr
-        spacing: Style.space(10)
+        Layout.topMargin: Style.space(6)
+        spacing: Style.space(4)
         Repeater {
           model: [{ key: "android", label: "Android" }, { key: "ios", label: "iPhone" }]
-          Text {
+          Button {
             required property var modelData
-            textFormat: Text.PlainText
             text: modelData.label
-            color: root.platform === modelData.key ? root.foreground : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: root.platform === modelData.key
-            font.underline: root.platform !== modelData.key && platformMouse.containsMouse
-            MouseArea {
-              id: platformMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: if (root.platform !== parent.modelData.key) root.platformSet(parent.modelData.key)
-            }
+            selected: root.platform === modelData.key
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: if (root.platform !== modelData.key) root.platformSet(modelData.key)
           }
         }
       }
@@ -146,7 +141,9 @@ Column {
       // theme, so a phone's camera reads it.
       Row {
         visible: step.modelData.qr === true && root.showQr && root.qr !== null
-        spacing: Style.space(10)
+        Layout.topMargin: Style.space(4)
+        Layout.bottomMargin: Style.space(6)
+        spacing: Style.space(12)
         Rectangle {
           id: qrBox
           readonly property int modules: root.qr ? root.qr.size + 4 : 0
