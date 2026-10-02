@@ -129,8 +129,17 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   a demo, with *Back to setup*. A real device connecting ends it; leaving
   puts every setting back. IPC: `preview true|false`.
 - A QR code to install the phone app (#64): on Add a device, the install
-  step shows a code the phone's camera opens Google Play with, beside the
-  Google Play and F-Droid links. Drawn from `qrencode` (part of
+  step shows a code the phone's camera opens the store with, for Android
+  (Google Play, beside the Google Play and F-Droid links) or iPhone (the
+  App Store), chosen with two buttons and kept. Under the iPhone's code, a
+  line says what the panel can do with one: files and the clipboard, not
+  its notifications or messages, and only while KDE Connect is open on it.
+- The header names no device on pages about none: Connection, Add a
+  device, and with several devices the Settings list and the defaults read
+  *Devices*, with the plugin's glyph.
+- Moving between Settings pages (the list, Connection, Add a device, a
+  device's page) slides and fades like every page change; back to the list
+  slides back. Drawn from `qrencode` (part of
   Omarchy); nothing is fetched from the web.
 
 ### Fixed
