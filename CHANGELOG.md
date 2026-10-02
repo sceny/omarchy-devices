@@ -143,6 +143,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   Omarchy); nothing is fetched from the web.
 
 ### Fixed
+- Messages: PageUp and PageDown were swapped.
+- Messages: a picture in HEIC (as newer phones send them) opened nothing
+  when clicked. A picture now opens from a full-size copy decoded in the
+  sandbox, so the viewer never reads the phone's bytes; other attachments
+  open in their app as Files would open them.
 - Images from the phone (notification icons, a track's art, a picture
   message's preview) were decoded by the shell itself; they are now shown
   only as copies decoded in a sandbox (glycin), as the Gallery's are, and

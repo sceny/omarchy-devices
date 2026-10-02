@@ -442,7 +442,7 @@ Item {
       for (var i = 0; i < messageModel.count; i++) {
         var files = JSON.parse(messageModel.get(i).attachments)
         for (var j = 0; j < files.length; j++)
-          if (files[j].id === id && files[j].thumb) { Quickshell.execDetached(["xdg-open", files[j].thumb]); return }
+          if (files[j].id === id && files[j].thumb) { Quickshell.execDetached([sms.bridge, "open-file", files[j].thumb]); return }
       }
       return
     }
@@ -496,11 +496,13 @@ Item {
       contactCount = ev.count
       contacts = ev.contacts || []
     } else if (ev.ev === "attachment") {
-      // Open what the user asked for; the daemon names the file after its id.
+      // Open what the user asked for (a picture: the bridge's copy made in
+      // the sandbox), as Files would: GIO's default app for its type
+      // (xdg-open knows none for HEIC, and opened nothing), through uwsm-app.
       var wanted = pendingFiles[ev.name] === true || Object.keys(pendingFiles).length > 0
       if (wanted) {
         pendingFiles = ({})
-        Quickshell.execDetached(["xdg-open", ev.path])
+        Quickshell.execDetached([sms.bridge, "open-file", ev.path])
       }
       attachmentReady(ev.path)
     } else if (ev.ev === "sent") {
@@ -508,6 +510,7 @@ Item {
     } else if (ev.ev === "error") {
       lastError = ev.message || "Something went wrong"
       if (ev.cmd === "load") loading = false
+      if (ev.cmd === "attachment") pendingFiles = ({})
       errorClear.restart()
     }
   }

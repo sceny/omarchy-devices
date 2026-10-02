@@ -206,8 +206,10 @@ Keep them; change one only with the owner.
   output). The shell loads only images the bridge wrote from the decoded
   pixels (`safe/`, Gallery thumbnails, `sms/preview_*`); a QML `Image`
   never points at a file the device sent. With no sandbox, there is no
-  picture, never an unsandboxed decode. Opening a file in its app (a
-  click) is the user's own choice of app, as in Files.
+  picture, never an unsandboxed decode. A picture message's picture opened
+  full size is a JPEG made the same way (`open/`); one that does not
+  decode is not opened. Other files open in their app (a click), the
+  user's own choice of app, as in Files.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a

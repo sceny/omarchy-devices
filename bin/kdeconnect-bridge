@@ -700,24 +700,66 @@ def safe_dir():
     return path
 
 
-def fit_image(src, dst, box):
-    """A PNG of the image, fitted in box x box, from its decoded pixels
-    (GdkPixbuf: glycin's sandbox on Omarchy). False when it cannot be read."""
+def fit_image(src, dst, box, fmt="png"):
+    """The image, fitted in box x box (never enlarged), from its decoded
+    pixels (GdkPixbuf: glycin's sandbox on Omarchy), written as a PNG (alpha
+    kept) or a JPEG (alpha flattened). False when it cannot be read."""
     try:
         gi.require_version("GdkPixbuf", "2.0")
         from gi.repository import GdkPixbuf
-        pix = GdkPixbuf.Pixbuf.new_from_file_at_scale(src, box, box, True)
+        _fmt, w, h = GdkPixbuf.Pixbuf.get_file_info(src)
+        if _fmt is None:
+            return False
+        pix = GdkPixbuf.Pixbuf.new_from_file(src) if w <= box and h <= box else \
+            GdkPixbuf.Pixbuf.new_from_file_at_scale(src, box, box, True)
         pix = pix.apply_embedded_orientation() or pix
         if pix.get_width() > box or pix.get_height() > box:
             scale = box / max(pix.get_width(), pix.get_height())
             pix = pix.scale_simple(max(1, round(pix.get_width() * scale)), max(1, round(pix.get_height() * scale)),
                                    GdkPixbuf.InterpType.BILINEAR)
         tmp = dst + ".part"
-        pix.savev(tmp, "png", [], [])
+        if fmt == "jpeg":
+            if pix.get_has_alpha():
+                flat = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, pix.get_width(), pix.get_height())
+                flat.fill(0x000000ff)
+                pix.composite(flat, 0, 0, pix.get_width(), pix.get_height(), 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
+                pix = flat
+            pix.savev(tmp, "jpeg", ["quality"], ["92"])
+        else:
+            pix.savev(tmp, "png", [], [])
         os.replace(tmp, dst)
         return True
-    except (GLib.Error, ValueError, ImportError, OSError, ZeroDivisionError):
+    except (GLib.Error, ValueError, ImportError, OSError, ZeroDivisionError, TypeError):
+        if os.path.exists(dst + ".part"):
+            os.remove(dst + ".part")
         return False
+
+
+# A picture from the device opened full size (a picture message's, a click):
+# the viewer gets a JPEG decoded in the sandbox, never the device's bytes.
+FULL_PICTURE_BOX = 4096
+
+
+def safe_full_picture(src, cache=None, limit=None):
+    """A full-size copy of a picture from the device, made in the sandbox,
+    kept with the copies a click opens; "" when it cannot be read."""
+    try:
+        st = os.stat(src)
+    except OSError:
+        return ""
+    cache = cache or open_cache()
+    folder = os.path.join(cache, hashlib.sha1(("%s|%d|%d" % (src, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16])
+    target = os.path.join(folder, os.path.splitext(os.path.basename(src))[0] + ".jpg")
+    if os.path.isfile(target):
+        os.utime(folder)
+        return target
+    os.makedirs(folder, exist_ok=True)
+    if not fit_image(src, target, FULL_PICTURE_BOX, "jpeg"):
+        shutil.rmtree(folder, ignore_errors=True)
+        return ""
+    os.utime(folder)
+    trim_cache(cache, OPEN_CACHE_MAX if limit is None else limit, keep=folder)
+    return target
 
 
 def safe_image(src, box, folder=None, limit=SAFE_MAX):
@@ -1616,7 +1658,21 @@ class Sms:
             self.out({"ev": "removed", "thread": tid})
         elif signal == "attachmentReceived":
             file_path, file_name = params.unpack()
-            self.out({"ev": "attachment", "path": self.named(file_path, file_name), "name": file_name})
+            self.out(self.arrived(file_path, file_name))
+
+    def arrived(self, path, name):
+        """What the panel opens for a fetched attachment: a picture as a copy
+        decoded in the sandbox (never the phone's bytes; one that does not
+        decode is not opened), anything else as itself, under a name with
+        its type."""
+        mime = self.file_mimes.get(name, "")
+        if mime.startswith("image/"):
+            copy = safe_full_picture(path)
+            if not copy:
+                return {"ev": "error", "cmd": "attachment", "name": name,
+                        "message": "This picture could not be read safely, so it was not opened"}
+            return {"ev": "attachment", "path": copy, "name": name}
+        return {"ev": "attachment", "path": self.named(path, name), "name": name}
 
     def named(self, path, name):
         """The daemon saves attachments without an extension, which some

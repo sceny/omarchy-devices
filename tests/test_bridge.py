@@ -667,6 +667,53 @@ class SafeImages(unittest.TestCase):
             self.assertEqual(junk["thumb"], "", "no preview: the view shows the attachment's kind")
 
 
+class FetchedAttachments(unittest.TestCase):
+    """A picture message's picture opens from a copy made in the sandbox,
+    never as the phone's bytes; anything else opens as itself."""
+
+    def reader(self, d):
+        r = bridge.Sms.__new__(bridge.Sms)
+        r.thumbs, r.file_mimes = d, {}
+        return r
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_opens_as_a_copy_made_in_the_sandbox(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "PART_1_image")  # the daemon saves without an extension
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 300, 200)
+                pix.fill(0x3366cc80)
+                pix.savev(src, "png", [], [])
+                r = self.reader(d)
+                r.file_mimes["PART_1_image"] = "image/heic"
+                ev = r.arrived(src, "PART_1_image")
+                self.assertEqual(ev["ev"], "attachment")
+                self.assertTrue(ev["path"].startswith(os.path.join(d, "state", "open")) and ev["path"].endswith(".jpg"))
+                self.assertEqual(open(ev["path"], "rb").read(2), b"\xff\xd8", "a JPEG written here")
+                out = GdkPixbuf.Pixbuf.new_from_file(ev["path"])
+                self.assertEqual((out.get_width(), out.get_height()), (300, 200), "full size, never enlarged")
+                self.assertEqual(r.arrived(src, "PART_1_image")["path"], ev["path"], "made once")
+                open(src, "wb").write(b"\x89PNG not really")
+                os.utime(src, (5000, 5000))
+                bad = r.arrived(src, "PART_1_image")
+                self.assertEqual(bad["ev"], "error", "not readable: not opened at all")
+            finally:
+                bridge.state_dir = saved
+
+    def test_anything_else_opens_as_itself(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "PART_2_video")
+            open(src, "w").write("x")
+            r = self.reader(d)
+            r.file_mimes["PART_2_video"] = "video/mp4"
+            ev = r.arrived(src, "PART_2_video")
+            self.assertEqual(ev["ev"], "attachment")
+            self.assertTrue(ev["path"].endswith(".mp4"), "under a name with its type")
+
+
 class OpenFromDevice(unittest.TestCase):
     """A file from the device opens from a local copy, kept while unchanged;
     the cache drops the oldest copies past its limit."""
