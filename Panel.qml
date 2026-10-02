@@ -3984,7 +3984,6 @@ Panel {
     readonly property string reportedArt: player && player.trackArtUrl ? String(player.trackArtUrl) : ""
     property string artUrl: reportedArt
     onArtUrlChanged: if (root.phone) root.phone.requestArt(artUrl)
-    Component.onCompleted: if (root.phone) root.phone.requestArt(artUrl)
     onReportedArtChanged: {
       if (reportedArt !== "") { artUrl = reportedArt; artClear.stop() }
       else artClear.restart()
@@ -4019,7 +4018,10 @@ Panel {
     hasCursor: root.cursorActive && root.focusSection === "media"
     foreground: root.foreground
     implicitHeight: cardContent.implicitHeight + Style.space(14)
-    Component.onCompleted: root.cardsBuilt += 1
+    Component.onCompleted: {
+      root.cardsBuilt += 1
+      if (root.phone) root.phone.requestArt(artUrl)
+    }
 
     // Drag the card sideways to page the carousel, as on the phone. Buttons
     // and the seek bar sit above this and keep their own presses.
