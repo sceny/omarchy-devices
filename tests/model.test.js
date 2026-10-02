@@ -782,6 +782,18 @@ test("pairing actions show their result in place: no toast unless they fail", ()
   assert.ok(!M.shownInPlace("ring") && !M.shownInPlace("unpair"))
 })
 
+test("the panel goes back where it was for five minutes, unless it must open elsewhere", () => {
+  const left = { at: 1000, settingsOpen: false, messagesOpen: true, scope: "root", device: "p1", y: 0 }
+  assert.equal(M.placeToResume(left, 1000 + 60000, {}), left, "a minute later: back to messages")
+  assert.equal(M.placeToResume(left, 1000 + M.KEEP_PLACE_MS, {}), null, "five minutes later: the main page")
+  assert.equal(M.placeToResume(left, 500, {}), null, "a clock that went back: fresh")
+  assert.equal(M.placeToResume(left, 2000, { openingScope: "connection" }), null, "setup comes first")
+  assert.equal(M.placeToResume(left, 2000, { requested: "p2" }), null, "another device's chip: that device")
+  assert.equal(M.placeToResume(left, 2000, { requested: "p1" }), left, "the same device's chip: back where it was")
+  assert.equal(M.placeToResume(Object.assign({}, left, { messagesOpen: false }), 2000, {}), null, "the main page at its top: nothing to go back to")
+  assert.equal(M.placeToResume(null, 2000, {}), null)
+})
+
 test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
   assert.equal(M.pairSecondsLeft(0, 0), 30)
   assert.equal(M.pairSecondsLeft(0, 7400), 23)

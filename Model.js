@@ -1723,6 +1723,19 @@ function photosSummary(photos) {
   return parts.join(", ")
 }
 
+// Where the panel was when it closed, kept for a while: opened again within
+// KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the
+// conversation), else it starts on its main page. Not when it must open
+// elsewhere: setup (`openingScope`) or another device asked for (a chip).
+var KEEP_PLACE_MS = 5 * 60 * 1000
+function placeToResume(left, nowMs, ctx) {
+  if (!left || !(nowMs - left.at >= 0 && nowMs - left.at < KEEP_PLACE_MS)) return null
+  if (ctx && ctx.openingScope) return null
+  if (ctx && ctx.requested && ctx.requested !== left.device) return null
+  if (!left.settingsOpen && !left.messagesOpen && !(left.y > 0)) return null
+  return left
+}
+
 // A photo's identity: the same file is the same tile, wherever it moves.
 function photoIdentity(p) {
   return String(p.path) + "|" + String(p.name)

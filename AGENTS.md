@@ -123,10 +123,14 @@ Keep them; change one only with the owner.
   and icon stays in the flat keys (`docs/design/multi-device.md`). New UI
   state follows the same path unless it is private: unsent message drafts
   stay in memory (they are message text) and read state lives in the cache.
-  Deliberately fresh on every open: the panel opens on its main page, on
-  the device asked for (a chip, IPC) else the first connected one in the
-  order, the media carousel on the active player, search empty, nothing
-  focused. The device viewed with a tab is not stored.
+  Opened again within five minutes of closing (`Model.KEEP_PLACE_MS`), the
+  panel goes back where it was: the page, the Settings page, the device,
+  the scroll, the conversation (a glance at a picture, then back). Later,
+  or when it must open elsewhere (setup, another device's chip), it opens
+  fresh: on its main page, on the device asked for (a chip, IPC) else the
+  first connected one in the order. Always: the media carousel on the
+  active player, edit mode off, nothing focused. Where it was is kept in
+  memory only, never stored.
 - **Settings are written only by the panel**, into this widget's
   `shell.json` entry (`updateEntryInline`), on the user's action (settings
   page, folding a section). Never on upgrade: old entries are read as they

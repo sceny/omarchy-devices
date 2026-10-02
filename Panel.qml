@@ -333,7 +333,11 @@ Panel {
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
+    // Where it was, for a reopen within Model.KEEP_PLACE_MS (onOpened).
+    else leftPlace = { at: Date.now(), settingsOpen: settingsOpen, messagesOpen: messagesOpen, scope: targetScope,
+                       device: device ? String(device.id) : "", y: panelFlick ? panelFlick.contentY : 0 }
   }
+  property var leftPlace: null
 
   // Size animations (folds, the carousel, the cover) run for the user's own
   // changes only. A hidden page has no height, so while a page appears (or
@@ -1434,8 +1438,13 @@ Panel {
   function onOpened() {
     editing = false
     pageMenuOpen = false
-    // The device asked for (a chip, IPC), else the first connected one.
+    // Opened again soon after closing: back where it was (Model.placeToResume).
+    var resume = Model.placeToResume(leftPlace, Date.now(), { openingScope: openingScope, requested: phone ? phone.requestedId : "" })
+    leftPlace = null
+    // The device asked for (a chip, IPC), else the first connected one;
+    // resuming, the one it was on.
     if (phone) phone.viewOnOpen()
+    if (phone && resume && resume.device !== "" && phone.findDevice(resume.device)) phone.view(resume.device)
     // A paired device that is away is looked for once (Service.searchIfAway).
     if (phone) phone.searchIfAway()
     deviceSwap.stop()
@@ -1451,12 +1460,16 @@ Panel {
     messagesOpen = false
     // Nothing paired, or KDE Connect down: straight to Connection.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
+    else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = resume.scope; settingsIndex = 0 }
+    else if (resume && resume.messagesOpen) openMessagesView(-1)
     snapPage()
     replyingTo = ""
     replyFocused = false
     composing = false
     composerFocused = false
     if (panelFlick) panelFlick.contentY = 0
+    // Back to where the page was scrolled, once it is laid out.
+    if (resume && resume.y > 0 && !messagesOpen) Qt.callLater(function() { if (panelFlick) panelFlick.contentY = Math.min(resume.y, Math.max(0, panelFlick.contentHeight - panelFlick.height)) })
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 

@@ -142,6 +142,11 @@ Every release is a tag (`vX.Y.Z`) on `main`, with the same version in
   slides back. Drawn from `qrencode` (part of
   Omarchy); nothing is fetched from the web.
 
+- The panel opened again within five minutes goes back where it was (the
+  page, the Settings page, the device, the scroll, the conversation): a
+  look at a picture, then back to the conversation. Later, it opens on its
+  main page.
+
 ### Fixed
 - Messages: PageUp and PageDown were swapped.
 - Messages: a picture in HEIC (as newer phones send them) opened nothing
