@@ -3781,7 +3781,7 @@ Panel {
     readonly property int place: root.drawnSections.indexOf(section)
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
-    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "PHOTOS" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
+    readonly property string title: section === "actions" ? "SHORTCUTS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "GALLERY" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
     readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
       : section === "photos" ? (root.photos.length > 0 ? Model.photosSummary(root.photos) : "")
