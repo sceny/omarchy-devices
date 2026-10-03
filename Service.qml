@@ -586,6 +586,106 @@ Item {
     onTriggered: root.runDoctor()
   }
 
+  // ---- Screen and apps (kdeconnect-bridge screen*): scrcpy over adb ----
+  // Where each device stands, read while its Screen and apps page shows and
+  // when the Screen shortcut is pressed; the QR pairing runs while the page
+  // shows its code. A demo reads nothing: its states are made up.
+  property var screenStates: ({})          // device id -> the bridge's status
+  property var screenPairing: null         // { device, phase, qr, message }
+  property string screenThen: ""           // a device to open once read (Screen shortcut)
+  property string demoScreenKind: "pair"
+  signal screenSetupNeeded(string id)
+
+  function screenOf(id) { return screenStates[String(id)] || null }
+  function setScreen(id, status) {
+    var next = Object.assign({}, screenStates)
+    next[String(id)] = status
+    screenStates = next
+    if (screenThen !== "" && screenThen === String(id)) {
+      screenThen = ""
+      if (status && status.state === "ready") openScreen(id, "", "")
+      else screenSetupNeeded(String(id))
+    }
+  }
+  function readScreen(id) {
+    if (!id) return
+    if (demo) { setScreen(id, Model.demoScreen(demoScreenKind)); return }
+    if (screenProc.running) return   // its exit reads a device still waiting
+    screenProc.device = String(id)
+    screenProc.command = [bridge, "screen", String(id)]
+    screenProc.running = true
+  }
+  // The Screen shortcut: its window when the device is ready, else its
+  // setup page. The state is read first, so it never acts on a stale one.
+  function pressScreen(id) {
+    if (!id) return
+    screenThen = String(id)
+    readScreen(id)
+  }
+  function openScreen(id, pkg, label) {
+    if (demo) { report("Demo: no window opens", false); return }
+    var key = "screen:" + id + ":" + (pkg || "")
+    if (isBusy(key)) return
+    setBusy(key, true)
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "screen-open", String(id), pkg || "", label || ""] })
+    proc.running = true
+  }
+  function startScreenPair(id) {
+    if (pairProc.running || demoPairQr.running) return
+    screenPairing = { device: String(id), phase: "starting", qr: null, message: "" }
+    if (demo) { demoPairQr.running = true; return }
+    pairProc.command = [bridge, "screen-pair", String(id)]
+    pairProc.running = true
+  }
+  function stopScreenPair() {
+    screenPairing = null
+    if (pairProc.running) pairProc.running = false
+  }
+  function pairingEvent(ev) {
+    if (!screenPairing) return
+    var p = Object.assign({}, screenPairing)
+    if (ev.ev === "qr") { p.phase = "qr"; p.qr = Model.qrGrid(String(ev.ascii || "")) }
+    else if (ev.ev === "error") { p.phase = "error"; p.message = String(ev.message || "") }
+    else p.phase = String(ev.ev || "")
+    screenPairing = p
+    if (p.phase === "connected") {
+      readScreen(p.device)
+      screenPairing = null
+    }
+  }
+
+  Process {
+    id: screenProc
+    property string device: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try { root.setScreen(screenProc.device, JSON.parse(text)) } catch (e) {}
+      }
+    }
+    onExited: if (root.screenThen !== "" && root.screenThen !== screenProc.device) Qt.callLater(function() { root.readScreen(root.screenThen) })
+  }
+  Process {
+    id: pairProc
+    stdout: SplitParser {
+      onRead: function(line) {
+        try { root.pairingEvent(JSON.parse(line)) } catch (e) {}
+      }
+    }
+    // Ended without an answer (the code ran out is an error event first).
+    onExited: function(code) {
+      if (root.screenPairing && root.screenPairing.phase !== "error")
+        root.screenPairing = Object.assign({}, root.screenPairing, { phase: "error", message: "Pairing stopped" })
+    }
+  }
+  // The demo's code: made like a real one, for a code nobody can use.
+  Process {
+    id: demoPairQr
+    command: ["qrencode", "-t", "ASCII", "-m", "0", "WIFI:T:ADB;S:sceny-demo;P:demo;;"]
+    stdout: StdioCollector {
+      onStreamFinished: root.pairingEvent({ ev: "qr", ascii: text })
+    }
+  }
+
   // Pairing acts on any device the daemon knows, not only the one followed.
   function runOn(deviceId, verb) {
     var key = verb + ":" + deviceId

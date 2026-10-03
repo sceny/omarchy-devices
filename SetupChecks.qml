@@ -138,38 +138,9 @@ Column {
         Layout.topMargin: Style.space(4)
         Layout.bottomMargin: Style.space(6)
         spacing: Style.space(12)
-        Rectangle {
+        QrCode {
           id: qrBox
-          readonly property int modules: root.qr ? root.qr.size + 4 : 0
-          readonly property int cell: 4
-          width: modules * cell
-          height: width
-          color: "white"
-          radius: Style.space(2)
-          Canvas {
-            id: qrCanvas
-            anchors.fill: parent
-            // A paint asked while hidden (the code is hidden while the other
-            // phone's is made) is skipped: paint again when it shows.
-            onVisibleChanged: if (visible) requestPaint()
-            onWidthChanged: requestPaint()
-            onPaint: {
-              var ctx = getContext("2d")
-              ctx.reset()
-              ctx.fillStyle = "white"
-              ctx.fillRect(0, 0, width, height)
-              var g = root.qr
-              if (!g) return
-              ctx.fillStyle = "black"
-              for (var r = 0; r < g.size; r++)
-                for (var c = 0; c < g.size; c++)
-                  if (g.dark[r][c]) ctx.fillRect((c + 2) * qrBox.cell, (r + 2) * qrBox.cell, qrBox.cell, qrBox.cell)
-            }
-            Connections {
-              target: root
-              function onQrChanged() { qrCanvas.requestPaint() }
-            }
-          }
+          grid: root.qr
         }
         Text {
           anchors.verticalCenter: parent.verticalCenter

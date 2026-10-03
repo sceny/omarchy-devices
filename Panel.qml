@@ -393,6 +393,45 @@ Panel {
   // The profile the page's groups edit: the device's own on its page, else
   // the defaults (with one device, the flat keys as always).
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
+  // Screen and apps: a page for one device ("screen:<id>"), set up through
+  // scrcpy and adb (Model.screenSetup); reached from the Screen shortcut
+  // and from the device's page.
+  readonly property string screenId: settingsScope.indexOf("screen:") === 0 ? settingsScope.slice(7) : ""
+  readonly property var screenDevice: {
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === screenId) return list[i]
+    return null
+  }
+  readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
+  readonly property var screenSetup: screenId === "" ? null
+    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing)
+  function openScreenSetup(id) {
+    if (!id) return
+    if (!settingsOpen) openSettings()
+    openScope("screen:" + id)
+    if (phone) phone.readScreen(id)
+  }
+  function screenAction(key) {
+    if (!phone || screenId === "") return
+    if (key === "install") phone.fixSetup("screen")
+    else if (key === "pair") phone.startScreenPair(screenId)
+    else if (key === "stopPair") phone.stopScreenPair()
+    else if (key === "check") phone.readScreen(screenId)
+    else if (key === "open") phone.openScreen(screenId, "", "")
+  }
+  // Read again while the page shows (a setting turned on, the cable
+  // plugged in, the install done); a pairing on the page stops when it goes.
+  Timer {
+    interval: 3000
+    repeat: true
+    running: root.opened && root.showSettings && root.screenId !== "" && !root.screenPairing
+    onTriggered: if (root.phone) root.phone.readScreen(root.screenId)
+  }
+  onScreenIdChanged: if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
+  Connections {
+    target: root.phone
+    function onScreenSetupNeeded(id) { if (root.opened) root.openScreenSetup(id) }
+  }
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
   readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true, showPhotos: true, showReceived: true,
@@ -523,7 +562,8 @@ Panel {
     onTriggered: if (root.phone) root.phone.searchDevices(true)
   }
 
-  readonly property var settingsRows: settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+  readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
+    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -644,7 +684,14 @@ Panel {
     return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
       rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
   }
+  function screenInfo() {
+    var s = screenSetup
+    return JSON.stringify(s ? { state: s.state, line: s.line, current: s.steps.filter(function(x) { return x.current }).map(function(x) { return x.key }),
+      pairing: s.pairingNote, qr: s.showQr, actions: s.actions.map(function(a) { return a.key }) } : { scope: settingsScope })
+  }
   function settingsBack() {
+    // Screen and apps goes back to its device's page (with one device, root).
+    if (screenId !== "") { openScope(manyDevices ? screenId : "root"); return true }
     if (settingsScope !== "root") { openScope("root"); return true }
     return false
   }
@@ -694,7 +741,7 @@ Panel {
   // device all of Settings (its settings), name the device.
   readonly property bool heroNeutral: showSettings
     && (settingsScope === "connection" || settingsScope === "addDevice" || (manyDevices && !editingDevice))
-  readonly property var heroDevice: heroNeutral ? null : (showSettings && editingDevice ? scopeDevice : device)
+  readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : (showSettings && editingDevice ? scopeDevice : device))
   readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
   property bool nicknameFocused: false
@@ -1040,6 +1087,7 @@ Panel {
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
     else if (key === "kdeconnect") { phone.openKdeConnect(); root.close() }
+    else if (key === "screen" && device) phone.pressScreen(String(device.id))
   }
 
   // ---- Settings ----
@@ -1139,6 +1187,8 @@ Panel {
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
     else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
     else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
+    else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
+    else if (row.kind === "screenAction") screenAction(row.key)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1546,6 +1596,22 @@ Panel {
         { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" }
       ]
       return JSON.stringify({ issues: root.computerIssues })
+    }
+    // Screen and apps on the viewed device: its page, as the device's row
+    // would open it; what the page shows. demoScreen: a made-up state
+    // (tools, pair, off, unauthorized, away, ready; demo only).
+    function screen(): string { if (root.device) root.openScreenSetup(String(root.device.id)); return root.screenInfo() }
+    function screenInfo(): string { return root.screenInfo() }
+    function demoScreen(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.phone.demoScreenKind = kind || "pair"
+      if (root.device) root.phone.readScreen(String(root.device.id))
+      return root.screenInfo()
+    }
+    function pressScreenAction(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.screenAction(key)
+      return root.screenInfo()
     }
     // Demo: the phone away, last seen 12 minutes ago on this network.
     function demoAway(): string {
@@ -2568,7 +2634,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
+            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -3712,7 +3778,9 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                screenSetup: root.screenSetup
+                screenQr: root.screenPairing ? root.screenPairing.qr : null
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
