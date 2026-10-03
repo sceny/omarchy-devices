@@ -1123,8 +1123,11 @@ function screenSetup(status, device, pairing) {
     { key: "pair", done: trusted, qr: true,
       text: "Tap Pair device with QR code, and scan the code here" }
   ]
+  // A code on show: the steps before it are done on the device by now,
+  // so scanning it is the step.
   var current = -1
-  for (var i = 0; i < steps.length; i++) if (!steps[i].done) { current = i; break }
+  if (phase !== "" && phase !== "error" && !trusted) current = steps.length - 1
+  else for (var i = 0; i < steps.length; i++) if (!steps[i].done) { current = i; break }
   steps.forEach(function(st, i) { st.current = i === current })
 
   var line = {

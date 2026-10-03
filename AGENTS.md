@@ -32,6 +32,10 @@ its folder are caches under `~/.cache/sceny.devices/`.
   links every KDE bug report, merge request, branch and fork we create or
   follow; and a plugin issue (`bug`), blocked by it. The plugin changes only
   when the owner asks for a workaround.
+- **Second sources, one feature each, by the owner's decision.** The
+  device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
+  screen*`), which KDE Connect does not offer. Each second source serves
+  only its feature; everything else stays KDE Connect.
 - **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
   D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
   connection per call and cannot listen. One Python process (PyGObject) holds
@@ -49,6 +53,8 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
+| `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
@@ -266,9 +272,23 @@ Keep them; change one only with the owner.
   `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
   as KDE Connect shows it (one word). Pairing actions show their result
   in place (`Model.shownInPlace`): no toast unless they fail.
-- **Fixes change the system only on a click.** `fix install` and `fix firewall`
-  go through `pkexec` (one password prompt); the firewall rule is limited to
-  the local network the default route is on, never opened to everyone.
+- **Fixes change the system only on a click.** `fix install`, `fix firewall`,
+  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt); the
+  firewall rule is limited to the local network the default route is on,
+  never opened to everyone.
+- **A feature that needs more than KDE Connect ships its own setup.** A
+  package, a setting on the device or a pairing is a step the panel walks
+  the user through: a check (Connection's row from `doctor`; optional when
+  only that feature needs it, so it never lights the gear's dot), a fix on
+  a click, and the steps on the device, each ticked when it is done. Never
+  a manual install in the docs instead. Test the setup on a machine
+  without the dependency before installing it, and install it through the
+  new fix.
+- **Pairing adb is the user's own act.** The panel shows a QR code (Android's
+  *Pair device with QR code*, a new name and password each time, two
+  minutes); the bridge pairs only with the device that scanned it. Reading
+  the state connects only to a device adb already trusts. Opening a real
+  device's screen in a check is the owner's go: it shows their data.
 
 ## Workflow
 

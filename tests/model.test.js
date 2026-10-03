@@ -827,6 +827,7 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.ok(pair.usbNote !== "", "older phones: the cable")
   const waiting = M.screenSetup(M.demoScreen("pair"), phone, { phase: "qr", qr: { size: 21, dark: [] } })
   assert.deepEqual([acts(waiting), waiting.showQr, waiting.pairingNote], [["stopPair", "check"], true, "Waiting for Pixel 8 to scan it…"])
+  assert.equal(step(waiting), "pair", "a code on show: scanning it is the step")
   const failed = M.screenSetup(M.demoScreen("pair"), phone, { phase: "error", message: "The code was not scanned in time" })
   assert.deepEqual([acts(failed)[0], failed.showQr, failed.pairingNote], ["pair", false, "The code was not scanned in time"])
   const off = M.screenSetup(M.demoScreen("off"), phone, null)
