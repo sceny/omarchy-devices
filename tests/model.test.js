@@ -803,3 +803,47 @@ test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
   assert.equal(M.pairSecondsLeft(0, 45000), 0, "never below 0")
   assert.equal(M.pairSecondsLeft(5000, 4000), 30, "a clock read before the start: never above 30")
 })
+
+test("screen and apps: an optional check never lights the gear's dot", () => {
+  const checks = [{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: true, status: "Running" },
+    { key: "screen", ok: false, optional: true, status: "Not installed", detail: "scrcpy and adb", fix: "screen", fixLabel: "Install" }]
+  const rows = M.connectionRows(checks, [])
+  const screen = rows.find(r => r.key === "screen")
+  assert.deepEqual([screen.label, screen.optional, screen.fix, screen.ignored], ["Screen and apps", true, "screen", false])
+  assert.equal(M.connectionIssues(checks, []), 0)
+  assert.equal(M.connectionSummary(checks, []), "All good")
+})
+
+test("screen and apps: each state's line, current step and actions", () => {
+  const phone = { name: "Pixel 8" }
+  const step = s => s.steps.filter(x => x.current).map(x => x.key)[0] || ""
+  const acts = s => s.actions.map(a => a.key)
+  const checking = M.screenSetup(null, phone, null)
+  assert.deepEqual([checking.line, acts(checking)], ["Checking…", []])
+  const tools = M.screenSetup(M.demoScreen("tools"), phone, null)
+  assert.deepEqual([step(tools), acts(tools)], ["tools", ["install"]])
+  const pair = M.screenSetup(M.demoScreen("pair"), phone, null)
+  assert.deepEqual([step(pair), acts(pair), pair.showQr], ["developer", ["pair", "check"], false])
+  assert.ok(pair.usbNote !== "", "older phones: the cable")
+  const waiting = M.screenSetup(M.demoScreen("pair"), phone, { phase: "qr", qr: { size: 21, dark: [] } })
+  assert.deepEqual([acts(waiting), waiting.showQr, waiting.pairingNote], [["stopPair", "check"], true, "Waiting for Pixel 8 to scan it…"])
+  assert.equal(step(waiting), "pair", "a code on show: scanning it is the step")
+  const failed = M.screenSetup(M.demoScreen("pair"), phone, { phase: "error", message: "The code was not scanned in time" })
+  assert.deepEqual([acts(failed)[0], failed.showQr, failed.pairingNote], ["pair", false, "The code was not scanned in time"])
+  const off = M.screenSetup(M.demoScreen("off"), phone, null)
+  assert.deepEqual([step(off), acts(off)[0]], ["wireless", "pair"], "off: trusted before; Wireless debugging is the step")
+  assert.match(off.line, /Wireless debugging is off on Pixel 8/)
+  const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
+  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open"]])
+  assert.deepEqual(M.screenRows(ready), [{ kind: "screenAction", key: "open", label: "Open its screen", hint: "A window here; right-click is Back" }])
+  const usb = M.screenSetup({ state: "ready", tools: { ok: true }, via: "usb", android: "9", apps: false }, phone, null)
+  assert.equal(usb.line, "Ready over USB · Android 9. Apps in windows need Android 10")
+  assert.match(M.screenSetup(M.demoScreen("pair"), { name: "Galaxy S24" }, null).steps[1].text, /Software information/, "Samsung's own path")
+})
+
+test("screen and apps: a row on the device's page, and a Screen shortcut", () => {
+  const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" } })
+  assert.ok(rows.some(r => r.kind === "screen"), "the one-device page")
+  assert.ok(!M.settingsPageRows({ scope: "defaults", single: false, devices: [] }).some(r => r.kind === "screen"), "not the defaults: it is a device's")
+  assert.equal(M.shortcutByKey("screen").needs, "", "scrcpy, not KDE Connect: shown whatever the device offers")
+})

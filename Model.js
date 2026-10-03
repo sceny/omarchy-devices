@@ -61,7 +61,10 @@ var GLYPH = {
   callRing: "\u{F03F6}",     // phone-in-talk: a phone with waves (checked by rendering)
   callMissed: "\u{F03FA}",   // phone-missed
   callBack: "\u{F03F2}",     // phone
-  callText: "\u{F0369}"      // message-text
+  callText: "\u{F0369}",     // message-text
+  screen: "\u{F0989}",       // monitor-cellphone: the device's screen in a window here
+  apps: "\u{F003B}",         // apps: its apps, each in a window
+  optional: "\u{F0766}"      // circle-outline: a check only one feature needs
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -104,6 +107,8 @@ var SHORTCUTS = [
   { key: "messages", glyph: GLYPH.messages, label: "Messages", hint: "Open text messages", needs: "sms" },
   { key: "ping", glyph: GLYPH.wave, label: "Ping", hint: "Pop a notification up on it", needs: "ping" },
   { key: "playPause", glyph: GLYPH.playPause, label: "Play/Pause", hint: "Play or pause what it is playing", needs: "media" },
+  // scrcpy over adb, not KDE Connect: set up on its own page the first time.
+  { key: "screen", glyph: GLYPH.screen, label: "Screen", hint: "Its screen in a window here, with your mouse and keyboard", needs: "" },
   { key: "kdeconnect", glyph: GLYPH.phoneCog, label: "KDE Connect", hint: "Open the KDE Connect app", needs: "" }
 ]
 
@@ -1032,12 +1037,12 @@ function shortcutsSummary(order) {
 
 // The doctor's checks that are about this computer (the Connection page);
 // its paired and connected checks are the devices' own pages' business.
-var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen"]
 // Short names: the status beside each says the rest ("Running", "Closed").
 // One row per thing on this computer, named after it: a service's checks
 // (KDE Connect: installed, running) become one row that says which state it
 // is in, so other services (Bluetooth, scrcpy) can each have theirs.
-var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen and apps" }
 
 function computerChecks(checks) {
   var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
@@ -1056,9 +1061,10 @@ function computerChecks(checks) {
 }
 
 // Failing checks on this computer the user has not ignored: the gear's dot.
+// An optional one (Screen and apps: only one feature needs it) never counts.
 function connectionIssues(checks, ignored) {
   var skip = ignored || []
-  return computerChecks(checks).filter(function(c) { return !c.ok && skip.indexOf(c.key) < 0 }).length
+  return computerChecks(checks).filter(function(c) { return !c.ok && !c.optional && skip.indexOf(c.key) < 0 }).length
 }
 
 function connectionSummary(checks, ignored) {
@@ -1075,8 +1081,8 @@ function connectionSummary(checks, ignored) {
 function connectionRows(checks, ignored) {
   var skip = ignored || []
   var rows = computerChecks(checks).map(function(c) {
-    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
-             status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
+    return { kind: "check", key: c.key, ok: !!c.ok, optional: !!c.optional, ignored: !c.ok && !c.optional && skip.indexOf(c.key) >= 0,
+             label: CHECK_NAMES[c.key] || c.label, status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
   })
   return rows
@@ -1089,6 +1095,87 @@ function addDeviceRows(devices) {
   ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
   ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
   return rows
+}
+
+// ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
+
+// The Screen and apps page for one device: a line on where it stands, the
+// steps (each done or not; the first not done is the current one), and the
+// page's actions, which are also its keyboard rows. `status`: the bridge's
+// (`screen <device>`), null while it is read; `pairing`: the QR pairing on
+// this page ({ phase, qr, message }), or null.
+function screenSetup(status, device, pairing) {
+  var name = deviceLabel(device)
+  var s = status || { state: "checking", tools: {} }
+  var tools = s.tools || {}
+  var state = String(s.state || "checking")
+  var ready = state === "ready"
+  var trusted = ready || state === "off" || state === "unauthorized"
+  var samsung = isSamsung(device)
+  var phase = pairing ? String(pairing.phase || "") : ""
+  var steps = [
+    { key: "tools", text: "scrcpy and adb on this computer", done: tools.ok === true },
+    { key: "developer", done: trusted,
+      text: "On " + name + ", turn on Developer options: " + (samsung ? "Settings › About phone › Software information" : "Settings › About phone")
+        + " › tap Build number seven times" },
+    { key: "wireless", done: ready,
+      text: "Turn on Wireless debugging: Settings › " + (samsung ? "" : "System › ") + "Developer options › Wireless debugging, and allow it on this Wi-Fi" },
+    { key: "pair", done: trusted, qr: true,
+      text: "Tap Pair device with QR code, and scan the code here" }
+  ]
+  // A code on show: the steps before it are done on the device by now,
+  // so scanning it is the step.
+  var current = -1
+  if (phase !== "" && phase !== "error" && !trusted) current = steps.length - 1
+  else for (var i = 0; i < steps.length; i++) if (!steps[i].done) { current = i; break }
+  steps.forEach(function(st, i) { st.current = i === current })
+
+  var line = {
+    checking: "Checking…",
+    tools: "Install scrcpy and adb to see " + name + "'s screen, and open its apps in windows, here",
+    pair: "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
+    off: "Wireless debugging is off on " + name + ". Turn it on: Developer options › Wireless debugging",
+    unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
+    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable",
+    ready: "Ready over " + (s.via === "usb" ? "USB" : "Wi-Fi") + (s.android ? " · Android " + s.android : "")
+  }[state] || "Checking…"
+  if (ready && s.apps !== true) line += ". Apps in windows need Android 10"
+
+  var pairingNote = phase === "starting" ? "Making a code…"
+    : phase === "qr" ? "Waiting for " + name + " to scan it…"
+    : phase === "found" ? "Found " + name + ": pairing…"
+    : phase === "paired" ? "Paired: connecting…"
+    : phase === "error" ? String(pairing.message || "That did not work")
+    : ""
+
+  var actions = []
+  if (state === "tools") actions.push({ key: "install", label: "Install", hint: "Asks for your password" })
+  if (state === "pair" || state === "off" || state === "away") {
+    if (phase === "" || phase === "error") actions.push({ key: "pair", label: state === "pair" ? "Show the code" : "Pair again", hint: "A QR code for " + name + " to scan" })
+    else actions.push({ key: "stopPair", label: "Stop", hint: "" })
+  }
+  if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
+  if (ready) actions.push({ key: "open", label: "Open its screen", hint: "A window here; right-click is Back" })
+  return {
+    state: state, line: line, steps: steps, pairingNote: pairingNote,
+    showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
+    usbNote: state === "pair" || state === "away" ? "No Wi-Fi debugging (Android 10 and older)? Turn on USB debugging in Developer options and plug it in." : "",
+    actions: actions
+  }
+}
+
+// The page's keyboard rows: one per action, in order.
+function screenRows(setup) {
+  return (setup ? setup.actions : []).map(function(a) { return { kind: "screenAction", key: a.key, label: a.label, hint: a.hint } })
+}
+
+// Made-up states for the demo phone (screenshots and checks): nothing in a
+// demo reaches adb or a device.
+function demoScreen(kind) {
+  var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
+  if (kind === "tools") return { state: "tools", tools: { ok: false } }
+  if (kind === "ready") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true }
+  return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
 }
 
 // ---- A paired device that is away: where it was, and what to try ----
@@ -1528,6 +1615,8 @@ function settingsPageRows(ctx) {
     var onPage = scope === "device" || (scope === "root" && ctx.single)
     if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
                             hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
+    if (onPage) rows.push({ kind: "screen", key: "screen", label: "Screen and apps",
+                            hint: "Its screen, and its apps each in a window, here (scrcpy)" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.

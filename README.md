@@ -15,6 +15,8 @@ media and photos, without picking it up.
   it, send files, the clipboard, a link.
 - **[Gallery and files](docs/gallery-and-files.md)**: its newest photos and
   videos, and the files it sent you.
+- **[Screen](docs/screen-and-apps.md)**: the phone's screen in a window
+  here, with your mouse and keyboard (scrcpy, set up from the panel).
 - **[Several devices](docs/calls-and-devices.md)**: a tab and a chip each.
 - **[Setup](docs/getting-started.md)**: checks with fixes, a QR code for the
   app, a demo phone to look around first.
@@ -31,6 +33,8 @@ media and photos, without picking it up.
 - Everything stays between the computer and your phone, over your own
   network. Devices sends nothing anywhere else.
 - It never sends a text, rings the phone or plays anything on its own.
+- The phone's screen needs Wireless debugging, which you turn on and pair
+  yourself; only a computer that scanned your code can use it.
 - Pictures from the phone are opened in a sandbox first: what you see is a
   copy made from their pixels, never the phone's file.
 - It keeps only caches, in `~/.cache/sceny.devices/`. Drafts stay in
@@ -42,6 +46,7 @@ media and photos, without picking it up.
 [The panel](docs/panel.md) ·
 [Messages](docs/messages.md) ·
 [Gallery and files](docs/gallery-and-files.md) ·
+[Screen and apps](docs/screen-and-apps.md) ·
 [Calls and devices](docs/calls-and-devices.md) ·
 [Settings](docs/settings.md) ·
 [Troubleshooting](docs/troubleshooting.md) ·

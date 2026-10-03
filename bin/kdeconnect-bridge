@@ -31,9 +31,15 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall|sshfs|search   fix one (install,
-                                              firewall and sshfs ask for a password;
-                                              search looks for devices again)
+  kdeconnect-bridge fix install|start|firewall|sshfs|screen|search   fix one
+                                              (install, firewall, sshfs and screen ask
+                                              for a password; search looks for devices again)
+  kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
+  kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
+                                              JSON lines (qr, found, paired, connected, error)
+  kdeconnect-bridge screen-open <device> [package] [label]   its screen, or one
+                                              app, in a window here (scrcpy)
+  kdeconnect-bridge screen-apps <device>           its apps, as JSON
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -1390,6 +1396,13 @@ def doctor():
     checks.append({"key": "reachable", "ok": len(reachable) > 0, "label": "A paired device is connected",
                    "detail": "" if reachable or not paired else "Same network as this computer, with the KDE Connect app running",
                    "fix": "", "fixLabel": ""})
+    # Optional: only the screen and apps need it, so it never lights the
+    # gear's dot.
+    tools = screen_tools()
+    checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen and apps",
+                   "status": ("scrcpy " + tools["version"]) if tools["ok"] else "Not installed",
+                   "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
+                   "fix": "" if tools["ok"] else "screen", "fixLabel": "Install"})
     return {"checks": checks, "network": lan, "firewall": fw}
 
 
@@ -1417,6 +1430,10 @@ def fix(what):
     elif what == "sshfs":
         # KDE Connect mounts a device's storage with it (photos).
         cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "sshfs"]
+    elif what == "screen":
+        # The device's screen and apps here (scrcpy over adb); android-udev
+        # lets adb reach a device on a USB cable.
+        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm"] + SCREEN_PACKAGES
     elif what == "firewall":
         lan = local_network()
         if not lan:
@@ -1435,8 +1452,313 @@ def fix(what):
         return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
     if out.returncode != 0:
         return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+    if what == "firewall":
+        return say("Firewall now allows KDE Connect from %s" % local_network())
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "firewall": "Firewall now allows KDE Connect from %s" % local_network()}[what])
+                "screen": "scrcpy and adb installed: set up a device's screen and apps"}[what])
+
+
+# ---- Screen and apps (scrcpy over adb) -------------------------------------
+#
+# The device's screen, and its apps each in a window of their own, come from
+# scrcpy over adb: KDE Connect offers neither (AGENTS.md, the boundary). adb
+# reaches the device over Wi-Fi once it is paired through Android's Wireless
+# debugging (Android 11 and later: the panel shows a QR code, the device
+# scans it) or over a USB cable. The adb device is matched to the KDE
+# Connect device by address (Wi-Fi) or by name (USB). Reading the state
+# connects to a device adb already trusts; pairing and opening run only on
+# the user's click.
+
+SCREEN_PACKAGES = ["scrcpy", "android-tools", "android-udev"]
+SCRCPY_APPS = (3, 0)    # --new-display and --start-app
+SCRCPY_FLEX = (4, 0)    # --flex-display: the device's display follows the window
+APPS_MIN_SDK = 29       # a virtual display to run an app on: Android 10
+WIRELESS_MIN_SDK = 30   # Wireless debugging: Android 11
+PAIR_WAIT_SEC = 120     # how long the QR code waits to be scanned
+CONNECT_WAIT_SEC = 20
+SCREEN_FILE = "screen.json"
+
+
+def scrcpy_version(text):
+    """(major, minor) from `scrcpy --version`, or () when it cannot be read."""
+    m = re.search(r"scrcpy\s+(\d+)\.(\d+)", text or "")
+    return (int(m.group(1)), int(m.group(2))) if m else ()
+
+
+def screen_tools(run=subprocess.run):
+    """Whether scrcpy and adb are here, and what this scrcpy can do."""
+    scrcpy, adb = shutil.which("scrcpy"), shutil.which("adb")
+    version = ()
+    if scrcpy:
+        try:
+            version = scrcpy_version(run([scrcpy, "--version"], capture_output=True, text=True, timeout=10).stdout)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return {"scrcpy": bool(scrcpy), "adb": bool(adb), "ok": bool(scrcpy and adb),
+            "version": "%d.%d" % version if version else "",
+            "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX}
+
+
+def parse_adb_devices(text):
+    """`adb devices -l` as [{serial, state, usb, model}]."""
+    out = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) < 2 or line.startswith(("List of", "*")):
+            continue
+        extra = dict(p.split(":", 1) for p in parts[2:] if ":" in p)
+        out.append({"serial": parts[0], "state": parts[1], "usb": "usb" in extra,
+                    "model": extra.get("model", "").replace("_", " ")})
+    return out
+
+
+def parse_mdns(text):
+    """`adb mdns services` as [{name, kind, host, port}]; kind is "pairing"
+    (a device showing a pairing code or QR) or "connect" (a device with
+    Wireless debugging on)."""
+    out = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if len(parts) < 3 or "_adb-tls-" not in parts[1]:
+            continue
+        host, _, port = parts[-1].rpartition(":")
+        if not port.isdigit():
+            continue
+        out.append({"name": parts[0], "kind": "pairing" if "pairing" in parts[1] else "connect",
+                    "host": host, "port": int(port)})
+    return out
+
+
+def parse_scrcpy_apps(text):
+    """`scrcpy --list-apps` as [{name, package, system}]: a line holds
+    "* " (system) or "- ", the name, then the package; a name of 30
+    characters or more puts the package on the next line."""
+    apps, pending = [], None
+    for raw in (text or "").splitlines():
+        line = re.sub(r"^\[server\]\s+\w+:\s?", "", raw)
+        m = re.match(r"^ ([*-]) (.*?)\s+(\S+)$", line)
+        if m and re.match(r"^[A-Za-z][\w]*(\.[\w]+)+$", m.group(3)):
+            apps.append({"name": m.group(2).strip(), "package": m.group(3), "system": m.group(1) == "*"})
+            pending = None
+            continue
+        m = re.match(r"^ ([*-]) (.+)$", line)
+        if m:
+            pending = {"name": m.group(2).strip(), "system": m.group(1) == "*"}
+            continue
+        m = re.match(r"^\s+([A-Za-z][\w]*(\.[\w]+)+)$", line)
+        if m and pending:
+            apps.append(dict(pending, package=m.group(1)))
+            pending = None
+    return apps
+
+
+def pairing_qr(name, password):
+    """What Android's *Pair device with QR code* reads: the name the device
+    then announces itself under (mDNS), and the pairing password."""
+    return "WIFI:T:ADB;S:%s;P:%s;;" % (name, password)
+
+
+def match_adb(device, adb_devices, mdns, names=None):
+    """The adb serial for a KDE Connect device, and how it is reached:
+    (serial, "wifi" | "usb", state) or (None, "", ""). Over Wi-Fi the
+    device's address matches (a serial "host:port", or an mDNS name whose
+    host is the device's); over USB its name does (`names`: serial to the
+    device's own name, asked of each USB device)."""
+    addresses = set(device.get("addresses") or [])
+    hosts = {s["name"]: s["host"] for s in mdns if s["kind"] == "connect"}
+    for d in adb_devices:
+        if d["usb"]:
+            continue
+        host = d["serial"].rpartition(":")[0] if re.match(r"^[\d.]+:\d+$", d["serial"]) else hosts.get(d["serial"].split(".")[0], "")
+        if host and host in addresses:
+            return d["serial"], "wifi", d["state"]
+    name = (device.get("name") or "").strip().lower()
+    for d in adb_devices:
+        if d["usb"] and name and ((names or {}).get(d["serial"], "").strip().lower() == name
+                                   or d["model"].strip().lower() == name):
+            return d["serial"], "usb", d["state"]
+    return None, "", ""
+
+
+def screen_record(device_id, update=None):
+    """What this computer remembers of a device's screen setup (paired over
+    Wi-Fi, when), in the cache: Wireless debugging turned off later reads as
+    *off*, not as never set up."""
+    path = os.path.join(state_dir(), SCREEN_FILE)
+    try:
+        data = json.load(open(path))
+    except (OSError, ValueError):
+        data = {}
+    if update is None:
+        return data.get(device_id, {})
+    data[device_id] = dict(data.get(device_id, {}), **update)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+    return data[device_id]
+
+
+def adb(args, timeout=10):
+    """One adb call: (exit code, stdout). mDNS goes through adb's own
+    backend, which needs no Avahi."""
+    env = dict(os.environ, ADB_MDNS_OPENSCREEN="1")
+    try:
+        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout, env=env)
+        return out.returncode, (out.stdout or "") + (out.stderr or "")
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, str(error)
+
+
+def screen_device(device_id):
+    """The KDE Connect device (name, addresses, reachable), or None."""
+    for d in snapshot(bus()).get("devices", []):
+        if d.get("id") == device_id:
+            return d
+    return None
+
+
+def screen_status(device_id):
+    """Where a device stands for its screen and apps, as JSON:
+
+    state: tools (scrcpy or adb missing), away (not reachable on Wi-Fi or
+           USB), pair (never set up), off (paired before; Wireless debugging
+           is off now), unauthorized (USB: allow it on the device), ready.
+    """
+    tools = screen_tools()
+    status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
+              "apps": False, "wireless": True}
+    if not tools["ok"]:
+        return status
+    device = screen_device(device_id) or {"id": device_id}
+    adb(["start-server"], timeout=15)
+    mdns = parse_mdns(adb(["mdns", "services"])[1])
+    devices = parse_adb_devices(adb(["devices", "-l"])[1])
+    serial, via, state = match_adb(device, devices, mdns)
+    if not serial:
+        # A device adb trusts with Wireless debugging on shows up in mDNS
+        # before adb connects to it by itself: connect now.
+        addresses = set(device.get("addresses") or [])
+        for s in mdns:
+            if s["kind"] == "connect" and s["host"] in addresses:
+                adb(["connect", "%s:%d" % (s["host"], s["port"])], timeout=CONNECT_WAIT_SEC)
+                devices = parse_adb_devices(adb(["devices", "-l"])[1])
+                serial, via, state = match_adb(device, devices, mdns)
+                break
+    if not serial:
+        usb = [d for d in devices if d["usb"]]
+        names = {d["serial"]: adb(["-s", d["serial"], "shell", "settings", "get", "global", "device_name"])[1].strip()
+                 for d in usb if d["state"] == "device"}
+        serial, via, state = match_adb(device, devices, mdns, names)
+        if not serial and any(d["state"] == "unauthorized" for d in usb):
+            serial, via, state = next(d["serial"] for d in usb if d["state"] == "unauthorized"), "usb", "unauthorized"
+    if not serial:
+        status["state"] = "away" if not device.get("reachable") else \
+            ("off" if screen_record(device_id).get("paired") else "pair")
+        return status
+    status.update(serial=serial, via=via)
+    if state != "device":
+        status["state"] = "unauthorized" if state == "unauthorized" else "away"
+        return status
+    sdk = adb(["-s", serial, "shell", "getprop", "ro.build.version.sdk"])[1].strip()
+    status["sdk"] = int(sdk) if sdk.isdigit() else 0
+    status["android"] = adb(["-s", serial, "shell", "getprop", "ro.build.version.release"])[1].strip()
+    status["apps"] = tools["apps"] and status["sdk"] >= APPS_MIN_SDK
+    status["wireless"] = status["sdk"] >= WIRELESS_MIN_SDK or status["sdk"] == 0
+    status["state"] = "ready"
+    return status
+
+
+def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
+    """Pairs adb with the device over Wi-Fi, as Android Studio does: prints
+    a QR code to show, waits for the device to scan it (it then announces
+    the name in the code over mDNS), pairs with the password in the code,
+    and connects. JSON lines on stdout: qr, found, paired, connected or
+    error. Stops when the panel closes the page (the process is ended)."""
+    emit = emit or (lambda ev: print(json.dumps(ev), flush=True))
+    if not screen_tools()["ok"]:
+        emit({"ev": "error", "message": "scrcpy and adb are not installed"})
+        return EXIT_FAILED
+    name = "sceny-" + base64.b32encode(os.urandom(5)).decode().lower().rstrip("=")
+    password = base64.b32encode(os.urandom(10)).decode().lower().rstrip("=")
+    payload = pairing_qr(name, password)
+    ascii_code = ""
+    try:
+        ascii_code = subprocess.run(["qrencode", "-t", "ASCII", "-m", "0", payload],
+                                    capture_output=True, text=True, timeout=10).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    adb(["start-server"], timeout=15)
+    emit({"ev": "qr", "ascii": ascii_code, "seconds": wait})
+    found = None
+    for _ in range(int(wait)):
+        found = next((s for s in parse_mdns(adb(["mdns", "services"])[1])
+                      if s["kind"] == "pairing" and s["name"] == name), None)
+        if found:
+            break
+        sleep(1)
+    if not found:
+        emit({"ev": "error", "message": "The code was not scanned in time"})
+        return EXIT_CANCELLED
+    emit({"ev": "found"})
+    code, out = adb(["pair", "%s:%d" % (found["host"], found["port"]), password], timeout=30)
+    if code != 0 or "Successfully paired" not in out:
+        emit({"ev": "error", "message": (out.strip().splitlines() or ["Pairing failed"])[-1]})
+        return EXIT_FAILED
+    screen_record(device_id, {"paired": True, "at": int(time.time())})
+    emit({"ev": "paired"})
+    for _ in range(CONNECT_WAIT_SEC):
+        service = next((s for s in parse_mdns(adb(["mdns", "services"])[1])
+                        if s["kind"] == "connect" and s["host"] == found["host"]), None)
+        if service:
+            adb(["connect", "%s:%d" % (service["host"], service["port"])], timeout=CONNECT_WAIT_SEC)
+            break
+        sleep(1)
+    emit({"ev": "connected"})
+    return EXIT_OK
+
+
+def screen_command(serial, title, package="", tools=None):
+    """The scrcpy command for the device's screen, or for one app in a
+    window of its own (a virtual display on the device, so its own screen
+    stays free; it follows the window's size with scrcpy 4)."""
+    cmd = ["uwsm-app", "--", "scrcpy", "--serial", serial, "--window-title", title]
+    if package:
+        cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
+        if (tools or {}).get("flex"):
+            cmd += ["--flex-display"]
+    return cmd
+
+
+def screen_open(device_id, package="", label="", launch=None):
+    """Opens the device's screen, or one of its apps, in a window here."""
+    launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
+                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
+    if package and not status["apps"]:
+        return say("Apps in a window need Android 10 and scrcpy 3", EXIT_FAILED)
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    launch(screen_command(status["serial"], "%s · %s" % (label, name) if label else name, package, status["tools"]))
+    return say("Opening %s" % (label or name + "'s screen"))
+
+
+def screen_apps(device_id):
+    """The device's launchable apps, user's first, as JSON."""
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return {"state": status["state"], "apps": []}
+    try:
+        out = subprocess.run(["scrcpy", "--serial", status["serial"], "--list-apps"],
+                             capture_output=True, text=True, timeout=60)
+        apps = parse_scrcpy_apps((out.stdout or "") + (out.stderr or ""))
+    except (OSError, subprocess.TimeoutExpired):
+        apps = []
+    apps.sort(key=lambda a: (a["system"], a["name"].lower()))
+    return {"state": "ready", "apps": apps}
 
 
 
@@ -1940,6 +2262,21 @@ def main(argv):
         return EXIT_OK
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
+    if argv[0] in ("screen", "screen-pair", "screen-open", "screen-apps"):
+        if len(argv) < 2:
+            return say("%s needs a device id" % argv[0], EXIT_FAILED)
+        if argv[0] == "screen":
+            print(json.dumps(screen_status(argv[1])))
+            return EXIT_OK
+        if argv[0] == "screen-apps":
+            print(json.dumps(screen_apps(argv[1]), ensure_ascii=False))
+            return EXIT_OK
+        if argv[0] == "screen-pair":
+            try:
+                return screen_pair(argv[1])
+            except KeyboardInterrupt:
+                return EXIT_CANCELLED
+        return screen_open(argv[1], argv[2] if len(argv) > 2 else "", argv[3] if len(argv) > 3 else "")
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK

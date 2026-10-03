@@ -911,3 +911,92 @@ class OpenFile(unittest.TestCase):
     def test_json_is_text_to_gio(self):
         self.assertTrue(bridge.Gio.content_type_is_a("application/json", "text/plain"),
                         "why GIO finds a text editor for JSON where xdg-open finds nothing")
+
+
+class Screen(unittest.TestCase):
+    """The device's screen and apps over adb: reading adb's and scrcpy's
+    output, finding the device, and what runs. Nothing reaches a device."""
+
+    PHONE = {"id": "p1", "name": "Pixel 8", "addresses": ["192.168.1.20"]}
+
+    def test_scrcpy_version(self):
+        self.assertEqual(bridge.scrcpy_version("scrcpy 4.1 <https://github.com/Genymobile/scrcpy>"), (4, 1))
+        self.assertEqual(bridge.scrcpy_version(""), ())
+
+    def test_adb_devices(self):
+        text = ("List of devices attached\n"
+                "192.168.1.20:37099      device product:shiba model:Pixel_8 device:shiba transport_id:2\n"
+                "0A1B2C3D               unauthorized usb:1-2 transport_id:3\n\n")
+        self.assertEqual(bridge.parse_adb_devices(text), [
+            {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "Pixel 8"},
+            {"serial": "0A1B2C3D", "state": "unauthorized", "usb": True, "model": ""}])
+
+    def test_mdns_services(self):
+        text = ("List of discovered mdns services\n"
+                "adb-0A1B2C3D-xYz\t_adb-tls-connect._tcp\t192.168.1.20:37099\n"
+                "sceny-abc\t_adb-tls-pairing._tcp.\t192.168.1.20:41011\n"
+                "printer\t_ipp._tcp\t192.168.1.9:631\n")
+        self.assertEqual(bridge.parse_mdns(text), [
+            {"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099},
+            {"name": "sceny-abc", "kind": "pairing", "host": "192.168.1.20", "port": 41011}])
+
+    def test_scrcpy_apps_short_and_long_names(self):
+        text = ("[server] INFO: List of apps:\n"
+                " * Settings                       com.android.settings\n"
+                " - Messages                       com.google.android.apps.messaging\n"
+                " - A name of thirty characters or more\n"
+                "                                  org.example.longname\n")
+        self.assertEqual(bridge.parse_scrcpy_apps(text), [
+            {"name": "Settings", "package": "com.android.settings", "system": True},
+            {"name": "Messages", "package": "com.google.android.apps.messaging", "system": False},
+            {"name": "A name of thirty characters or more", "package": "org.example.longname", "system": False}])
+
+    def test_pairing_qr_is_androids_format(self):
+        self.assertEqual(bridge.pairing_qr("sceny-abc", "pw"), "WIFI:T:ADB;S:sceny-abc;P:pw;;")
+
+    def test_wifi_matches_by_address(self):
+        devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
+                   {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": ""}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, []), ("192.168.1.20:37099", "wifi", "device"))
+
+    def test_wifi_matches_an_mdns_serial_through_its_host(self):
+        devices = [{"serial": "adb-0A1B2C3D-xYz._adb-tls-connect._tcp", "state": "device", "usb": False, "model": ""}]
+        mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, mdns)[1], "wifi")
+
+    def test_usb_matches_by_name_and_another_device_does_not(self):
+        devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Tablet"}), (None, "", ""))
+
+    def test_the_screen_and_an_app(self):
+        self.assertEqual(bridge.screen_command("S1", "Pixel 8"),
+                         ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8"])
+        app = bridge.screen_command("S1", "Messages · Pixel 8", "com.example.app", {"flex": True})
+        self.assertIn("--new-display", app)
+        self.assertIn("--start-app=com.example.app", app)
+        self.assertIn("--flex-display", app)
+        self.assertNotIn("--flex-display", bridge.screen_command("S1", "x", "com.example.app", {"flex": False}))
+
+    def test_install_asks_for_the_packages_through_pkexec(self):
+        ran = []
+        saved = bridge.subprocess.run
+        bridge.subprocess.run = lambda cmd, **kw: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                self.assertEqual(bridge.fix("screen"), bridge.EXIT_OK)
+        finally:
+            bridge.subprocess.run = saved
+        self.assertEqual(ran, [["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm",
+                                "scrcpy", "android-tools", "android-udev"]])
+
+    def test_the_record_survives(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: d
+            try:
+                self.assertEqual(bridge.screen_record("p1"), {})
+                bridge.screen_record("p1", {"paired": True, "at": 5})
+                self.assertTrue(bridge.screen_record("p1")["paired"])
+            finally:
+                bridge.state_dir = saved

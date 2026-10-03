@@ -23,6 +23,10 @@ Column {
   property string network: ""
   property string appPlatform: "android"
   signal appPlatformSet(string platform)
+  // Screen and apps (scope "screen"): the page's model (Model.screenSetup)
+  // and the pairing code it shows.
+  property var screenSetup: null
+  property var screenQr: null
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
   // Pairings asked here: when each started (the card's countdown), and a
@@ -83,7 +87,7 @@ Column {
     return false
   }
   readonly property bool hasGroups: firstIndex("layout") >= 0
-  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && hasKind(["device", "request", "available"])
+  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && scopeKind !== "screen" && hasKind(["device", "request", "available"])
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
   function groupTitle(title, group) {
     return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
@@ -193,7 +197,7 @@ Column {
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "defaults" || modelData.kind === "editPage"
+      visible: modelData.kind === "defaults" || modelData.kind === "editPage" || modelData.kind === "screen"
       width: root.width
       row: modelData
       rowIndex: index
@@ -485,6 +489,27 @@ Column {
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
 
+  // ---- Screen and apps: the steps, then the page's actions ----
+  ScreenSetup {
+    visible: root.scopeKind === "screen"
+    width: root.width
+    setup: root.screenSetup
+    qr: root.screenQr
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
   // Not ready to pair: what the panel shows once a phone is set up, with a
   // made-up one. Last, after pairing, which comes first.
   Button {
@@ -724,7 +749,7 @@ Column {
       }
 
       Text {
-        visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
+        visible: ["device", "defaults", "editPage", "screen", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
@@ -901,7 +926,11 @@ Column {
     id: checkRow
     property var row: ({})
     property int rowIndex: -1
-    readonly property bool failing: row.ok !== true && row.ignored !== true
+    // Optional (Screen and apps): missing is a choice, not a fault; it
+    // offers its install, never alerts and has nothing to ignore.
+    readonly property bool optional: row.optional === true
+    readonly property bool failing: row.ok !== true && row.ignored !== true && !optional
+    readonly property bool offering: row.ok !== true && (failing || optional)
     readonly property bool fixing: root.setupFixing[row.fix] === true
     hasCursor: false
     CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
@@ -927,7 +956,7 @@ Column {
         Layout.alignment: Qt.AlignVCenter
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
-        text: checkRow.row.ok === true ? Model.GLYPH.check : Model.GLYPH.alert
+        text: checkRow.row.ok === true ? Model.GLYPH.check : (checkRow.optional ? Model.GLYPH.optional : Model.GLYPH.alert)
         color: checkRow.failing ? Color.urgent : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -942,7 +971,7 @@ Column {
             Layout.fillWidth: true
             textFormat: Text.PlainText
             text: checkRow.row.label || ""
-            color: checkRow.failing ? root.foreground : root.dim
+            color: checkRow.offering ? root.foreground : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             elide: Text.ElideRight
@@ -957,7 +986,7 @@ Column {
         }
         Text {
           Layout.fillWidth: true
-          visible: checkRow.failing && text !== ""
+          visible: checkRow.offering && text !== ""
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           text: checkRow.row.detail || ""
@@ -967,13 +996,13 @@ Column {
         }
       }
       Button {
-        visible: checkRow.failing && (checkRow.row.fix || "") !== ""
+        visible: checkRow.offering && (checkRow.row.fix || "") !== ""
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
         iconText: checkRow.fixing ? "\u{F0996}" : ""
         iconSpinning: checkRow.fixing
         enabled: !checkRow.fixing
-        tooltipText: checkRow.row.fix === "install" || checkRow.row.fix === "firewall" ? "Asks for your password" : ""
+        tooltipText: ["install", "firewall", "screen"].indexOf(checkRow.row.fix) >= 0 ? "Asks for your password" : ""
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
@@ -981,7 +1010,7 @@ Column {
         onClicked: root.fixRequested(checkRow.row.fix)
       }
       Button {
-        visible: checkRow.row.ok !== true
+        visible: checkRow.row.ok !== true && !checkRow.optional
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.row.ignored === true ? "Undo" : "Ignore"
         tooltipText: checkRow.row.ignored === true ? "Light the gear's dot again while it fails" : "Leave it as it is; the gear's dot stops showing it"
