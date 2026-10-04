@@ -469,7 +469,10 @@ Panel {
   // (Connecting…); the window opens at exactly that place under it, with no
   // animation of its own, then the panel fades out over it. Tiled, the tile
   // waits instead. A failure grows the card back to the page.
-  property var screenOpening: null        // { id, name } while it opens
+  property var screenOpening: null        // { id, name, tip } while it opens
+  // Which tip the next opening shows: in memory, from the day, so a restart
+  // does not start over at the first.
+  property int screenTipNext: Math.floor(Date.now() / 86400000)
   property bool cardMorphing: false       // the card's size follows at MOTION
   // The chip's place, as KeyboardPanel places a card: the bridge keeps a
   // docked window there when the device turns or unfolds.
@@ -494,7 +497,8 @@ Panel {
     }
     cardMorphing = true
     morphSettle.stop()
-    screenOpening = { id: String(d.id), name: Model.deviceLabel(d) }
+    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext) }
+    screenTipNext++
     phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
   }
   function endScreenOpening() {
@@ -2315,6 +2319,20 @@ Panel {
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
+        }
+        // A tip while it connects: one each opening.
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          topPadding: Style.space(14)
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: root.screenOpening && root.screenOpening.tip ? root.screenOpening.tip : ""
+          visible: text !== ""
+          color: Qt.darker(root.foreground, 1.55)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
         }
         Text {
           anchors.horizontalCenter: parent.horizontalCenter

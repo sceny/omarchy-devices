@@ -907,3 +907,11 @@ test("screen and apps: a row on the device's page, and a Screen shortcut", () =>
   assert.ok(!M.settingsPageRows({ scope: "defaults", single: false, devices: [] }).some(r => r.kind === "screen"), "not the defaults: it is a device's")
   assert.equal(M.shortcutByKey("screen").needs, "", "scrcpy, not KDE Connect: shown whatever the device offers")
 })
+
+test("screen tips: one each opening, all of them in turn", () => {
+  const seen = new Set()
+  for (let n = 0; n < M.SCREEN_TIPS.length; n++) seen.add(M.screenTip(1000 + n))
+  assert.equal(seen.size, M.SCREEN_TIPS.length)
+  assert.equal(M.screenTip(-1), M.SCREEN_TIPS[M.SCREEN_TIPS.length - 1])
+  assert.ok(M.SCREEN_TIPS.every(t => t.length <= 60), "short enough for the card")
+})

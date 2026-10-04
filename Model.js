@@ -1189,7 +1189,7 @@ function screenSetup(status, device, pairing, docked) {
     actions.push({ key: "open", label: "Show the screen", hint: "Use it with your mouse: right-click is Back" })
     // Where it opens: one of two, like a choice in Settings.
     actions.push({ key: "dockOn", label: "Opens under the bar", on: docked !== false,
-                   hint: "On every workspace; Super+O frees it for full screen" })
+                   hint: "Under its icon, on top, on every workspace" })
     actions.push({ key: "dockOff", label: "Opens as a window", on: docked === false,
                    hint: "Tiles, moves and resizes like any other window" })
   }
@@ -1236,6 +1236,26 @@ function dockRect(ctx) {
   x = Math.max(ctx.margin, Math.min(x, ctx.screenW - size.w - ctx.margin))
   y = Math.max(ctx.margin, Math.min(y, ctx.screenH - size.h - ctx.margin))
   return { x: Math.round(x), y: Math.round(y), w: size.w, h: size.h }
+}
+
+// One tip while the screen connects (the card waits a second or two each
+// time): a different one each opening, so they teach a little at a time.
+// All true of scrcpy as it opens here (its Alt shortcuts: Super belongs to
+// Hyprland) and of the docked window.
+var SCREEN_TIPS = [
+  "Right-click is Back, middle-click is Home",
+  "Super+O frees it, then Super+F for full screen",
+  "Turn your phone: the window turns with it",
+  "Drop a file on it to copy it to the phone's Downloads",
+  "Copy on the phone, paste here: the clipboard comes across",
+  "Alt+O turns the phone's own screen off; this one stays on",
+  "Move it anywhere: it stays where you put it, even turned",
+  "Alt+N opens the phone's notifications",
+  "Rather a window like any other? Settings › Screen and apps"
+]
+function screenTip(n) {
+  var k = ((Math.floor(n) % SCREEN_TIPS.length) + SCREEN_TIPS.length) % SCREEN_TIPS.length
+  return SCREEN_TIPS[k]
 }
 
 // The page's keyboard rows: one per action, in order.
