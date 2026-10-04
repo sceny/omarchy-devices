@@ -23,8 +23,13 @@ PanelWindow {
   readonly property var ev: phone ? phone.screenTurn : null
   readonly property bool mine: !!ev && !!screen && ev.monitor === screen.name
 
+  // Mapped, empty and click-through, while a docked screen is open (or a
+  // demo screen is ready): a layer mapped on demand misses the first frames
+  // and fades in itself, so the card would arrive late and see-through.
+  readonly property bool armed: !!phone && (Object.keys(phone.screenWatchers).length > 0
+    || (phone.demo && phone.demoScreenKind === "ready"))
   screen: barWindow ? barWindow.screen : null
-  visible: journey.running || card.opacity > 0.01
+  visible: armed || journey.running || card.opacity > 0.01
   anchors { top: true; bottom: true; left: true; right: true }
   color: "transparent"
   WlrLayershell.namespace: "sceny-devices-turn"
