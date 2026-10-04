@@ -1357,6 +1357,15 @@ Panel {
                             shown: appsView ? appsView.page.all.length : 0,
                             sound: device ? appSoundFor(String(device.id)) : "" })
   }
+  // The header's button: back from a page, else Settings (Connection while
+  // this computer has something to fix).
+  function headerButton() {
+    if (messagesOpen) closeMessagesView()
+    else if (appsOpen) closeAppsView()
+    else if (settingsOpen) { if (!settingsBack()) closeSettings() }
+    else if (computerIssues > 0) openConnection()
+    else openSettings()
+  }
   function closeAppsView() {
     appsOpen = false
     if (panelFlick) panelFlick.contentY = 0
@@ -2060,6 +2069,7 @@ Panel {
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
     function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
     function appsInfo(): string { return root.appsInfo() }
+    function pressHeaderButton(): string { root.headerButton(); return root.targetPage }
     function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
@@ -3138,13 +3148,7 @@ Panel {
                   tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
-                  onClicked: {
-                    if (root.messagesOpen) root.closeMessagesView()
-                    else if (root.appsOpen) root.closeAppsView()
-                    else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
-                    else if (root.computerIssues > 0) root.openConnection()
-                    else root.openSettings()
-                  }
+                  onClicked: root.headerButton()
                   GearDot { visible: root.showMain && root.computerIssues > 0 }
                 }
               }
