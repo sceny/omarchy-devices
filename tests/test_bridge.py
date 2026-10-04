@@ -1046,12 +1046,26 @@ class Screen(unittest.TestCase):
         self.assertGreater(w, h, "landscape now")
 
     def test_the_display_in_one_line(self):
-        self.assertEqual(bridge.parse_display("cur=2316x1080"), (2316, 1080))
+        self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
+
+    def test_scrcpy_says_the_shape(self):
+        self.assertEqual(bridge.parse_texture("INFO: Texture: 2316x1080"), (2316, 1080))
+        self.assertIsNone(bridge.parse_texture("INFO: Renderer: opengl"))
+        cmd = bridge.screen_command("S1", "Pixel 8 · Screen", log="/tmp/x y.log")
+        self.assertEqual(cmd[:5], ["uwsm-app", "--", "sh", "-c", "exec \"$0\" \"$@\" >'/tmp/x y.log' 2>&1"])
+        self.assertEqual(cmd[5:8], ["scrcpy", "--serial", "S1"])
+
+    def test_turn_or_morph(self):
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 1), ("turn", -90), "turned left")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 3), ("turn", 90), "turned right")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080)), ("turn", -90), "rotation unknown")
+        self.assertEqual(bridge.turn_of((904, 2316), (1812, 2176)), ("morph", 0), "unfolded")
+        self.assertEqual(bridge.turn_of((1812, 2176), (904, 2316)), ("morph", 0), "folded")
 
     def test_rule_at_the_cards_place(self):
         lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.47, 35, True, (1900, 40, 470, 1008))
         self.assertIn("size = { 470, 1008 }, move = { 1900, 40 }", lua)
-        self.assertIn("no_anim = true", lua)
+        self.assertIn('animation = "popin 100%"', lua, "a fade in and out, no scaling")
 
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),

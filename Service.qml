@@ -665,11 +665,49 @@ Item {
     else cmd = cmd.concat(placeArgs(place))
     var proc = actionComponent.createObject(root, { key: key, command: cmd })
     proc.exited.connect(function(code) {
-      if (code === 0) root.screenOpened(String(id))
+      if (code === 0) {
+        root.screenOpened(String(id))
+        if (docked !== false && !pkg && place) root.watchScreen(id, place.ctx)
+      }
       else root.screenOpenFailed(String(id))
     })
     proc.running = true
   }
+  // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
+  //      the device's shape; each change comes here for ScreenTurn ----
+  property var screenTurn: null            // { kind, angle, from, to, monitor, at }
+  property var screenWatchers: ({})        // device id -> its watcher
+  function watchScreen(id, ctx) {
+    if (demo || !id || !ctx || screenWatchers[String(id)]) return
+    var proc = watchComponent.createObject(root, { device: String(id),
+      command: [bridge, "screen-watch", String(id), "--ctx", JSON.stringify(ctx)] })
+    var next = Object.assign({}, screenWatchers)
+    next[String(id)] = proc
+    screenWatchers = next
+    proc.running = true
+  }
+  Component {
+    id: watchComponent
+    Process {
+      id: watchProc
+      property string device: ""
+      stdout: SplitParser {
+        onRead: function(line) {
+          try {
+            var ev = JSON.parse(line)
+            if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
+          } catch (e) {}
+        }
+      }
+      onExited: {
+        var next = Object.assign({}, root.screenWatchers)
+        delete next[watchProc.device]
+        root.screenWatchers = next
+        watchProc.destroy()
+      }
+    }
+  }
+
   // The keyboard to its window, once the panel has let go of it.
   function focusScreen(id) {
     if (demo || !id) return
@@ -682,6 +720,7 @@ Item {
     var cmd = [bridge, "screen-dock", String(id), docked ? "on" : "off"]
     if (docked) cmd = cmd.concat(placeArgs(place))
     Quickshell.execDetached(cmd)
+    if (docked && place) watchScreen(id, place.ctx)
   }
   function startScreenPair(id) {
     if (pairProc.running || demoPairQr.running) return

@@ -43,9 +43,9 @@ not re-printed, so the shell only wakes when something moved.
                                               x,y,w,h: the panel's card); returns once
                                               the window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
-  kdeconnect-bridge screen-watch <device> <serial> <title> --ctx <json>   keep its
-                                              docked window under the chip in the
-                                              device's shape (started by screen-open)
+  kdeconnect-bridge screen-watch <device> --ctx <json>   keep its docked window
+                                              under the chip in the device's shape;
+                                              JSON lines (refit: turn or morph)
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge screen-apps <device>           its apps, as JSON
@@ -1905,10 +1905,11 @@ def dock_rule_lua(name, title, aspect, top, docked, rect=None):
            "_G.sceny_devices_rules[%s] = nil\n") % (lua_string(name), lua_string(name))
     if docked and rect:
         # Where the panel's card is, as the card ends its opening: the window
-        # takes its place exactly, with no animation of its own.
+        # takes its place exactly and fades in (and out when it closes), as
+        # Hyprland's pop-in at full size is a fade alone.
         x, y, w, h = rect
         lua += ("_G.sceny_devices_rules[%s] = hl.window_rule({ name = %s, match = { title = %s }, "
-                "tag = \"+pop\", float = true, pin = true, no_anim = true, keep_aspect_ratio = true, "
+                "tag = \"+pop\", float = true, pin = true, animation = \"popin 100%%\", keep_aspect_ratio = true, "
                 "size = { %d, %d }, move = { %d, %d } })\n") % (
             lua_string(name), lua_string(name), lua_string(title_regex(title)), w, h, x, y)
     elif docked:
@@ -1965,18 +1966,44 @@ def dock_window(win, docked, display, rect=None):
 #
 # Rotating or unfolding the device changes its display; scrcpy then resizes
 # its window on its own, and a docked one would drift from under the chip.
-# While a docked window is open, a watcher asks the device for its display
-# every couple of seconds (one short line) and puts the window back under
-# the chip in the new shape. An undocked window is left alone; the watcher
-# ends with the window.
+# While a docked window is open, `screen-watch` (run by the panel's service,
+# JSON lines out) looks at the window four times a second and asks the
+# device for its display when the window changed, or every 2 s. A new shape
+# is a turn (width and height swapped: the panel turns a card from the old
+# place to the new) or a morph (a fold, anything else: the card's rectangle
+# morphs): the window hides, the event goes out, the window is moved under
+# the card and shows again as the card fades. An undocked window is left
+# alone; the watcher ends with the window.
 
-WATCH_EVERY_SEC = 2
+WATCH_LOOK_SEC = 0.25
+WATCH_ASK_SEC = 2
+WATCH_LOG_SEC = 0.02    # scrcpy's log, read this often: a turn shows within a frame
+# The card's journey (Model.MOTION: out, then in), and when the window
+# moves under it.
+TURN_MOVE_SEC = 0.12
+TURN_SHOW_SEC = 0.32
 
 
 def current_display(serial):
-    """The display now, asked of the device in one short line."""
-    out = adb(["-s", serial, "shell", "dumpsys window displays | grep -m1 -oE 'cur=[0-9]+x[0-9]+'"], timeout=8)[1]
-    return parse_display(out)
+    """The display now and its rotation (0–3), asked of the device in two
+    short lines: ((width, height), rotation)."""
+    out = adb(["-s", serial, "shell", "dumpsys window displays | grep -m1 -oE 'cur=[0-9]+x[0-9]+'; "
+               "dumpsys input | grep -m1 -oE 'SurfaceOrientation: [0-3]'"], timeout=8)[1]
+    m = re.search(r"SurfaceOrientation: ([0-3])", out)
+    return parse_display(out), int(m.group(1)) if m else -1
+
+
+def turn_of(old, new, old_rot=-1, new_rot=-1):
+    """How the shape changed: ("turn", degrees) when width and height
+    swapped (the way the device turned when its rotation says so: Android's
+    rotation counts counter-clockwise; else a quarter turn back), else
+    ("morph", 0): a fold, an unfold, a new resolution."""
+    if old and new and old[1] and new[1] and abs(old[0] / old[1] - new[1] / new[0]) < 0.02 * (new[1] / new[0]):
+        if old_rot >= 0 and new_rot >= 0:
+            step = (new_rot - old_rot) % 4
+            return "turn", {1: -90, 2: 180, 3: 90}.get(step, -90)
+        return "turn", -90
+    return "morph", 0
 
 
 def refit(win, ctx, display, mons):
@@ -1992,47 +2019,95 @@ def refit(win, ctx, display, mons):
             "hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, ax, ay)]
 
 
+def window_prop(win, prop, value):
+    q = lua_string("address:" + win["address"])
+    subprocess.run(["hyprctl", "dispatch", 'hl.dsp.window.set_prop({ window = %s, prop = "%s", value = "%s" })' % (q, prop, value)],
+                   capture_output=True, timeout=5)
+
+
 def watch_lock(title):
     return os.path.join(state_dir(), "screen-watch-%s.pid" % hashlib.sha1(title.encode()).hexdigest()[:12])
 
 
-def start_watch(device_id, title, ctx, serial):
-    """One watcher per window: a running one stays."""
-    if not ctx:
-        return
+def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
+    """Keeps the device's docked window under the chip in its shape, until
+    the window closes. JSON lines: refit {kind, angle, from, to, monitor}."""
+    emit = emit or (lambda ev: print(json.dumps(ev), flush=True))
+    device = screen_device(device_id) or {}
+    title = screen_title(device.get("name") or "Device")
     lock = watch_lock(title)
     try:
-        pid = int(open(lock).read().strip() or 0)
-        os.kill(pid, 0)
-        return
+        os.kill(int(open(lock).read().strip() or 0), 0)
+        return EXIT_OK   # one watcher per window
     except (OSError, ValueError):
         pass
-    subprocess.Popen([sys.executable, os.path.abspath(__file__), "screen-watch", device_id, serial, title,
-                      "--ctx", json.dumps(ctx)], start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-
-def screen_watch(device_id, serial, title, ctx, sleep=time.sleep):
-    """Keeps a docked window under the chip in the device's shape, until
-    the window closes."""
-    lock = watch_lock(title)
+    status = screen_status(device_id)
+    if not status.get("serial"):
+        return EXIT_FAILED
+    serial = status["serial"]
     os.makedirs(os.path.dirname(lock), exist_ok=True)
     open(lock, "w").write(str(os.getpid()))
-    last = None
     try:
+        for _ in range(20):   # the window may still be opening
+            if find_window(title):
+                break
+            sleep(WATCH_LOOK_SEC)
+        shape, rot = current_display(serial)
+        seen_size, asked, looked = None, time.time(), 0.0
+        log = open(screen_log(title), "r", errors="replace") if os.path.exists(screen_log(title)) else None
+        if log:
+            log.seek(0, os.SEEK_END)
+        win = find_window(title)
         while True:
+            # scrcpy says the frame changed shape: hide the window at once,
+            # before anything else (the turned picture shows a frame at most).
+            texture = None
+            if log:
+                for line in log.readlines():
+                    texture = parse_texture(line) or texture
+            if texture and win and win.get("pinned") and texture != tuple(shape):
+                window_prop(win, "no_anim", "1")
+                window_prop(win, "opacity", "0")
+            now = time.time()
+            if not texture and now - looked < WATCH_LOOK_SEC:
+                sleep(WATCH_LOG_SEC)
+                continue
+            looked = now
             win = find_window(title)
             if not win:
                 return EXIT_OK
-            if win.get("pinned"):
-                display = current_display(serial)
-                if display[0] and display != last:
-                    for lua in refit(win, ctx, display, hypr_json("monitors")):
+            if not win.get("pinned"):
+                seen_size = None
+                continue
+            size = tuple(win.get("size") or ())
+            if texture or size != seen_size or now - asked >= WATCH_ASK_SEC:
+                new, new_rot = current_display(serial)
+                if texture and not new[0]:
+                    new = texture
+                asked = time.time()
+                mons = hypr_json("monitors")
+                moves = refit(win, ctx, new, mons) if new[0] else []
+                if moves:
+                    kind, angle = turn_of(shape, new, rot, new_rot)
+                    mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
+                    before = list(dock_rect(ctx, shape)) if shape[0] else [win["at"][0] - mon.get("x", 0), win["at"][1] - mon.get("y", 0)] + list(win["size"])
+                    window_prop(win, "no_anim", "1")
+                    window_prop(win, "opacity", "0")
+                    emit({"ev": "refit", "kind": kind, "angle": angle, "from": before,
+                          "to": list(dock_rect(ctx, new)), "monitor": mon.get("name", "")})
+                    sleep(TURN_MOVE_SEC)
+                    for lua in moves:
                         subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
-                    last = display
-            else:
-                last = None   # docked again later: fitted again
-            sleep(WATCH_EVERY_SEC)
+                    sleep(TURN_SHOW_SEC - TURN_MOVE_SEC)
+                    window_prop(win, "no_anim", "0")
+                    window_prop(win, "opacity", "1")
+                    win = find_window(title) or win
+                elif texture:
+                    window_prop(win, "opacity", "1")   # hidden for nothing: show again
+                    window_prop(win, "no_anim", "0")
+                if new[0]:
+                    shape, rot = new, new_rot
+                seen_size = tuple(win.get("size") or ())
     finally:
         try:
             os.remove(lock)
@@ -2044,11 +2119,25 @@ def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
 
-def screen_command(serial, title, package="", tools=None):
+def screen_log(title):
+    """scrcpy's output for a window: its "Texture: WxH" line is the moment
+    the device's frame changes shape (a turn, a fold), read by the watcher."""
+    return os.path.join(state_dir(), "screen-%s.log" % hashlib.sha1(title.encode()).hexdigest()[:12])
+
+
+def parse_texture(line):
+    """(width, height) from scrcpy's "INFO: Texture: 1080x2316", or None."""
+    m = re.search(r"\bTexture: (\d+)x(\d+)", line or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def screen_command(serial, title, package="", tools=None, log=""):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
-    stays free; it follows the window's size with scrcpy 4)."""
-    cmd = ["uwsm-app", "--", "scrcpy", "--serial", serial, "--window-title", title]
+    stays free; it follows the window's size with scrcpy 4). `log`: where
+    its output goes."""
+    run = ["scrcpy"] if not log else ["sh", "-c", 'exec "$0" "$@" >%s 2>&1' % shlex.quote(log), "scrcpy"]
+    cmd = ["uwsm-app", "--"] + run + ["--serial", serial, "--window-title", title]
     if package:
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
@@ -2087,11 +2176,12 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title,
                                                      aspect, top, docked, rect)],
                    capture_output=True, timeout=5)
-    launch(screen_command(status["serial"], title, package, status["tools"]))
+    log = screen_log(title) if docked and not package else ""
+    if log:
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+    launch(screen_command(status["serial"], title, package, status["tools"], log))
     for _ in range(WINDOW_WAIT_SEC * 4):
         if find_window(title):
-            if docked and not package:
-                start_watch(device_id, title, ctx, status["serial"])
             return say("%s is open" % (label or name + "'s screen"))
         sleep(0.25)
     return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
@@ -2111,8 +2201,6 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
                    capture_output=True, timeout=5)
     if win:
         dock_window(win, docked, disp, rect)
-        if docked and status.get("serial"):
-            start_watch(device_id, title, ctx, status["serial"])
     return say("Docked by the bar" if docked else "A window like any other")
 
 
@@ -2633,13 +2721,11 @@ def main(argv):
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "screen-watch":
-        if len(argv) < 4:
-            return say("screen-watch needs a device id, its serial and the window's title", EXIT_FAILED)
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
-        if not ctx:
-            return say("screen-watch needs --ctx", EXIT_FAILED)
+        if len(argv) < 2 or not ctx:
+            return say("screen-watch needs a device id and --ctx", EXIT_FAILED)
         try:
-            return screen_watch(argv[1], argv[2], argv[3], ctx)
+            return screen_watch(argv[1], ctx)
         except KeyboardInterrupt:
             return EXIT_OK
     if argv[0] == "screen-focus":

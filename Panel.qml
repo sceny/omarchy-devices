@@ -1731,6 +1731,17 @@ Panel {
       if (root.device) root.phone.readScreen(String(root.device.id))
       return root.screenInfo()
     }
+    // Demo only: the docked screen turning or folding, as the watcher
+    // reports it (kind: turn or morph), on this panel's screen.
+    function demoTurn(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var from = root.dockRectFor("demo")
+      var shape = kind === "turn" ? [2400, 1080] : [2176, 1812]
+      var to = Model.dockRect(Object.assign({ display: shape }, root.dockCtx()))
+      root.phone.screenTurn = { kind: kind === "turn" ? "turn" : "morph", angle: -90, from: [from.x, from.y, from.w, from.h],
+        to: [to.x, to.y, to.w, to.h], monitor: panel.screen ? panel.screen.name : "", at: Date.now() }
+      return JSON.stringify(root.phone.screenTurn)
+    }
     // Demo only: the Screen shortcut as a click would (docked, the card
     // becomes the window; a demo opens none, so it grows back).
     function pressScreen(): string {

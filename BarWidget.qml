@@ -117,6 +117,13 @@ BarWidget {
     panelOpen: root.opened
   }
 
+  // A docked screen turning or folding: a card turns or morphs to its new
+  // place while the window moves under it.
+  ScreenTurn {
+    phone: root.phone
+    anchorItem: chipRow
+  }
+
   Loader {
     id: panelLoader
     active: true
