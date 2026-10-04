@@ -61,6 +61,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
@@ -308,10 +309,20 @@ Keep them; change one only with the owner.
   opens at exactly that place under it (a Hyprland rule set with
   `hyprctl eval` just before, `no_anim`), and the panel fades out over it.
   A failure grows the card back. An open window docks and undocks with
-  Omarchy's pop toggle at the same rectangle. While docked, `screen-watch`
-  asks the device for its display every 2 s and re-fits the window under
-  the chip when it turns or unfolds (the bridge's `dock_rect` mirrors
-  `Model.dockRect`: change both, and their shared test cases). `omarchy-launch-or-focus`
+  Omarchy's pop toggle at the same rectangle. The window fades in and out
+  (the rule's pop-in at 100%: no scaling). While docked, `screen-watch`
+  (run by the service, JSON lines) re-fits it under the chip when the
+  device turns or folds: scrcpy's own `Texture: WxH` line (its output goes
+  to a log the watcher reads every 20 ms) hides the window within a frame;
+  the window's size (4 times a second) and the device's display (every
+  2 s) are the backups. A turn (width and height swapped) turns a card in
+  the panel's look by a quarter or half turn, anything else morphs it,
+  from the old rectangle to the new (`ScreenTurn.qml`, mapped while a
+  docked screen is open so it starts at once) while the hidden window
+  moves under it; the window shows again as the card fades. A separate
+  window can always show one turned frame before it hides; only drawing
+  the screen in the panel (#118) removes that. The bridge's `dock_rect`
+  mirrors `Model.dockRect`: change both, and their shared test cases. `omarchy-launch-or-focus`
   brings an open one forward instead of a second. Tiled, the Screen tile
   waits instead.
 - **Setting up the screen adds the Screen shortcut, once.** When a
