@@ -185,7 +185,10 @@ PanelWindow {
         source: turn.oldStill
         cache: false
         asynchronous: false
-        fillMode: Image.PreserveAspectCrop
+        // Never stretched, never zoomed: a turn keeps the card's shape, so
+        // the picture fills it; a fold changes it, so each picture keeps its
+        // own proportions inside it (the card's colour around it).
+        fillMode: turn.turning ? Image.PreserveAspectCrop : Image.PreserveAspectFit
         opacity: 1 - turn.blend
       }
       // The new one is laid out for the new shape: turned back by the turn
@@ -201,7 +204,7 @@ PanelWindow {
         source: turn.newStill
         cache: false
         asynchronous: false
-        fillMode: Image.PreserveAspectCrop
+        fillMode: turn.turning ? Image.PreserveAspectCrop : Image.PreserveAspectFit
         opacity: turn.blend
       }
     }
