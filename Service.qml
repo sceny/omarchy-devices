@@ -549,8 +549,138 @@ Item {
     doctorProc.running = true
   }
 
+  // ---- What a device can do (docs/design/setup.md): its report
+  //      (kdeconnect-bridge features), and the steps one click runs ----
+  property var featureReports: ({})        // device id -> the bridge's features report
+  function readFeatures(id) {
+    if (!id) return
+    if (demo) { var d = Object.assign({}, featureReports); d[String(id)] = Model.demoFeatures(); featureReports = d; return }
+    var st = screenOf(String(id))
+    var proc = featuresComponent.createObject(root, { device: String(id),
+      command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
+    proc.running = true
+  }
+  Component {
+    id: featuresComponent
+    Process {
+      id: featuresProc
+      property string device: ""
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var r = null
+          try { r = JSON.parse(text) } catch (e) {}
+          if (r) { var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next }
+          featuresProc.destroy()
+        }
+      }
+    }
+  }
+
+  // Root, only for what was shown: a fix that needs the password is
+  // described first (rootAsk, the panel's card: why and every action), and
+  // runs only on Continue, only that plan (its hash).
+  property var rootAsk: null               // { what, why, actions, hash }
+  property var rootThen: null
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall"]
+  function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
+  function askRoot(what, then) {
+    if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }
+    var proc = describeComponent.createObject(root, { what: what, then: then || null,
+      command: [bridge, "fix"].concat(String(what).split(" ")).concat(["--describe"]) })
+    proc.running = true
+  }
+  Component {
+    id: describeComponent
+    Process {
+      id: describeProc
+      property string what: ""
+      property var then: null
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var plan = null
+          try { plan = JSON.parse(text) } catch (e) {}
+          var then = describeProc.then
+          if (!plan || !plan.hash) { root.report(plan && plan.error ? plan.error : "Could not tell what it would do", true); if (then) then(2) }
+          // Nothing that needs root (all installed): no password, no card.
+          else if ((plan.commands || []).length === 0) root.runRoot(plan, then)
+          else { root.rootThen = then; root.rootAsk = plan }
+          describeProc.destroy()
+        }
+      }
+    }
+  }
+  function confirmRoot() {
+    var plan = rootAsk, then = rootThen
+    rootAsk = null
+    rootThen = null
+    if (plan) runRoot(plan, then)
+  }
+  function cancelRoot() {
+    var then = rootThen
+    rootAsk = null
+    rootThen = null
+    if (then) then(1)
+  }
+  function runRoot(plan, then) {
+    var key = "fix:" + plan.what
+    var next = Object.assign({}, setupFixing)
+    next[plan.what] = true
+    setupFixing = next
+    var proc = actionComponent.createObject(root, { key: key,
+      command: [bridge, "fix"].concat(String(plan.what).split(" ")).concat(["--confirm", plan.hash]) })
+    proc.exited.connect(function(code) {
+      var done = Object.assign({}, root.setupFixing)
+      delete done[plan.what]
+      root.setupFixing = done
+      Qt.callLater(root.runDoctor)
+      if (then) then(code)
+    })
+    proc.running = true
+  }
+
+  // One click's steps for a device (Model.featurePlan, Model.fixAllPlan):
+  // this computer's installs first, together and after the card; then each
+  // step for the device in order. A permission that cannot be granted from
+  // here says the switch to turn on, on the device. `key`: busy meanwhile.
+  function runSteps(id, steps, key) {
+    if (!id || !steps || steps.length === 0 || isBusy(key)) return
+    setBusy(key, true)
+    var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
+    var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
+    var packages = installs.filter(function(s) { return s.fix.what !== "firewall" }).map(function(s) { return s.fix.what })
+    var firewall = installs.some(function(s) { return s.fix.what === "firewall" })
+    var queue = []
+    if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
+    if (firewall) queue.push({ root: "firewall" })
+    rest.forEach(function(s) { queue.push({ step: s }) })
+    function finish() { setBusy(key, false); readFeatures(id); runDoctor() }
+    function next(i) {
+      if (i >= queue.length) { finish(); return }
+      var q = queue[i]
+      if (q.root) { askRoot(q.root, function(code) { if (code === 0) next(i + 1); else finish() }); return }
+      var s = q.step
+      var cmd = s.fix.verb === "device" ? [bridge, "device-fix", s.fix.what, String(id)].concat(s.fix.arg ? [s.fix.arg] : [])
+                                        : [bridge, "fix", s.fix.what]
+      var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: i < queue.length - 1 })
+      proc.exited.connect(function(code) {
+        if (code !== 0 && s.orAsk) { root.report(s.orAsk, false); finish(); return }
+        if (code !== 0) { finish(); return }
+        next(i + 1)
+      })
+      proc.running = true
+    }
+    next(0)
+  }
+
   function fixSetup(what) {
     if (!what || setupFixing[what]) return
+    // A password: what it is for, shown first (rootAsk).
+    if (isRootFix(what)) {
+      askRoot(what, function(code) {
+        if (what === "screen" && code === 0 && root.device) root.screenSetupNeeded(String(root.device.id))
+      })
+      return
+    }
     var next = Object.assign({}, setupFixing)
     next[what] = true
     setupFixing = next

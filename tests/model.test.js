@@ -495,7 +495,7 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
   assert.deepEqual(kinds.slice(0, 2), ["nickname", "icon"])
-  assert.ok(kinds.includes("editPage") && kinds.includes("kdeconnect"))
+  assert.ok(kinds.includes("editPage") && !kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
   assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset"].some(k => kinds.includes(k)), "sections, shortcuts and the bar are edited on the page")
   assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
   assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
@@ -507,7 +507,7 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "connection", "addDevice", "kdeconnect"])
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "connection", "addDevice"])
 })
 
 test("settings rows: a device's page has identity, its groups, a reset per changed group, and Unpair", () => {
@@ -1045,4 +1045,12 @@ test("features: each state from the report, the steps one click runs, Fix what I
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
   assert.equal(M.featuresNeedAttention([{ state: "attention", optional: true }, { state: "attention" }, { state: "setup" }]), 1, "the gear dot: not optional ones")
   assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
+})
+
+test("settings: a device's page lists what it can do; This computer", () => {
+  const features = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, [], "Pixel 8")
+  const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features })
+  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length)
+  assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
+  assert.equal(rows.find(r => r.kind === "connection").label, "This computer")
 })

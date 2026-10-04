@@ -1736,12 +1736,17 @@ def device_fix(what, device_id, arg=""):
     plugin, a permission (granted over adb, or its screen opened there), a
     fresh mount, the plugins reloaded, Wireless debugging on over USB."""
     if what == "plugin":
-        name, _, state = arg.partition("=")
-        try:
-            set_plugin(device_id, name, state != "off")
-        except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
-        return say("%s %s" % (name, "off" if state == "off" else "on"))
+        # One or several: "sms=on,telephony=on".
+        done = []
+        for part in [x for x in arg.split(",") if x]:
+            name, _, state = part.partition("=")
+            try:
+                set_plugin(device_id, name, state != "off")
+            except GLib.Error as error:
+                return say(error.message, EXIT_FAILED)
+            done.append(name)
+        on = not arg.endswith("=off")
+        return say("Turned %s for this device" % ("on" if on else "off"))
     if what == "reload":
         try:
             call(bus(), device_path(device_id), IFACE + ".device", "reloadPlugins")

@@ -1969,8 +1969,11 @@ function settingsPageRows(ctx) {
     var onPage = scope === "device" || (scope === "root" && ctx.single)
     if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
                             hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
-    if (onPage) rows.push({ kind: "screen", key: "screen", label: "Screen and apps",
-                            hint: "Its screen, and its apps each in a window, here (scrcpy)" })
+    // What it can do (docs/design/setup.md): a row per feature, its state
+    // and its one action; Screen and apps' row opens its page.
+    if (onPage && ctx.features) ctx.features.forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
+    else if (onPage) rows.push({ kind: "screen", key: "screen", label: "Screen and apps",
+                                 hint: "Its screen, and its apps each in a window, here (scrcpy)" })
     base.forEach(function(r) {
       // The Devices section is gone from the main page (tabs, the pairing
       // card and this list do its work); the kdeconnect row stays at root.
@@ -1991,10 +1994,10 @@ function settingsPageRows(ctx) {
     }
   }
   if (scope === "root") {
-    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network",
+    rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
                 pills: ctx.connectionPills || [] })
-    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
-    rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
+    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "Pair it, then turn on what it can do" })
+    // No KDE Connect settings row: the plugin sets up what its app would.
   }
   return rows
 }
