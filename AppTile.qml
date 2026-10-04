@@ -59,7 +59,8 @@ Item {
   readonly property bool hot: mouse.containsMouse || here
 
   // Compact (a folded section's row of icons): the icon alone, centred, so
-  // the cursor's highlight sits around it.
+  // the cursor's highlight sits around it; at 22 px, as tall as a section
+  // header (FoldToggle.headerHeight).
   property bool compact: false
   implicitWidth: compact ? iconSize + Style.space(6) : Style.space(76)
   implicitHeight: compact ? iconSize + Style.space(6) : column.implicitHeight + Style.space(12)

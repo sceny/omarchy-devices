@@ -31,7 +31,12 @@ Item {
   signal toggled()
   signal refreshRequested()
 
-  implicitHeight: foldRow.implicitHeight
+  // One height for every section header, folded or open, text alone or with
+  // icons beside it (folded Shortcuts and Apps, a cover, a play button, the
+  // ring): the tallest of them, so the title never moves as a section folds.
+  // What sits in a header is at most this tall.
+  readonly property real headerHeight: Style.space(28)
+  implicitHeight: Math.max(foldRow.implicitHeight, headerHeight)
   implicitWidth: foldRow.implicitWidth
 
   MouseArea {
