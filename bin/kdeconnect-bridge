@@ -1977,7 +1977,7 @@ def dock_window(win, docked, display, rect=None):
 
 WATCH_LOOK_SEC = 0.25
 WATCH_ASK_SEC = 2
-WATCH_LOG_SEC = 0.02    # scrcpy's log, read this often: a turn shows within a frame
+WATCH_LOG_SEC = 0.01    # scrcpy's log, read this often: a turn is covered within a frame or two
 # The card's journey (Model.MOTION: out, then in), and when the window
 # moves under it.
 TURN_MOVE_SEC = 0.12
@@ -2031,7 +2031,13 @@ def watch_lock(title):
 
 def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
     """Keeps the device's docked window under the chip in its shape, until
-    the window closes. JSON lines: refit {kind, angle, from, to, monitor}."""
+    the window closes. JSON lines: refit {kind, angle, from, to, monitor}.
+
+    scrcpy's "Texture: WxH" line is the new shape itself: the card event
+    goes out at once (its layer is above the window and covers it the next
+    frame), the window hides, then moves under the card and shows again.
+    Nothing is asked of the device first. The window's size and the
+    device's display are looked at too, for a change the log missed."""
     emit = emit or (lambda ev: print(json.dumps(ev), flush=True))
     device = screen_device(device_id) or {}
     title = screen_title(device.get("name") or "Device")
@@ -2053,61 +2059,62 @@ def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
                 break
             sleep(WATCH_LOOK_SEC)
         shape, rot = current_display(serial)
-        seen_size, asked, looked = None, time.time(), 0.0
         log = open(screen_log(title), "r", errors="replace") if os.path.exists(screen_log(title)) else None
         if log:
             log.seek(0, os.SEEK_END)
-        win = find_window(title)
+        win, mons = find_window(title), hypr_json("monitors")
+        looked = asked = time.time()
+
+        def carry(new, angle_hint=None):
+            """The card event, then the hidden window moved under it."""
+            nonlocal shape
+            moves = refit(win, ctx, new, mons)
+            if not moves:
+                shape = new
+                return
+            kind, angle = turn_of(shape, new) if angle_hint is None else angle_hint
+            mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
+            before = list(dock_rect(ctx, shape)) if shape[0] else \
+                [win["at"][0] - mon.get("x", 0), win["at"][1] - mon.get("y", 0)] + list(win["size"])
+            emit({"ev": "refit", "kind": kind, "angle": angle, "from": before,
+                  "to": list(dock_rect(ctx, new)), "monitor": mon.get("name", "")})
+            window_prop(win, "no_anim", "1")
+            window_prop(win, "opacity", "0")
+            sleep(TURN_MOVE_SEC)
+            for lua in moves:
+                subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+            sleep(TURN_SHOW_SEC - TURN_MOVE_SEC)
+            window_prop(win, "no_anim", "0")
+            window_prop(win, "opacity", "1")
+            shape = new
+
         while True:
-            # scrcpy says the frame changed shape: hide the window at once,
-            # before anything else (the turned picture shows a frame at most).
             texture = None
             if log:
                 for line in log.readlines():
                     texture = parse_texture(line) or texture
             if texture and win and win.get("pinned") and texture != tuple(shape):
-                window_prop(win, "no_anim", "1")
-                window_prop(win, "opacity", "0")
+                carry(texture)
+                win, looked = find_window(title), time.time()
+                if not win:
+                    return EXIT_OK
+                continue
             now = time.time()
-            if not texture and now - looked < WATCH_LOOK_SEC:
-                sleep(WATCH_LOG_SEC)
-                continue
-            looked = now
-            win = find_window(title)
-            if not win:
-                return EXIT_OK
-            if not win.get("pinned"):
-                seen_size = None
-                continue
-            size = tuple(win.get("size") or ())
-            if texture or size != seen_size or now - asked >= WATCH_ASK_SEC:
-                new, new_rot = current_display(serial)
-                if texture and not new[0]:
-                    new = texture
-                asked = time.time()
+            if now - looked >= WATCH_LOOK_SEC:
+                looked = now
+                win = find_window(title)
+                if not win:
+                    return EXIT_OK
                 mons = hypr_json("monitors")
-                moves = refit(win, ctx, new, mons) if new[0] else []
-                if moves:
-                    kind, angle = turn_of(shape, new, rot, new_rot)
-                    mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
-                    before = list(dock_rect(ctx, shape)) if shape[0] else [win["at"][0] - mon.get("x", 0), win["at"][1] - mon.get("y", 0)] + list(win["size"])
-                    window_prop(win, "no_anim", "1")
-                    window_prop(win, "opacity", "0")
-                    emit({"ev": "refit", "kind": kind, "angle": angle, "from": before,
-                          "to": list(dock_rect(ctx, new)), "monitor": mon.get("name", "")})
-                    sleep(TURN_MOVE_SEC)
-                    for lua in moves:
-                        subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
-                    sleep(TURN_SHOW_SEC - TURN_MOVE_SEC)
-                    window_prop(win, "no_anim", "0")
-                    window_prop(win, "opacity", "1")
-                    win = find_window(title) or win
-                elif texture:
-                    window_prop(win, "opacity", "1")   # hidden for nothing: show again
-                    window_prop(win, "no_anim", "0")
-                if new[0]:
-                    shape, rot = new, new_rot
-                seen_size = tuple(win.get("size") or ())
+                if win.get("pinned") and now - asked >= WATCH_ASK_SEC:
+                    asked = now
+                    new, new_rot = current_display(serial)
+                    if new[0] and new != tuple(shape):
+                        carry(new, turn_of(shape, new, rot, new_rot))
+                        win = find_window(title) or win
+                    if new[0]:
+                        rot = new_rot
+            sleep(WATCH_LOG_SEC)
     finally:
         try:
             os.remove(lock)

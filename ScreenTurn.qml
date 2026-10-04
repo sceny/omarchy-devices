@@ -55,6 +55,7 @@ PanelWindow {
   property real toH: 0
 
   function start() {
+    if (!ev || !ev.from || !ev.to) return
     journey.stop()
     var f = ev.from, t = ev.to
     var turning = ev.kind === "turn"
