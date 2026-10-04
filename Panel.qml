@@ -3649,7 +3649,9 @@ Panel {
                       animate: root.settled
                       title: "APPS"
                       folded: root.isCollapsed("apps")
-                      summary: Model.appsSummary(root.allApps, root.pinnedApps)
+                      // Folded, the icons say it (as folded Shortcuts); the
+                      // count only while there are none to show.
+                      summary: root.sectionApps.length > 0 ? "" : Model.appsSummary(root.allApps, root.pinnedApps)
                       onToggled: root.toggleCollapsed("apps")
                     }
 
