@@ -31,6 +31,11 @@ Column {
   property bool screenOpen: false
   signal screenPlaceChosen(bool docked)
   signal appSoundChosen(string sound)
+  // What it can do: a feature's one action, its switch; Fix what I can.
+  signal featureRequested(int index)
+  signal featureSwitched(int index, bool on)
+  signal fixAllRequested()
+  property int fixAllCount: 0
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
@@ -203,6 +208,26 @@ Column {
       required property var modelData
       required property int index
       visible: modelData.kind === "defaults" || modelData.kind === "editPage" || modelData.kind === "screen"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
+  // ---- What it can do (docs/design/setup.md): a row per feature ----
+  Item { visible: root.firstIndex("feature") >= 0; width: 1; height: Style.space(6) }
+  PanelSectionHeader {
+    visible: root.firstIndex("feature") >= 0
+    text: "WHAT IT CAN DO"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  Repeater {
+    model: root.rows
+    FeatureRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "feature"
       width: root.width
       row: modelData
       rowIndex: index
@@ -421,6 +446,20 @@ Column {
       row: modelData
       rowIndex: index
     }
+  }
+  // Every fix there is, this computer's and the device's, in one go: a
+  // password only after its card says what for.
+  Button {
+    visible: root.scopeKind === "connection" && root.fixAllCount > 0
+    text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix what I can (" + root.fixAllCount + ")"
+    iconText: Model.GLYPH.check
+    enabled: !(root.phone && root.phone.isBusy("fixAll"))
+    tooltipText: "Runs every fix the plugin can do here and on the device; anything that needs your password is shown first"
+    bordered: true
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    fontSize: Style.font.bodySmall
+    onClicked: root.fixAllRequested()
   }
 
   PanelSectionHeader {
@@ -1314,6 +1353,104 @@ Column {
   // A check on this computer: its status icon, name, short status and one
   // action (its fix), with a line of detail while it fails. A failing one
   // can be ignored (it stops lighting the gear's dot) and brought back.
+  // A feature of the device: its glyph, name and state, what is missing, its
+  // one action (it just works: the plugin does every step it can), and a
+  // switch where it can be turned off (its KDE Connect plugins).
+  component FeatureRow: CursorSurface {
+    id: featureRow
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
+    readonly property bool acts: row.key === "screen" || (row.steps || []).length > 0
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    implicitHeight: featureContent.implicitHeight + Style.space(12)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: featureRow.acts ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onEntered: root.hovered(featureRow.rowIndex)
+      onClicked: if (featureRow.acts) root.featureRequested(featureRow.rowIndex)
+    }
+
+    RowLayout {
+      id: featureContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(10)
+
+      Text {
+        Layout.alignment: Qt.AlignVCenter
+        Layout.preferredWidth: Style.space(20)
+        horizontalAlignment: Text.AlignHCenter
+        text: featureRow.row.glyph || ""
+        color: featureRow.row.state === "on" ? root.foreground : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(10)
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            text: featureRow.row.label || ""
+            color: featureRow.row.state === "on" || featureRow.row.state === "attention" || featureRow.row.state === "setup" ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: Text.ElideRight
+          }
+          Text {
+            textFormat: Text.PlainText
+            text: featureRow.working ? "Working…" : (featureRow.row.stateLabel || "")
+            color: featureRow.row.state === "attention" ? Color.urgent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+        Text {
+          Layout.fillWidth: true
+          visible: text !== "" && featureRow.row.state !== "on"
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: featureRow.row.detail || featureRow.row.hint || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      Button {
+        visible: featureRow.acts && featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
+        Layout.alignment: Qt.AlignVCenter
+        text: featureRow.working ? "Working…" : (featureRow.row.key === "screen" ? "Set up" : featureRow.row.state === "attention" ? "Fix" : "Turn on")
+        enabled: !featureRow.working
+        tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
+          ? "Shows what your password is for before asking for it" : "Does what it can, then says what is left"
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: root.featureRequested(featureRow.rowIndex)
+      }
+      ToggleSwitch {
+        visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
+        Layout.alignment: Qt.AlignVCenter
+        checked: featureRow.row.on !== false
+        busy: featureRow.working
+        foreground: root.foreground
+        onToggled: root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
+      }
+    }
+  }
+
   component CheckRow: CursorSurface {
     id: checkRow
     property var row: ({})

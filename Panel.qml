@@ -671,6 +671,53 @@ Panel {
   }
   readonly property var setupChecks: phone ? phone.setupChecks : []
   readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
+  // ---- What a device can do (docs/design/setup.md): its features from
+  //      its sources, a state each, one action that just works ----
+  function screenBrief(id) {
+    var st = phone ? phone.screenOf(String(id)) : null
+    if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
+    return screenInstalled ? null : { state: "tools", line: "Needs scrcpy and adb here" }
+  }
+  function featureRowsFor(d) {
+    if (!d || !phone) return []
+    return Model.featureRows(phone.featureReports[String(d.id)] || null, screenBrief(String(d.id)), setupChecks, Model.deviceLabel(d))
+  }
+  readonly property var deviceFeatures: featureRowsFor(device)
+  readonly property int featureIssues: Model.featuresNeedAttention(deviceFeatures)
+  // The gear's dot: this computer, or a feature of the viewed device.
+  readonly property int settingsIssues: computerIssues + featureIssues
+  function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
+  // A feature's one action: every step the plugin can do, then the one only
+  // the user can do (said in the row, or as the result).
+  function featureAction(row) {
+    var d = featureDevice()
+    if (!d || !phone || !row) return
+    if (row.key === "screen") { openScreenSetup(String(d.id)); return }
+    var plan = Model.featurePlan(row)
+    if (plan.length > 0) phone.runSteps(String(d.id), plan, "feature:" + row.key)
+    else if (row.steps && row.steps.length > 0) phone.report(row.steps[0].orAsk || row.steps[0].label, false)
+  }
+  // Off: its KDE Connect plugins off for this device, so it stops sending it.
+  function featureSwitch(row, on) {
+    var d = featureDevice()
+    if (!d || !phone || !row) return
+    if (on) { featureAction(row); return }
+    var f = Model.FEATURES.filter(function(x) { return x.key === row.key })[0]
+    if (!f || !f.plugins) return
+    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: f.plugins.map(function(k) { return k + "=off" }).join(",") } }],
+                   "feature:" + row.key)
+  }
+  // Fix what I can: this computer's fixes, then the device's.
+  function fixAll() {
+    if (!phone) return
+    var computer = (setupChecks || []).filter(function(c) { return !c.ok && !c.optional && ["install", "start", "firewall"].indexOf(c.fix) >= 0 })
+      .map(function(c) { return { kind: "auto", fix: { verb: "fix", what: c.fix } } })
+    var steps = computer.concat(Model.fixAllPlan(featureRowsFor(device)))
+    if (steps.length === 0) { phone.report("Nothing to fix here", false); return }
+    phone.runSteps(device ? String(device.id) : "this", steps, "fixAll")
+  }
+  readonly property int fixAllCount: (setupChecks || []).filter(function(c) { return !c.ok && !c.optional && ["install", "start", "firewall"].indexOf(c.fix) >= 0 }).length
+    + Model.fixAllPlan(deviceFeatures).length
   function ignoreCheck(key, on) {
     var next = ignoredChecks.filter(function(k) { return k !== key })
     if (on) next.push(key)
@@ -795,12 +842,15 @@ Panel {
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
-    can: scopeDevice ? scopeDevice.can : (device ? device.can : null)
+    can: scopeDevice ? scopeDevice.can : (device ? device.can : null),
+    features: editingDevice ? featureRowsFor(scopeDevice) : (singleDevice ? deviceFeatures : null)
   })
 
   function openScope(scope) {
     targetScope = scope
     settingsIndex = 0
+    // A device's page: what it can do, read now.
+    if (phone && phone.findDevice(scope)) phone.readFeatures(scope)
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1548,6 +1598,7 @@ Panel {
     else if (row.kind === "check" && phone && row.fix !== "" && (!row.ok || row.optional)) fixRequested(row.fix)
     else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
     else if (row.kind === "screenAction") screenAction(row.key)
+    else if (row.kind === "feature") featureAction(row)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1906,6 +1957,7 @@ Panel {
     messagesOpen = false
     appsOpen = false
     if (device) readAppsFor(String(device.id))
+    if (device && phone) phone.readFeatures(String(device.id))
     // Nothing paired, or KDE Connect down: straight to Connection.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
     else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = resume.scope; settingsIndex = 0 }
@@ -2356,6 +2408,7 @@ Panel {
         root.moveCursor(dx, dy)
       }
       onActivateRequested: {
+        if (root.phone && root.phone.rootAsk) { root.phone.confirmRoot(); return }
         if (root.messagesOpen) { messagesView.activateCursor(); return }
         if (!root.cursorActive) return
         if (root.appsOpen) { appsView.activate(); return }
@@ -2379,7 +2432,8 @@ Panel {
         }
       }
       onCloseRequested: {
-        if (root.pageMenuOpen) root.closePageMenu()
+        if (root.phone && root.phone.rootAsk) root.phone.cancelRoot()
+        else if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
         else if (root.appsOpen) { if (!appsView.goBack()) root.closeAppsView() }
@@ -2525,6 +2579,96 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+        }
+      }
+
+      // ---- A password, only for what is shown: why, and every action that
+      //      runs with it; Continue brings the prompt, Cancel or Esc does not ----
+      BorderSurface {
+        id: rootCard
+        readonly property var plan: root.phone ? root.phone.rootAsk : null
+        property var shown: null
+        onPlanChanged: if (plan) shown = plan
+        z: 12
+        anchors.centerIn: parent
+        width: Math.min(parent.width - Style.space(32), Style.space(440))
+        height: rootColumn.implicitHeight + Style.space(28)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        opacity: plan ? 1 : 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: (rootCard.plan ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        MouseArea { anchors.fill: parent }   // the panel under it takes no click
+
+        Column {
+          id: rootColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.space(14)
+          spacing: Style.space(8)
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Your password, for this only"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: rootCard.shown ? rootCard.shown.why : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          Repeater {
+            model: rootCard.shown ? rootCard.shown.actions : []
+            Text {
+              required property string modelData
+              width: rootColumn.width
+              textFormat: Text.PlainText
+              wrapMode: Text.WrapAnywhere
+              text: "• " + modelData
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: "Nothing else runs with it. The system asks for the password next."
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Row {
+            anchors.right: parent.right
+            spacing: Style.space(6)
+            Button {
+              text: "Cancel"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: if (root.phone) root.phone.cancelRoot()
+            }
+            Button {
+              text: "Continue"
+              bordered: true
+              selected: true
+              tooltipText: "Asks for your password, for the actions above only"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: if (root.phone) root.phone.confirmRoot()
+            }
           }
         }
       }
@@ -3007,7 +3151,7 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
-            GearDot { visible: root.computerIssues > 0 }
+            GearDot { visible: root.settingsIssues > 0 }
           }
 
           Flickable {
@@ -3183,7 +3327,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
+            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "This computer" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
@@ -3226,7 +3370,7 @@ Panel {
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
-                  GearDot { visible: root.showMain && root.computerIssues > 0 }
+                  GearDot { visible: root.showMain && root.settingsIssues > 0 }
                 }
               }
             }
@@ -4538,7 +4682,7 @@ Panel {
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
                     readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
-                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Connection")
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "This computer · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "This computer")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground
@@ -4672,6 +4816,10 @@ Panel {
                 onAppPlatformSet: function(p) { root.setAppPlatform(p) }
                 justPaired: root.justPaired
                 onFixRequested: function(what) { root.fixRequested(what) }
+                onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
+                onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
+                onFixAllRequested: root.fixAll()
+                fixAllCount: root.fixAllCount
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview
                 onPreviewRequested: root.startPreview()
