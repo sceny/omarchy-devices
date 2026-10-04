@@ -195,12 +195,19 @@ Item {
       columns: view.columns
       columnSpacing: view.gap
       rowSpacing: view.gap
+      // One that goes (✕): the rest slide over.
+      move: Transition {
+        enabled: view.animate
+        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
+      }
+      KeyedApps { id: recentModel; apps: view.page.recent }
       Repeater {
-        model: view.page.recent
+        model: recentModel
         AppTile {
           id: recentTile
-          required property var modelData
+          required property string json
           required property int index
+          readonly property var modelData: JSON.parse(json)
           width: view.cellWidth
           z: dragging ? 10 : 0
           transform: Translate {

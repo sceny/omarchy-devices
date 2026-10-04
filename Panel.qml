@@ -3760,12 +3760,19 @@ Panel {
                       width: parent.width
                       readonly property real cell: width / root.appColumns
                       readonly property int base: root.sectionRows.pinned.length
+                      // One that goes (pinned, ✕): the rest slide over.
+                      move: Transition {
+                        enabled: root.settled
+                        NumberAnimation { properties: "x,y"; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
+                      }
+                      KeyedApps { id: recentModel; apps: root.sectionRows.recent }
                       Repeater {
-                        model: root.sectionRows.recent
+                        model: recentModel
                         AppTile {
                           id: recentTile
-                          required property var modelData
+                          required property string json
                           required property int index
+                          readonly property var modelData: JSON.parse(json)
                           width: recentRow.cell
                           z: dragging ? 10 : 0
                           transform: Translate {

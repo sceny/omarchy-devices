@@ -43,6 +43,18 @@ Item {
   property bool incoming: false
   // A pinned tile dragged out of the row: let go, it is unpinned.
   property bool outside: false
+  // The tiles, kept while the pinned ones change, so the rest glide to their
+  // places (one unpinned, the ones after it slide back, a line up included).
+  KeyedApps { id: pinModel; apps: row.apps }
+  // A drop already slid the tiles where the new order puts them: the order
+  // is written with them landing there at once.
+  property bool settling: false
+  function settle(write) {
+    settling = true
+    pinOrder.cancel(true)
+    write()
+    settling = false
+  }
   // Size animations are for the user's own changes: off while the page appears.
   property bool animate: true
   // The slots in use now, an app coming in included: a tile that goes to a
@@ -103,10 +115,8 @@ Item {
   function externalDrop(app, at) {
     if (!incoming) return false
     var slot = pinOrder.to
-    pinOrder.cancel(true)
-    incoming = false
-    if (slotAt(at) < 0) return false
-    pinRequested(app, slot)
+    if (slotAt(at) < 0) { externalCancel(); return false }
+    settle(function() { row.incoming = false; row.pinRequested(app, slot) })
     return true
   }
   function externalCancel() {
@@ -137,14 +147,18 @@ Item {
   }
 
   Repeater {
-    model: row.apps
+    model: pinModel
     AppTile {
       id: pinTile
-      required property var modelData
+      required property string json
       required property int index
+      readonly property var modelData: JSON.parse(json)
       readonly property var slot: Model.gridSlot(index, row.columns, row.cellWidth, row.cellHeight, row.gap)
       x: slot.x
       y: slot.y
+      readonly property bool glides: row.animate && !row.settling && !pinOrder.committing && !pinOrder.moving
+      Behavior on x { enabled: pinTile.glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
+      Behavior on y { enabled: pinTile.glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
       width: row.cellWidth
       z: pinOrder.from === index ? 10 : 0
       transform: ReorderShift { order: pinOrder; index: pinTile.index }
@@ -170,9 +184,9 @@ Item {
       }
       onDragEnded: function(at) {
         if (row.slotAt(at) < 0) {
+          var app = modelData
           row.outside = false
-          pinOrder.cancel(true)
-          row.unpinRequested(modelData)
+          row.settle(function() { row.unpinRequested(app) })
         } else pinOrder.release()
       }
     }
