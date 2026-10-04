@@ -1129,7 +1129,7 @@ function addDeviceRows(devices) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing, docked) {
+function screenSetup(status, device, pairing, docked, fitTile) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -1193,6 +1193,9 @@ function screenSetup(status, device, pairing, docked) {
                    hint: "Under its icon, on top, on every workspace" })
     actions.push({ key: "dockOff", label: "Opens as a window", on: docked === false,
                    hint: "Tiles, moves and resizes like any other window" })
+    if (docked === false)
+      actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
+                     hint: "Beside another window, its tile takes " + name + "'s width" })
   }
   return {
     state: state, line: line, steps: steps, pairingNote: pairingNote,
@@ -1442,6 +1445,9 @@ var PROFILE_SETTINGS = {
   showCalls: function(v) { return layoutFlag(v) },
   // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
   screenDocked: function(v) { return layoutFlag(v) },
+  // Experimental, off unless chosen: a tiled screen's tile takes the
+  // device's width (Hyprland has no such thing; the plugin moves the edge).
+  screenFitTile: function(v) { return v === true || v === "true" },
   collapsed: function(v) { return collapsedState(v) }
 }
 

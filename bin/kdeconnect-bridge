@@ -2217,7 +2217,7 @@ def watch_running(lock):
         return False
 
 
-def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time.time):
+def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time.time, fit=False):
     """Keeps the device's docked window in its shape, until the window
     closes. JSON lines: refit {kind, angle, from, to, monitor, device},
     revealed {device}."""
@@ -2320,7 +2320,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             pinned = bool(win and win.get("pinned"))
             # A tiled screen: its tile takes the device's new width (Hyprland
             # moves it; no card), the window beside it the rest.
-            if win and not pinned and texture and not same_shape(texture, shape):
+            if fit and win and not pinned and texture and not same_shape(texture, shape):
                 shape = tuple(texture)
                 screen_record(device_id, {"display": list(shape)})
                 sleep(0.1)
@@ -2433,7 +2433,7 @@ def launch_or_focus(title, cmd):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None):
+def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False):
     """Opens the device's screen, or one of its apps, in a window here,
     docked or tiled, and returns once the window is there (the click waits
     meanwhile). Already open: brought forward instead of a second one."""
@@ -2463,7 +2463,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     for _ in range(WINDOW_WAIT_SEC * 4):
         win = find_window(title)
         if win:
-            if not docked and not package:
+            if not docked and not package and fit:
                 sleep(0.2)   # tiled into its place first
                 fit_tile(find_window(title) or win, disp)
             return say("%s is open" % (label or name + "'s screen"))
@@ -3010,7 +3010,7 @@ def main(argv):
         if len(argv) < 3 or ctx is None:
             return say("screen-watch needs a device id, its adb serial and --ctx", EXIT_FAILED)
         try:
-            return screen_watch(argv[1], argv[2], ctx)
+            return screen_watch(argv[1], argv[2], ctx, fit="--fit" in argv)
         except KeyboardInterrupt:
             return EXIT_OK
     if argv[0] == "screen-close":
@@ -3060,10 +3060,10 @@ def main(argv):
                 skip = False
             elif a in ("--at", "--ctx"):
                 skip = True
-            elif a not in ("--tiled", "--docked"):
+            elif a not in ("--tiled", "--docked", "--fit"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at, ctx=ctx)
+                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv)
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK

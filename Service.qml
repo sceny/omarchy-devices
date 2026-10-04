@@ -598,6 +598,7 @@ Item {
   property string screenThen: ""           // a device to open once read (Screen shortcut)
   property bool screenThenDocked: true
   property var screenThenPlace: null       // where the docked window goes: a function, read at launch
+  property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id)
   // Its window is there (a place: the panel closes), or it did not open.
@@ -649,7 +650,7 @@ Item {
       screenThen = ""
       if (status && status.state === "ready" && !demo) {
         // Read now: the card has grown to the display's real shape.
-        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null)
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit)
         return
       }
       if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
@@ -671,12 +672,13 @@ Item {
   // `place`: a function giving where the docked window goes ({ rect: the
   // panel's card as it becomes the window, ctx: the chip's place }), read
   // once the state is.
-  function pressScreen(id, docked, place) {
+  function pressScreen(id, docked, place, fit) {
     if (!id || isBusy("screen")) return
     setBusy("screen", true)
     screenThen = String(id)
     screenThenDocked = docked !== false
     screenThenPlace = place || null
+    screenThenFit = fit === true
     readScreen(id)
   }
   function openScreen(id, pkg, label, docked) {
@@ -695,10 +697,10 @@ Item {
     if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
     return out
   }
-  function launchScreen(id, pkg, label, docked, place) {
+  function launchScreen(id, pkg, label, docked, place, fit) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
-    if (docked === false) cmd.push("--tiled")
+    if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
     // Connecting takes a moment: said by the card or the tile in a panel;
@@ -709,7 +711,7 @@ Item {
         root.screenOpened(String(id))
         // Docked, it follows turns under the chip; tiled, its tile takes the
         // device's width as it turns.
-        if (!pkg) root.watchScreen(id, place && place.ctx ? place.ctx : ({}))
+        if (!pkg) root.watchScreen(id, place && place.ctx ? place.ctx : ({}), fit === true)
       }
       else root.screenOpenFailed(String(id))
     })
@@ -725,12 +727,12 @@ Item {
   signal screenRevealed(string id)
   // The device's new picture, a still of it, while the card turns.
   signal screenPicture(string id, string path)
-  function watchScreen(id, ctx) {
+  function watchScreen(id, ctx, fit) {
     var st = screenOf(id)
     if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
     // (ctx is {} for a tiled screen: only a docked one goes under the chip)
     var proc = watchComponent.createObject(root, { device: String(id),
-      command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)] })
+      command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)].concat(fit ? ["--fit"] : []) })
     var next = Object.assign({}, screenWatchers)
     next[String(id)] = proc
     screenWatchers = next

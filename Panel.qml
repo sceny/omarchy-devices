@@ -410,13 +410,24 @@ Panel {
   }
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
   readonly property var screenSetup: screenId === "" ? null
-    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId))
+    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId))
   // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
   // the flat keys).
   function screenDockedFor(id) {
     for (var i = 0; i < pairedDevices.length; i++)
       if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenDocked
     return true
+  }
+  // Experimental: a tiled screen's tile takes the device's width.
+  function screenFitFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenFitTile
+    return false
+  }
+  function toggleScreenFit(id) {
+    var next = !screenFitFor(id)
+    if (singleDevice) persistSettings({ screenFitTile: next })
+    else persistDeviceProfile(String(id), { screenFitTile: next })
   }
   function toggleScreenDocked(id) {
     var next = !screenDockedFor(id)
@@ -537,10 +548,11 @@ Panel {
     else if (key === "check") phone.readScreen(screenId)
     else if (key === "open") {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
-      else phone.pressScreen(screenId, false)
+      else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
     }
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "fitTile") toggleScreenFit(screenId)
   }
   // Read again while the page shows (a setting turned on, the cable
   // plugged in, the install done); a pairing on the page stops when it goes.
@@ -1253,7 +1265,7 @@ Panel {
     }
     else if (key === "screen" && device) {
       if (screenDockedFor(String(device.id))) startScreenOpening(device)
-      else phone.pressScreen(String(device.id), false)
+      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)))
     }
   }
 
