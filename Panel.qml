@@ -1750,6 +1750,15 @@ Panel {
       if (root.device) root.phone.readScreen(String(root.device.id))
       return root.screenInfo()
     }
+    // Demo only: a watcher's event as it would come (refit, revealed), for
+    // a check driven from outside with a stand-in window.
+    function screenEvent(json: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var ev = JSON.parse(json)
+      if (ev.ev === "refit") root.phone.screenTurn = Object.assign({ at: Date.now() }, ev)
+      else if (ev.ev === "revealed") root.phone.screenRevealed(String(ev.device || ""))
+      return "ok"
+    }
     // Demo only: the docked screen turning or folding, as the watcher
     // reports it (kind: turn or morph), on this panel's screen.
     function demoTurn(kind: string): string {
