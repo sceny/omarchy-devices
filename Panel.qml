@@ -1399,7 +1399,8 @@ Panel {
                             section: sectionApps.map(function(a) { return a.name }), pinned: pinnedApps,
                             cursor: appsOpen && appsView ? (appsView.stops[appsView.cursor] || {}).name || "" : (focusSection === "apps" ? appIndex : -1),
                             shown: appsView ? appsView.page.all.length : 0,
-                            sound: device ? appSoundFor(String(device.id)) : "" })
+                            sound: device ? appSoundFor(String(device.id)) : "",
+                            folded: { width: Math.round(appsFoldedWidth), room: foldedRoom, pinned: foldedPinned, recent: foldedRecent } })
   }
   // The header's button: back from a page, else Settings (Connection while
   // this computer has something to fix).
