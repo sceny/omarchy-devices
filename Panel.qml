@@ -3634,6 +3634,20 @@ Panel {
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
                         }
                       }
+                      // Nothing pinned or opened yet: what goes here.
+                      Text {
+                        visible: root.sectionApps.length === 0
+                        width: appRow.width - appRow.cell
+                        height: allTile.implicitHeight
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Style.space(6)
+                        textFormat: Text.PlainText
+                        wrapMode: Text.WordWrap
+                        text: "The apps you open show here, each in a window of its own. Pin the ones you use from All apps (a)."
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
                       // The rest: the All apps page.
                       Item {
                         width: appRow.cell

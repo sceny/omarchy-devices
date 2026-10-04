@@ -2069,8 +2069,14 @@ function appsSummary(apps, pinned) {
 
 // A tile without an icon: the name's first letter.
 function appLetter(name) {
-  var m = String(name || "").match(/[\p{L}\p{N}]/u)
-  return m ? m[0].toUpperCase() : "?"
+  // A letter (it has a case) or a digit; the shell's JavaScript has no
+  // Unicode classes in its expressions.
+  var s = String(name || "")
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i)
+    if (c.toLowerCase() !== c.toUpperCase() || (c >= "0" && c <= "9")) return c.toUpperCase()
+  }
+  return "?"
 }
 
 // KDE Connect's id of a notification is Android's key,
