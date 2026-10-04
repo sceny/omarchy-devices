@@ -327,11 +327,13 @@ Keep them; change one only with the owner.
   fitted at its own proportions, never zoomed or stretched), softening as
   it moves; the window hides and moves under it. When `Texture: WxH` says
   the new picture came, a still of it (taken again while it is only the old
-  picture stretched to the new size) goes out as `picture`: it fades in on
-  the card over the old one, laid out for the new shape and turned back by
-  the turn still to come, so the two turn into each other. The card lands
-  showing exactly that picture; the window then shows under it (`revealed`)
-  and the card fades as one layer (an item's opacity applies to each of its
+  picture stretched to the new size) goes out as `picture`. The transition
+  is blur to reveal: the old picture blurs at once and stays blurred while
+  the new one is on its way (a few hundred ms on a real phone; a sharp
+  sideways picture held meanwhile reads as a third state), the new one
+  fades in under the blur, laid out for the new shape, then sharpens. Once
+  sharp, the window shows under it (`revealed`) and the card fades as one
+  layer (an item's opacity applies to each of its
   parts: its background showed through). Stills live in
   `$XDG_RUNTIME_DIR/sceny.devices/` and are removed after the turn; they
   are this computer's own screen pixels, not a file the device sent.
