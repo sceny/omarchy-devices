@@ -1454,10 +1454,11 @@ def pkg_add(packages):
 ROOT_FIXES = ("install", "sshfs", "screen", "firewall")
 
 
-def pacman_will_install(packages, run=subprocess.run):
+def pacman_will_install(packages, run=None):
     """What `pacman -S --needed` would install for these packages (their
     dependencies included), without root: ["name version"]. None when
     pacman cannot tell."""
+    run = run or subprocess.run
     try:
         out = run(["pacman", "-Sp", "--needed", "--print-format", "%n %v"] + list(packages),
                   capture_output=True, text=True, timeout=60)
@@ -1469,14 +1470,15 @@ def pacman_will_install(packages, run=subprocess.run):
     return [l.strip() for l in (out.stdout or "").splitlines() if l.strip() and not l.startswith("::")]
 
 
-def package_installed(name, run=subprocess.run):
+def package_installed(name, run=None):
+    run = run or subprocess.run
     try:
         return run(["pacman", "-Q", name], capture_output=True, text=True, timeout=20).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
-def root_plan(what, run=subprocess.run, lan=None):
+def root_plan(what, run=None, lan=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
