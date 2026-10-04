@@ -707,7 +707,9 @@ Item {
     proc.exited.connect(function(code) {
       if (code === 0) {
         root.screenOpened(String(id))
-        if (docked !== false && !pkg && place) root.watchScreen(id, place.ctx)
+        // Docked, it follows turns under the chip; tiled, its tile takes the
+        // device's width as it turns.
+        if (!pkg) root.watchScreen(id, place && place.ctx ? place.ctx : ({}))
       }
       else root.screenOpenFailed(String(id))
     })
@@ -726,6 +728,7 @@ Item {
   function watchScreen(id, ctx) {
     var st = screenOf(id)
     if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
+    // (ctx is {} for a tiled screen: only a docked one goes under the chip)
     var proc = watchComponent.createObject(root, { device: String(id),
       command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)] })
     var next = Object.assign({}, screenWatchers)

@@ -2161,6 +2161,34 @@ def looks_stretched(old, new, grid=24):
     return diff / (grid * grid * 3) < 12
 
 
+def fit_tile(win, display, run=None, look=None, sleep=time.sleep):
+    """A tiled screen window made the device's width at the tile's height
+    (a phone upright in a half-screen tile is otherwise mostly black), the
+    window beside it taking the rest. Hyprland's layout moves a tile's shared
+    edge from either side, so the change is measured and corrected once. A
+    window alone on its workspace fills it; nothing changes then."""
+    run = run or (lambda lua: subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5))
+    look = look or (lambda: find_window(win.get("title", "")))
+    if win.get("floating") or win.get("fullscreen") or not display or not display[1]:
+        return False
+    w, h = win["size"]
+    target = round(h * display[0] / display[1])
+    if abs(w - target) <= 2:
+        return True
+    q = lua_string("address:" + win["address"])
+    resize = lambda dx: run("hl.dsp.window.resize({ window = %s, x = %d, y = 0, relative = true })" % (q, dx))
+    resize(target - w)
+    sleep(0.12)
+    now = look() or win
+    w2 = now["size"][0]
+    if w2 == w:
+        return False   # alone on its workspace: a tile there fills it
+    if abs(w2 - target) > 2:
+        sign = 1 if (w2 - w) * (target - w) > 0 else -1   # the edge moved the other way
+        resize(sign * (target - w2))
+    return True
+
+
 def window_prop(win, prop, value):
     q = lua_string("address:" + win["address"])
     subprocess.run(["hyprctl", "dispatch", 'hl.dsp.window.set_prop({ window = %s, prop = "%s", value = "%s" })' % (q, prop, value)],
@@ -2282,6 +2310,14 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                     change = parse_display_change(line) or change
                     texture = parse_texture(line) or texture
             pinned = bool(win and win.get("pinned"))
+            # A tiled screen: its tile takes the device's new width (Hyprland
+            # moves it; no card), the window beside it the rest.
+            if win and not pinned and texture and not same_shape(texture, shape):
+                shape = tuple(texture)
+                screen_record(device_id, {"display": list(shape)})
+                sleep(0.1)
+                fit_tile(find_window(title) or win, shape)
+                texture = None
             # The display changed: before its new picture is sent. Upside
             # down keeps the shape but turns the picture: a half turn.
             if change and pinned and (not same_shape(change[1][:2], shape) or (change[1][2] - change[0][2]) % 4 == 2):
@@ -2411,13 +2447,17 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title,
                                                      aspect, top, docked, rect, border_size())],
                    capture_output=True, timeout=5)
-    log = screen_log(title) if docked and not package else ""
+    log = screen_log(title) if not package else ""
     if log:
         os.makedirs(os.path.dirname(log), exist_ok=True)
         open(log, "w").close()   # a fresh log for this window
     launch(screen_command(status["serial"], title, package, status["tools"], log))
     for _ in range(WINDOW_WAIT_SEC * 4):
-        if find_window(title):
+        win = find_window(title)
+        if win:
+            if not docked and not package:
+                sleep(0.2)   # tiled into its place first
+                fit_tile(find_window(title) or win, disp)
             return say("%s is open" % (label or name + "'s screen"))
         sleep(0.25)
     return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
@@ -2959,7 +2999,7 @@ def main(argv):
         return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "screen-watch":
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
-        if len(argv) < 3 or not ctx:
+        if len(argv) < 3 or ctx is None:
             return say("screen-watch needs a device id, its adb serial and --ctx", EXIT_FAILED)
         try:
             return screen_watch(argv[1], argv[2], ctx)

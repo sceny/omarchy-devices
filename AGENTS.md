@@ -344,6 +344,11 @@ Keep them; change one only with the owner.
   user moved or resized stays put and turns in place. The bridge's
   `dock_rect` mirrors `Model.dockRect`: change both, and their shared test
   cases.
+- **A screen that opens as a window** is tiled by Omarchy's layout: its tile
+  takes the device's width at the tile's height, the window beside it the
+  rest, when it opens and as the device turns (`fit_tile`; the layout moves
+  a shared edge from either side, so the change is measured and corrected).
+  Alone on its workspace, a tile fills it.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and

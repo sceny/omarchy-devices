@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import re
 import importlib.machinery
 import importlib.util
 import os
@@ -1072,6 +1073,25 @@ class Screen(unittest.TestCase):
         self.assertTrue(bridge.looks_stretched(portrait, stretched))
         self.assertFalse(bridge.looks_stretched(portrait, turned))
         self.assertFalse(bridge.looks_stretched(None, turned), "no old still: nothing to compare")
+
+    def test_a_tile_takes_the_phones_width_from_either_side(self):
+        def layout(inverted):
+            state = {"w": 1261}
+            calls = []
+            def run(lua):
+                dx = int(re.search(r"x = (-?\d+)", lua).group(1))
+                calls.append(dx)
+                state["w"] += -dx if inverted else dx   # the right-hand tile moves the other way
+            return state, calls, run
+        for inverted in (False, True):
+            state, calls, run = layout(inverted)
+            win = {"address": "0xabc", "title": "Pixel 8 · Screen", "size": [1261, 1381], "floating": False}
+            look = lambda: {"size": [state["w"], 1381]}
+            self.assertTrue(bridge.fit_tile(win, (1080, 2316), run=run, look=look, sleep=lambda s: None))
+            self.assertEqual(state["w"], round(1381 * 1080 / 2316), "inverted=%s" % inverted)
+        alone = {"address": "0xabc", "title": "x", "size": [2536, 1381], "floating": False}
+        self.assertFalse(bridge.fit_tile(alone, (1080, 2316), run=lambda lua: None, look=lambda: alone, sleep=lambda s: None))
+        self.assertFalse(bridge.fit_tile(dict(alone, floating=True), (1080, 2316)), "docked: not a tile")
 
     def test_the_display_in_one_line(self):
         self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
