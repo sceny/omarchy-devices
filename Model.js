@@ -1140,6 +1140,152 @@ function addDeviceRows(devices) {
   return rows
 }
 
+// ---- What a device can do: features from sources (docs/design/setup.md) ----
+// One table says what each feature needs; its state is worked out from the
+// bridge's report (`features <device>`), the screen's state and this
+// computer's checks, never set by hand. Everything reads these states: the
+// device page's rows, the gear dot, the pills, Fix what I can.
+
+// plugins: KDE Connect's, for this device (short names); permissions: KDE
+// Connect's on the device (read over adb); computer: a check that must be ok
+// here. optional: never lights the gear dot.
+var FEATURES = [
+  { key: "notifications", label: "Notifications", glyph: GLYPH.bell, plugins: ["notifications"], permissions: ["notifications"],
+    hint: "Its notifications here, with reply" },
+  { key: "messages", label: "Messages", glyph: GLYPH.messages, plugins: ["sms"], permissions: ["sms"], hint: "Every conversation, read and send" },
+  { key: "names", label: "Names", glyph: GLYPH.group, plugins: ["contacts"], permissions: ["contacts"], hint: "Its contacts' names for numbers" },
+  { key: "media", label: "Now playing", glyph: GLYPH.music, plugins: ["mprisremote"], permissions: ["notifications"], hint: "What it plays, with controls" },
+  { key: "calls", label: "Calls", glyph: GLYPH.callRing, plugins: ["telephony"], permissions: ["phone"], hint: "Who is calling, and missed calls" },
+  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, plugins: ["sftp"], permissions: ["storage"], computer: "sshfs", optional: true,
+    hint: "Its newest photos and videos" },
+  { key: "share", label: "Files", glyph: GLYPH.sendFile, plugins: ["share"], hint: "Send files both ways" },
+  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, plugins: ["clipboard"], hint: "Shared clipboard" },
+  { key: "ring", label: "Ring", glyph: GLYPH.ring, plugins: ["findmyphone"], hint: "Ring it, even on silent" },
+  { key: "battery", label: "Battery", glyph: GLYPH.bolt, plugins: ["battery"], hint: "Its battery in the bar" },
+  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, screen: true, optional: true, hint: "Its screen and apps in windows here" }
+]
+
+var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
+
+// One word for each state, everywhere.
+var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", off: "Turned off", unavailable: "Not on this device", away: "Away" }
+
+// A feature's state and the steps to it: { key, label, glyph, hint, state,
+// stateLabel, detail, steps: [{ kind: "auto" | "ask", label, fix }],
+// switchable, on }. `report`: the bridge's features for the device (null
+// while read); `screen`: Model.screenSetup's (null while read); `checks`:
+// this computer's (doctor). A step's fix: { verb, what, arg } for the
+// service (`fix <what>` or `device-fix <what> <device> <arg>`).
+function featureState(f, report, screen, checks, deviceName) {
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, optional: !!f.optional, steps: [], detail: "",
+              switchable: !!(f.plugins && f.plugins.length), on: true }
+  var name = deviceName || "the device"
+  function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
+  if (f.screen) {
+    row.switchable = false
+    var st = screen ? screen.state : "checking"
+    if (st === "ready") return done("on", screen.line || "")
+    if (st === "checking") return done("setup", "Looking…")
+    if (st === "tools") row.steps.push({ kind: "auto", label: "Install scrcpy and adb (asks for your password)", fix: { verb: "fix", what: "screen" } })
+    row.steps.push({ kind: "ask", label: screen ? screen.line : "Set up on its page", page: "screen" })
+    return done(st === "off" || st === "away" ? "attention" : "setup", screen ? screen.line : "")
+  }
+  if (!report) return done("setup", "Looking…")
+  if (!report.reachable) return done("away", "When " + name + " connects")
+  var plugins = report.plugins || {}
+  for (var i = 0; i < f.plugins.length; i++) {
+    var p = plugins[f.plugins[i]]
+    if (!p || p.offered === false) { row.switchable = false; return done("unavailable", name + " does not offer it") }
+  }
+  var off = f.plugins.filter(function(k) { return plugins[k].on === false })
+  if (off.length > 0) {
+    row.on = false
+    row.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: off.map(function(k) { return k + "=on" }).join(",") } })
+    return done("off", "")
+  }
+  if (f.computer) {
+    var c = (checks || []).filter(function(x) { return x.key === f.computer })[0]
+    var has = f.computer === "sshfs" ? !!(report.files && report.files.sshfs) : !!(c && c.ok)
+    if (!has) row.steps.push({ kind: "auto", label: "Install " + f.computer + " (asks for your password)", fix: { verb: "fix", what: f.computer } })
+  }
+  var perms = report.permissions
+  var missing = (f.permissions || []).filter(function(k) { return perms && perms[k] === false })
+  missing.forEach(function(k) {
+    // Granted over adb on a click; else the switch to turn on, on the device.
+    row.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[k] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: k },
+                     orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[k] })
+  })
+  if (f.key === "gallery" && report.files && report.files.mounted === false && report.files.error) {
+    row.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
+    row.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" } })
+    return done("attention", "Its storage did not mount: " + report.files.error)
+  }
+  if (row.steps.length > 0) {
+    var allowed = missing.length > 0 ? "Needs " + missing.map(function(k) { return PERMISSION_NAMES[k] }).join(" and ") : "Needs " + f.computer + " here"
+    return done("setup", allowed)
+  }
+  return done("on", "")
+}
+
+function featureRows(report, screen, checks, deviceName) {
+  return FEATURES.map(function(f) { return featureState(f, report, screen, checks, deviceName) })
+}
+
+// The steps one click runs for a feature (Turn on, Fix): every one the
+// plugin can do, in order, up to the first only the user can do.
+function featurePlan(row) {
+  var out = []
+  for (var i = 0; i < (row.steps || []).length; i++) {
+    var s = row.steps[i]
+    if (s.kind !== "auto") break
+    out.push(s)
+  }
+  return out
+}
+
+// Fix what I can: every feature's automatic steps, this computer's package
+// installs first and once each, each other step once.
+function fixAllPlan(rows) {
+  var seen = {}, installs = [], rest = []
+  ;(rows || []).forEach(function(r) {
+    if (r.state === "on" || r.state === "unavailable" || r.state === "away" || r.state === "off") return
+    featurePlan(r).forEach(function(s) {
+      var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
+      if (seen[id]) return
+      seen[id] = true
+      ;(s.fix.verb === "fix" && s.fix.what !== "restart" ? installs : rest).push(s)
+    })
+  })
+  return installs.concat(rest)
+}
+
+// The gear dot: a feature that needs attention and is not optional.
+function featuresNeedAttention(rows) {
+  return (rows || []).filter(function(r) { return r.state === "attention" && !r.optional }).length
+}
+
+// One line for a device's features: what is on, and what is left.
+function featuresSummary(rows) {
+  var on = (rows || []).filter(function(r) { return r.state === "on" }).length
+  var attention = (rows || []).filter(function(r) { return r.state === "attention" }).length
+  var setup = (rows || []).filter(function(r) { return r.state === "setup" }).length
+  var parts = [on + " on"]
+  if (attention > 0) parts.push(attention + " " + (attention === 1 ? "needs" : "need") + " attention")
+  if (setup > 0) parts.push(setup + " to set up")
+  return parts.join(" · ")
+}
+
+// Demo: a made-up device's report, with one feature to set up and one off.
+function demoFeatures() {
+  var plugins = {}
+  ;["notifications", "sms", "contacts", "mprisremote", "telephony", "sftp", "share", "clipboard", "findmyphone", "battery", "ping"].forEach(function(k) {
+    plugins[k] = { on: k !== "clipboard", offered: true, loaded: k !== "clipboard" }
+  })
+  return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
+           permissions: { notifications: true, sms: true, contacts: false, phone: true, storage: true },
+           files: { sshfs: true, mounted: true, error: "" } }
+}
+
 // ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
 
 // The Screen and apps page for one device: a line on where it stands, the
