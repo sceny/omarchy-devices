@@ -467,6 +467,18 @@ Panel {
   Connections {
     target: root.phone
     function onScreenSetupNeeded(id) { if (root.opened) root.openScreenSetup(id) }
+    // Set up: the Screen shortcut joins the device's shortcuts, once (the
+    // user may take it away). Only an open panel writes, so one monitor's.
+    function onScreenStatesChanged() {
+      if (!root.opened || !root.phone) return
+      for (var i = 0; i < root.pairedDevices.length; i++) {
+        var d = root.pairedDevices[i]
+        var st = root.phone.screenOf(String(d.id))
+        if (!st || st.state !== "ready" || root.phone.demo) continue
+        var changes = Model.screenShortcutChanges(root.settings, String(d.id), Model.resolveProfile(root.profilesRead, d, i === 0), root.singleDevice, i === 0)
+        if (changes) root.persistSettings(changes)
+      }
+    }
   }
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.

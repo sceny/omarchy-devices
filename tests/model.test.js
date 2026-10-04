@@ -866,6 +866,22 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.match(M.screenSetup(M.demoScreen("pair"), { name: "Galaxy S24" }, null).steps[1].text, /Software information/, "Samsung's own path")
 })
 
+test("screen and apps: set up adds the Screen shortcut once, where the device's shortcuts live", () => {
+  const dev = { id: "p1", paired: true }
+  const one = M.readSettings({ shortcuts: ["ring", "messages"] })
+  const changes = M.screenShortcutChanges({ shortcuts: ["ring", "messages"] }, "p1", M.resolveProfile(one, dev, true), true, true)
+  assert.deepEqual(changes.shortcuts, ["ring", "messages", "screen"], "one device: the flat keys")
+  assert.equal(changes.devices.p1.screenShortcut, "added")
+  const after = M.readSettings(Object.assign({ shortcuts: ["ring", "messages"] }, changes, { shortcuts: ["ring"] }))
+  assert.equal(M.screenShortcutChanges({}, "p1", M.resolveProfile(after, dev, true), true, true), null, "taken away later: stays away")
+  const many = M.readSettings({})
+  const own = M.screenShortcutChanges({}, "p1", M.resolveProfile(many, dev, false), false, false)
+  assert.ok(!("shortcuts" in own), "several devices: not the defaults")
+  assert.deepEqual(own.devices.p1.shortcuts.slice(-1), ["screen"])
+  const has = M.readSettings({ shortcuts: ["screen"] })
+  assert.ok(!("shortcuts" in M.screenShortcutChanges({}, "p1", M.resolveProfile(has, dev, true), true, true)), "already there: only the note")
+})
+
 test("screen and apps: a row on the device's page, and a Screen shortcut", () => {
   const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" } })
   assert.ok(rows.some(r => r.kind === "screen"), "the one-device page")

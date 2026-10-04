@@ -289,6 +289,10 @@ Keep them; change one only with the owner.
   minutes); the bridge pairs only with the device that scanned it. Reading
   the state connects only to a device adb already trusts. Opening a real
   device's screen in a check is the owner's go: it shows their data.
+- **Setting up the screen adds the Screen shortcut, once.** When a
+  device's screen first reads ready with a panel open, Screen joins its
+  shortcuts (the flat keys with one device, its profile with several) and
+  its profile notes `screenShortcut: "added"`, so a removal stays removed.
 
 ## Workflow
 

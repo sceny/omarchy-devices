@@ -1424,6 +1424,9 @@ function resolveProfile(settings, device, isFirst) {
     icon: /^[0-9A-Fa-f]{4,6}$/.test(String(stored.icon || "")) ? String(stored.icon).toUpperCase() : "",
     bar: bar,
     showInPanel: stored.showInPanel !== false,
+    // The Screen shortcut was added when its screen was set up: once, so a
+    // removal stays removed (screenShortcutChanges).
+    screenShortcut: stored.screenShortcut === "added",
     custom: {}
   }
   for (var key in PROFILE_SETTINGS) {
@@ -1541,6 +1544,23 @@ function withProfile(entry, deviceId, changes, isFirst) {
   devices[deviceId] = p
   e.devices = devices
   return e
+}
+
+// What setting up a device's screen writes, once: the Screen shortcut
+// joins its shortcuts (where they live: the flat keys with one device, its
+// profile with several) and its profile notes that it did. null when it
+// was done before; the user may have taken the shortcut away since.
+function screenShortcutChanges(entry, deviceId, profile, single, isFirst) {
+  if (!profile || profile.screenShortcut) return null
+  var next = profile.shortcuts.indexOf("screen") >= 0 ? null : profile.shortcuts.concat(["screen"])
+  if (single) {
+    var changes = { devices: withProfile(entry, deviceId, { screenShortcut: "added" }, isFirst).devices }
+    if (next) changes.shortcuts = next
+    return changes
+  }
+  var own = { screenShortcut: "added" }
+  if (next) own.shortcuts = next
+  return { devices: withProfile(entry, deviceId, own, isFirst).devices }
 }
 
 // The entry with a new device order (ids). The old `deviceId` stays as it

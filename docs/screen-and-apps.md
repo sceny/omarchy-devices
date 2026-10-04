@@ -10,8 +10,8 @@ not KDE Connect, and is set up once per device.
 
 ## Set it up
 
-Open **Settings › Screen and apps** on the device's page, or press the
-Screen shortcut (add it with ✎).
+Open **Settings › Screen and apps** on the device's page, or
+*Connection › Set up a device*.
 
 1. **Install** scrcpy and adb. *Connection* offers it too; it asks for
    your password.
@@ -21,7 +21,8 @@ Screen shortcut (add it with ✎).
 4. **Show the code** here, then on the phone *Wireless debugging › Pair
    device with QR code* and scan it.
 
-That is once. Next time, the Screen shortcut opens the window.
+That is once. The **Screen** shortcut then joins the device's shortcuts
+(take it away with ✎ if you like) and opens the window.
 
 Android 10 and older have no Wireless debugging: turn on *USB debugging*
 and plug the phone in.
