@@ -191,6 +191,18 @@ PanelWindow {
       visible: false
       clip: true
 
+      // A fold: each picture also fills the whole card under itself, scaled
+      // to cover (the edges cropped), so the room its own proportions leave
+      // is its own colours, blurred with the rest, never a border; at the
+      // start and the end the picture fits the card exactly and hides it.
+      Image {
+        visible: !turn.turning
+        anchors.fill: parent
+        source: turn.turning ? "" : turn.oldStill
+        cache: false
+        asynchronous: false
+        fillMode: Image.PreserveAspectCrop
+      }
       // The old picture fills the card as it was.
       Image {
         id: oldImage
@@ -200,10 +212,19 @@ PanelWindow {
         asynchronous: false
         // Never stretched, never zoomed: a turn keeps the card's shape, so
         // the picture fills it; a fold changes it, so each picture keeps its
-        // own proportions inside it (the card's colour around it).
+        // own proportions inside it (its own fill around it).
         fillMode: turn.turning ? Image.PreserveAspectCrop : Image.PreserveAspectFit
         // Solid under the new picture as it fades in over it: two pictures
         // fading at once let the card's background show through.
+      }
+      Image {
+        visible: !turn.turning
+        anchors.fill: parent
+        source: turn.turning ? "" : turn.newStill
+        cache: false
+        asynchronous: false
+        fillMode: Image.PreserveAspectCrop
+        opacity: turn.blend
       }
       // The new one is laid out for the new shape: turned back by the turn
       // still to come (the card's rotation brings it upright), on its side
