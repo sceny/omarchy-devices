@@ -61,7 +61,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
-| `AppsView.qml`, `AppTile.qml` | the All apps page, and an app's tile (the Apps section and the page) |
+| `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml` | the All apps page, an app's tile, and the pinned row (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
@@ -252,10 +252,15 @@ Keep them; change one only with the owner.
   virtual display per app, following its window (`--flex-display`), and
   never the device's on-screen keyboard (`--display-ime-policy=hide`):
   typing is this computer's keyboard. All apps shows every app, the
-  system's own too (no switch). The section shows the pinned apps
-  (`pinnedApps`, a setting) then the recently opened (`opened.json`, in
-  the cache: usage, never `shell.json`; ✕ or `x` takes one out,
-  `app-forget`, until it opens again). The list is read only for a
+  system's own too (no switch). The section has two labelled rows, each
+  hidden while it has nothing: PINNED (`pinnedApps`, a setting; places
+  count the apps the device has, so another device's pins stay put) and
+  RECENT (`opened.json`, in the cache: usage, never `shell.json`; ✕ or
+  `x` takes one out, `app-forget`, until it opens again); All apps leads
+  with PINNED, a place to drop even when empty. `AppPinRow` is the pinned
+  row everywhere: its order moves through `Reorder` (drag, Shift+H /
+  Shift+L), an app dragged in opens a gap where it lands and is pinned
+  there, one dragged out is unpinned. The list is read only for a
   device whose screen is set up, from the cache, and from the device at
   most once a day; icons once per app version. A notification opens its
   app (the package is in KDE Connect's id, Android's key), never the

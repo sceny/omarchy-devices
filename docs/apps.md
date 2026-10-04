@@ -7,10 +7,12 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
 
 ![All apps: search, the recently opened, then A to Z (demo data)](images/apps.png)
 
-- **Apps** on the main page: the apps you pin, then the ones you opened
-  last. **All apps** (`a`) has every app; type to search (`/`).
-- **Pin** an app (hover it, or `p`) to keep it in the Apps section; ✕
-  (or `x`) takes a recent one out until you open it again.
+- **Apps** on the main page: two rows, **Pinned** and **Recent**.
+  **All apps** (`a`) has every app; type to search (`/`).
+- **Pin** an app by dragging it into Pinned, where you drop it (or hover
+  it and click its pin, or `p`). Drag pinned apps to reorder them
+  (`Shift+H` / `Shift+L`); drag one out to unpin it. ✕ (or `x`) takes a
+  recent one out until you open it again.
 - **A notification** opens its app in a window (its window button, or
   `o`). It opens the app, not that message: KDE Connect cannot open a
   notification yet.
