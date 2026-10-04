@@ -3,8 +3,9 @@
 # Screen and apps
 
 The phone's screen in a window here, used with your mouse and keyboard:
-the **Screen** shortcut. It comes from [scrcpy](https://github.com/Genymobile/scrcpy),
-not KDE Connect, and is set up once per device.
+the **Screen** shortcut, and its [apps](apps.md) each in a window. It
+comes from [scrcpy](https://github.com/Genymobile/scrcpy), not KDE
+Connect, and is set up once per device.
 
 ![Screen and apps: the steps on the phone and the pairing QR code (demo data)](images/screen-setup.png)
 
@@ -28,19 +29,17 @@ It opens **docked**: the panel grows into the device's own shape under
 its chip and the screen appears there, on every workspace. Choose *Opens as a window* on its Screen and
 apps page for a window like any other (it moves at once).
 
-Full screen: docked, it is pinned to every workspace, which Hyprland keeps
-out of full screen. Omarchy's pop-out key frees it, then its full screen
-key; the pop-out key again docks it back. The Screen and apps page shows
-your machine's keys (**Super+O** and **Super+F** unless you changed them).
+Full screen: Omarchy's pop-out key frees it, then its full screen key; the
+pop-out key docks it back. The Screen and apps page shows your keys.
 
 Android 10 and older have no Wireless debugging: turn on *USB debugging*
 and plug the phone in.
 
 ## When it stops working
 
-- *Wireless debugging is off*: Android turns it off on another Wi-Fi or
-  after a restart. Turn it on again; a *Quick settings developer tile*
-  for it makes that one tap.
+- *Wireless debugging is off*: Android turns it off after a restart or on
+  another Wi-Fi. Turn it on; the screen (or the app) then opens by
+  itself. A *Quick settings developer tile* makes that one tap.
 - *Allow USB debugging*: answer the prompt on the phone, with *Always
   allow from this computer*.
 
