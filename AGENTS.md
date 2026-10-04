@@ -61,7 +61,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
-| `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml` | the All apps page, an app's tile, and the pinned row (the Apps section and the page) |
+| `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
