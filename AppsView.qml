@@ -5,9 +5,10 @@ import qs.Ui
 import "Model.js" as Model
 
 // All apps: every app of the device (the system's own too), each opening in
-// a window here. A search, the recently opened first, then A to Z. The
-// panel's keys move the cursor here (moveKey, activate); `/` goes to the
-// search, `p` pins the app under the cursor.
+// a window here. PINNED leads, always there as a place to drag an app to
+// (AppPinRow), then a search, the recently opened, then A to Z. The panel's
+// keys move the cursor here (moveKey, activate); `/` goes to the search,
+// `p` pins the app under the cursor, Shift+H / Shift+L move a pinned one.
 Item {
   id: view
 
@@ -24,6 +25,8 @@ Item {
 
   signal openRequested(var app)
   signal pinRequested(var app, bool on)
+  signal pinAtRequested(var app, int at)
+  signal pinMoved(int from, int to)
   signal forgetRequested(var app)
   signal refreshRequested()
   signal hovered()
@@ -31,8 +34,12 @@ Item {
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property bool searchFocused: searchField.activeFocus
   readonly property var page: Model.appsForPage(apps, searchField.text)
-  // Where the keys can go: the recent row, then the list.
-  readonly property var stops: page.recent.concat(page.all)
+  readonly property var pinnedApps: Model.pinnedAppsOf(apps, pinned)
+  // Where the keys can go: PINNED, the recent row, then the list.
+  readonly property var stops: pinnedApps.concat(page.recent, page.all)
+  readonly property var cursorRows: Model.cursorRows([pinnedApps.length, page.recent.length, page.all.length], columns)
+  readonly property int recentBase: pinnedApps.length
+  readonly property int allBase: pinnedApps.length + page.recent.length
   property int cursor: 0
   // As many columns as fit tiles of about 84 px, spread over the width.
   readonly property real gap: Style.space(6)
@@ -45,24 +52,18 @@ Item {
   function clampCursor() { cursor = Math.max(0, Math.min(stops.length - 1, cursor)) }
   onStopsChanged: clampCursor()
 
-  // The cursor moves in the row it is in: the recent row is a row of its own.
+  // The cursor moves in its row; PINNED, RECENT and the list are rows of
+  // their own.
   function moveKey(dx, dy) {
     if (stops.length === 0) return
-    var r = page.recent.length
-    if (dx !== 0) { cursor = Math.max(0, Math.min(stops.length - 1, cursor + dx)); return }
-    if (cursor < r) {
-      if (dy > 0) cursor = r + Math.min(cursor, page.all.length - 1)
-      return
-    }
-    var i = cursor - r
-    var next = i + dy * columns
-    if (next < 0) { cursor = r > 0 ? Math.min(r - 1, i % columns) : cursor; return }
-    if (next >= page.all.length) {
-      // The last row is short: the last app, unless already in that row.
-      if (Math.floor(i / columns) < Math.floor((page.all.length - 1) / columns)) cursor = r + page.all.length - 1
-      return
-    }
-    cursor = r + next
+    var t = Model.cursorStep(cursorRows, cursor, dx, dy)
+    if (t >= 0) cursor = t
+  }
+  // Shift+H / Shift+L on a pinned app: it moves among the pinned.
+  function movePinnedKey(delta) {
+    if (cursor >= pinnedApps.length) return
+    pinRow.step(cursor, delta)
+    cursor = Math.max(0, Math.min(pinnedApps.length - 1, cursor + delta))
   }
   function activate() {
     var app = stops[cursor]
@@ -71,7 +72,7 @@ Item {
   // x: a recent app under the cursor leaves the recent ones.
   function forget() {
     var app = stops[cursor]
-    if (app && cursor < page.recent.length) forgetRequested(app)
+    if (app && cursor >= recentBase && cursor < allBase) forgetRequested(app)
   }
   function togglePin() {
     var app = stops[cursor]
@@ -150,26 +151,71 @@ Item {
     }
 
     PanelSectionHeader {
+      visible: view.apps.length > 0
+      Layout.fillWidth: true
+      text: "PINNED"
+      foreground: view.foreground
+      fontFamily: view.fontFamily
+    }
+    AppPinRow {
+      id: pinRow
+      visible: view.apps.length > 0
+      Layout.fillWidth: true
+      Layout.preferredHeight: implicitHeight
+      z: moving ? 2 : 0
+      apps: view.pinnedApps
+      columns: view.columns
+      gap: view.gap
+      showEmpty: true
+      cursorAt: view.cursorActive ? view.cursor : -1
+      glide: view.glide
+      motion: view.motion
+      isWorking: view.isWorking
+      foreground: view.foreground
+      fontFamily: view.fontFamily
+      onActivated: function(app) { view.openRequested(app) }
+      onHovered: function(i) { view.cursor = i; view.hovered() }
+      onReordered: function(a, b) { view.pinMoved(a, b) }
+      onPinRequested: function(app, at) { view.pinAtRequested(app, at) }
+      onUnpinRequested: function(app) { view.pinRequested(app, false) }
+    }
+
+    PanelSectionHeader {
       visible: view.page.recent.length > 0
       Layout.fillWidth: true
       text: "RECENT"
       foreground: view.foreground
       fontFamily: view.fontFamily
     }
-    Flow {
+    Grid {
       visible: view.page.recent.length > 0
       Layout.fillWidth: true
-      spacing: view.gap
+      columns: view.columns
+      columnSpacing: view.gap
+      rowSpacing: view.gap
       Repeater {
         model: view.page.recent
         AppTile {
+          id: recentTile
           required property var modelData
           required property int index
           width: view.cellWidth
+          z: dragging ? 10 : 0
+          property real followX: 0
+          property real followY: 0
+          transform: Translate {
+            x: recentTile.followX
+            y: recentTile.followY
+            Behavior on x { enabled: !recentTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !recentTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+          dragEnabled: true
+          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; pinRow.externalMove(modelData, at) }
+          onDragEnded: function(at) { pinRow.externalDrop(modelData, at); followX = 0; followY = 0 }
           app: modelData
           pinned: view.pinned.indexOf(modelData.package) >= 0
           working: view.isWorking(modelData)
-          here: view.cursorActive && view.cursor === index
+          here: view.cursorActive && view.cursor === view.recentBase + index
           glide: view.glide
           motion: view.motion
           foreground: view.foreground
@@ -178,7 +224,7 @@ Item {
           onPinToggled: view.pinRequested(modelData, !pinned)
           canForget: true
           onForgetRequested: view.forgetRequested(modelData)
-          onHovered: { view.cursor = index; view.hovered() }
+          onHovered: { view.cursor = view.recentBase + index; view.hovered() }
         }
       }
     }
@@ -190,26 +236,41 @@ Item {
       foreground: view.foreground
       fontFamily: view.fontFamily
     }
-    Flow {
+    Grid {
       Layout.fillWidth: true
-      spacing: view.gap
+      columns: view.columns
+      columnSpacing: view.gap
+      rowSpacing: view.gap
       Repeater {
         model: view.page.all
         AppTile {
+          id: allTile
           required property var modelData
           required property int index
           width: view.cellWidth
+          z: dragging ? 10 : 0
+          property real followX: 0
+          property real followY: 0
+          transform: Translate {
+            x: allTile.followX
+            y: allTile.followY
+            Behavior on x { enabled: !allTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+            Behavior on y { enabled: !allTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+          dragEnabled: true
+          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; pinRow.externalMove(modelData, at) }
+          onDragEnded: function(at) { pinRow.externalDrop(modelData, at); followX = 0; followY = 0 }
           app: modelData
           pinned: view.pinned.indexOf(modelData.package) >= 0
           working: view.isWorking(modelData)
-          here: view.cursorActive && view.cursor === view.page.recent.length + index
+          here: view.cursorActive && view.cursor === view.allBase + index
           glide: view.glide
           motion: view.motion
           foreground: view.foreground
           fontFamily: view.fontFamily
           onActivated: view.openRequested(modelData)
           onPinToggled: view.pinRequested(modelData, !pinned)
-          onHovered: { view.cursor = view.page.recent.length + index; view.hovered() }
+          onHovered: { view.cursor = view.allBase + index; view.hovered() }
         }
       }
     }

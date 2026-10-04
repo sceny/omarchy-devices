@@ -2012,19 +2012,57 @@ function appByPackage(apps, pkg) {
   return null
 }
 
-// The section's tiles: the pinned apps in their order, then the recently
-// opened ones, up to `max` (a row; the All apps tile is the last).
-function appsForSection(apps, pinned, max) {
-  var out = []
+// The pinned apps that are on the device, in their order.
+function pinnedAppsOf(apps, pinned) {
+  return normalizePinned(pinned).map(function(p) { return appByPackage(apps, p) }).filter(function(a) { return !!a })
+}
+
+// The section's two rows: { pinned, recent }. Every pinned app (the row
+// wraps); the recently opened ones that are not pinned, one row with All
+// apps last (`columns` - 1 of them).
+function appSectionRows(apps, pinned, columns) {
   var keep = normalizePinned(pinned)
-  for (var i = 0; i < keep.length && out.length < max; i++) {
-    var a = appByPackage(apps, keep[i])
-    if (a) out.push(a)
+  return {
+    pinned: pinnedAppsOf(apps, keep),
+    recent: recentApps(apps, true).filter(function(a) { return keep.indexOf(a.package) < 0 }).slice(0, Math.max(0, columns - 1))
   }
-  var recent = recentApps(apps, true)
-  for (var j = 0; j < recent.length && out.length < max; j++)
-    if (keep.indexOf(recent[j].package) < 0) out.push(recent[j])
-  return out
+}
+
+// Pinned at a place (a drop), or moved there when it already is.
+function pinAppAt(pinned, pkg, at) {
+  var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
+  keep.splice(Math.max(0, Math.min(keep.length, at)), 0, pkg)
+  return keep
+}
+
+// Where the keys go among tiles laid out in groups (pinned, recent, all),
+// each group a grid of `columns`: the rows, each a list of flat indexes.
+function cursorRows(groups, columns) {
+  var rows = [], base = 0, c = Math.max(1, columns)
+  for (var g = 0; g < groups.length; g++) {
+    for (var i = 0; i < groups[g]; i += c) {
+      var row = []
+      for (var j = i; j < Math.min(groups[g], i + c); j++) row.push(base + j)
+      rows.push(row)
+    }
+    base += groups[g]
+  }
+  return rows
+}
+
+// One key: the index it goes to, or -1 when it leaves the tiles (up from
+// the first row, down from the last). Sideways it stays in its row.
+function cursorStep(rows, index, dx, dy) {
+  var r = -1, col = 0
+  for (var i = 0; i < rows.length; i++) {
+    var at = rows[i].indexOf(index)
+    if (at >= 0) { r = i; col = at; break }
+  }
+  if (r < 0) return rows.length > 0 && rows[0].length > 0 ? rows[0][0] : -1
+  if (dx !== 0) return rows[r][Math.max(0, Math.min(rows[r].length - 1, col + dx))]
+  var t = r + (dy > 0 ? 1 : -1)
+  if (t < 0 || t >= rows.length) return -1
+  return rows[t][Math.min(col, rows[t].length - 1)]
 }
 
 function recentApps(apps, withSystem) {

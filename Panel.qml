@@ -1313,9 +1313,14 @@ Panel {
   readonly property var allApps: appList && appList.apps ? appList.apps : []
   readonly property var pinnedApps: profile.pinnedApps || []
   readonly property int appColumns: 5
-  // The section: the pinned apps, then the recently opened, in one row
-  // with All apps last.
-  readonly property var sectionApps: Model.appsForSection(allApps, pinnedApps, appColumns - 1)
+  // The section: PINNED (every pinned app, wrapping), then RECENT (one row,
+  // All apps last); `sectionApps` is the two in the keys' order, then All apps.
+  readonly property var sectionRows: Model.appSectionRows(allApps, pinnedApps, appColumns)
+  readonly property var sectionApps: sectionRows.pinned.concat(sectionRows.recent)
+  // The rows the keys move through: All apps ends RECENT, else PINNED.
+  readonly property var appCursorRows: sectionRows.recent.length > 0
+    ? Model.cursorRows([sectionRows.pinned.length, sectionRows.recent.length + 1], appColumns)
+    : Model.cursorRows([sectionRows.pinned.length + 1], appColumns)
   property int appIndex: 0
   function appsSetUp(id) {
     if (!phone) return false
@@ -1336,6 +1341,16 @@ Panel {
   function appWorking(app) { return !!phone && !!device && !!app && phone.isBusy("screen:" + device.id + ":" + app.package) }
   function forgetApp(app) {
     if (phone && device && app) phone.forgetApp(String(device.id), app.package)
+  }
+  function pinAppAt(app, at) {
+    if (!app) return
+    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, app.package, at) })
+  }
+  // A pinned app moved to another place (a drop, or Shift+H / Shift+L).
+  function movePinned(a, b) {
+    var list = sectionRows.pinned.map(function(x) { return x.package })
+    if (a < 0 || a >= list.length) return
+    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, list[a], b) })
   }
   function pinApp(app, on) {
     if (!app) return
@@ -1721,8 +1736,13 @@ Panel {
       if (focusSection === "actions") actionIndex = Math.max(0, Math.min(actions.length - 1, actionIndex + dx))
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
       else if (focusSection === "photos") photoIndex = Math.max(0, Math.min(photos.length - 1, photoIndex + dx))
-      else if (focusSection === "apps") appIndex = Math.max(0, Math.min(sectionApps.length, appIndex + dx))
+      else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
       return
+    }
+    // Apps: PINNED rows, then RECENT, before leaving the section.
+    if (focusSection === "apps" && !isCollapsed("apps")) {
+      var t = Model.cursorStep(appCursorRows, appIndex, 0, dy)
+      if (t >= 0) { appIndex = t; return }
     }
     // Photos are a grid of four; j/k walk its rows before leaving it.
     if (focusSection === "photos" && !isCollapsed("photos")) {
@@ -2368,6 +2388,7 @@ Panel {
           if (!appsView) return
           if (t === "/") appsView.focusSearch()
           else if (t === "p" && root.cursorActive) appsView.togglePin()
+          else if ((t === "H" || t === "L") && root.cursorActive) appsView.movePinnedKey(t === "H" ? -1 : 1)
           else if (t === "m") root.openMessagesView(-1)
           return
         }
@@ -2387,6 +2408,13 @@ Panel {
         // Editing: Shift+K / Shift+J move the section under the cursor.
         if (root.editing && (t === "K" || t === "J") && root.cursorActive) {
           sectionMove.step(root.drawnSections.indexOf(root.focusSection), t === "K" ? -1 : 1)
+          return
+        }
+        // On a pinned app: Shift+H / Shift+L move it among the pinned.
+        if ((t === "H" || t === "L") && root.mainView && root.cursorActive && root.focusSection === "apps"
+            && root.appIndex < root.sectionRows.pinned.length) {
+          sectionPins.step(root.appIndex, t === "H" ? -1 : 1)
+          root.appIndex = Math.max(0, Math.min(root.sectionRows.pinned.length - 1, root.appIndex + (t === "H" ? -1 : 1)))
           return
         }
         // Tabs (with two or more devices): 1-9, and Shift+H / Shift+L.
@@ -3643,38 +3671,16 @@ Panel {
                     motion: root.motion
                     animate: root.settled
                     open: !root.isCollapsed("apps") && !root.editing
+                    spacing: Style.space(6)
 
+                    // Nothing pinned or opened yet: what goes here, and All apps.
                     Row {
-                      id: appRow
+                      visible: root.sectionRows.pinned.length === 0 && root.sectionRows.recent.length === 0
                       width: parent.width
                       readonly property real cell: width / root.appColumns
-                      Repeater {
-                        model: root.sectionApps
-                        AppTile {
-                          required property var modelData
-                          required property int index
-                          width: appRow.cell
-                          app: modelData
-                          pinned: root.pinnedApps.indexOf(modelData.package) >= 0
-                          working: root.appWorking(modelData)
-                          here: root.cursorActive && root.focusSection === "apps" && root.appIndex === index
-                          glide: root.cursorGlide
-                          motion: root.motion
-                          foreground: root.foreground
-                          fontFamily: root.fontFamily
-                          onActivated: root.openApp(modelData)
-                          onPinToggled: root.pinApp(modelData, !pinned)
-                          // Shown because it was opened, not pinned: it can leave.
-                          canForget: !pinned
-                          onForgetRequested: root.forgetApp(modelData)
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
-                        }
-                      }
-                      // Nothing pinned or opened yet: what goes here.
                       Text {
-                        visible: root.sectionApps.length === 0
-                        width: appRow.width - appRow.cell
-                        height: allTile.implicitHeight
+                        width: parent.width - parent.cell
+                        height: hintAll.implicitHeight
                         verticalAlignment: Text.AlignVCenter
                         leftPadding: Style.space(6)
                         textFormat: Text.PlainText
@@ -3684,23 +3690,106 @@ Panel {
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
                       }
-                      // The rest: the All apps page.
-                      Item {
-                        width: appRow.cell
-                        height: allTile.implicitHeight
+                      AppTile {
+                        id: hintAll
+                        width: parent.cell
+                        canPin: false
+                        app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
+                        here: root.cursorActive && root.focusSection === "apps" && root.appIndex === 0
+                        glide: root.cursorGlide
+                        motion: root.motion
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onActivated: root.openAppsView()
+                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = 0 }
+                      }
+                    }
+
+                    PanelSectionHeader {
+                      visible: root.sectionRows.pinned.length > 0
+                      text: "PINNED"
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+                    AppPinRow {
+                      id: sectionPins
+                      visible: root.sectionRows.pinned.length > 0
+                      width: parent.width
+                      z: moving ? 2 : 0
+                      apps: root.sectionRows.pinned
+                      columns: root.appColumns
+                      allTile: root.sectionRows.recent.length === 0
+                      cursorAt: root.cursorActive && root.focusSection === "apps" ? root.appIndex : -1
+                      glide: root.cursorGlide
+                      motion: root.motion
+                      isWorking: function(app) { return root.appWorking(app) }
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      onActivated: function(app) { root.openApp(app) }
+                      onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i }
+                      onReordered: function(a, b) { root.movePinned(a, b) }
+                      onPinRequested: function(app, at) { root.pinAppAt(app, at) }
+                      onUnpinRequested: function(app) { root.pinApp(app, false) }
+                      onAllRequested: root.openAppsView()
+                    }
+
+                    PanelSectionHeader {
+                      visible: root.sectionRows.recent.length > 0
+                      text: "RECENT"
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                    }
+                    Row {
+                      id: recentRow
+                      visible: root.sectionRows.recent.length > 0
+                      width: parent.width
+                      readonly property real cell: width / root.appColumns
+                      readonly property int base: root.sectionRows.pinned.length
+                      Repeater {
+                        model: root.sectionRows.recent
                         AppTile {
-                          id: allTile
-                          anchors.fill: parent
-                          canPin: false
-                          app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
-                          here: root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
+                          id: recentTile
+                          required property var modelData
+                          required property int index
+                          width: recentRow.cell
+                          z: dragging ? 10 : 0
+                          property real followX: 0
+                          property real followY: 0
+                          transform: Translate {
+                            x: recentTile.followX
+                            y: recentTile.followY
+                            Behavior on x { enabled: !recentTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                            Behavior on y { enabled: !recentTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+                          }
+                          app: modelData
+                          working: root.appWorking(modelData)
+                          here: root.cursorActive && root.focusSection === "apps" && root.appIndex === recentRow.base + index
                           glide: root.cursorGlide
                           motion: root.motion
                           foreground: root.foreground
                           fontFamily: root.fontFamily
-                          onActivated: root.openAppsView()
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
+                          // Up into PINNED, where it is dropped (only while that row shows).
+                          dragEnabled: root.sectionRows.pinned.length > 0
+                          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; sectionPins.externalMove(modelData, at) }
+                          onDragEnded: function(at) { sectionPins.externalDrop(modelData, at); followX = 0; followY = 0 }
+                          onActivated: root.openApp(modelData)
+                          onPinToggled: root.pinApp(modelData, true)
+                          canForget: true
+                          onForgetRequested: root.forgetApp(modelData)
+                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index }
                         }
+                      }
+                      AppTile {
+                        width: recentRow.cell
+                        canPin: false
+                        app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
+                        here: root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
+                        glide: root.cursorGlide
+                        motion: root.motion
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onActivated: root.openAppsView()
+                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
                       }
                     }
                   }
@@ -4383,6 +4472,8 @@ Panel {
                 fontFamily: root.fontFamily
                 onOpenRequested: function(app) { root.openApp(app) }
                 onPinRequested: function(app, on) { root.pinApp(app, on) }
+                onPinAtRequested: function(app, at) { root.pinAppAt(app, at) }
+                onPinMoved: function(a, b) { root.movePinned(a, b) }
                 onForgetRequested: function(app) { root.forgetApp(app) }
                 onRefreshRequested: if (root.device) root.readAppsFor(String(root.device.id), true)
                 onHovered: root.cursorActive = true

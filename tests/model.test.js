@@ -971,9 +971,19 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
     { package: "com.example.bank", name: "Bank", system: false, opened: 0 }
   ]
   const names = list => list.map(a => a.name)
-  assert.deepEqual(names(M.appsForSection(apps, ["com.example.bank", "com.example.gone", "com.example.clock"], 4)), ["Bank", "Clock", "maps", "Settings"],
-                   "pinned in their order (an uninstalled one skipped), then recently opened")
-  assert.deepEqual(names(M.appsForSection(apps, [], 1)), ["maps"])
+  const rows = M.appSectionRows(apps, ["com.example.bank", "com.example.gone", "com.example.clock"], 5)
+  assert.deepEqual([names(rows.pinned), names(rows.recent)], [["Bank", "Clock"], ["maps", "Settings"]],
+                   "pinned in their order (an uninstalled one skipped); the recent ones not pinned")
+  assert.deepEqual(names(M.appSectionRows(apps, [], 2).recent), ["maps"], "one row, All apps last")
+  assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.c", 1), ["com.example.a", "com.example.c", "com.example.b"], "dropped between")
+  assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.a", 5), ["com.example.b", "com.example.a"], "already pinned: moved")
+  const grid = M.cursorRows([3, 2, 7], 3)
+  assert.deepEqual(grid, [[0, 1, 2], [3, 4], [5, 6, 7], [8, 9, 10], [11]], "each group a grid of its own")
+  assert.equal(M.cursorStep(grid, 2, 0, 1), 4, "down to a shorter row: its last")
+  assert.equal(M.cursorStep(grid, 4, 1, 0), 4, "sideways stays in its row")
+  assert.equal(M.cursorStep(grid, 1, 0, -1), -1, "up from the first row: out")
+  assert.equal(M.cursorStep(grid, 11, 0, 1), -1, "down from the last: out")
+  assert.equal(M.cursorStep(M.cursorRows([0, 3], 5), 0, 0, -1), -1, "no pinned row: up leaves")
   const page = M.appsForPage(apps, "")
   assert.deepEqual([names(page.recent), names(page.all)], [["maps", "Clock", "Settings"], ["Bank", "Clock", "École", "maps", "Settings"]],
                    "every app, the system's own too; A to Z, case aside")

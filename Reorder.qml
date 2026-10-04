@@ -121,6 +121,21 @@ Item {
   // How far item `i` slides aside for the moving one.
   function shift(i) { return Model.reorderShift(i, from, to, movingExtent + gap) }
 
+  // Ends a move without writing it: an item dragged in from elsewhere that
+  // went away (the others slide back), or one dragged out and taken away
+  // (`settled`: the others stay where they slid, the list is rebuilt there).
+  function cancel(settled) {
+    glide.stop()
+    gridGlide.stop()
+    committing = settled === true
+    from = -1
+    to = -1
+    offset = 0
+    offsetX = 0
+    offsetY = 0
+    committing = false
+  }
+
   // Writes the move once the item is in place; the items are rebuilt where
   // the new order puts them, which is where they already are.
   function commit() {

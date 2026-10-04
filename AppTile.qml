@@ -20,6 +20,12 @@ Item {
   property bool canPin: true
   property bool canForget: false      // a recent app: its ✕ takes it out of the recent ones
   property bool here: false           // the keyboard cursor is on it
+  // Draggable (to pin it, or to move it among the pinned): the owner moves
+  // it (`dragMoved` gives the pointer's travel and where it is, in the
+  // window) and decides what a drop does. A press that does not travel is
+  // a click.
+  property bool dragEnabled: false
+  readonly property bool dragging: mouse.dragging
   property Item glide: null
   property real motion: 1
   property real iconSize: Style.space(40)
@@ -29,6 +35,9 @@ Item {
   signal activated()
   signal pinToggled()
   signal forgetRequested()
+  signal dragStarted()
+  signal dragMoved(real dx, real dy, point at)
+  signal dragEnded(point at)
   signal hovered()
 
   readonly property bool hasIcon: !!app.icon && app.icon !== "none"
@@ -110,9 +119,24 @@ Item {
     id: mouse
     anchors.fill: parent
     hoverEnabled: true
-    cursorShape: Qt.PointingHandCursor
+    cursorShape: dragging ? Qt.ClosedHandCursor : Qt.PointingHandCursor
+    // Held by a drag: the page does not scroll under it.
+    preventStealing: tile.dragEnabled
+    property point pressAt
+    property bool dragging: false
+    property bool dragged: false
     onEntered: tile.hovered()
-    onClicked: tile.activated()
+    onPressed: function(m) { pressAt = mapToItem(null, m.x, m.y); dragging = false; dragged = false }
+    onPositionChanged: function(m) {
+      if (!pressed || !tile.dragEnabled) return
+      var p = mapToItem(null, m.x, m.y)
+      var dx = p.x - pressAt.x, dy = p.y - pressAt.y
+      if (!dragging && Math.abs(dx) + Math.abs(dy) > Style.space(8)) { dragging = true; dragged = true; tile.dragStarted() }
+      if (dragging) tile.dragMoved(dx, dy, p)
+    }
+    onReleased: function(m) { if (dragging) { dragging = false; tile.dragEnded(mapToItem(null, m.x, m.y)) } }
+    onCanceled: if (dragging) { dragging = false; tile.dragEnded(Qt.point(-1e6, -1e6)) }
+    onClicked: if (!dragged) tile.activated()
   }
 
   // Kept in the Apps section, or not: shown while hovered (and always for a
