@@ -977,6 +977,11 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   assert.deepEqual(names(M.appSectionRows(apps, [], 2).recent), ["maps"], "one row, All apps last")
   assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.c", 1), ["com.example.a", "com.example.c", "com.example.b"], "dropped between")
   assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.a", 5), ["com.example.b", "com.example.a"], "already pinned: moved")
+  const mixed = ["com.example.other1", "com.example.a", "com.example.other2", "com.example.b"]
+  assert.deepEqual(M.pinAppAt(mixed, "com.example.a", 1, ["com.example.a", "com.example.b"]), ["com.example.other1", "com.example.other2", "com.example.b", "com.example.a"],
+                   "places count the apps shown; another device's stay where they are")
+  assert.deepEqual(M.pinAppAt(mixed, "com.example.c", 0, ["com.example.a", "com.example.b"]), ["com.example.other1", "com.example.c", "com.example.a", "com.example.other2", "com.example.b"],
+                   "dropped first: before the first one shown")
   const grid = M.cursorRows([3, 2, 7], 3)
   assert.deepEqual(grid, [[0, 1, 2], [3, 4], [5, 6, 7], [8, 9, 10], [11]], "each group a grid of its own")
   assert.equal(M.cursorStep(grid, 2, 0, 1), 4, "down to a shorter row: its last")

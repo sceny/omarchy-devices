@@ -2028,10 +2028,17 @@ function appSectionRows(apps, pinned, columns) {
   }
 }
 
-// Pinned at a place (a drop), or moved there when it already is.
-function pinAppAt(pinned, pkg, at) {
+// Pinned at a place among the ones shown (a drop, a move), or moved there
+// when it already is. `shown`: the pinned packages the row draws, in order
+// (the list also keeps apps this device does not have, which stay where
+// they are); without it, every pinned one is shown.
+function pinAppAt(pinned, pkg, at, shown) {
   var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
-  keep.splice(Math.max(0, Math.min(keep.length, at)), 0, pkg)
+  var drawn = (shown || keep).filter(function(p) { return p !== pkg && keep.indexOf(p) >= 0 })
+  var k = Math.max(0, Math.min(drawn.length, at))
+  // Before the one it lands in front of, else just after the last one drawn.
+  var place = k < drawn.length ? keep.indexOf(drawn[k]) : (drawn.length > 0 ? keep.indexOf(drawn[drawn.length - 1]) + 1 : keep.length)
+  keep.splice(place, 0, pkg)
   return keep
 }
 

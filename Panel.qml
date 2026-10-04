@@ -1342,15 +1342,16 @@ Panel {
   function forgetApp(app) {
     if (phone && device && app) phone.forgetApp(String(device.id), app.package)
   }
+  // Places are among the pinned apps shown (this device's).
   function pinAppAt(app, at) {
     if (!app) return
-    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, app.package, at) })
+    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, app.package, at, sectionRows.pinned.map(function(x) { return x.package })) })
   }
   // A pinned app moved to another place (a drop, or Shift+H / Shift+L).
   function movePinned(a, b) {
     var list = sectionRows.pinned.map(function(x) { return x.package })
     if (a < 0 || a >= list.length) return
-    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, list[a], b) })
+    persistProfile({ pinnedApps: Model.pinAppAt(pinnedApps, list[a], b, list) })
   }
   function pinApp(app, on) {
     if (!app) return
