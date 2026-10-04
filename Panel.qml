@@ -2224,6 +2224,12 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
+    // What needs the user (the status, the gear's dot, the main page's
+    // line), and whether that line shows now.
+    function problems(): string {
+      return JSON.stringify({ count: root.settingsIssues, hint: problemsHint.open, line: Model.problemsLine(root.allProblems),
+                              problems: root.allProblems.map(function(p) { return { where: p.where === "computer" ? "computer" : "device", key: p.key, label: p.label } }) })
+    }
     // Demo only: a made-up caller ringing, or a call missed, on the viewed
     // device; "none" ends it.
     function demoCall(kind: string): string {
@@ -3491,10 +3497,15 @@ Panel {
               // ---- Something needs the user (Model.settingsProblems): one
               //      line at the top of the main page, to Settings' status,
               //      which lists them and fixes them ----
-              Button {
+              // It folds in at the plugin's pace: the first reading comes a
+              // moment after the panel opens.
+              FoldBody {
                 id: problemsHint
-                visible: root.showMain && !root.editing && root.settingsIssues > 0
-                width: parent.width
+                open: root.showMain && !root.editing && root.settingsIssues > 0
+                motion: root.motion
+                animate: root.settled
+              Button {
+                width: pageColumn.width
                 iconText: Model.GLYPH.alert
                 text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
                 tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
@@ -3503,6 +3514,7 @@ Panel {
                 fontFamily: root.fontFamily
                 fontSize: Style.font.bodySmall
                 onClicked: root.openSettings()
+              }
               }
               // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag
               //      the chosen ones, click to add or take one away. The pill

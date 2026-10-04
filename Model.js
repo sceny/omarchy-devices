@@ -2018,7 +2018,7 @@ function settingsPageRows(ctx) {
     // in place); here, whether they are the defaults, and the way there.
     var own = !ctx.single && ["layout", "bar", "shortcuts"].some(function(g) { return groupCustom(e.custom, g) })
     rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
-                hint: (ctx.single ? "" : own ? "Its own · " : "The defaults for all devices · ") + "edited on its page (✎, or right-click its chip in the bar)" })
+                hint: (ctx.single ? "Edited" : own ? "Its own · edited" : "The defaults for all devices · edited") + " on its page (✎, or right-click its chip in the bar)" })
     if (!ctx.single) ["layout", "bar", "shortcuts"].forEach(function(g) {
       if (groupCustom(e.custom, g))
         rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
