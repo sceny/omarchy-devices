@@ -1054,3 +1054,28 @@ test("settings: a device's page lists what it can do; This computer", () => {
   assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
   assert.equal(rows.find(r => r.kind === "connection").label, "This computer")
 })
+
+test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
+  const device = { notifications: [
+    { id: "a", app: "System UI", title: "1 more notification", ticker: "1 more notification", text: "", actions: [], replyId: "", dismissable: true },
+    { id: "b", app: "System UI", title: "USB debugging connected", text: "Tap to turn off", actions: [], dismissable: true },
+    { id: "c", app: "Messages", title: "Alex Rivera", text: "On my way", actions: ["Reply"], dismissable: true }
+  ] }
+  assert.deepEqual(M.visibleNotifications(device, []).map(n => n.id), ["b", "c"])
+})
+
+test("players: one paused as long as Android hides it is hidden (#33); a seek's pause never", () => {
+  assert.equal(M.playerHidden(0, 1e9), false, "playing")
+  assert.equal(M.playerHidden(1000, 1000 + 1500), false, "a seek's pause")
+  assert.equal(M.playerHidden(1000, 1000 + 9 * 60000), false)
+  assert.equal(M.playerHidden(1000, 1000 + 10 * 60000), true)
+})
+
+test("features: notifications gone quiet (#95) need attention, with the remedies in order", () => {
+  const report = Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 7 } })
+  const row = M.featureRows(report, null, [], "Pixel 8").find(r => r.key === "notifications")
+  assert.deepEqual([row.state, row.steps.map(s => s.fix.what)], ["attention", ["renotify", "relisten"]])
+  assert.match(row.steps[1].orAsk, /^Restart Pixel 8/)
+  const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, [], "Pixel 8").find(r => r.key === "notifications")
+  assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
+})

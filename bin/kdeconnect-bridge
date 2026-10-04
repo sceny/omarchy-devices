@@ -1701,11 +1701,31 @@ def device_features(device_id, conn=None, with_adb=False, status=None):
             out["files"]["error"] = str(call(conn, sftp, IFACE + ".device.sftp", "getMountError")[0] or "")
         except GLib.Error:
             pass
+    # How many notifications are here, and (with adb) how many the device
+    # holds: none here while it holds several is KDE Connect's listener gone
+    # quiet (#94, our #95).
+    try:
+        here = len(call(conn, path + "/notifications", IFACE + ".device.notifications", "activeNotifications")[0])
+    except GLib.Error:
+        here = None
+    out["notifications"] = {"here": here, "device": None}
     if with_adb:
         status = status or screen_status(device_id)
         if status.get("state") == "ready" and status.get("serial"):
             out["permissions"] = device_permissions(status["serial"])
+            out["notifications"]["device"] = device_notification_count(status["serial"])
     return out
+
+
+def device_notification_count(serial, run=None):
+    """How many notifications other apps have posted on the device (a count
+    only, read over adb; KDE Connect's own and System UI's left out)."""
+    run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
+    code, out = run(["dumpsys", "notification"])
+    if code != 0:
+        return None
+    pkgs = re.findall(r"NotificationRecord\([^)]*pkg=([\w.]+)", out or "")
+    return len([p for p in pkgs if p not in (KDECONNECT_ANDROID, "com.android.systemui", "android")])
 
 
 def set_plugin(device_id, plugin, on, conn=None):
@@ -1768,6 +1788,17 @@ def device_fix(what, device_id, arg=""):
             done.append(name)
         on = not arg.endswith("=off")
         return say("Turned %s for this device" % ("on" if on else "off"))
+    if what == "renotify":
+        # The notifications plugin off and on: made again, it asks the
+        # device for every notification it holds, so one dismissed there
+        # while its cancel was lost goes here too (#4).
+        try:
+            set_plugin(device_id, "notifications", False)
+            time.sleep(0.5)
+            set_plugin(device_id, "notifications", True)
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Its notifications read again")
     if what == "reload":
         try:
             call(bus(), device_path(device_id), IFACE + ".device", "reloadPlugins")
@@ -1789,6 +1820,17 @@ def device_fix(what, device_id, arg=""):
             return say("Not reachable over adb", EXIT_FAILED)
         code, out = adb(["-s", serial, "shell"] + screen)
         return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED)
+    if what == "relisten":
+        # KDE Connect's notification listener on the device, unbound and bound
+        # again: what a restart of the device does for it (#94, our #95).
+        if not serial:
+            return say("Not reachable over adb: restart the device instead", EXIT_FAILED)
+        code, user = adb(["-s", serial, "shell", "am", "get-current-user"])
+        user = user.strip() if code == 0 and user.strip().isdigit() else "0"
+        adb(["-s", serial, "shell", "cmd", "notification", "disallow_listener", LISTENER, user])
+        time.sleep(1)
+        code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
+        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED)
     if what == "wireless":
         # Over a USB cable adb works without Wireless debugging, and can turn
         # it back on (Android turns it off after a restart).

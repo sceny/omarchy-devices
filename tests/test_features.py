@@ -121,6 +121,16 @@ class RootPlans(unittest.TestCase):
         self.assertIsNone(bridge.root_plan("search"), "a fix without root has no plan")
 
 
+class NotificationCounts(unittest.TestCase):
+    def test_other_apps_only(self):
+        dump = ("NotificationRecord(0x1: pkg=com.example.chat user=UserHandle{0} id=1 tag=null)\n"
+                "NotificationRecord(0x2: pkg=com.example.mail user=UserHandle{0} id=2 tag=null)\n"
+                "NotificationRecord(0x3: pkg=org.kde.kdeconnect_tp user=UserHandle{0} id=3 tag=null)\n"
+                "NotificationRecord(0x4: pkg=com.android.systemui user=UserHandle{0} id=4 tag=null)\n")
+        self.assertEqual(bridge.device_notification_count("S", lambda args, timeout=15: (0, dump)), 2)
+        self.assertIsNone(bridge.device_notification_count("S", lambda args, timeout=15: (1, "")))
+
+
 class Mounts(unittest.TestCase):
     def test_a_dead_mount_is_asked_in_a_child_with_a_limit(self):
         ran = []

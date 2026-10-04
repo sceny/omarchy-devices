@@ -283,13 +283,36 @@ Item {
     if (reachable) {
       for (var i = 0; i < all.length; i++) {
         var p = all[i]
-        if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName)) out.push(p)
+        if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName) && !Model.playerHidden(pausedSince[String(p.dbusName)], Date.now())) out.push(p)
       }
       out.sort(function(a, b) { return String(a.identity || "").localeCompare(String(b.identity || "")) })
     }
     var same = out.length === players.length
     for (var j = 0; same && j < out.length; j++) same = out[j] === players[j]
     if (!same) players = out
+  }
+
+  // A player paused this long Android hides itself (its media controls
+  // go), while KDE Connect still reports it (#35, our #33): hidden here too,
+  // back as soon as it plays. Far longer than a seek's pause, so nothing
+  // blinks (the list changes only when that time is crossed).
+  property var pausedSince: ({})
+  Timer {
+    interval: 5000
+    repeat: true
+    running: root.reachable
+    onTriggered: {
+      var all = Mpris.players ? Mpris.players.values : []
+      var next = {}, now = Date.now()
+      for (var i = 0; i < all.length; i++) {
+        var p = all[i]
+        if (!p || !Model.isPhonePlayer(p.dbusName, p.identity, root.deviceName)) continue
+        var name = String(p.dbusName)
+        if (!p.isPlaying) next[name] = root.pausedSince[name] || now
+      }
+      root.pausedSince = next
+      root.updatePlayers()
+    }
   }
 
   onDeviceNameChanged: updatePlayers()
@@ -436,6 +459,12 @@ Item {
       var d = list[i], id = String(d.id)
       next[id] = d.reachable === true
       if (d.reachable === true && wasReachable[id] === false) {
+        // Back: its notifications read again while no panel shows them, so
+        // one dismissed there while the cancel was lost goes (#4).
+        if (openPanels === 0 && !demo) {
+          var renotify = silentComponent.createObject(root, { command: [bridge, "device-fix", "renotify", id] })
+          renotify.running = true
+        }
         var st = photoState[id]
         if (st && !st.ok) setPhotoState(id, Object.assign({}, st, { at: 0, error: "" }))
         if (openPanels > 0) { readFeatures(id); if (device && String(device.id) === id) Qt.callLater(function() { root.refreshPhotos(true) }) }
@@ -444,6 +473,11 @@ Item {
     wasReachable = next
   }
   property var wasReachable: ({})
+  // A fix run on its own (no click): nothing said, done or not.
+  Component {
+    id: silentComponent
+    Process { onExited: destroy() }
+  }
 
   // The phone may never answer (it went away mid-click): the limit still ends it.
   Timer {

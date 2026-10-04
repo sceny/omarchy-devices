@@ -885,9 +885,28 @@ function visibleNotifications(device, media) {
     if (!n) continue
     if (n.silent && !String(n.text || "").trim() && !String(n.title || "").trim()) continue
     if (isMediaNotification(n, players)) continue
+    if (isHiddenSummary(n)) continue
     out.push(n)
   }
   return out
+}
+
+// Android hides a player left paused this long (AOSP's MediaTimeoutListener):
+// so does the panel (KDE Connect #35, our #33).
+var PLAYER_HIDE_MS = 10 * 60 * 1000
+function playerHidden(pausedSinceMs, nowMs) {
+  return !!pausedSinceMs && nowMs - pausedSinceMs >= PLAYER_HIDE_MS
+}
+
+// One UI's own "1 more notification" (KDE Connect #51, our #52): a System
+// UI summary the phone's shade never shows. Nothing marks it but its shape:
+// from System UI, no text, no action, no reply, a count in its title.
+function isHiddenSummary(n) {
+  var app = String(n.app || "").trim().toLowerCase()
+  var fromSystemUi = app === "system ui" || notificationPackage(n) === "com.android.systemui"
+  if (!fromSystemUi) return false
+  if (String(n.text || "").trim() !== "" || (n.actions || []).length > 0 || n.replyId) return false
+  return /\d/.test(String(n.title || n.ticker || ""))
 }
 
 // A playback notification comes from an app that has a media player right
@@ -1215,6 +1234,16 @@ function featureState(f, report, screen, checks, deviceName) {
     row.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[k] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: k },
                      orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[k] })
   })
+  // None here while the device holds several (read over adb): KDE Connect's
+  // listener went quiet (#94, our #95). Read again, then its listener bound
+  // again on the device; else the device's restart.
+  var counts = report.notifications
+  if (f.key === "notifications" && counts && counts.here === 0 && counts.device !== null && counts.device >= 3) {
+    row.steps.push({ kind: "auto", label: "Read its notifications again", fix: { verb: "device", what: "renotify" } })
+    row.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" },
+                     orAsk: "Restart " + name + ": KDE Connect stopped sending its notifications" })
+    return done("attention", name + " has " + counts.device + " notifications; none arrive here")
+  }
   if (f.key === "gallery" && report.files && report.files.mounted === false && report.files.error) {
     row.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
     row.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" } })
