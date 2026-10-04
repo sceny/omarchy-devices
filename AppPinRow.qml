@@ -38,7 +38,7 @@ Item {
   readonly property int count: apps.length
   readonly property real cellWidth: (width - gap * (columns - 1)) / columns
   readonly property real cellHeight: probe.implicitHeight
-  readonly property bool moving: order.moving
+  readonly property bool moving: pinOrder.moving
   // Something is being dragged in: the box lights up.
   property bool incoming: false
   // A pinned tile dragged out of the row: let go, it is unpinned.
@@ -51,7 +51,7 @@ Item {
   AppTile { id: probe; visible: false; app: ({ name: "x" }) }
 
   Reorder {
-    id: order
+    id: pinOrder
     columns: row.columns
     cellWidth: row.cellWidth
     cellHeight: row.cellHeight
@@ -63,7 +63,7 @@ Item {
   }
 
   // Shift+H / Shift+L on a pinned tile.
-  function step(i, delta) { if (i >= 0 && i < count) order.step(i, delta) }
+  function step(i, delta) { if (i >= 0 && i < count) pinOrder.step(i, delta) }
 
   // Where a point (in the window) falls in the row: a slot, or -1 when it
   // is not over the row.
@@ -86,16 +86,16 @@ Item {
     if (slot < 0) { externalCancel(); return false }
     if (!incoming) {
       incoming = true
-      order.begin(count, cellWidth)
+      pinOrder.begin(count, cellWidth)
     }
-    order.to = slot
+    pinOrder.to = slot
     return true
   }
   // Dropped: pinned where the gap was (true), or not over the row (false).
   function externalDrop(app, at) {
     if (!incoming) return false
-    var slot = order.to
-    order.cancel(true)
+    var slot = pinOrder.to
+    pinOrder.cancel(true)
     incoming = false
     if (slotAt(at) < 0) return false
     pinRequested(app, slot)
@@ -103,7 +103,7 @@ Item {
   }
   function externalCancel() {
     if (!incoming) return
-    order.cancel(false)
+    pinOrder.cancel(false)
     incoming = false
   }
 
@@ -138,9 +138,9 @@ Item {
       x: slot.x
       y: slot.y
       width: row.cellWidth
-      z: order.from === index ? 10 : 0
-      transform: ReorderShift { order: order; index: pinTile.index }
-      opacity: order.from === index && row.outside ? 0.45 : 1
+      z: pinOrder.from === index ? 10 : 0
+      transform: ReorderShift { order: pinOrder; index: pinTile.index }
+      opacity: pinOrder.from === index && row.outside ? 0.45 : 1
       Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * row.motion } }
       app: modelData
       pinned: true
@@ -154,18 +154,18 @@ Item {
       onActivated: row.activated(modelData)
       onPinToggled: row.unpinRequested(modelData)
       onHovered: row.hovered(index)
-      onDragStarted: { row.outside = false; order.begin(index, row.cellWidth) }
+      onDragStarted: { row.outside = false; pinOrder.begin(index, row.cellWidth) }
       onDragMoved: function(dx, dy, at) {
         row.outside = row.slotAt(at) < 0
-        if (row.outside) { order.offsetX = dx; order.offsetY = dy; order.to = order.count - 1 }
-        else order.dragBy(dx, dy)
+        if (row.outside) { pinOrder.offsetX = dx; pinOrder.offsetY = dy; pinOrder.to = pinOrder.count - 1 }
+        else pinOrder.dragBy(dx, dy)
       }
       onDragEnded: function(at) {
         if (row.slotAt(at) < 0) {
           row.outside = false
-          order.cancel(true)
+          pinOrder.cancel(true)
           row.unpinRequested(modelData)
-        } else order.release()
+        } else pinOrder.release()
       }
     }
   }
