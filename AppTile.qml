@@ -142,7 +142,7 @@ Item {
   // Kept in the Apps section, or not: shown while hovered (and always for a
   // pinned one under the keys, so `p` has something to show).
   PanelActionButton {
-    visible: tile.canPin && (tile.hot || pinFlash.running)
+    visible: tile.canPin && (tile.hot || pinFlash.running) && !tile.dragging
     anchors.top: parent.top
     anchors.right: parent.right
     size: Style.space(18)
@@ -156,7 +156,7 @@ Item {
 
   // Out of the recent ones (x), shown while hovered.
   PanelActionButton {
-    visible: tile.canForget && tile.hot
+    visible: tile.canForget && tile.hot && !tile.dragging
     anchors.top: parent.top
     anchors.left: parent.left
     size: Style.space(18)
