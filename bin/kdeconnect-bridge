@@ -1443,7 +1443,27 @@ def pkg_add(packages):
             os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
 
 
+# What each install fix puts on this computer, so several go in one prompt
+# (`fix packages sshfs,screen`: Fix what I can).
+def fix_packages(key):
+    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
+
+
 def fix(what):
+    if what.startswith("packages"):
+        keys = [k for k in what.partition(" ")[2].replace(",", " ").split() if fix_packages(k)]
+        if not keys:
+            return say("Nothing to install", EXIT_FAILED)
+        cmd = pkg_add([p for k in keys for p in fix_packages(k)])
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return say(str(error), EXIT_FAILED)
+        if out.returncode in (126, 127):
+            return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
+        if out.returncode != 0:
+            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+        return say("Installed: " + ", ".join(p for k in keys for p in fix_packages(k)))
     if what == "search":
         # What `kdeconnect-cli --refresh` does: the daemon announces itself on
         # every network, and a device that hears it connects back. Nothing on
@@ -4093,7 +4113,7 @@ def main(argv):
         print(json.dumps(doctor()))
         return EXIT_OK
     if argv[0] == "fix":
-        return fix(argv[1] if len(argv) > 1 else "")
+        return fix(" ".join(argv[1:]) if len(argv) > 2 and argv[1] == "packages" else (argv[1] if len(argv) > 1 else ""))
     if argv[0] == "features":
         if len(argv) < 2:
             return say("features needs a device id", EXIT_FAILED)
