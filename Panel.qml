@@ -1343,6 +1343,14 @@ Panel {
     if (appsView) appsView.reset()
     readAppsFor(String(device.id))
   }
+  // For checks (IPC appsInfo): the section, the page, the cursor.
+  function appsInfo() {
+    return JSON.stringify({ open: appsOpen, count: allApps.length, state: appList ? appList.state : "",
+                            section: sectionApps.map(function(a) { return a.name }), pinned: pinnedApps,
+                            cursor: appsOpen && appsView ? (appsView.stops[appsView.cursor] || {}).name || "" : (focusSection === "apps" ? appIndex : -1),
+                            shown: appsView ? appsView.page.all.length : 0, system: appsView ? appsView.showSystem : false,
+                            sound: device ? appSoundFor(String(device.id)) : "" })
+  }
   function closeAppsView() {
     appsOpen = false
     if (panelFlick) panelFlick.contentY = 0
@@ -2042,7 +2050,11 @@ Panel {
     // The arrows, as pressed (dx, dy each -1, 0 or 1): never Enter, so a
     // check cannot open anything into a text field.
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
-    function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, open: root.opened }) }
+    function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, apps: root.appsOpen, open: root.opened }) }
+    function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
+    function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
+    function appsInfo(): string { return root.appsInfo() }
+    function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
     // Checks while editing, as a click or a drag would: a section's switch, a
