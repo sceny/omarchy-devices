@@ -2640,7 +2640,7 @@ Panel {
               required property string modelData
               width: rootColumn.width
               textFormat: Text.PlainText
-              wrapMode: Text.WrapAnywhere
+              wrapMode: Text.Wrap
               text: "• " + modelData
               color: root.foreground
               font.family: root.fontFamily
