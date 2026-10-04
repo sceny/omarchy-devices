@@ -21,6 +21,31 @@ GitHub release with these notes.
   with a search, and a notification's window button that opens its app.
   An app's sound plays here or stays on the phone.
 
+- **Setup that just works** ([#126](https://github.com/sceny/omarchy-devices/issues/126),
+  [#121](https://github.com/sceny/omarchy-devices/issues/121),
+  [#63](https://github.com/sceny/omarchy-devices/issues/63)): a device's
+  page says what it can do, a row per feature, and one click does every
+  step the plugin can (KDE Connect's part, a permission on the phone over
+  adb, a package), then says the one left to you. Features can be turned
+  off per device. Connection is now *This computer*, with *Fix what I can*.
+  KDE Connect's own settings window is no longer needed.
+- **A password only for what is shown:** a card says why and lists every
+  package and firewall rule before the prompt; nothing else runs with it,
+  and nothing installed is ever downgraded.
+- **Recovers by itself:** the gallery after a phone restart
+  ([#99](https://github.com/sceny/omarchy-devices/issues/99)), notifications
+  dismissed while a device was away
+  ([#4](https://github.com/sceny/omarchy-devices/issues/4)) and ones that
+  stopped after pairing again ([#95](https://github.com/sceny/omarchy-devices/issues/95));
+  the screen re-docks at once after Super+O.
+- **What the phone hides stays hidden:** One UI's "1 more notification"
+  ([#52](https://github.com/sceny/omarchy-devices/issues/52)) and a player
+  paused long enough for Android to hide it
+  ([#33](https://github.com/sceny/omarchy-devices/issues/33)).
+- **Diagnose** ([#101](https://github.com/sceny/omarchy-devices/issues/101)):
+  beside an error, your coding agent looks into it with you, with the
+  plugin's guide for agents.
+
 ## 0.7.0 — 2026-10-02
 
 ### Highlights
