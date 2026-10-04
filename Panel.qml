@@ -335,8 +335,10 @@ Panel {
     // waiting window while it fades over the real one); opened again, the
     // card is the page from the start.
     if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
-    else screenWaitOpen = ""
-    else if (screenOpening) openingGone.restart()
+    else {
+      screenWaitOpen = ""   // closed: no longer waiting to open the screen
+      if (screenOpening) openingGone.restart()
+    }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
