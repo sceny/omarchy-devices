@@ -738,7 +738,7 @@ Panel {
   function readAllFeatures() {
     if (!phone) return
     pairedDevices.forEach(function(d) { if (d.reachable === true) phone.readFeatures(String(d.id)) })
-    if (device && device.reachable === true && screenInstalled && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
+    if (device && device.reachable === true && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
   }
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
