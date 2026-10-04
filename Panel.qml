@@ -2186,6 +2186,11 @@ Panel {
     function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
     function appsInfo(): string { return root.appsInfo() }
     function pressHeaderButton(): string { root.headerButton(); return root.targetPage }
+    // For checks: the card a password fix shows first (nothing runs until
+    // Continue); cancelRoot puts it away.
+    function askRoot(what: string): string { if (root.phone) root.phone.askRoot(what, null); return "asked" }
+    function cancelRoot(): string { if (root.phone) root.phone.cancelRoot(); return "cancelled" }
+    function rootAsk(): string { return JSON.stringify(root.phone ? root.phone.rootAsk : null) }
     function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
     function pressDelete(): string { keyCatcher.deleteRequested(); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
