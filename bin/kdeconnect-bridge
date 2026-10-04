@@ -855,6 +855,19 @@ def make_thumb(src, dst, video=False):
         return False
 
 
+def mount_alive(path, run=None):
+    """A mount that answers (a timed stat): a dead sshfs left behind (KDE
+    Connect #98) hangs whoever reads it, so it is asked in a child, with a
+    limit, never by this process."""
+    run = run or subprocess.run
+    if not path:
+        return False
+    try:
+        return run(["timeout", "3", "stat", "-c", "%i", path], capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def photos(device_id, count=PHOTO_COUNT):
     """The device's newest photos and videos as JSON: {ok, photos, albums}
     or {ok: false, missing: "sshfs"} or {ok: false, error}."""
@@ -870,6 +883,14 @@ def photos(device_id, count=PHOTO_COUNT):
             error = call(conn, path, iface, "getMountError")[0]
             return {"ok": False, "error": error or "The device did not allow its storage"}
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
+        point = call(conn, path, iface, "mountPoint")[0]
+        # Mounted, but not answering (the phone restarted under it): mounted
+        # again once, before giving up; never listed while dead.
+        if not mount_alive(point):
+            if not remount(device_id, conn) or not mount_alive(call(conn, path, iface, "mountPoint")[0]):
+                return {"ok": False, "dead": True,
+                        "error": "Its storage stopped answering (a mount left behind): try again, or restart KDE Connect"}
+            roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
     cache = photos_cache(device_id)

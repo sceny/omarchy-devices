@@ -4395,8 +4395,13 @@ Panel {
                         Layout.fillWidth: true
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
+                        // What went wrong, in its own words: sshfs missing, a
+                        // mount left behind, or what KDE Connect said.
                         text: root.photoInfo && root.photoInfo.missing === "sshfs"
                           ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
+                          : root.photoInfo && root.photoInfo.dead ? root.photoInfo.error
+                          : root.photoInfo && root.photoInfo.error && !/allow|permission|denied/i.test(root.photoInfo.error)
+                            ? "The gallery could not read " + Model.deviceLabel(root.device) + ": " + root.photoInfo.error
                           : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
                         color: root.dim
                         font.family: root.fontFamily
@@ -4416,6 +4421,17 @@ Panel {
                           if (root.photoInfo && root.photoInfo.missing === "sshfs") root.phone.fixSetup("sshfs")
                           else root.phone.refreshPhotos(true)
                         }
+                      }
+                      // A mount left behind clears with KDE Connect's restart
+                      // (#98): on a click, no password.
+                      Button {
+                        visible: !!root.photoInfo && root.photoInfo.dead === true
+                        text: root.phone && root.phone.isBusy("fix:restart") ? "Restarting…" : "Restart KDE Connect"
+                        tooltipText: "Its devices reconnect in a few seconds"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: if (root.phone && root.device) root.phone.runSteps(String(root.device.id), [{ kind: "auto", fix: { verb: "fix", what: "restart" } }], "fix:restart")
                       }
                     }
 

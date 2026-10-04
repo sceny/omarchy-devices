@@ -425,7 +425,25 @@ Item {
     if (changed) waits = next
   }
 
-  onSnapshotChanged: if (Object.keys(waits).length > 0) checkWaits()
+  onSnapshotChanged: {
+    if (Object.keys(waits).length > 0) checkWaits()
+    // A device back (a phone restarted, back on the Wi-Fi): a gallery that
+    // failed reads again at once, not after its 10 minutes, and its
+    // features are read again.
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    var next = {}
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i], id = String(d.id)
+      next[id] = d.reachable === true
+      if (d.reachable === true && wasReachable[id] === false) {
+        var st = photoState[id]
+        if (st && !st.ok) setPhotoState(id, Object.assign({}, st, { at: 0, error: "" }))
+        if (openPanels > 0) { readFeatures(id); if (device && String(device.id) === id) Qt.callLater(function() { root.refreshPhotos(true) }) }
+      }
+    }
+    wasReachable = next
+  }
+  property var wasReachable: ({})
 
   // The phone may never answer (it went away mid-click): the limit still ends it.
   Timer {

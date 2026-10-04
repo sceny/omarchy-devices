@@ -121,5 +121,15 @@ class RootPlans(unittest.TestCase):
         self.assertIsNone(bridge.root_plan("search"), "a fix without root has no plan")
 
 
+class Mounts(unittest.TestCase):
+    def test_a_dead_mount_is_asked_in_a_child_with_a_limit(self):
+        ran = []
+        class Out:
+            returncode = 1
+        self.assertFalse(bridge.mount_alive("/run/user/1/x", run=lambda cmd, **kw: ran.append(cmd) or Out()))
+        self.assertEqual(ran[0][:2], ["timeout", "3"])
+        self.assertFalse(bridge.mount_alive(""), "no mount point")
+
+
 if __name__ == "__main__":
     unittest.main()
