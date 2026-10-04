@@ -146,7 +146,7 @@ Item {
       app: modelData
       pinned: true
       working: row.isWorking(modelData)
-      here: row.cursorAt === index
+      here: row.visible && row.cursorAt === index
       glide: row.glide
       motion: row.motion
       foreground: row.foreground
@@ -184,7 +184,7 @@ Item {
     width: row.cellWidth
     canPin: false
     app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
-    here: row.cursorAt === row.count
+    here: row.visible && row.allTile && row.cursorAt === row.count
     glide: row.glide
     motion: row.motion
     foreground: row.foreground

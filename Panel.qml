@@ -3666,7 +3666,8 @@ Panel {
                           canPin: false
                           app: Object.assign({}, modelData, { name: "" })
                           working: root.appWorking(modelData)
-                          here: root.cursorActive && root.focusSection === "apps" && root.appIndex === index
+                          // Only folded: the open section's own tiles hold the cursor then.
+                          here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === index
                           glide: root.cursorGlide
                           motion: root.motion
                           foreground: root.foreground
@@ -3706,7 +3707,7 @@ Panel {
                         width: parent.cell
                         canPin: false
                         app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
-                        here: root.cursorActive && root.focusSection === "apps" && root.appIndex === 0
+                        here: parent.visible && root.cursorActive && root.focusSection === "apps" && root.appIndex === 0
                         glide: root.cursorGlide
                         motion: root.motion
                         foreground: root.foreground
@@ -3798,7 +3799,7 @@ Panel {
                         width: recentRow.cell
                         canPin: false
                         app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
-                        here: root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
+                        here: visible && root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
                         glide: root.cursorGlide
                         motion: root.motion
                         foreground: root.foreground
