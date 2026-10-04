@@ -16,9 +16,10 @@ GitHub release with these notes.
   the screen opens by itself once it is on again.
 - **Apps** ([#116](https://github.com/sceny/omarchy-devices/issues/116)):
   the phone's apps, each in a window of its own, tiled, with their real
-  icons. An Apps section (pinned, then recently opened), an All apps page
-  with a search, and a notification's window button
-  that opens its app. An app's sound plays here or stays on the phone.
+  icons. An Apps section with Pinned and Recent rows (drag an app into
+  Pinned to pin it, drag to reorder, drag out to unpin), an All apps page
+  with a search, and a notification's window button that opens its app.
+  An app's sound plays here or stays on the phone.
 
 ## 0.7.0 — 2026-10-02
 
