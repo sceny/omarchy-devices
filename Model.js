@@ -1073,14 +1073,16 @@ function shortcutsSummary(order) {
 
 // ---- Connection: this computer, pairing, adding a device ----
 
-// The doctor's checks that are about this computer (the Connection page);
-// its paired and connected checks are the devices' own pages' business.
-var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen"]
+// The doctor's checks that are about this computer (the This computer
+// page); its paired and connected checks are the devices' own pages'
+// business, and so is anything a device must do (Wireless debugging, a
+// permission): a problem shows once, where its cause is.
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen", "sshfs"]
 // Short names: the status beside each says the rest ("Running", "Closed").
 // One row per thing on this computer, named after it: a service's checks
 // (KDE Connect: installed, running) become one row that says which state it
 // is in, so other services (Bluetooth, scrcpy) can each have theirs.
-var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen and apps" }
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
 
 function computerChecks(checks) {
   var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
@@ -1105,30 +1107,28 @@ function connectionIssues(checks, ignored) {
   return computerChecks(checks).filter(function(c) { return !c.ok && !c.optional && skip.indexOf(c.key) < 0 }).length
 }
 
-// The Connection row's pills: what this computer can do, one per thing.
-// "on" works; "off" is an optional feature not set up yet (more can be
+// The This computer row's pills: what this computer has, one per thing.
+// "on" works; "off" is an optional package not installed (more can be
 // done, nothing is wrong); "fail" is a required check failing, the only
-// state that lights the gear's dot (an ignored one reads "off"). The
-// Screen is on only once the viewed device's is ready, not when scrcpy is
-// merely installed. `screenReady`: that device's state is "ready".
-var PILL_LABELS = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen" }
-function connectionPills(checks, ignored, screenReady) {
+// state that lights the gear's dot (an ignored one reads "off"). Whether
+// a device's screen is set up is that device's business, not a pill here.
+var PILL_LABELS = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
+function connectionPills(checks, ignored) {
   var skip = ignored || []
   return computerChecks(checks).map(function(c) {
     var state = c.ok ? "on" : (c.optional || skip.indexOf(c.key) >= 0 ? "off" : "fail")
-    if (c.key === "screen" && c.ok && screenReady !== true) state = "off"
     return { key: c.key, label: PILL_LABELS[c.key] || CHECK_NAMES[c.key] || c.label, state: state }
   })
 }
 
 // One line under the pills, or in their place in a tooltip: what is to fix,
 // else how much more can be set up, else that everything is on.
-function connectionSummary(checks, ignored, screenReady) {
+function connectionSummary(checks, ignored) {
   var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
   var n = connectionIssues(checks, ignored)
   if (n > 0) return n === 1 ? "1 to fix" : n + " to fix"
-  var off = connectionPills(checks, ignored, screenReady).filter(function(p) { return p.state === "off" }).length
+  var off = connectionPills(checks, ignored).filter(function(p) { return p.state === "off" }).length
   return off === 0 ? "Everything on" : (off === 1 ? "1 more to set up" : off + " more to set up")
 }
 
@@ -1136,18 +1136,17 @@ function connectionSummary(checks, ignored, screenReady) {
 // checks (status icon, name, short status, one action; a failing one can be
 // ignored). It checks what exists; Add a device (addDeviceRows) makes a new
 // pairing.
-function connectionRows(checks, ignored, screenReady) {
+function connectionRows(checks, ignored) {
   var skip = ignored || []
-  var rows = computerChecks(checks).map(function(c) {
+  return computerChecks(checks).map(function(c) {
     var row = { kind: "check", key: c.key, ok: !!c.ok, optional: !!c.optional, ignored: !c.ok && !c.optional && skip.indexOf(c.key) >= 0,
              label: CHECK_NAMES[c.key] || c.label, status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
-    // Installed is half of it: on once the device's own steps are done.
-    if (c.key === "screen" && c.ok)
-      Object.assign(row, screenReady === true ? { status: "On", fix: "" } : { ok: false, status: "Not set up on the device" })
+    // Installed is all this computer does for it: a device's own steps are
+    // on that device's page.
+    if (c.ok && (c.key === "screen" || c.key === "sshfs")) Object.assign(row, { status: "Installed", fix: "" })
     return row
   })
-  return rows
 }
 
 // The Add a device page's rows: devices asking to pair, then devices in
@@ -1205,7 +1204,10 @@ function featureState(f, report, screen, checks, deviceName) {
     var st = screen ? screen.state : "checking"
     if (st === "ready") return done("on", screen.line || "")
     if (st === "checking") return done("setup", "Looking…")
-    if (st === "tools") row.steps.push({ kind: "auto", label: "Install scrcpy and adb (asks for your password)", fix: { verb: "fix", what: "screen" } })
+    if (st === "tools") {
+      row.steps.push({ kind: "computer", label: "Install scrcpy and adb on this computer", page: "connection" })
+      return done("setup", "Needs scrcpy and adb on this computer")
+    }
     row.steps.push({ kind: "ask", label: screen ? screen.line : "Set up on its page", page: "screen" })
     return done(st === "off" || st === "away" ? "attention" : "setup", screen ? screen.line : "")
   }
@@ -1225,7 +1227,11 @@ function featureState(f, report, screen, checks, deviceName) {
   if (f.computer) {
     var c = (checks || []).filter(function(x) { return x.key === f.computer })[0]
     var has = f.computer === "sshfs" ? !!(report.files && report.files.sshfs) : !!(c && c.ok)
-    if (!has) row.steps.push({ kind: "auto", label: "Install " + f.computer + " (asks for your password)", fix: { verb: "fix", what: f.computer } })
+    // This computer's: it shows there, with its fix; here, where it is.
+    if (!has) {
+      row.steps.push({ kind: "computer", label: "Install " + f.computer + " on this computer", page: "connection" })
+      return done("setup", "Needs " + f.computer + " on this computer")
+    }
   }
   var perms = report.permissions
   var missing = (f.permissions || []).filter(function(k) { return perms && perms[k] === false })
@@ -1250,8 +1256,7 @@ function featureState(f, report, screen, checks, deviceName) {
     return done("attention", "Its storage did not mount: " + report.files.error)
   }
   if (row.steps.length > 0) {
-    var allowed = missing.length > 0 ? "Needs " + missing.map(function(k) { return PERMISSION_NAMES[k] }).join(" and ") : "Needs " + f.computer + " here"
-    return done("setup", allowed)
+    return done("setup", "Needs " + missing.map(function(k) { return PERMISSION_NAMES[k] }).join(" and "))
   }
   return done("on", "")
 }
@@ -1972,63 +1977,93 @@ function devicesListRows(snapshot, settings, lowPercent) {
 function settingsPageRows(ctx) {
   var rows = []
   var scope = ctx.scope || "root"
+  var problems = ctx.problems || []
   if (scope === "root") {
-    if (!ctx.single) (ctx.devices || []).forEach(function(r) { rows.push(r) })
-    else (ctx.devices || []).forEach(function(r) { if (r.kind !== "device") rows.push(r) })
+    // One shape whatever the count: the status, My devices (every device,
+    // the one in view too; asking to pair; Add a device), For all devices
+    // (with two or more: with one, its own layout is the defaults), and
+    // This computer.
+    problems.forEach(function(p) { rows.push(Object.assign({ kind: "problem" }, p)) })
+    ;(ctx.devices || []).forEach(function(r) {
+      if (r.kind === "available") return   // Add a device lists those
+      if (r.kind !== "device") { rows.push(r); return }
+      var n = problems.filter(function(p) { return p.where === r.id }).length
+      rows.push(Object.assign({}, r, { issues: n, status: n > 0 ? r.status + " · " + n + (n === 1 ? " needs attention" : " need attention") : r.status }))
+    })
+    rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair it, then turn on what it can do" })
+    if (!ctx.single)
+      rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
+    rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
+                pills: ctx.connectionPills || [],
+                issues: problems.filter(function(p) { return p.where === "computer" }).length })
+    return rows
   }
-  var identity = ctx.identity && (scope === "device" || (scope === "root" && ctx.single))
-  if (identity) {
-    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
-    rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
-    if (scope === "device") {
-      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
-      rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
+  // A panel torn down mid-reload can ask with nothing to edit.
+  var e = ctx.edit || resolveProfile(readSettings({}), null, true)
+  if (scope === "device") {
+    if (ctx.identity) {
+      rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
+      rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
+      // Where it shows among others: nothing to choose with one device.
+      if (!ctx.single) {
+        rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
+        rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
+      }
     }
-  }
-  if (scope === "root" && !ctx.single) {
-    rows.push({ kind: "defaults", key: "defaults", label: "Defaults for all devices", hint: "Sections, bar and shortcuts for devices that did not change them, and for new ones" })
-  } else {
-    // A panel torn down mid-reload can ask with nothing to edit.
-    var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
-                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
-    // A device's page (and the one-device page) edits its sections,
-    // shortcuts and bar on the page itself (edit in place): here, a row
-    // that opens that. The defaults, with no page of their own, keep them.
-    var onPage = scope === "device" || (scope === "root" && ctx.single)
-    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
-                            hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
     // What it can do (docs/design/setup.md): a row per feature, its state
     // and its one action; Screen and apps' row opens its page.
-    if (onPage && ctx.features) ctx.features.forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
-    else if (onPage) rows.push({ kind: "screen", key: "screen", label: "Screen and apps",
-                                 hint: "Its screen, and its apps each in a window, here (scrcpy)" })
-    base.forEach(function(r) {
-      // The Devices section is gone from the main page (tabs, the pairing
-      // card and this list do its work); the kdeconnect row stays at root.
-      if (r.kind === "layout" && r.section === "devices") return
-      if (r.kind === "kdeconnect" || r.kind === "reset") return
-      if (onPage && (r.kind === "layout" || r.kind === "shortcut" || r.kind === "bar" || r.kind === "barFlag")) return
-      rows.push(r)
+    if (ctx.features) ctx.features.forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
+    else rows.push({ kind: "screen", key: "screen", label: "Screen and apps", hint: "Its screen, and its apps each in a window, here (scrcpy)" })
+    // Its sections, shortcuts and bar are edited on the page itself (edit
+    // in place); here, whether they are the defaults, and the way there.
+    var own = !ctx.single && ["layout", "bar", "shortcuts"].some(function(g) { return groupCustom(e.custom, g) })
+    rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
+                hint: (ctx.single ? "" : own ? "Its own · " : "The defaults for all devices · ") + "edited on its page (✎, or right-click its chip in the bar)" })
+    if (!ctx.single) ["layout", "bar", "shortcuts"].forEach(function(g) {
+      if (groupCustom(e.custom, g))
+        rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
+                    hint: "This device changed it; the defaults apply again" })
     })
-    if (scope === "device") {
-      ["layout", "bar", "shortcuts"].forEach(function(g) {
-        if (groupCustom(e.custom, g))
-          rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
-                      hint: "This device changed it; the defaults apply again" })
-      })
-      rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
-    } else if (!onPage) {
-      rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
-    }
+    rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
+    return rows
   }
-  if (scope === "root") {
-    rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
-                pills: ctx.connectionPills || [] })
-    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "Pair it, then turn on what it can do" })
-    // No KDE Connect settings row: the plugin sets up what its app would.
-  }
+  // For all devices: the groups as settings rows (the defaults have no page
+  // of their own to edit them on).
+  var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
+                          e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
+  base.forEach(function(r) {
+    if (r.kind === "layout" && r.section === "devices") return
+    if (r.kind === "kdeconnect") return
+    rows.push(r)
+  })
   return rows
+}
+
+// What needs the user, each problem once, where its cause is: this
+// computer's failing checks (not ignored, not optional), then each
+// device's features in trouble (a feature that needs attention, or a fix
+// that did not work). `devices`: [{ id, title, rows }] (rows: Panel's
+// featureRowsFor). The status at the top of Settings, the gear's dot and
+// the main page's line all count these.
+function settingsProblems(checks, ignored, devices) {
+  var out = []
+  connectionRows(checks, ignored).forEach(function(c) {
+    if (!c.ok && !c.optional && !c.ignored)
+      out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : "") })
+  })
+  ;(devices || []).forEach(function(d) {
+    ;(d.rows || []).forEach(function(r) {
+      if (r.problem) out.push({ where: String(d.id), whereLabel: d.title, key: r.key, label: r.label,
+                                detail: r.pending && r.pending.failed ? r.pending.text : (r.detail || "") })
+    })
+  })
+  return out
+}
+
+// The status's one line: all well, or how many need the user.
+function problemsLine(problems) {
+  var n = (problems || []).length
+  return n === 0 ? "Everything works" : n === 1 ? "1 thing needs you" : n + " things need you"
 }
 
 // The entry with a new device order. A device whose place in the bar only

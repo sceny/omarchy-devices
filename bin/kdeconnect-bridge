@@ -1450,6 +1450,13 @@ def doctor():
                    "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
                    # Installed: the next step is on a device, so it leads there.
                    "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else "Install"})
+    # Optional too: only the gallery needs it (KDE Connect's sftp mounts
+    # through sshfs).
+    sshfs = shutil.which("sshfs") is not None
+    checks.append({"key": "sshfs", "ok": sshfs, "optional": True, "label": "Gallery tools",
+                   "status": "Installed" if sshfs else "Not installed",
+                   "detail": "" if sshfs else "A device's photos and videos here: sshfs",
+                   "fix": "" if sshfs else "sshfs", "fixLabel": "" if sshfs else "Install"})
     return {"checks": checks, "network": lan, "firewall": fw}
 
 

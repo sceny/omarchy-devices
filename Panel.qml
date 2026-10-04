@@ -165,6 +165,12 @@ Panel {
   // list from one of its pages; forward otherwise.
   function directionTo(target) {
     if (target === "main") return -1
+    // From one device's page to another's (the tabs): the way the tabs go.
+    // Back from Screen and apps to its device's page.
+    var from = shownPage.indexOf("settings/") === 0 ? shownPage.slice(9) : "", to = target.indexOf("settings/") === 0 ? target.slice(9) : ""
+    var ids = tabDevices.map(function(d) { return String(d.id) })
+    if (ids.indexOf(from) >= 0 && ids.indexOf(to) >= 0) return ids.indexOf(to) >= ids.indexOf(from) ? 1 : -1
+    if (from === "screen:" + to) return -1
     return target === "settings/root" && shownPage.indexOf("settings/") === 0 ? -1 : 1
   }
   // +1 moves forward (the new page comes in from the right), -1 goes back.
@@ -706,15 +712,31 @@ Panel {
     if (what === "features") list = featureRowsFor(featureDevice()).filter(function(r) { return r.problem || r.state === "setup" }).map(aiProblem)
     else if (what === "feature") list = [aiProblem(settingsRows[index])]
     else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
+    else if (what === "all") list = allProblems.map(function(p) {
+      var r = p.where === "computer" ? null : featureRowsFor(phone.findDevice(p.where)).filter(function(x) { return x.key === p.key })[0]
+      return { label: p.label + " (" + p.whereLabel + ")", detail: p.detail, tried: r && r.pending ? r.pending.tried : "" }
+    })
     else if (what === "gallery") list = [{ label: "Gallery", detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
     if (list.length === 0) return
     phone.fixWithAi(list)
     root.close()
   }
   readonly property var deviceFeatures: featureRowsFor(device)
-  readonly property int featureIssues: Model.featuresNeedAttention(deviceFeatures)
-  // The gear's dot: this computer, or a feature of the viewed device.
-  readonly property int settingsIssues: computerIssues + featureIssues
+  // What needs the user, each problem once where its cause is: this
+  // computer's, then every connected device's (Model.settingsProblems).
+  // Settings' status lists them; the gear's dot and the main page's line
+  // count them.
+  readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
+    pairedDevices.filter(function(d) { return d.reachable === true }).map(function(d) {
+      return { id: String(d.id), title: Model.deviceLabel(d), rows: featureRowsFor(d) }
+    }))
+  readonly property int settingsIssues: allProblems.length
+  // Every connected device's features, read when the panel opens (the
+  // status counts them all, not only the viewed one's).
+  function readAllFeatures() {
+    if (!phone) return
+    pairedDevices.forEach(function(d) { if (d.reachable === true) phone.readFeatures(String(d.id)) })
+  }
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
   // the user can do (said in the row, or as the result).
@@ -722,6 +744,8 @@ Panel {
     var d = featureDevice()
     if (!d || !phone || !row) return
     if (row.key === "screen") { openScreenSetup(String(d.id)); return }
+    // Blocked by this computer: its fix is there, shown once.
+    if ((row.steps || [])[0] && row.steps[0].kind === "computer") { openConnection(); return }
     var plan = Model.featurePlan(row)
     // What is left after them: the step only the user can do, shown in the
     // row (waiting for it where it can be seen, else Check again).
@@ -740,17 +764,33 @@ Panel {
     phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: f.plugins.map(function(k) { return k + "=off" }).join(",") } }],
                    "feature:" + row.key)
   }
-  // Fix what I can: this computer's fixes, then the device's.
+  // Fix all, for what the page is about: Settings' status everything (this
+  // computer first, its password asked once), This computer its checks, a
+  // device's page that device's features.
+  function computerFixSteps() {
+    return (setupChecks || []).filter(function(c) { return !c.ok && !c.optional && ["install", "start", "firewall"].indexOf(c.fix) >= 0 })
+      .map(function(c) { return { kind: "auto", fix: { verb: "fix", what: c.fix } } })
+  }
+  function fixAllPlans() {
+    var connected = pairedDevices.filter(function(d) { return d.reachable === true })
+    if (editingDevice && scopeDevice) return [{ id: String(scopeDevice.id), steps: Model.fixAllPlan(featureRowsFor(scopeDevice)) }]
+    var computer = computerFixSteps()
+    if (settingsScope === "connection") return [{ id: connected[0] ? String(connected[0].id) : "this", steps: computer }]
+    var plans = connected.map(function(d) { return { id: String(d.id), steps: Model.fixAllPlan(featureRowsFor(d)) } })
+    if (plans.length === 0) plans = [{ id: "this", steps: [] }]
+    plans[0].steps = computer.concat(plans[0].steps)
+    return plans
+  }
   function fixAll() {
     if (!phone) return
-    var computer = (setupChecks || []).filter(function(c) { return !c.ok && !c.optional && ["install", "start", "firewall"].indexOf(c.fix) >= 0 })
-      .map(function(c) { return { kind: "auto", fix: { verb: "fix", what: c.fix } } })
-    var steps = computer.concat(Model.fixAllPlan(featureRowsFor(device)))
-    if (steps.length === 0) { phone.report("Nothing to fix here", false); return }
-    phone.runSteps(device ? String(device.id) : "this", steps, "fixAll")
+    var plans = fixAllPlans().filter(function(p) { return p.steps.length > 0 })
+    if (plans.length === 0) { phone.report("Nothing to fix here", false); return }
+    plans.forEach(function(p) { phone.runSteps(p.id, p.steps, "fixAll") })
   }
-  readonly property int fixAllCount: (setupChecks || []).filter(function(c) { return !c.ok && !c.optional && ["install", "start", "firewall"].indexOf(c.fix) >= 0 }).length
-    + Model.fixAllPlan(deviceFeatures).length
+  readonly property int fixAllCount: {
+    var rev = allProblems   // read again as problems change
+    return fixAllPlans().reduce(function(n, p) { return n + p.steps.length }, 0)
+  }
   function ignoreCheck(key, on) {
     var next = ignoredChecks.filter(function(k) { return k !== key })
     if (on) next.push(key)
@@ -866,19 +906,20 @@ Panel {
   }
 
   readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
-    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks, screenReady)
+    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
-    connection: Model.connectionSummary(setupChecks, ignoredChecks, screenReady),
-    connectionPills: Model.connectionPills(setupChecks, ignoredChecks, screenReady),
+    connection: Model.connectionSummary(setupChecks, ignoredChecks),
+    connectionPills: Model.connectionPills(setupChecks, ignoredChecks),
+    problems: allProblems,
     devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
     can: scopeDevice ? scopeDevice.can : (device ? device.can : null),
-    features: editingDevice ? featureRowsFor(scopeDevice) : (singleDevice ? deviceFeatures : null)
+    features: editingDevice ? featureRowsFor(scopeDevice) : null
   })
 
   function openScope(scope) {
@@ -999,7 +1040,7 @@ Panel {
   }
   function settingsBack() {
     // Screen and apps goes back to its device's page (with one device, root).
-    if (screenId !== "") { openScope(manyDevices ? screenId : "root"); return true }
+    if (screenId !== "") { openScope(screenId); return true }
     if (settingsScope !== "root") { openScope("root"); return true }
     return false
   }
@@ -1047,8 +1088,7 @@ Panel {
   // with several devices the list and the defaults. The header then reads
   // Devices, with the plugin's own glyph. A device's page, and with one
   // device all of Settings (its settings), name the device.
-  readonly property bool heroNeutral: showSettings
-    && (settingsScope === "connection" || settingsScope === "addDevice" || (manyDevices && !editingDevice))
+  readonly property bool heroNeutral: showSettings && screenId === "" && !editingDevice
   readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : (showSettings && editingDevice ? scopeDevice : device))
   readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
@@ -1499,7 +1539,6 @@ Panel {
     if (messagesOpen) closeMessagesView()
     else if (appsOpen) closeAppsView()
     else if (settingsOpen) { if (!settingsBack()) closeSettings() }
-    else if (computerIssues > 0) openConnection()
     else openSettings()
   }
   function closeAppsView() {
@@ -1634,6 +1673,7 @@ Panel {
     else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "feature") featureAction(row)
+    else if (row.kind === "problem") openScope(row.where === "computer" ? "connection" : row.where)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1732,6 +1772,7 @@ Panel {
     settingsIndex = 0
     targetScope = "root"
     iconPicking = false
+    readAllFeatures()
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -1992,7 +2033,7 @@ Panel {
     messagesOpen = false
     appsOpen = false
     if (device) readAppsFor(String(device.id))
-    if (device && phone) phone.readFeatures(String(device.id))
+    readAllFeatures()
     // Nothing paired, or KDE Connect down: straight to Connection.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
     else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = resume.scope; settingsIndex = 0 }
@@ -3169,11 +3210,13 @@ Panel {
             }
           }
 
-          // ---- Tabs: one per device, only with two or more. Main page and
-          //      messages; settings has its own device list ----
+          // ---- Tabs: one per device, only with two or more. Main page,
+          //      messages, and a device's settings page (to the next
+          //      device's, without going back) ----
           Item {
             id: tabBox
-            visible: root.manyDevices && !root.showSettings
+            readonly property bool onSettings: root.showSettings && root.editingDevice && root.screenId === ""
+            visible: root.manyDevices && (!root.showSettings || onSettings)
             width: parent.width
             height: visible ? tabRow.implicitHeight : 0
 
@@ -3187,10 +3230,10 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings"
+            tooltipText: root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
+            onClicked: root.openSettings()
             GearDot { visible: root.settingsIssues > 0 }
           }
 
@@ -3250,7 +3293,8 @@ Panel {
                   readonly property var tabProfile: root.phone ? Model.resolveProfile(root.phone.profiles, modelData, deviceIndex === 0) : null
                   readonly property var st: root.phone && root.phone.deviceStates[modelData.id] ? root.phone.deviceStates[modelData.id] : ({})
                   readonly property var news: Model.attention(modelData, tabProfile, st)
-                  readonly property bool current: !!root.device && root.device.id === modelData.id
+                  readonly property bool current: tabBox.onSettings ? !!root.scopeDevice && root.scopeDevice.id === modelData.id
+                    : !!root.device && root.device.id === modelData.id
                   iconText: Model.deviceIcon(modelData, tabProfile)
                   // Its marks, in its own glyphs: the count, a low battery.
                   text: Model.deviceTitle(modelData, tabProfile)
@@ -3268,7 +3312,7 @@ Panel {
                   iconSize: Style.font.body
                   tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
-                  onClicked: root.switchDevice(modelData.id)
+                  onClicked: tabBox.onSettings ? root.openScope(String(modelData.id)) : root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
                   // Drag a tab sideways to move its device in the order (a
@@ -3368,7 +3412,9 @@ Panel {
             }
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "This computer" : root.settingsScope === "addDevice" ? "Add a device"
-                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
+                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
+                : root.editingDevice ? "Settings · This device"
+                : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices") + " · " + Model.problemsLine(root.allProblems).toLowerCase())
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -3406,7 +3452,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings")
+                  tooltipText: !root.showMain ? "Back" : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
@@ -3442,6 +3488,22 @@ Panel {
               x: pageHost.slide
               width: parent.width
               spacing: Style.space(12)
+              // ---- Something needs the user (Model.settingsProblems): one
+              //      line at the top of the main page, to Settings' status,
+              //      which lists them and fixes them ----
+              Button {
+                id: problemsHint
+                visible: root.showMain && !root.editing && root.settingsIssues > 0
+                width: parent.width
+                iconText: Model.GLYPH.alert
+                text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
+                tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
+                bordered: true
+                foreground: root.urgent
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                onClicked: root.openSettings()
+              }
               // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag
               //      the chosen ones, click to add or take one away. The pill
               //      in the bar changes as they do: it is the preview ----
@@ -4747,7 +4809,7 @@ Panel {
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
                     readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
-                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "This computer · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "This computer")
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "This computer · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "This computer")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground

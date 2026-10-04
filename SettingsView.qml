@@ -114,7 +114,9 @@ Column {
     return false
   }
   readonly property bool hasGroups: firstIndex("layout") >= 0
-  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && scopeKind !== "screen" && hasKind(["device", "request", "available"])
+  readonly property bool hasList: scopeKind === "root"
+  readonly property int problemCount: rows.filter(function(r) { return r.kind === "problem" }).length
+  readonly property int devicesIssues: rows.filter(function(r) { return r.kind === "problem" && r.where !== "computer" }).length
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
   function groupTitle(title, group) {
     return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
@@ -126,6 +128,7 @@ Column {
       if (rows[i].kind === "request") asking++
     }
     var line = n === 1 ? "1 device" : n + " devices"
+    if (devicesIssues > 0) line += " · " + devicesIssues + (devicesIssues === 1 ? " needs attention" : " need attention")
     return asking > 0 ? line + " · " + asking + (asking === 1 ? " wants to pair" : " want to pair") : line
   }
 
@@ -135,14 +138,91 @@ Column {
 
   spacing: Style.space(6)
 
-  // ---- Devices: every device, in order; asking to pair; in reach ----
+  // ---- The status: everything well, or each problem once, where its
+  //      cause is (a device, this computer); Fix all and Fix with AI for
+  //      all of them. A line opens the page that fixes it ----
+  Rectangle {
+    visible: root.scopeKind === "root"
+    width: root.width
+    implicitHeight: statusColumn.implicitHeight + 2 * Style.space(8)
+    radius: Style.cornerRadius
+    color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.06) : "transparent"
+    border.width: 1
+    border.color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.55) : Qt.alpha(root.foreground, 0.18)
+    Column {
+      id: statusColumn
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(2)
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(6)
+        Text {
+          Layout.leftMargin: Style.space(4)
+          text: root.problemCount > 0 ? Model.GLYPH.alert : Model.GLYPH.check
+          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+          Layout.alignment: Qt.AlignVCenter
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: root.problemCount === 0 ? "Everything works" : root.problemCount === 1 ? "1 thing needs you" : root.problemCount + " things need you"
+          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          Layout.alignment: Qt.AlignVCenter
+        }
+        Button {
+          visible: root.problemCount > 0 && root.fixAllCount > 0
+          text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all"
+          enabled: !(root.phone && root.phone.isBusy("fixAll"))
+          tooltipText: "Every fix the plugin can do, here and on your devices; anything that needs your password is shown first"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          onClicked: root.fixAllRequested()
+        }
+        Button {
+          visible: root.problemCount > 0
+          text: "Fix with AI"
+          tooltipText: root.aiTip
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          onClicked: root.fixWithAiRequested("all", -1)
+        }
+      }
+      Repeater {
+        model: root.rows
+        ProblemRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "problem"
+          width: statusColumn.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+    }
+  }
+
+  // ---- My devices: every device, the one in view too, in order; asking
+  //      to pair; Add a device ----
+  Item { visible: root.hasList; width: 1; height: Style.space(4) }
   FoldToggle {
     visible: root.hasList
     width: root.width
-    title: "DEVICES"
+    title: "MY DEVICES"
     summary: root.devicesSummary()
     folded: root.isFolded("devicesList")
-    foreground: root.foreground
+    foreground: root.devicesIssues > 0 ? Color.urgent : root.foreground
     fontFamily: root.fontFamily
     motion: root.motion
     animate: root.animate
@@ -157,7 +237,7 @@ Column {
     spacing: Style.space(4)
 
       Text {
-        visible: root.firstIndex("device") >= 0
+        visible: root.countOf("device") > 1
         textFormat: Text.PlainText
         width: root.width
         wrapMode: Text.WordWrap
@@ -172,7 +252,7 @@ Column {
         ListRow {
           required property var modelData
           required property int index
-          visible: modelData.kind === "device" || modelData.kind === "request" || modelData.kind === "available"
+          visible: modelData.kind === "device" || modelData.kind === "request" || modelData.kind === "addDevice"
           width: root.width
           row: modelData
           rowIndex: index
@@ -180,14 +260,26 @@ Column {
       }
   }
 
-  // ---- This device: its name and icon, and on its page where it shows ----
-  Item { visible: root.hasIdentity && root.scopeKind === "root"; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.hasIdentity && root.scopeKind === "root"; foreground: root.foreground }
+  // ---- For all devices (with two or more) and This computer: pages ----
+  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "defaults" || modelData.kind === "connection"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
 
+  // ---- A device's page: this device (its name and icon, where it shows) ----
   FoldToggle {
     visible: root.hasIdentity
     width: root.width
-    title: root.scopeKind === "device" ? "DEVICE" : "THIS DEVICE"
+    title: "THIS DEVICE"
     summary: root.deviceName
     folded: root.isFolded("identity")
     foreground: root.foreground
@@ -215,20 +307,6 @@ Column {
           rowIndex: index
         }
       }
-  }
-
-  // ---- Defaults for all devices (the list's page); on a device's page,
-  //      its sections and shortcuts, edited on the page itself ----
-  Repeater {
-    model: root.rows
-    ListRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "defaults" || modelData.kind === "editPage" || modelData.kind === "screen"
-      width: root.width
-      row: modelData
-      rowIndex: index
-    }
   }
 
   // ---- What it can do (docs/design/setup.md): a row per feature, folding;
@@ -290,6 +368,23 @@ Column {
         row: modelData
         rowIndex: index
       }
+    }
+  }
+
+  // ---- Its sections, shortcuts and bar (edited on its page), each group
+  //      it changed back to the defaults; Screen and apps when its
+  //      features are still being read ----
+  Item { visible: root.hasKind(["editPage", "screen"]); width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.hasKind(["editPage", "screen"]); foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "editPage" || modelData.kind === "screen" || modelData.kind === "resetGroup"
+      width: root.width
+      row: modelData
+      rowIndex: index
     }
   }
 
@@ -448,33 +543,6 @@ Column {
           }
         }
 
-    }
-
-    Repeater {
-      model: root.rows
-      ListRow {
-        required property var modelData
-        required property int index
-        visible: modelData.kind === "resetGroup"
-        width: root.width
-        row: modelData
-        rowIndex: index
-      }
-    }
-  }
-
-  // ---- Connection and Add a device: rows that open the Connection page ----
-  Item { visible: root.firstIndex("connection") >= 0; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.firstIndex("connection") >= 0; foreground: root.foreground }
-  Repeater {
-    model: root.rows
-    ListRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "connection" || modelData.kind === "addDevice"
-      width: root.width
-      row: modelData
-      rowIndex: index
     }
   }
 
@@ -843,7 +911,7 @@ Column {
           visible: text !== "" && !listRow.hasPills
           readonly property string note: root.pairingNotes[listRow.row.id] || ""
           text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
-          color: note !== "" ? Color.urgent : root.dim
+          color: note !== "" || (listRow.row.issues || 0) > 0 ? Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
@@ -1410,6 +1478,76 @@ Column {
   // A feature of the device: its glyph, name and state, what is missing, its
   // one action (it just works: the plugin does every step it can), and a
   // switch where it can be turned off (its KDE Connect plugins).
+  // A problem in the status: where it is, what, and the way to its page.
+  component ProblemRow: CursorSurface {
+    id: problemRow
+    property var row: ({})
+    property int rowIndex: -1
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === problemRow.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    color: "transparent"
+    implicitHeight: problemContent.implicitHeight + Style.space(8)
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.hovered(problemRow.rowIndex)
+      onClicked: root.activated(problemRow.rowIndex)
+    }
+    RowLayout {
+      id: problemContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(4)
+      anchors.rightMargin: Style.space(4)
+      spacing: Style.space(8)
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: problemRow.row.label || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          elide: Text.ElideRight
+        }
+        Text {
+          Layout.fillWidth: true
+          visible: text !== ""
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
+          text: problemRow.row.detail || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      Text {
+        textFormat: Text.PlainText
+        text: problemRow.row.whereLabel || ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.alignment: Qt.AlignVCenter
+        Layout.maximumWidth: root.width * 0.35
+        elide: Text.ElideRight
+      }
+      Text {
+        text: Model.GLYPH.chevronRight
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.alignment: Qt.AlignVCenter
+      }
+    }
+  }
+
   component FeatureRow: CursorSurface {
     id: featureRow
     property var row: ({})
