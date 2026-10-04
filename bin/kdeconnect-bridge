@@ -1443,18 +1443,87 @@ def pkg_add(packages):
             os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
 
 
-# What each install fix puts on this computer, so several go in one prompt
-# (`fix packages sshfs,screen`: Fix what I can).
-def fix_packages(key):
-    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
+# ---- Root, only for what was shown ----------------------------------------
+# A fix that needs root (packages, the firewall) is shown first: why the
+# password is asked and every action, the packages by name (what pacman
+# would install, dependencies included) and the firewall's rules as written.
+# The panel asks for the password only after Continue, and the bridge runs
+# only that plan: it is built again at the run, and a plan that differs from
+# the one shown (its hash) does not run.
+
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall")
 
 
-def fix(what):
-    if what.startswith("packages"):
-        keys = [k for k in what.partition(" ")[2].replace(",", " ").split() if fix_packages(k)]
-        if not keys:
-            return say("Nothing to install", EXIT_FAILED)
-        cmd = pkg_add([p for k in keys for p in fix_packages(k)])
+def pacman_will_install(packages, run=subprocess.run):
+    """What `pacman -S --needed` would install for these packages (their
+    dependencies included), without root: ["name version"]. None when
+    pacman cannot tell."""
+    try:
+        out = run(["pacman", "-Sp", "--needed", "--print-format", "%n %v"] + list(packages),
+                  capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        # Nothing to do is an error to pacman when every one is installed.
+        return [] if "there is nothing to do" in (out.stderr or "") else None
+    return [l.strip() for l in (out.stdout or "").splitlines() if l.strip() and not l.startswith("::")]
+
+
+def package_installed(name, run=subprocess.run):
+    try:
+        return run(["pacman", "-Q", name], capture_output=True, text=True, timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def root_plan(what, run=subprocess.run, lan=None):
+    """{what, why, actions, commands, hash} for a fix that needs root, or
+    None for one that does not. `commands` is exactly what runs."""
+    keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
+    if keys:
+        wanted = [p for k in keys for p in (fix_packages(k) or [])]
+        if not wanted:
+            return None
+        # Only the ones not installed at any version: one installed already
+        # (even newer than the repository's) is never touched, as pacman's
+        # --needed alone would downgrade it.
+        packages = [p for p in wanted if not package_installed(p, run)]
+        will = pacman_will_install(packages, run) if packages else []
+        why = {"install": "KDE Connect, which the plugin needs", "sshfs": "sshfs, so the gallery can read the device's storage",
+               "screen": "scrcpy and adb, for the device's screen and apps"}
+        reason = "To install " + "; ".join(why.get(k, k) for k in keys)
+        if will == []:
+            actions = ["Nothing to install: " + ", ".join(wanted) + " already here"]
+        else:
+            actions = ["Install with pacman (Omarchy's omarchy-pkg-add): " + ", ".join(will if will else packages)]
+            if will and len(will) > len(packages):
+                actions.append("Those include what " + ", ".join(packages) + " need to run")
+        commands = [] if will == [] else [pkg_add(packages)]
+    elif what == "firewall":
+        lan = lan if lan is not None else local_network()
+        if not lan:
+            return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
+        rules = ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
+        reason = "To let your devices reach KDE Connect through the firewall, from this network only"
+        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(rules)]]
+    else:
+        return None
+    plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
+    plan["hash"] = hashlib.sha256(json.dumps([commands, actions]).encode()).hexdigest()[:16]
+    return plan
+
+
+def run_root(what, confirm):
+    """Runs a root fix's plan, only the one shown (`confirm`: its hash)."""
+    plan = root_plan(what)
+    if not plan:
+        return say("Unknown fix %s" % what, EXIT_FAILED)
+    if plan.get("error"):
+        return say(plan["error"], EXIT_FAILED)
+    if not confirm or confirm != plan["hash"]:
+        return say("What would run is not what was shown: look at it again", EXIT_FAILED)
+    for cmd in plan["commands"]:
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -1463,7 +1532,21 @@ def fix(what):
             return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
         if out.returncode != 0:
             return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
-        return say("Installed: " + ", ".join(p for k in keys for p in fix_packages(k)))
+    if what == "firewall":
+        return say("Firewall now allows KDE Connect from %s" % local_network())
+    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
+                "screen": "scrcpy and adb installed: set up a device's screen and apps"}.get(what, "Installed"))
+
+
+# What each install fix puts on this computer, so several go in one prompt
+# (`fix packages sshfs,screen`: Fix what I can).
+def fix_packages(key):
+    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
+
+
+def fix(what, confirm=""):
+    if what.startswith("packages") or what in ROOT_FIXES:
+        return run_root(what, confirm)
     if what == "search":
         # What `kdeconnect-cli --refresh` does: the daemon announces itself on
         # every network, and a device that hears it connects back. Nothing on
@@ -1473,9 +1556,7 @@ def fix(what):
         except GLib.Error as error:
             return say(error.message, EXIT_FAILED)
         return say("Looking for devices on the network")
-    if what == "install":
-        cmd = pkg_add(["kdeconnect"])
-    elif what == "restart":
+    if what == "restart":
         # Every device reconnects; what a stuck daemon needs (a dead mount,
         # notifications that stopped), on a click.
         if subprocess.run(["systemctl", "--user", "restart", DAEMON_UNIT], timeout=30).returncode == 0:
@@ -1490,35 +1571,7 @@ def fix(what):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return say("KDE Connect started")
         return say("Could not start KDE Connect", EXIT_FAILED)
-    elif what == "sshfs":
-        # KDE Connect mounts a device's storage with it (photos).
-        cmd = pkg_add(["sshfs"])
-    elif what == "screen":
-        # The device's screen and apps here (scrcpy over adb); android-udev
-        # lets adb reach a device on a USB cable.
-        cmd = pkg_add(SCREEN_PACKAGES)
-    elif what == "firewall":
-        lan = local_network()
-        if not lan:
-            return say("Could not tell which network this computer is on", EXIT_FAILED)
-        rules = " && ".join(
-            "/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto)
-            for proto in ("tcp", "udp"))
-        cmd = ["pkexec", "/bin/sh", "-c", rules]
-    else:
-        return say("Unknown fix %s" % what, EXIT_FAILED)
-    try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return say(str(error), EXIT_FAILED)
-    if out.returncode in (126, 127):
-        return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
-    if out.returncode != 0:
-        return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
-    if what == "firewall":
-        return say("Firewall now allows KDE Connect from %s" % local_network())
-    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "screen": "scrcpy and adb installed: set up a device's screen and apps"}[what])
+    return say("Unknown fix %s" % what, EXIT_FAILED)
 
 
 # ---- Features: what a device can do, and the steps to it -----------------
@@ -4113,7 +4166,14 @@ def main(argv):
         print(json.dumps(doctor()))
         return EXIT_OK
     if argv[0] == "fix":
-        return fix(" ".join(argv[1:]) if len(argv) > 2 and argv[1] == "packages" else (argv[1] if len(argv) > 1 else ""))
+        words = [a for i, a in enumerate(argv[1:], 1) if a not in ("--describe", "--confirm") and argv[i - 1] != "--confirm"]
+        what = " ".join(words)
+        if "--describe" in argv:
+            # What it will do, before any password: shown by the panel.
+            print(json.dumps(root_plan(what) or {"what": what, "why": "", "actions": [], "commands": [], "hash": ""}))
+            return EXIT_OK
+        confirm = next((argv[i + 1] for i, a in enumerate(argv) if a == "--confirm" and i + 1 < len(argv)), "")
+        return fix(what, confirm)
     if argv[0] == "features":
         if len(argv) < 2:
             return say("features needs a device id", EXIT_FAILED)

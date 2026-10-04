@@ -76,5 +76,50 @@ class Permissions(unittest.TestCase):
         self.assertFalse(bridge.grant_permission("SERIAL", "unknown", phone))
 
 
+class FakePacman:
+    """pacman answers: installed packages, and what -Sp would install."""
+    def __init__(self, installed, deps):
+        self.installed, self.deps, self.ran = set(installed), deps, []
+
+    def __call__(self, cmd, **kw):
+        self.ran.append(cmd)
+        class Out:
+            pass
+        out = Out()
+        out.stdout, out.stderr = "", ""
+        if cmd[:2] == ["pacman", "-Q"]:
+            out.returncode = 0 if cmd[2] in self.installed else 1
+        elif cmd[:2] == ["pacman", "-Sp"]:
+            out.returncode = 0
+            out.stdout = "\n".join("%s 1.0" % p for name in cmd[5:] for p in self.deps.get(name, [name]))
+        else:
+            out.returncode = 1
+        return out
+
+
+class RootPlans(unittest.TestCase):
+    def test_only_what_is_missing_and_everything_it_brings(self):
+        pacman = FakePacman(installed=["android-tools"], deps={"scrcpy": ["scrcpy", "ffmpeg", "sdl2"]})
+        plan = bridge.root_plan("screen", run=pacman)
+        self.assertIn("scrcpy 1.0, ffmpeg 1.0, sdl2 1.0, android-udev 1.0", plan["actions"][0])
+        self.assertEqual(plan["commands"][0][-2:], ["scrcpy", "android-udev"], "android-tools is installed: never passed to pacman")
+        self.assertIn("what scrcpy, android-udev need", plan["actions"][1])
+
+    def test_installed_at_any_version_runs_nothing(self):
+        plan = bridge.root_plan("install", run=FakePacman(installed=["kdeconnect"], deps={}))
+        self.assertEqual((plan["commands"], plan["actions"][0]), ([], "Nothing to install: kdeconnect already here"))
+
+    def test_the_firewall_rules_as_written(self):
+        plan = bridge.root_plan("firewall", lan="192.168.5.0/24")
+        self.assertEqual(len(plan["actions"]), 2)
+        self.assertTrue(all("from 192.168.5.0/24" in a for a in plan["actions"]))
+        self.assertIn("192.168.5.0/24", plan["commands"][0][-1])
+
+    def test_runs_only_the_plan_shown(self):
+        self.assertEqual(bridge.run_root("sshfs", ""), bridge.EXIT_FAILED, "no hash: nothing runs")
+        self.assertEqual(bridge.run_root("sshfs", "0123456789abcdef"), bridge.EXIT_FAILED, "another plan's hash: nothing runs")
+        self.assertIsNone(bridge.root_plan("search"), "a fix without root has no plan")
+
+
 if __name__ == "__main__":
     unittest.main()
