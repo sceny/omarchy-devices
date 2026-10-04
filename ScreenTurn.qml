@@ -132,7 +132,9 @@ PanelWindow {
   }
   // The window shows at most this late (the watcher's own limit, and a beat).
   Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.arrived = true; turn.fadeWhenBoth() } }
-  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; easing.type: Easing.InOutQuad }
+  // Gone: the stills are let go of (the bridge removes their files).
+  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; easing.type: Easing.InOutQuad
+    onFinished: { turn.oldStill = ""; turn.newStill = "" } }
 
   SequentialAnimation {
     id: journey

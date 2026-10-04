@@ -1063,6 +1063,16 @@ class Screen(unittest.TestCase):
             self.assertFalse(bridge.watch_running(lock))
             self.assertFalse(bridge.watch_running(os.path.join(d, "none.pid")))
 
+    def test_a_stretched_grab_is_not_the_new_picture(self):
+        def ppm(w, h, f):
+            return (w, h, bytes(v for y in range(h) for x in range(w) for v in f(x / w, y / h)))
+        portrait = ppm(20, 40, lambda u, v: (int(255 * u), int(255 * v), 40))
+        stretched = ppm(40, 20, lambda u, v: (int(255 * u), int(255 * v), 40))
+        turned = ppm(40, 20, lambda u, v: (int(255 * v), int(255 * u), 200))
+        self.assertTrue(bridge.looks_stretched(portrait, stretched))
+        self.assertFalse(bridge.looks_stretched(portrait, turned))
+        self.assertFalse(bridge.looks_stretched(None, turned), "no old still: nothing to compare")
+
     def test_the_display_in_one_line(self):
         self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
 

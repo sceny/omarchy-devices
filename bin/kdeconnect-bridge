@@ -2124,6 +2124,37 @@ def turn_still(win, title, which):
         return ""
 
 
+def read_ppm(path):
+    """A binary PPM (grim -t ppm) as (width, height, bytes), or None."""
+    try:
+        data = open(path, "rb").read()
+    except OSError:
+        return None
+    m = re.match(rb"P6\s+(\d+)\s+(\d+)\s+(\d+)\s", data)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), data[m.end():]
+
+
+def looks_stretched(old, new, grid=24):
+    """Whether `new` is only `old` scaled to another size: the compositor
+    shows a window's last picture stretched to its new size until the app
+    draws again, and a still grabbed then is not the device's new picture.
+    Compares a grid of points at the same place in both (0–1 across each)."""
+    if not old or not new:
+        return False
+    (ow, oh, od), (nw, nh, nd) = old, new
+    diff = 0
+    for i in range(grid):
+        for j in range(grid):
+            u, v = (i + 0.5) / grid, (j + 0.5) / grid
+            a = 3 * (int(v * oh) * ow + int(u * ow))
+            b = 3 * (int(v * nh) * nw + int(u * nw))
+            if a + 2 < len(od) and b + 2 < len(nd):
+                diff += sum(abs(od[a + k] - nd[b + k]) for k in range(3))
+    return diff / (grid * grid * 3) < 12
+
+
 def window_prop(win, prop, value):
     q = lua_string("address:" + win["address"])
     subprocess.run(["hyprctl", "dispatch", 'hl.dsp.window.set_prop({ window = %s, prop = "%s", value = "%s" })' % (q, prop, value)],
@@ -2195,9 +2226,18 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
 
         def new_picture():
             """The device's new picture is in the hidden window: a still of
-            it goes to the card, which turns into it."""
-            sleep(0.03)   # scrcpy draws it just after saying so
-            fresh = turn_still(find_window(title) or win, title, "new")
+            it goes to the card, which turns into it. A grab that is only the
+            old picture stretched (drawn before the app redrew at its new
+            size) is taken again, a few times."""
+            old = read_ppm(pending["still"]) if pending.get("still") else None
+            fresh = ""
+            for _ in range(10):
+                sleep(0.03)
+                if fresh and os.path.exists(fresh):
+                    os.remove(fresh)
+                fresh = turn_still(find_window(title) or win, title, "new")
+                if not fresh or not looks_stretched(old, read_ppm(fresh)):
+                    break
             if fresh:
                 pending["stills"].append(fresh)
                 emit({"ev": "picture", "device": device_id, "still": fresh})
