@@ -473,6 +473,20 @@ Item {
     wasReachable = next
   }
   property var wasReachable: ({})
+  // Diagnose (#101): the person's coding agent (Omarchy's `omarchy agent
+  // prompt`), with what went wrong and the plugin's guide for agents, which
+  // says to ask before any change and never to touch the phone's data.
+  readonly property string pluginFolder: bridge.replace(/\/bin\/kdeconnect-bridge$/, "")
+  function diagnose(what) {
+    if (demo) { report("Demo: the agent would look into: " + what, false); return }
+    var prompt = "Devices (the Omarchy plugin sceny.devices) shows a problem: " + what + ". "
+      + "Help me fix it. First read " + pluginFolder + "/docs/internals/help-for-agents.md (or use its setup-help skill) "
+      + "and follow its rules: ask me before any change, never text, ring or open my phone's data, "
+      + "and say exactly what anything run as root will do before running it."
+    var proc = silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] })
+    proc.running = true
+  }
+
   // A fix run on its own (no click): nothing said, done or not.
   Component {
     id: silentComponent

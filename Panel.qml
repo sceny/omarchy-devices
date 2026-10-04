@@ -4422,6 +4422,14 @@ Panel {
                           else root.phone.refreshPhotos(true)
                         }
                       }
+                      PanelActionButton {
+                        visible: !!root.photoInfo && root.photoInfo.ok === false && root.photoInfo.missing !== "sshfs"
+                        iconText: Model.GLYPH.tip
+                        tooltipText: "Diagnose: your coding agent looks into it with you"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onClicked: if (root.phone) { root.phone.diagnose("the gallery: " + (root.photoInfo.error || "it could not read the device")); root.close() }
+                      }
                       // A mount left behind clears with KDE Connect's restart
                       // (#98): on a click, no password.
                       Button {
@@ -4842,6 +4850,7 @@ Panel {
                 onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
                 onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
                 onFixAllRequested: root.fixAll()
+                onDiagnoseRequested: function(what) { if (root.phone) { root.phone.diagnose(what); root.close() } }
                 fixAllCount: root.fixAllCount
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview

@@ -35,6 +35,8 @@ Column {
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
   signal fixAllRequested()
+  // Diagnose (#101): the person's coding agent, with what went wrong.
+  signal diagnoseRequested(string what)
   property int fixAllCount: 0
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
@@ -1440,6 +1442,15 @@ Column {
         fontSize: Style.font.bodySmall
         onClicked: root.featureRequested(featureRow.rowIndex)
       }
+      PanelActionButton {
+        visible: featureRow.row.state === "attention" && !featureRow.working
+        Layout.alignment: Qt.AlignVCenter
+        iconText: Model.GLYPH.tip
+        tooltipText: "Diagnose: your coding agent looks into it with you (asks before changing anything)"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.diagnoseRequested((featureRow.row.label || "") + " needs attention: " + (featureRow.row.detail || ""))
+      }
       ToggleSwitch {
         visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
         Layout.alignment: Qt.AlignVCenter
@@ -1549,6 +1560,15 @@ Column {
         fontFamily: root.fontFamily
         fontSize: Style.font.bodySmall
         onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
+      }
+      PanelActionButton {
+        visible: checkRow.failing
+        Layout.alignment: Qt.AlignVCenter
+        iconText: Model.GLYPH.tip
+        tooltipText: "Diagnose: your coding agent looks into it with you (asks before changing anything)"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.diagnoseRequested((checkRow.row.label || "") + ": " + (checkRow.row.status || "") + (checkRow.row.detail ? " (" + checkRow.row.detail + ")" : ""))
       }
     }
   }
