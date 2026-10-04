@@ -1760,6 +1760,7 @@ Panel {
       var ev = JSON.parse(json)
       if (ev.ev === "refit") root.phone.screenTurn = Object.assign({ at: Date.now() }, ev)
       else if (ev.ev === "revealed") root.phone.screenRevealed(String(ev.device || ""))
+      else if (ev.ev === "picture") root.phone.screenPicture(String(ev.device || ""), String(ev.still || ""))
       return "ok"
     }
     // Demo only: the docked screen turning or folding, as the watcher

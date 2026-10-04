@@ -681,6 +681,8 @@ Item {
   // The window shows again under the card (the watcher, once the new
   // picture is there): the card fades then.
   signal screenRevealed(string id)
+  // The device's new picture, a still of it, while the card turns.
+  signal screenPicture(string id, string path)
   function watchScreen(id, ctx) {
     var st = screenOf(id)
     if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
@@ -701,6 +703,7 @@ Item {
           try {
             var ev = JSON.parse(line)
             if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
+            else if (ev.ev === "picture") root.screenPicture(String(ev.device || ""), String(ev.still || ""))
             else if (ev.ev === "revealed") {
               // The turn's timing, for diagnosing (no device data).
               console.info("sceny.devices screen turn: new picture after " + ev.picture_ms + " ms, shown after " + ev.shown_ms + " ms")

@@ -7,13 +7,16 @@ import qs.Ui
 import "Model.js" as Model
 
 // A docked screen turning or folding (the bridge's screen-watch), as Android
-// turns its own screen: a still of the window's last picture turns with the
-// device (a quarter or half turn) or morphs into the new shape (a fold),
-// softening as it moves, while the window, hidden, moves under it; once the
-// card has arrived and the device's new picture is there, the window shows
-// under it and the still crossfades into it. Without a still (it came too
-// late), a plain card in the panel's look does the same. One per bar, on
-// that bar's screen; it never takes input.
+// turns its own screen. The card starts with a still of the window's last
+// picture and turns with the device (a quarter or half turn) or morphs into
+// the new shape (a fold), softening as it moves, while the window, hidden,
+// moves under it. When the device's new picture comes (a still of it, grabbed
+// from the hidden window), it fades in on the card already laid out for the
+// new shape, turned back by the turn still to come, so the two pictures turn
+// into each other. The card arrives showing exactly the new picture; the
+// window then shows under it and the card goes. Without stills, a plain card
+// in the panel's look does the same. One per bar, on that bar's screen; it
+// never takes input.
 PanelWindow {
   id: turn
 
@@ -58,18 +61,26 @@ PanelWindow {
   property real toSc: 1
   property real toW: 0
   property real toH: 0
+  property real toX: 0
+  property real toY: 0
+  readonly property bool turning: !!ev && ev.kind === "turn"
+  readonly property real journeyMs: (Model.MOTION.outMs + Model.MOTION.inMs) * motion
 
-  // The still, when there is one (a file in memory the bridge removes).
-  property string still: ""
+  // The stills (files in memory the bridge removes), how far the new one
+  // has faded in, and how soft the picture is while it moves.
+  property string oldStill: ""
+  property string newStill: ""
+  property real blend: 0
   property real soft: 0
 
   function start() {
     if (!ev || !ev.from || !ev.to) return
-    journey.stop()
-    still = ev.still ? "file://" + ev.still : ""
+    journey.stop(); fade.stop(); blendIn.stop()
+    oldStill = ev.still ? "file://" + ev.still : ""
+    newStill = ""
+    blend = 0
     soft = 0
     var f = ev.from, t = ev.to
-    var turning = ev.kind === "turn"
     cx = f[0] + f[2] / 2; cy = f[1] + f[3] / 2
     cw = f[2]; ch = f[3]
     rot = 0; sc = 1
@@ -78,23 +89,32 @@ PanelWindow {
     toW = turning ? f[2] : t[2]
     toH = turning ? f[3] : t[3]
     toX = t[0] + t[2] / 2; toY = t[1] + t[3] / 2
-    fade.stop()
     arrived = false
     revealed = false
     card.opacity = 1
     holdLimit.restart()
     journey.start()
   }
-  property real toX: 0
-  property real toY: 0
 
-  // The card crossfades into the window once it has arrived and the window
-  // shows under it (the watcher, when the new picture is there); it holds
-  // while the picture is late. Without a still, nothing is held back: the
-  // plain card fades as soon as the window shows.
+  // The new picture: it fades in over what is left of the journey (at
+  // least a beat), so the card arrives showing it alone.
+  function picture(path) {
+    newStill = "file://" + path
+    blendIn.duration = Math.max(Model.MOTION.outMs * motion, journeyMs - journey.elapsed())
+    blendIn.restart()
+  }
+  NumberAnimation { id: blendIn; target: turn; property: "blend"; to: 1; easing.type: Easing.InOutQuad }
+
+  // The card goes once it has arrived and the window shows under it (the
+  // watcher, when the new picture is there). Showing the same picture as the
+  // window, it goes quickly; a plain card or an old still crossfades.
   property bool arrived: false
   property bool revealed: false
-  function fadeWhenBoth() { if (revealed && (arrived || still === "") && !fade.running && card.opacity > 0) fade.start() }
+  function fadeWhenBoth() {
+    if (!revealed || !arrived || fade.running || card.opacity <= 0) return
+    fade.duration = (newStill !== "" ? Model.MOTION.outMs : Model.MOTION.inMs) * motion
+    fade.start()
+  }
   Connections {
     target: turn.phone
     function onScreenRevealed(id) {
@@ -102,24 +122,33 @@ PanelWindow {
       turn.revealed = true
       turn.fadeWhenBoth()
     }
+    function onScreenPicture(id, path) {
+      if (!turn.ev || String(turn.ev.device || "") !== id || !path) return
+      turn.picture(path)
+    }
   }
   // The window shows at most this late (the watcher's own limit, and a beat).
-  Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.fadeWhenBoth() } }
-  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; duration: (turn.still !== "" ? Model.MOTION.inMs : Model.MOTION.outMs) * turn.motion; easing.type: Easing.InOutQuad }
+  Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.arrived = true; turn.fadeWhenBoth() } }
+  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; easing.type: Easing.InOutQuad }
 
   SequentialAnimation {
     id: journey
+    // How far along it is: the new picture blends in over what is left.
+    property real startedAt: 0
+    function elapsed() { return running ? Date.now() - startedAt : turn.journeyMs }
+    onStarted: startedAt = Date.now()
     ParallelAnimation {
-      NumberAnimation { target: turn; property: "cx"; to: turn.toX; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      NumberAnimation { target: turn; property: "cy"; to: turn.toY; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      NumberAnimation { target: turn; property: "cw"; to: turn.toW; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      NumberAnimation { target: turn; property: "ch"; to: turn.toH; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      NumberAnimation { target: turn; property: "rot"; to: turn.toRot; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      NumberAnimation { target: turn; property: "sc"; to: turn.toSc; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
-      // Softer while it moves, as a picture in motion is.
+      NumberAnimation { target: turn; property: "cx"; to: turn.toX; duration: turn.journeyMs; easing.type: Easing.OutCubic }
+      NumberAnimation { target: turn; property: "cy"; to: turn.toY; duration: turn.journeyMs; easing.type: Easing.OutCubic }
+      NumberAnimation { target: turn; property: "cw"; to: turn.toW; duration: turn.journeyMs; easing.type: Easing.OutCubic }
+      NumberAnimation { target: turn; property: "ch"; to: turn.toH; duration: turn.journeyMs; easing.type: Easing.OutCubic }
+      NumberAnimation { target: turn; property: "rot"; to: turn.toRot; duration: turn.journeyMs; easing.type: Easing.InOutCubic }
+      NumberAnimation { target: turn; property: "sc"; to: turn.toSc; duration: turn.journeyMs; easing.type: Easing.OutCubic }
+      // Softer while it moves, as a picture in motion is, and sharp again
+      // as it lands: it then matches the window exactly.
       SequentialAnimation {
         NumberAnimation { target: turn; property: "soft"; to: 1; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.OutQuad }
-        NumberAnimation { target: turn; property: "soft"; to: 0.35; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.InOutQuad }
+        NumberAnimation { target: turn; property: "soft"; to: 0; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.InQuad }
       }
     }
     ScriptAction { script: { turn.arrived = true; turn.fadeWhenBoth() } }
@@ -138,33 +167,57 @@ PanelWindow {
     color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
     borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
 
-    // The still: the window's last picture, inside the card's border (the
-    // window sits there too), filling it (a morph crops, never stretches).
-    Image {
-      id: stillImage
+    // The pictures, inside the card's border (the window sits there too).
+    Item {
+      id: pictures
       anchors.fill: parent
       anchors.margins: Math.max(1, Style.space(2))
       visible: false
-      source: turn.still
-      cache: false
-      asynchronous: false
-      fillMode: Image.PreserveAspectCrop
+      clip: true
+
+      // The old picture fills the card as it was.
+      Image {
+        id: oldImage
+        anchors.fill: parent
+        source: turn.oldStill
+        cache: false
+        asynchronous: false
+        fillMode: Image.PreserveAspectCrop
+        opacity: 1 - turn.blend
+      }
+      // The new one is laid out for the new shape: turned back by the turn
+      // still to come (the card's rotation brings it upright), on its side
+      // for a quarter turn. A fold fills the card as it morphs.
+      Image {
+        id: newImage
+        anchors.centerIn: parent
+        readonly property bool quarter: turn.turning && Math.abs(turn.toRot) === 90
+        width: quarter ? parent.height : parent.width
+        height: quarter ? parent.width : parent.height
+        rotation: turn.turning ? -turn.toRot : 0
+        source: turn.newStill
+        cache: false
+        asynchronous: false
+        fillMode: Image.PreserveAspectCrop
+        opacity: turn.blend
+      }
     }
     MultiEffect {
-      anchors.fill: stillImage
-      source: stillImage
-      visible: turn.still !== "" && stillImage.status === Image.Ready
+      anchors.fill: pictures
+      source: pictures
+      visible: (turn.oldStill !== "" && oldImage.status === Image.Ready) || (turn.newStill !== "" && newImage.status === Image.Ready)
       blurEnabled: true
       blurMax: 32
-      blur: 0.55 * turn.soft
-      brightness: -0.12 * turn.soft
-      saturation: -0.15 * turn.soft
+      blur: 0.5 * turn.soft
+      brightness: -0.1 * turn.soft
+      saturation: -0.12 * turn.soft
     }
 
-    // No still: the device's glyph, upright and its own size while the card
-    // turns and scales around it.
+    // No old still: the device's glyph, upright and its own size while the
+    // card turns and scales around it, until the new picture fades in.
     Text {
-      visible: turn.still === "" || stillImage.status !== Image.Ready
+      visible: turn.oldStill === "" || oldImage.status !== Image.Ready
+      opacity: 1 - turn.blend
       anchors.centerIn: parent
       rotation: -turn.rot
       scale: turn.sc > 0 ? 1 / turn.sc : 1

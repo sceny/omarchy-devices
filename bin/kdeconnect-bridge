@@ -2106,18 +2106,18 @@ def resting(win, mons, border=0):
             win["size"][0] + 2 * border, win["size"][1] + 2 * border)
 
 
-def turn_still(win, mons, title):
-    """The window's last picture, grabbed from this computer's own screen
-    (grim) before the device's new picture comes: the card turns it, as
-    Android turns a still of its screen. Kept in memory ($XDG_RUNTIME_DIR)
-    and removed after the turn; "" when it could not be grabbed in time."""
+def turn_still(win, title, which):
+    """A still of the window's own picture (grim -T: the window itself, by
+    its toplevel id, even while it is hidden), taken on this computer: the
+    old picture as the device starts to turn, the new one as it comes. The
+    card turns them into each other, as Android does. Kept in memory
+    ($XDG_RUNTIME_DIR) and removed after the turn; "" when it could not be
+    grabbed in time."""
     folder = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir(), "sceny.devices")
     os.makedirs(folder, mode=0o700, exist_ok=True)
-    path = os.path.join(folder, "turn-%s-%d.ppm" % (hashlib.sha1(title.encode()).hexdigest()[:8], int(time.time() * 1000)))
-    x, y = win["at"]
-    w, h = win["size"]
+    path = os.path.join(folder, "turn-%s-%s-%d.ppm" % (hashlib.sha1(title.encode()).hexdigest()[:8], which, int(time.time() * 1000)))
     try:
-        out = subprocess.run(["grim", "-t", "ppm", "-g", "%d,%d %dx%d" % (x, y, w, h), path],
+        out = subprocess.run(["grim", "-t", "ppm", "-T", str(win.get("stableId", "")), path],
                              capture_output=True, timeout=TURN_STILL_SEC)
         return path if out.returncode == 0 and os.path.exists(path) else ""
     except (OSError, subprocess.TimeoutExpired):
@@ -2180,7 +2180,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
             to = placement(ctx, settled, shape, new, mon)
             kind, angle = kind_angle
-            still = "" if picture else turn_still(win, mons, title)
+            still = "" if picture else turn_still(win, title, "old")
             emit({"ev": "refit", "kind": kind, "angle": angle, "from": list(settled), "to": list(to),
                   "monitor": mon.get("name", ""), "device": device_id, "still": still})
             window_prop(win, "no_anim", "1")
@@ -2189,7 +2189,18 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             shape, settled = tuple(new[:2]), tuple(to)
             pending = {"to": to, "since": clock(), "picture": picture, "picture_at": clock() if picture else None,
-                       "still": still}
+                       "still": still, "stills": [still] if still else []}
+            if picture:
+                new_picture()
+
+        def new_picture():
+            """The device's new picture is in the hidden window: a still of
+            it goes to the card, which turns into it."""
+            sleep(0.03)   # scrcpy draws it just after saying so
+            fresh = turn_still(find_window(title) or win, title, "new")
+            if fresh:
+                pending["stills"].append(fresh)
+                emit({"ev": "picture", "device": device_id, "still": fresh})
 
         def reveal():
             """The new picture is there: the window,
@@ -2208,8 +2219,8 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                   "shown_ms": round((clock() - pending["since"]) * 1000)})
             sleep(0.15)   # the card's fade, over the window
             window_prop(win, "no_anim", "0")
-            if pending.get("still"):
-                threading.Timer(2.0, lambda p=pending["still"]: os.path.exists(p) and os.remove(p)).start()
+            for p in pending.get("stills", []):
+                threading.Timer(2.0, lambda p=p: os.path.exists(p) and os.remove(p)).start()
             pending = None
 
         while True:
@@ -2230,11 +2241,12 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                 elif pending is not None and not pending["picture"]:
                     pending["picture"] = True
                     pending["picture_at"] = clock()
+                    new_picture()
             now = clock()
-            # The new picture is there and the card, carrying the still, has
-            # arrived: the live window shows under it and the card fades into
-            # it. Without a still (it came late) nothing is held back.
-            ready_at = TURN_TRAVEL_SEC if pending and pending.get("still") else 0.1
+            # The new picture is there and the card has arrived showing it:
+            # the live window shows under it, the same picture, and the card
+            # goes.
+            ready_at = TURN_TRAVEL_SEC
             if pending and ((pending["picture"] and now - pending["since"] >= ready_at)
                             or now - pending["since"] >= TURN_WAIT_SEC):
                 reveal()
