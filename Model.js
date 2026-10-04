@@ -1198,6 +1198,43 @@ function screenSetup(status, device, pairing, docked) {
   }
 }
 
+// ---- The screen opening: the panel's card becomes the docked window ----
+
+// The docked window's box (DOCK_* in the bridge): of the screen's height,
+// and of its width, which a tablet in landscape meets first.
+var DOCK_SHARE = { height: 0.7, width: 0.45 }
+
+// The device's display (its current width and height, rotation and a
+// foldable's screen included) fitted to the box: a phone meets its height,
+// a tablet in landscape its width. Unknown: a phone's shape.
+function fitDisplay(display, boxW, boxH) {
+  var w = display && display[0] > 0 && display[1] > 0 ? display[0] : 9
+  var h = display && display[0] > 0 && display[1] > 0 ? display[1] : 19.5
+  var k = Math.min(boxW / w, boxH / h)
+  return { w: Math.round(w * k), h: Math.round(h * k) }
+}
+
+// Where the card ends when it becomes the device's docked window: its
+// size, the display fitted to the box (never past the room under the
+// bar), placed as Omarchy's KeyboardPanel places a card (cardOrigin), so
+// the card only grows into it and the window then takes its exact place.
+// ctx: { display, barPos, screenW, screenH, barW, barH, gap, margin,
+// anchorX, anchorY, anchorW, anchorH }, in the monitor's coordinates.
+function dockRect(ctx) {
+  var side = ctx.barPos === "left" || ctx.barPos === "right"
+  var roomW = ctx.screenW - (side ? ctx.barW + ctx.gap + ctx.margin : 2 * ctx.margin)
+  var roomH = ctx.screenH - (side ? 2 * ctx.margin : ctx.barH + ctx.gap + ctx.margin)
+  var size = fitDisplay(ctx.display, Math.min(roomW, ctx.screenW * DOCK_SHARE.width), Math.min(roomH, ctx.screenH * DOCK_SHARE.height))
+  var x, y
+  if (ctx.barPos === "bottom") { x = ctx.anchorX + ctx.anchorW / 2 - size.w / 2; y = ctx.screenH - ctx.barH - size.h - ctx.gap }
+  else if (ctx.barPos === "left") { x = ctx.barW + ctx.gap; y = ctx.anchorY + ctx.anchorH / 2 - size.h / 2 }
+  else if (ctx.barPos === "right") { x = ctx.screenW - ctx.barW - size.w - ctx.gap; y = ctx.anchorY + ctx.anchorH / 2 - size.h / 2 }
+  else { x = ctx.anchorX + ctx.anchorW / 2 - size.w / 2; y = ctx.barH + ctx.gap }
+  x = Math.max(ctx.margin, Math.min(x, ctx.screenW - size.w - ctx.margin))
+  y = Math.max(ctx.margin, Math.min(y, ctx.screenH - size.h - ctx.margin))
+  return { x: Math.round(x), y: Math.round(y), w: size.w, h: size.h }
+}
+
 // The page's keyboard rows: one per action, in order.
 function screenRows(setup) {
   return (setup ? setup.actions : []).map(function(a) {
@@ -1212,7 +1249,7 @@ function screenRows(setup) {
 function demoScreen(kind) {
   var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
   if (kind === "tools") return { state: "tools", tools: { ok: false } }
-  if (kind === "ready") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true }
+  if (kind === "ready") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400] }
   // Wireless debugging just turned on, not paired yet.
   if (kind === "seen") return { state: "pair", seen: true, tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
   return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }

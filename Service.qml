@@ -596,10 +596,12 @@ Item {
   property var screenPairing: null         // { device, phase, qr, message }
   property string screenThen: ""           // a device to open once read (Screen shortcut)
   property bool screenThenDocked: true
+  property var screenThenRect: null        // where the docked window goes: a function, read at launch
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id)
-  // Its window is there (a place: the panel closes).
+  // Its window is there (a place: the panel closes), or it did not open.
   signal screenOpened(string id)
+  signal screenOpenFailed(string id)
 
   function screenOf(id) { return screenStates[String(id)] || null }
   function setScreen(id, status) {
@@ -608,10 +610,14 @@ Item {
     screenStates = next
     if (screenThen !== "" && screenThen === String(id)) {
       screenThen = ""
-      if (status && status.state === "ready" && !demo) { launchScreen(id, "", "", screenThenDocked); return }
+      if (status && status.state === "ready" && !demo) {
+        // Read now: the card has grown to the display's real shape.
+        launchScreen(id, "", "", screenThenDocked, screenThenRect ? screenThenRect() : null)
+        return
+      }
+      if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
       setBusy("screen", false)
-      if (status && status.state === "ready") report("Demo: no window opens", false)
-      else screenSetupNeeded(String(id))
+      screenSetupNeeded(String(id))
     }
   }
   function readScreen(id) {
@@ -625,11 +631,14 @@ Item {
   // The Screen shortcut: its window when the device is ready, else its
   // setup page. The state is read first, so it never acts on a stale one;
   // the tile waits (its ring) from the click until the window is there.
-  function pressScreen(id, docked) {
+  // `rect`: a function giving where the docked window goes (the panel's
+  // card as it becomes the window), read once the state is.
+  function pressScreen(id, docked, rect) {
     if (!id || isBusy("screen")) return
     setBusy("screen", true)
     screenThen = String(id)
     screenThenDocked = docked !== false
+    screenThenRect = rect || null
     readScreen(id)
   }
   function openScreen(id, pkg, label, docked) {
@@ -640,18 +649,31 @@ Item {
     launchScreen(id, pkg, label, docked)
   }
   // Busy is already set: the bridge returns once the window is there.
-  function launchScreen(id, pkg, label, docked) {
+  // `rect` ({ x, y, w, h } on the monitor): exactly where it opens.
+  function launchScreen(id, pkg, label, docked, rect) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
     if (docked === false) cmd.push("--tiled")
+    else if (rect) cmd.push("--at", [rect.x, rect.y, rect.w, rect.h].join(","))
     var proc = actionComponent.createObject(root, { key: key, command: cmd })
-    proc.exited.connect(function(code) { if (code === 0) root.screenOpened(String(id)) })
+    proc.exited.connect(function(code) {
+      if (code === 0) root.screenOpened(String(id))
+      else root.screenOpenFailed(String(id))
+    })
     proc.running = true
   }
-  // Docked by the bar or tiled: the open window moves now, the next opens so.
-  function dockScreen(id, docked) {
+  // The keyboard to its window, once the panel has let go of it.
+  function focusScreen(id) {
     if (demo || !id) return
-    Quickshell.execDetached([bridge, "screen-dock", String(id), docked ? "on" : "off"])
+    Quickshell.execDetached([bridge, "screen-focus", String(id)])
+  }
+  // Docked by the bar or tiled: the open window moves now, the next opens so.
+  // `rect`: where it docks (the panel's card shape, Panel.dockRectFor).
+  function dockScreen(id, docked, rect) {
+    if (demo || !id) return
+    var cmd = [bridge, "screen-dock", String(id), docked ? "on" : "off"]
+    if (docked && rect) cmd.push("--at", [rect.x, rect.y, rect.w, rect.h].join(","))
+    Quickshell.execDetached(cmd)
   }
   function startScreenPair(id) {
     if (pairProc.running || demoPairQr.running) return
@@ -701,6 +723,17 @@ Item {
     onExited: function(code) {
       if (root.screenPairing && root.screenPairing.phase !== "error")
         root.screenPairing = Object.assign({}, root.screenPairing, { phase: "error", message: "Pairing stopped" })
+    }
+  }
+  // A demo's Screen: it waits like a connection, then opens nothing.
+  Timer {
+    id: demoOpening
+    property string device: ""
+    interval: 2000
+    onTriggered: {
+      root.setBusy("screen", false)
+      root.report("Demo: no window opens", false)
+      root.screenOpenFailed(device)
     }
   }
   // The demo's code: made like a real one, for a code nobody can use.

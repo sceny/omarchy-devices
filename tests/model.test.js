@@ -885,6 +885,22 @@ test("screen and apps: set up adds the Screen shortcut once, where the device's 
   assert.ok(!("shortcuts" in M.screenShortcutChanges({}, "p1", M.resolveProfile(has, dev, true), true, true)), "already there: only the note")
 })
 
+test("screen opening: any device's shape, where the card is", () => {
+  const top = { barPos: "top", screenW: 2560, screenH: 1440, barW: 2560, barH: 35, gap: 5, margin: 5, anchorX: 2200, anchorY: 0, anchorW: 40, anchorH: 35 }
+  const phone = M.dockRect(Object.assign({ display: [1080, 2316] }, top))
+  assert.deepEqual([phone.w, phone.h, phone.y], [470, 1008, 40], "a phone meets the height, under the bar")
+  assert.equal(phone.x, 2220 - 235, "centred on the chip, as Omarchy's cards are")
+  const tablet = M.dockRect(Object.assign({ display: [2560, 1600] }, top))
+  assert.deepEqual([tablet.w, tablet.h], [1152, 720], "a tablet in landscape meets the width")
+  assert.equal(tablet.x, 2560 - 1152 - 5, "kept on the screen")
+  const fold = M.dockRect(Object.assign({ display: [2176, 1812] }, top))
+  assert.ok(Math.abs(fold.w / fold.h - 2176 / 1812) < 0.01, "an open foldable keeps its shape")
+  const unknown = M.dockRect(Object.assign({ display: null }, top))
+  assert.equal(unknown.h, 1008, "unknown: a phone's shape")
+  const low = M.dockRect(Object.assign({ display: [1080, 2316] }, top, { barPos: "bottom" }))
+  assert.equal(low.y, 1440 - 35 - 1008 - 5)
+})
+
 test("screen and apps: a row on the device's page, and a Screen shortcut", () => {
   const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" } })
   assert.ok(rows.some(r => r.kind === "screen"), "the one-device page")

@@ -202,21 +202,22 @@ Panel {
   // from settings (the height). Only page changes animate it: a fold already
   // animates the height itself, and a second animation on top would lag.
   // The page's width, plus its margins on both sides (pageGutter).
-  readonly property real targetCardWidth: panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
+  readonly property real targetCardWidth: screenOpeningRect ? screenOpeningRect.w
+    : panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
   // The margin every page keeps on both sides, wide enough for the scroll
   // bar (about 7 px, drawn at the right edge) and a gap: when the bar shows,
   // nothing is under it, and nothing shifts when it comes or goes.
   readonly property real pageGutter: Style.space(12)
   // No cap of our own: KeyboardPanel already clamps to what fits on screen.
-  readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight)
+  readonly property real targetCardHeight: screenOpeningRect ? screenOpeningRect.h : panel.fittedContentHeight(column.implicitHeight)
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running || root.cardMorphing
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running || root.cardMorphing
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -416,7 +417,7 @@ Panel {
     var next = !screenDockedFor(id)
     if (singleDevice) persistSettings({ screenDocked: next })
     else persistDeviceProfile(String(id), { screenDocked: next })
-    if (phone) phone.dockScreen(id, next)
+    if (phone) phone.dockScreen(id, next, dockRectFor(id))
   }
   // The viewed device's screen works: the Screen pill and row are on. Read
   // when Settings opens, once scrcpy is here (about a second; never in a demo
@@ -457,13 +458,52 @@ Panel {
       phone.startScreenPair(screenId)
     }
   }
+  // ---- The screen opening, docked: the card becomes the window ----
+  // On Screen, the card grows into the docked window's rectangle (the
+  // device's display fitted under the chip, Model.dockRect) and waits there
+  // (Connecting…); the window opens at exactly that place under it, with no
+  // animation of its own, then the panel fades out over it. Tiled, the tile
+  // waits instead. A failure grows the card back to the page.
+  property var screenOpening: null        // { id, name } while it opens
+  property bool cardMorphing: false       // the card's size follows at MOTION
+  function dockRectFor(id) {
+    var st = phone ? phone.screenOf(String(id)) : null
+    var a = panel.anchorScreenPos
+    return Model.dockRect({ display: st ? st.display : null, barPos: panel.barPos, screenW: panel.screenW, screenH: panel.screenH,
+      barW: panel.barW, barH: panel.barH, gap: panel.gap, margin: panel.margin,
+      anchorX: a.x, anchorY: a.y, anchorW: panel.anchorW, anchorH: panel.anchorH })
+  }
+  readonly property var screenOpeningRect: screenOpening ? dockRectFor(screenOpening.id) : null
+  function startScreenOpening(d) {
+    if (!phone || !d || screenOpening) return
+    cardMorphing = true
+    morphSettle.stop()
+    screenOpening = { id: String(d.id), name: Model.deviceLabel(d) }
+    phone.pressScreen(String(d.id), true, function() { return root.screenOpeningRect })
+  }
+  function endScreenOpening() {
+    if (!screenOpening) return
+    screenOpening = null
+    morphSettle.restart()
+  }
+  // The card's size animates while the shape changes, and for one beat
+  // after it goes back.
+  Timer {
+    id: morphSettle
+    interval: Model.MOTION.inMs * root.motion + 40
+    onTriggered: if (!root.screenOpening) root.cardMorphing = false
+  }
+  onOpenedChanged: if (!opened && screenOpening) { screenOpening = null; cardMorphing = false }
   function screenAction(key) {
     if (!phone || screenId === "") return
     if (key === "install") phone.fixSetup("screen")
     else if (key === "pair") phone.startScreenPair(screenId)
     else if (key === "stopPair") phone.stopScreenPair()
     else if (key === "check") phone.readScreen(screenId)
-    else if (key === "open") phone.openScreen(screenId, "", "", screenDockedFor(screenId))
+    else if (key === "open") {
+      if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
+      else phone.pressScreen(screenId, false)
+    }
     else if (key === "dock") toggleScreenDocked(screenId)
   }
   // Read again while the page shows (a setting turned on, the cable
@@ -480,9 +520,18 @@ Panel {
   }
   Connections {
     target: root.phone
-    function onScreenSetupNeeded(id) { if (root.opened) root.openScreenSetup(id) }
-    // A place opened: the panel closes (the docked window is where it was).
-    function onScreenOpened(id) { if (root.opened) root.close() }
+    function onScreenSetupNeeded(id) {
+      root.endScreenOpening()
+      if (root.opened) root.openScreenSetup(id)
+    }
+    // A place opened: the panel fades out over it (docked, the window is
+    // where the card was), and the keyboard goes to it.
+    function onScreenOpened(id) {
+      if (!root.opened) return
+      root.close()
+      if (root.phone) Qt.callLater(function() { root.phone.focusScreen(id) })
+    }
+    function onScreenOpenFailed(id) { root.endScreenOpening() }
     // Set up: the Screen shortcut joins the device's shortcuts, once (the
     // user may take it away). Only an open panel writes, so one monitor's.
     function onScreenStatesChanged() {
@@ -1152,7 +1201,10 @@ Panel {
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
     else if (key === "kdeconnect") { phone.openKdeConnect(); root.close() }
-    else if (key === "screen" && device) phone.pressScreen(String(device.id), screenDockedFor(String(device.id)))
+    else if (key === "screen" && device) {
+      if (screenDockedFor(String(device.id))) startScreenOpening(device)
+      else phone.pressScreen(String(device.id), false)
+    }
   }
 
   // ---- Settings ----
@@ -1673,6 +1725,13 @@ Panel {
       if (root.device) root.phone.readScreen(String(root.device.id))
       return root.screenInfo()
     }
+    // Demo only: the Screen shortcut as a click would (docked, the card
+    // becomes the window; a demo opens none, so it grows back).
+    function pressScreen(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.runAction("screen")
+      return JSON.stringify({ opening: root.screenOpening, rect: root.screenOpeningRect })
+    }
     function pressScreenAction(key: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       root.screenAction(key)
@@ -2178,10 +2237,51 @@ Panel {
         }
       }
 
+      // The screen opening: in the card as it becomes the window, the device
+      // and a ring until the window takes its place.
+      Column {
+        anchors.centerIn: parent
+        width: parent.width - 2 * root.pageGutter
+        spacing: Style.space(10)
+        opacity: root.screenOpening ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: Model.GLYPH.screen
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon * 2
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: root.screenOpening ? "Connecting to " + root.screenOpening.name + "…" : ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: "\u{F0996}"
+          color: Qt.darker(root.foreground, 1.55)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+          RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: !!root.screenOpening }
+        }
+      }
+
       Flickable {
         id: panelFlick
         WheelScroll { flickable: panelFlick; motion: root.motion }
         anchors.fill: parent
+        // The screen opening: the page gives way to the waiting window.
+        opacity: root.screenOpening ? 0 : 1
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.outMs : Model.MOTION.inMs) * root.motion; easing.type: Easing.OutCubic } }
         contentWidth: width
         contentHeight: column.implicitHeight
         clip: true

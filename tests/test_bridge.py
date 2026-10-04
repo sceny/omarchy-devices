@@ -1005,9 +1005,29 @@ class Screen(unittest.TestCase):
             bridge.screen_device, bridge.find_window, bridge.screen_status = saved
         self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
 
+    def test_the_display_as_it_is_now(self):
+        self.assertEqual(bridge.parse_display("  init=1080x2316 450dpi cur=2316x1080 app=2148x1080"), (2316, 1080), "rotated")
+        self.assertEqual(bridge.parse_display("", "Physical size: 1440x3088\nOverride size: 1080x2316"), (1080, 2316))
+        self.assertEqual(bridge.parse_display("", ""), (0, 0))
+
+    def test_any_device_fits_the_box(self):
+        self.assertEqual(bridge.fit_display((1080, 2316), 1152, 1008), (470, 1008), "a phone meets the height")
+        self.assertEqual(bridge.fit_display((2560, 1600), 1152, 1008), (1152, 720), "a tablet in landscape meets the width")
+        w, h = bridge.fit_display((2176, 1812), 1152, 1008)
+        self.assertTrue(w <= 1152 and h <= 1008 and abs(w / h - 2176 / 1812) < 0.01, "an open foldable keeps its shape")
+        self.assertEqual(bridge.fit_display((0, 0), 1152, 1008)[1], 1008, "unknown: a phone's shape")
+
     def test_dock_geometry(self):
         mon = {"x": 2560, "y": 0, "width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
-        self.assertEqual(bridge.dock_geometry(mon, 0.4664), (470, 1008, 4640, 45))
+        self.assertEqual(bridge.dock_geometry(mon, (1080, 2316)), (470, 1008, 4640, 45))
+        self.assertEqual(bridge.dock_geometry(mon, (1080, 2316), (1900, 40, 470, 1008)), (470, 1008, 4460, 40), "the panel's card")
+        self.assertEqual(bridge.parse_rect("1900,40,470,1008"), (1900, 40, 470, 1008))
+        self.assertIsNone(bridge.parse_rect("1,2,3"))
+
+    def test_rule_at_the_cards_place(self):
+        lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.47, 35, True, (1900, 40, 470, 1008))
+        self.assertIn("size = { 470, 1008 }, move = { 1900, 40 }", lua)
+        self.assertIn("no_anim = true", lua)
 
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
