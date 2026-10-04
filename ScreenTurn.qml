@@ -21,7 +21,6 @@ PanelWindow {
 
   readonly property var barWindow: anchorItem && anchorItem.QsWindow ? anchorItem.QsWindow.window : null
   readonly property var ev: phone ? phone.screenTurn : null
-  readonly property bool mine: !!ev && !!screen && ev.monitor === screen.name
 
   // Mapped, empty and click-through, while a docked screen is open (or a
   // demo screen is ready): a layer mapped on demand misses the first frames
@@ -38,7 +37,9 @@ PanelWindow {
   exclusionMode: ExclusionMode.Ignore
   mask: Region {}
 
-  onEvChanged: if (mine) start()
+  // Checked here, not in a binding of its own: a binding may not have
+  // caught up when the event arrives, and the first turn was missed.
+  onEvChanged: if (ev && screen && ev.monitor === screen.name) start()
 
   // The card's centre, size, turn and scale. A turn keeps the old size and
   // turns it, scaled to the new one (the same shape on its side); a morph
