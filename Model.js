@@ -865,7 +865,7 @@ function demoSnapshot(live, kind) {
   // its own buttons, a long text) and a group chat (who said what).
   dev.notifications = [
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
-    { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
+    { id: "demo-5", key: "0|com.example.whatsapp|5|null|10005", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
   ]
   return { daemon: true, demo: true, devices: [dev] }
@@ -2105,7 +2105,7 @@ function demoApps(nowMs) {
   var list = [
     ["Clock", "clock", false, 3], ["Calendar", "calendar", false, 1], ["Camera", "camera", false, 0],
     ["Maps", "map", false, 2], ["Music", "music", false, 4], ["Notes", "notes", false, 0],
-    ["Weather", "weather", false, 0], ["Chat", "chat", false, 5], ["Mail", "mail", false, 0],
+    ["Weather", "weather", false, 0], ["WhatsApp", "chat", false, 5], ["Mail", "mail", false, 0],
     ["Photos", "image", false, 0], ["Shop", "cart", false, 0], ["Bank", "bank", false, 0],
     ["Fitness", "fitness", false, 0], ["Calculator", "calculator", true, 0], ["Settings", "cog", true, 0]
   ]
