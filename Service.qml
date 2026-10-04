@@ -675,7 +675,8 @@ Item {
   }
   // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
   //      the device's shape; each change comes here for ScreenTurn ----
-  property var screenTurn: null            // { kind, angle, from, to, monitor, device, at }
+  property var screenTurn: null            // { kind, angle, from, to, monitor, device, still, at }
+  property real turnMotion: 1              // ScreenTurn's pace (slowMotion, for checks)
   property var screenWatchers: ({})        // device id -> its watcher
   // The window shows again under the card (the watcher, once the new
   // picture is there): the card fades then.

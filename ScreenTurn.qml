@@ -1,15 +1,19 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// A docked screen turning or folding (the bridge's screen-watch): a card in
-// the panel's look turns (a quarter or half turn) or morphs from the
-// window's old place to its new one, while the window, hidden, moves under
-// it; then it fades as the window shows again. One per bar, on that bar's
-// screen; it never takes input.
+// A docked screen turning or folding (the bridge's screen-watch), as Android
+// turns its own screen: a still of the window's last picture turns with the
+// device (a quarter or half turn) or morphs into the new shape (a fold),
+// softening as it moves, while the window, hidden, moves under it; once the
+// card has arrived and the device's new picture is there, the window shows
+// under it and the still crossfades into it. Without a still (it came too
+// late), a plain card in the panel's look does the same. One per bar, on
+// that bar's screen; it never takes input.
 PanelWindow {
   id: turn
 
@@ -55,9 +59,15 @@ PanelWindow {
   property real toW: 0
   property real toH: 0
 
+  // The still, when there is one (a file in memory the bridge removes).
+  property string still: ""
+  property real soft: 0
+
   function start() {
     if (!ev || !ev.from || !ev.to) return
     journey.stop()
+    still = ev.still ? "file://" + ev.still : ""
+    soft = 0
     var f = ev.from, t = ev.to
     var turning = ev.kind === "turn"
     cx = f[0] + f[2] / 2; cy = f[1] + f[3] / 2
@@ -78,13 +88,13 @@ PanelWindow {
   property real toX: 0
   property real toY: 0
 
-  // The card fades as soon as the window shows under it (the watcher says
-  // so once the new picture is there), wherever it is in its journey: the
-  // screen is never held back for the card. It holds only while the
-  // picture is late.
+  // The card crossfades into the window once it has arrived and the window
+  // shows under it (the watcher, when the new picture is there); it holds
+  // while the picture is late. Without a still, nothing is held back: the
+  // plain card fades as soon as the window shows.
   property bool arrived: false
   property bool revealed: false
-  function fadeWhenBoth() { if (revealed && !fade.running && card.opacity > 0) fade.start() }
+  function fadeWhenBoth() { if (revealed && (arrived || still === "") && !fade.running && card.opacity > 0) fade.start() }
   Connections {
     target: turn.phone
     function onScreenRevealed(id) {
@@ -95,7 +105,7 @@ PanelWindow {
   }
   // The window shows at most this late (the watcher's own limit, and a beat).
   Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.fadeWhenBoth() } }
-  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.InCubic }
+  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; duration: (turn.still !== "" ? Model.MOTION.inMs : Model.MOTION.outMs) * turn.motion; easing.type: Easing.InOutQuad }
 
   SequentialAnimation {
     id: journey
@@ -106,6 +116,11 @@ PanelWindow {
       NumberAnimation { target: turn; property: "ch"; to: turn.toH; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
       NumberAnimation { target: turn; property: "rot"; to: turn.toRot; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
       NumberAnimation { target: turn; property: "sc"; to: turn.toSc; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
+      // Softer while it moves, as a picture in motion is.
+      SequentialAnimation {
+        NumberAnimation { target: turn; property: "soft"; to: 1; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.OutQuad }
+        NumberAnimation { target: turn; property: "soft"; to: 0.35; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.InOutQuad }
+      }
     }
     ScriptAction { script: { turn.arrived = true; turn.fadeWhenBoth() } }
   }
@@ -123,8 +138,33 @@ PanelWindow {
     color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
     borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
 
-    // Upright and its own size while the card turns and scales around it.
+    // The still: the window's last picture, inside the card's border (the
+    // window sits there too), filling it (a morph crops, never stretches).
+    Image {
+      id: stillImage
+      anchors.fill: parent
+      anchors.margins: Math.max(1, Style.space(2))
+      visible: false
+      source: turn.still
+      cache: false
+      asynchronous: false
+      fillMode: Image.PreserveAspectCrop
+    }
+    MultiEffect {
+      anchors.fill: stillImage
+      source: stillImage
+      visible: turn.still !== "" && stillImage.status === Image.Ready
+      blurEnabled: true
+      blurMax: 32
+      blur: 0.55 * turn.soft
+      brightness: -0.12 * turn.soft
+      saturation: -0.15 * turn.soft
+    }
+
+    // No still: the device's glyph, upright and its own size while the card
+    // turns and scales around it.
     Text {
+      visible: turn.still === "" || stillImage.status !== Image.Ready
       anchors.centerIn: parent
       rotation: -turn.rot
       scale: turn.sc > 0 ? 1 / turn.sc : 1

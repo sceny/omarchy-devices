@@ -122,6 +122,7 @@ BarWidget {
   ScreenTurn {
     phone: root.phone
     anchorItem: chipRow
+    motion: root.phone ? root.phone.turnMotion : 1
   }
 
   Loader {
