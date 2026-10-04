@@ -969,6 +969,28 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Tablet"}), (None, "", ""))
 
+    def test_the_devices_own_serial_from_mdns_and_pairing(self):
+        self.assertEqual(bridge.serial_of_service("adb-0A1B2C3D-xYz"), "0A1B2C3D")
+        self.assertEqual(bridge.serial_of_service("adb-0A1B2C3D-xYz._adb-tls-connect._tcp"), "0A1B2C3D")
+        self.assertEqual(bridge.serial_of_service("sceny-abc"), "")
+        self.assertEqual(bridge.paired_serial("Successfully paired to 192.168.1.20:41011 [guid=adb-0A1B2C3D-xYz]"), "0A1B2C3D")
+        self.assertEqual(bridge.paired_serial("Failed: wrong password"), "")
+
+    def test_its_own_serial_wins_over_another_address(self):
+        """KDE Connect reaches it over a VPN; Wireless debugging is on its Wi-Fi."""
+        vpn = dict(self.PHONE, addresses=["100.70.1.2"], name="Galaxy")
+        mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
+        wifi = {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "SM S918W"}
+        usb = {"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "SM S918W"}
+        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns), (None, "", ""), "unknown: no match by address or name")
+        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns, serial="0A1B2C3D"), ("192.168.1.20:37099", "wifi", "device"))
+        self.assertEqual(bridge.match_adb(vpn, [wifi, usb], mdns, serial="0A1B2C3D")[1], "usb", "the cable first")
+        moved = dict(wifi, serial="192.168.1.20:40001")
+        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D"), (None, "", ""))
+        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D", identities={"192.168.1.20:40001": "0A1B2C3D"})[0],
+                         "192.168.1.20:40001", "asked the device")
+        self.assertEqual(bridge.match_adb(vpn, [usb], [], serial="FFFF")[0], None, "another phone on the cable")
+
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8"),
                          ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8"])

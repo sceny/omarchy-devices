@@ -1470,9 +1470,12 @@ def fix(what):
 # reaches the device over Wi-Fi once it is paired through Android's Wireless
 # debugging (Android 11 and later: the panel shows a QR code, the device
 # scans it) or over a USB cable. The adb device is matched to the KDE
-# Connect device by address (Wi-Fi) or by name (USB). Reading the state
-# connects to a device adb already trusts; pairing and opening run only on
-# the user's click.
+# Connect device by the device's own serial (ro.serialno), learnt when it
+# pairs here (adb names the paired device) and kept in the cache, so a
+# device reached at another address (a VPN, a second network) is still
+# itself; failing that, by address (Wi-Fi) or by name (USB). Reading the
+# state connects to a device adb already trusts; pairing and opening run
+# only on the user's click.
 #
 # The device announces Wireless debugging over mDNS. Arch's adb is built
 # without mDNS, so Avahi finds it (Omarchy runs it; ufw lets mDNS in), and
@@ -1605,12 +1608,50 @@ def pairing_qr(name, password):
     return "WIFI:T:ADB;S:%s;P:%s;;" % (name, password)
 
 
-def match_adb(device, adb_devices, mdns, names=None):
+def serial_of_service(name):
+    """The device's own serial in adb's mDNS name, adb-<serial>-<suffix>
+    (also the guid `adb pair` prints), or ""."""
+    m = re.match(r"^adb-(.+)-[^-]+$", (name or "").split(".")[0])
+    return m.group(1) if m else ""
+
+
+def paired_serial(out):
+    """The serial of the device `adb pair` paired with, from its
+    "Successfully paired to host:port [guid=adb-<serial>-<suffix>]"."""
+    m = re.search(r"guid=([^\]\s]+)", out or "")
+    return serial_of_service(m.group(1)) if m else ""
+
+
+def adb_identity(d, mdns):
+    """The device's own serial for an adb entry, from what adb and mDNS
+    already say: a USB serial is it; a Wi-Fi one names it, or its
+    host:port is an announced service's. "" when only the device knows."""
+    serial = d["serial"]
+    if d["usb"]:
+        return serial
+    if "._adb-tls-" in serial:
+        return serial_of_service(serial)
+    host, _, port = serial.rpartition(":")
+    for s in mdns:
+        if s["kind"] == "connect" and s["host"] == host and str(s["port"]) == port:
+            return serial_of_service(s["name"])
+    return ""
+
+
+def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None):
     """The adb serial for a KDE Connect device, and how it is reached:
-    (serial, "wifi" | "usb", state) or (None, "", ""). Over Wi-Fi the
-    device's address matches (a serial "host:port", or an mDNS name whose
-    host is the device's); over USB its name does (`names`: serial to the
-    device's own name, asked of each USB device)."""
+    (serial, "wifi" | "usb", state) or (None, "", ""). The device's own
+    serial (`serial`, remembered from pairing) matches first, USB before
+    Wi-Fi; else over Wi-Fi the device's address (a serial "host:port", or
+    an mDNS name whose host is the device's); else over USB its name
+    (`names`: adb serial to the device's own name). `identities`: adb
+    serial to the device's own serial, where asking the device found it."""
+    ids = identities or {}
+    if serial:
+        mine = [d for d in adb_devices if (ids.get(d["serial"]) or adb_identity(d, mdns)) == serial]
+        mine.sort(key=lambda d: (d["state"] != "device", not d["usb"]))
+        if mine:
+            return mine[0]["serial"], "usb" if mine[0]["usb"] else "wifi", mine[0]["state"]
     addresses = set(device.get("addresses") or [])
     hosts = {s["name"]: s["host"] for s in mdns if s["kind"] == "connect"}
     for d in adb_devices:
@@ -1682,19 +1723,24 @@ def screen_status(device_id):
     adb(["start-server"], timeout=15)
     mdns = mdns_services()
     addresses = set(device.get("addresses") or [])
+    known = screen_record(device_id).get("serial", "")
+    ours = lambda s: (known and serial_of_service(s["name"]) == known) or s["host"] in addresses
     # Wireless debugging on, seen before pairing: the steps on the device
     # before the code are done.
-    status["seen"] = any(s["host"] in addresses for s in mdns)
+    status["seen"] = any(ours(s) for s in mdns)
     devices = parse_adb_devices(adb(["devices", "-l"])[1])
-    serial, via, state = match_adb(device, devices, mdns)
+    # A Wi-Fi entry mDNS does not name (its port changed): ask the device.
+    identities = {d["serial"]: adb(["-s", d["serial"], "shell", "getprop", "ro.serialno"])[1].strip()
+                  for d in devices if known and not d["usb"] and d["state"] == "device" and not adb_identity(d, mdns)}
+    serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
     if not serial:
         # A device adb trusts with Wireless debugging on shows up in mDNS
         # before adb connects to it by itself: connect now.
         for s in mdns:
-            if s["kind"] == "connect" and s["host"] in addresses:
+            if s["kind"] == "connect" and ours(s):
                 adb(["connect", "%s:%d" % (s["host"], s["port"])], timeout=CONNECT_WAIT_SEC)
                 devices = parse_adb_devices(adb(["devices", "-l"])[1])
-                serial, via, state = match_adb(device, devices, mdns)
+                serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
                 break
     if not serial:
         usb = [d for d in devices if d["usb"]]
@@ -1708,6 +1754,11 @@ def screen_status(device_id):
             ("off" if screen_record(device_id).get("paired") else "pair")
         return status
     status.update(serial=serial, via=via)
+    # Found by address or name: remember its own serial from now on.
+    if state == "device" and not known:
+        own = adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip()
+        if own and " " not in own:
+            screen_record(device_id, {"serial": own})
     if state != "device":
         status["state"] = "unauthorized" if state == "unauthorized" else "away"
         return status
@@ -1755,7 +1806,8 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     if code != 0 or "Successfully paired" not in out:
         emit({"ev": "error", "message": (out.strip().splitlines() or ["Pairing failed"])[-1]})
         return EXIT_FAILED
-    screen_record(device_id, {"paired": True, "at": int(time.time())})
+    screen_record(device_id, dict({"paired": True, "at": int(time.time())},
+                                  **({"serial": paired_serial(out)} if paired_serial(out) else {})))
     emit({"ev": "paired"})
     for _ in range(CONNECT_WAIT_SEC):
         service = next((s for s in mdns_services() if s["kind"] == "connect" and s["host"] == found["host"]), None)
