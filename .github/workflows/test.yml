@@ -12,8 +12,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: PyGObject for the bridge
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi gir1.2-gdkpixbuf-2.0
+      - name: PyGObject for the bridge, qmlformat for the QML
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi gir1.2-gdkpixbuf-2.0 qt6-declarative-dev-tools
+      - name: QML parses (a syntax error takes the whole widget off the bar)
+        run: |
+          fmt=$(ls /usr/lib/qt6/bin/qmlformat /usr/lib/x86_64-linux-gnu/qt6/bin/qmlformat 2>/dev/null | head -1)
+          test -n "$fmt" || { echo "qmlformat not found"; exit 1; }
+          for f in *.qml; do "$fmt" "$f" > /dev/null || { echo "::error file=$f::does not parse"; exit 1; }; done
       - name: Model
         run: node --test tests/*.test.js
       - name: Bridge
