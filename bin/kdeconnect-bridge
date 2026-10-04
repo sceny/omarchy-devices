@@ -43,6 +43,9 @@ not re-printed, so the shell only wakes when something moved.
                                               x,y,w,h: the panel's card); returns once
                                               the window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
+  kdeconnect-bridge screen-watch <device> <serial> <title> --ctx <json>   keep its
+                                              docked window under the chip in the
+                                              device's shape (started by screen-open)
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge screen-apps <device>           its apps, as JSON
@@ -1851,6 +1854,39 @@ def fit_display(display, box_w, box_h):
     return round(w * k), round(h * k)
 
 
+def dock_rect(ctx, display):
+    """Model.dockRect, for the bridge: where the docked window goes for a
+    display shape, under the device's chip as the panel places its card.
+    ctx (from the panel): barPos, screenW, screenH, barW, barH, gap, margin,
+    anchorX, anchorY, anchorW, anchorH. (x, y, w, h) on the monitor."""
+    g = lambda k: float(ctx.get(k) or 0)
+    side = ctx.get("barPos") in ("left", "right")
+    room_w = g("screenW") - (g("barW") + g("gap") + g("margin") if side else 2 * g("margin"))
+    room_h = g("screenH") - (2 * g("margin") if side else g("barH") + g("gap") + g("margin"))
+    w, h = fit_display(display, min(room_w, g("screenW") * DOCK_WIDTH), min(room_h, g("screenH") * DOCK_HEIGHT))
+    pos = ctx.get("barPos")
+    if pos == "bottom":
+        x, y = g("anchorX") + g("anchorW") / 2 - w / 2, g("screenH") - g("barH") - h - g("gap")
+    elif pos == "left":
+        x, y = g("barW") + g("gap"), g("anchorY") + g("anchorH") / 2 - h / 2
+    elif pos == "right":
+        x, y = g("screenW") - g("barW") - w - g("gap"), g("anchorY") + g("anchorH") / 2 - h / 2
+    else:
+        x, y = g("anchorX") + g("anchorW") / 2 - w / 2, g("barH") + g("gap")
+    x = max(g("margin"), min(x, g("screenW") - w - g("margin")))
+    y = max(g("margin"), min(y, g("screenH") - h - g("margin")))
+    return round(x), round(y), w, h
+
+
+def parse_ctx(text):
+    """--ctx: the panel's chip geometry (JSON), or None."""
+    try:
+        ctx = json.loads(text or "")
+        return ctx if isinstance(ctx, dict) else None
+    except ValueError:
+        return None
+
+
 def parse_rect(text):
     """--at x,y,w,h (on the monitor) as a tuple, or None."""
     parts = (text or "").split(",")
@@ -1925,6 +1961,85 @@ def dock_window(win, docked, display, rect=None):
     subprocess.run(["omarchy-hyprland-window-pop"] + args, capture_output=True, timeout=10)
 
 
+# ---- Re-fit: the docked window follows the device's shape ----
+#
+# Rotating or unfolding the device changes its display; scrcpy then resizes
+# its window on its own, and a docked one would drift from under the chip.
+# While a docked window is open, a watcher asks the device for its display
+# every couple of seconds (one short line) and puts the window back under
+# the chip in the new shape. An undocked window is left alone; the watcher
+# ends with the window.
+
+WATCH_EVERY_SEC = 2
+
+
+def current_display(serial):
+    """The display now, asked of the device in one short line."""
+    out = adb(["-s", serial, "shell", "dumpsys window displays | grep -m1 -oE 'cur=[0-9]+x[0-9]+'"], timeout=8)[1]
+    return parse_display(out)
+
+
+def refit(win, ctx, display, mons):
+    """The docked window put under the chip in the display's shape: the
+    dispatches to send, [] when it is there already."""
+    x, y, w, h = dock_rect(ctx, display)
+    mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
+    ax, ay = mon.get("x", 0) + x, mon.get("y", 0) + y
+    if [ax, ay] == list(win.get("at") or []) and [w, h] == list(win.get("size") or []):
+        return []
+    q = lua_string("address:" + win["address"])
+    return ["hl.dsp.window.resize({ window = %s, x = %d, y = %d })" % (q, w, h),
+            "hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, ax, ay)]
+
+
+def watch_lock(title):
+    return os.path.join(state_dir(), "screen-watch-%s.pid" % hashlib.sha1(title.encode()).hexdigest()[:12])
+
+
+def start_watch(device_id, title, ctx, serial):
+    """One watcher per window: a running one stays."""
+    if not ctx:
+        return
+    lock = watch_lock(title)
+    try:
+        pid = int(open(lock).read().strip() or 0)
+        os.kill(pid, 0)
+        return
+    except (OSError, ValueError):
+        pass
+    subprocess.Popen([sys.executable, os.path.abspath(__file__), "screen-watch", device_id, serial, title,
+                      "--ctx", json.dumps(ctx)], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def screen_watch(device_id, serial, title, ctx, sleep=time.sleep):
+    """Keeps a docked window under the chip in the device's shape, until
+    the window closes."""
+    lock = watch_lock(title)
+    os.makedirs(os.path.dirname(lock), exist_ok=True)
+    open(lock, "w").write(str(os.getpid()))
+    last = None
+    try:
+        while True:
+            win = find_window(title)
+            if not win:
+                return EXIT_OK
+            if win.get("pinned"):
+                display = current_display(serial)
+                if display[0] and display != last:
+                    for lua in refit(win, ctx, display, hypr_json("monitors")):
+                        subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+                    last = display
+            else:
+                last = None   # docked again later: fitted again
+            sleep(WATCH_EVERY_SEC)
+    finally:
+        try:
+            os.remove(lock)
+        except OSError:
+            pass
+
+
 def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
@@ -1950,7 +2065,7 @@ def launch_or_focus(title, cmd):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None):
+def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None):
     """Opens the device's screen, or one of its apps, in a window here,
     docked or tiled, and returns once the window is there (the click waits
     meanwhile). Already open: brought forward instead of a second one."""
@@ -1975,12 +2090,14 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     launch(screen_command(status["serial"], title, package, status["tools"]))
     for _ in range(WINDOW_WAIT_SEC * 4):
         if find_window(title):
+            if docked and not package:
+                start_watch(device_id, title, ctx, status["serial"])
             return say("%s is open" % (label or name + "'s screen"))
         sleep(0.25)
     return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
 
 
-def screen_dock(device_id, docked, package="", label="", rect=None):
+def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     """Docks or undocks the device's open window (and the next ones)."""
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
@@ -1994,6 +2111,8 @@ def screen_dock(device_id, docked, package="", label="", rect=None):
                    capture_output=True, timeout=5)
     if win:
         dock_window(win, docked, disp, rect)
+        if docked and status.get("serial"):
+            start_watch(device_id, title, ctx, status["serial"])
     return say("Docked by the bar" if docked else "A window like any other")
 
 
@@ -2513,6 +2632,16 @@ def main(argv):
         return EXIT_OK
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
+    if argv[0] == "screen-watch":
+        if len(argv) < 4:
+            return say("screen-watch needs a device id, its serial and the window's title", EXIT_FAILED)
+        ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
+        if not ctx:
+            return say("screen-watch needs --ctx", EXIT_FAILED)
+        try:
+            return screen_watch(argv[1], argv[2], argv[3], ctx)
+        except KeyboardInterrupt:
+            return EXIT_OK
     if argv[0] == "screen-focus":
         if len(argv) < 2:
             return say("screen-focus needs a device id", EXIT_FAILED)
@@ -2525,7 +2654,8 @@ def main(argv):
         if len(argv) < 3:
             return say("screen-dock needs a device id and on or off", EXIT_FAILED)
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
-        return screen_dock(argv[1], argv[2] == "on", rect=at)
+        ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
+        return screen_dock(argv[1], argv[2] == "on", rect=at, ctx=ctx)
     if argv[0] in ("screen", "screen-pair", "screen-open", "screen-apps"):
         if len(argv) < 2:
             return say("%s needs a device id" % argv[0], EXIT_FAILED)
@@ -2541,16 +2671,17 @@ def main(argv):
             except KeyboardInterrupt:
                 return EXIT_CANCELLED
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
+        ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         rest, skip = [], False
         for a in argv[2:]:
             if skip:
                 skip = False
-            elif a == "--at":
+            elif a in ("--at", "--ctx"):
                 skip = True
             elif a not in ("--tiled", "--docked"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at)
+                           docked="--tiled" not in argv, rect=at, ctx=ctx)
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK

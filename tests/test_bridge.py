@@ -1024,6 +1024,30 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.parse_rect("1900,40,470,1008"), (1900, 40, 470, 1008))
         self.assertIsNone(bridge.parse_rect("1,2,3"))
 
+    TOP = {"barPos": "top", "screenW": 2560, "screenH": 1440, "barW": 2560, "barH": 35, "gap": 5, "margin": 5,
+           "anchorX": 2200, "anchorY": 0, "anchorW": 40, "anchorH": 35}
+
+    def test_dock_rect_matches_the_panels(self):
+        """The same cases as Model.dockRect's test: the two must agree."""
+        self.assertEqual(bridge.dock_rect(self.TOP, (1080, 2316)), (2220 - 235, 40, 470, 1008))
+        self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[2:], (1152, 720))
+        self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[0], 2560 - 1152 - 5)
+        self.assertEqual(bridge.dock_rect(dict(self.TOP, barPos="bottom"), (1080, 2316))[1], 1440 - 35 - 1008 - 5)
+
+    def test_refit_on_rotation(self):
+        mons = [{"id": 1, "x": 2560, "y": 0}]
+        upright = bridge.dock_rect(self.TOP, (1080, 2316))
+        win = {"address": "0xabc", "monitor": 1, "at": [2560 + upright[0], upright[1]], "size": list(upright[2:])}
+        self.assertEqual(bridge.refit(win, self.TOP, (1080, 2316), mons), [], "already there")
+        moves = bridge.refit(win, self.TOP, (2316, 1080), mons)
+        x, y, w, h = bridge.dock_rect(self.TOP, (2316, 1080))
+        self.assertEqual(moves, ['hl.dsp.window.resize({ window = "address:0xabc", x = %d, y = %d })' % (w, h),
+                                 'hl.dsp.window.move({ window = "address:0xabc", x = %d, y = %d })' % (2560 + x, y)])
+        self.assertGreater(w, h, "landscape now")
+
+    def test_the_display_in_one_line(self):
+        self.assertEqual(bridge.parse_display("cur=2316x1080"), (2316, 1080))
+
     def test_rule_at_the_cards_place(self):
         lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.47, 35, True, (1900, 40, 470, 1008))
         self.assertIn("size = { 470, 1008 }, move = { 1900, 40 }", lua)

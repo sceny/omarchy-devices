@@ -596,7 +596,7 @@ Item {
   property var screenPairing: null         // { device, phase, qr, message }
   property string screenThen: ""           // a device to open once read (Screen shortcut)
   property bool screenThenDocked: true
-  property var screenThenRect: null        // where the docked window goes: a function, read at launch
+  property var screenThenPlace: null       // where the docked window goes: a function, read at launch
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id)
   // Its window is there (a place: the panel closes), or it did not open.
@@ -612,7 +612,7 @@ Item {
       screenThen = ""
       if (status && status.state === "ready" && !demo) {
         // Read now: the card has grown to the display's real shape.
-        launchScreen(id, "", "", screenThenDocked, screenThenRect ? screenThenRect() : null)
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null)
         return
       }
       if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
@@ -631,14 +631,15 @@ Item {
   // The Screen shortcut: its window when the device is ready, else its
   // setup page. The state is read first, so it never acts on a stale one;
   // the tile waits (its ring) from the click until the window is there.
-  // `rect`: a function giving where the docked window goes (the panel's
-  // card as it becomes the window), read once the state is.
-  function pressScreen(id, docked, rect) {
+  // `place`: a function giving where the docked window goes ({ rect: the
+  // panel's card as it becomes the window, ctx: the chip's place }), read
+  // once the state is.
+  function pressScreen(id, docked, place) {
     if (!id || isBusy("screen")) return
     setBusy("screen", true)
     screenThen = String(id)
     screenThenDocked = docked !== false
-    screenThenRect = rect || null
+    screenThenPlace = place || null
     readScreen(id)
   }
   function openScreen(id, pkg, label, docked) {
@@ -649,12 +650,19 @@ Item {
     launchScreen(id, pkg, label, docked)
   }
   // Busy is already set: the bridge returns once the window is there.
-  // `rect` ({ x, y, w, h } on the monitor): exactly where it opens.
-  function launchScreen(id, pkg, label, docked, rect) {
+  // `place` ({ rect: { x, y, w, h } on the monitor, ctx }): exactly where
+  // it opens, and the chip it stays under when the device turns.
+  function placeArgs(place) {
+    var out = []
+    if (place && place.rect) out.push("--at", [place.rect.x, place.rect.y, place.rect.w, place.rect.h].join(","))
+    if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
+    return out
+  }
+  function launchScreen(id, pkg, label, docked, place) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
     if (docked === false) cmd.push("--tiled")
-    else if (rect) cmd.push("--at", [rect.x, rect.y, rect.w, rect.h].join(","))
+    else cmd = cmd.concat(placeArgs(place))
     var proc = actionComponent.createObject(root, { key: key, command: cmd })
     proc.exited.connect(function(code) {
       if (code === 0) root.screenOpened(String(id))
@@ -668,11 +676,11 @@ Item {
     Quickshell.execDetached([bridge, "screen-focus", String(id)])
   }
   // Docked by the bar or tiled: the open window moves now, the next opens so.
-  // `rect`: where it docks (the panel's card shape, Panel.dockRectFor).
-  function dockScreen(id, docked, rect) {
+  // `place`: where it docks ({ rect, ctx }, Panel.dockRectFor/dockCtx).
+  function dockScreen(id, docked, place) {
     if (demo || !id) return
     var cmd = [bridge, "screen-dock", String(id), docked ? "on" : "off"]
-    if (docked && rect) cmd.push("--at", [rect.x, rect.y, rect.w, rect.h].join(","))
+    if (docked) cmd = cmd.concat(placeArgs(place))
     Quickshell.execDetached(cmd)
   }
   function startScreenPair(id) {

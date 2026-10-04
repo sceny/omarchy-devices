@@ -308,7 +308,10 @@ Keep them; change one only with the owner.
   opens at exactly that place under it (a Hyprland rule set with
   `hyprctl eval` just before, `no_anim`), and the panel fades out over it.
   A failure grows the card back. An open window docks and undocks with
-  Omarchy's pop toggle at the same rectangle; `omarchy-launch-or-focus`
+  Omarchy's pop toggle at the same rectangle. While docked, `screen-watch`
+  asks the device for its display every 2 s and re-fits the window under
+  the chip when it turns or unfolds (the bridge's `dock_rect` mirrors
+  `Model.dockRect`: change both, and their shared test cases). `omarchy-launch-or-focus`
   brings an open one forward instead of a second. Tiled, the Screen tile
   waits instead.
 - **Setting up the screen adds the Screen shortcut, once.** When a

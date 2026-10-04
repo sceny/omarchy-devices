@@ -419,7 +419,7 @@ Panel {
     var next = !screenDockedFor(id)
     if (singleDevice) persistSettings({ screenDocked: next })
     else persistDeviceProfile(String(id), { screenDocked: next })
-    if (phone) phone.dockScreen(id, next, dockRectFor(id))
+    if (phone) phone.dockScreen(id, next, { rect: dockRectFor(id), ctx: dockCtx() })
   }
   // The viewed device's screen works: the Screen pill and row are on. Read
   // when Settings opens, once scrcpy is here (about a second; never in a demo
@@ -468,12 +468,17 @@ Panel {
   // waits instead. A failure grows the card back to the page.
   property var screenOpening: null        // { id, name } while it opens
   property bool cardMorphing: false       // the card's size follows at MOTION
+  // The chip's place, as KeyboardPanel places a card: the bridge keeps a
+  // docked window there when the device turns or unfolds.
+  function dockCtx() {
+    var a = panel.anchorScreenPos
+    return { barPos: panel.barPos, screenW: panel.screenW, screenH: panel.screenH,
+      barW: panel.barW, barH: panel.barH, gap: panel.gap, margin: panel.margin,
+      anchorX: a.x, anchorY: a.y, anchorW: panel.anchorW, anchorH: panel.anchorH }
+  }
   function dockRectFor(id) {
     var st = phone ? phone.screenOf(String(id)) : null
-    var a = panel.anchorScreenPos
-    return Model.dockRect({ display: st ? st.display : null, barPos: panel.barPos, screenW: panel.screenW, screenH: panel.screenH,
-      barW: panel.barW, barH: panel.barH, gap: panel.gap, margin: panel.margin,
-      anchorX: a.x, anchorY: a.y, anchorW: panel.anchorW, anchorH: panel.anchorH })
+    return Model.dockRect(Object.assign({ display: st ? st.display : null }, dockCtx()))
   }
   readonly property var screenOpeningRect: screenOpening ? dockRectFor(screenOpening.id) : null
   function startScreenOpening(d) {
@@ -481,7 +486,7 @@ Panel {
     cardMorphing = true
     morphSettle.stop()
     screenOpening = { id: String(d.id), name: Model.deviceLabel(d) }
-    phone.pressScreen(String(d.id), true, function() { return root.screenOpeningRect })
+    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
   }
   function endScreenOpening() {
     if (!screenOpening) return
