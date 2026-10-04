@@ -1013,6 +1013,7 @@ Column {
     id: str
     property var row: ({})
     property int rowIndex: -1
+    readonly property bool working: !!root.phone && root.phone.isBusy("screen")
     width: root.width
     spacing: Style.space(14)
 
@@ -1039,12 +1040,29 @@ Column {
         id: tileCol
         anchors.centerIn: parent
         spacing: Style.space(4)
-        Text {
+        // Connecting: the waiting ring in place of the glyph, as on the
+        // shortcut's tile.
+        Item {
           anchors.horizontalCenter: parent.horizontalCenter
-          text: Model.GLYPH.screen
-          color: root.screenOpen ? Color.accent : root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.heading + 2
+          width: tileGlyph.implicitWidth
+          height: tileGlyph.implicitHeight
+          Text {
+            id: tileGlyph
+            anchors.centerIn: parent
+            text: Model.GLYPH.screen
+            color: root.screenOpen ? Color.accent : root.foreground
+            opacity: str.working ? 0 : 1.0
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading + 2
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+          }
+          WaitRing {
+            anchors.centerIn: parent
+            running: str.working
+            motion: root.motion
+            color: root.foreground
+            size: Math.round(Style.font.heading * 0.8)
+          }
         }
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
