@@ -63,7 +63,9 @@ PanelWindow {
   property real toH: 0
   property real toX: 0
   property real toY: 0
-  readonly property bool turning: !!ev && ev.kind === "turn"
+  // Set in start(), from the event itself: a binding on `ev` may not have
+  // caught up when start() runs (a turn then played as a morph).
+  property bool turning: false
   readonly property real journeyMs: (Model.MOTION.outMs + Model.MOTION.inMs) * motion
 
   // The stills (files in memory the bridge removes), how far the new one
@@ -76,6 +78,7 @@ PanelWindow {
   function start() {
     if (!ev || !ev.from || !ev.to) return
     journey.stop(); fade.stop(); blendIn.stop()
+    turning = ev.kind === "turn"
     oldStill = ev.still ? "file://" + ev.still : ""
     newStill = ""
     blend = 0
