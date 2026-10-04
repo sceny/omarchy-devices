@@ -34,9 +34,10 @@ Item {
   // Where the keys can go: the recent row, then the list.
   readonly property var stops: page.recent.concat(page.all)
   property int cursor: 0
-  readonly property int columns: Math.max(1, Math.floor((width + gap) / (cellWidth + gap)))
-  readonly property real cellWidth: Style.space(84)
+  // As many columns as fit tiles of about 84 px, spread over the width.
   readonly property real gap: Style.space(6)
+  readonly property int columns: Math.max(1, Math.floor((width + gap) / (Style.space(84) + gap)))
+  readonly property real cellWidth: (width - gap * (columns - 1)) / columns
   readonly property int systemCount: apps.filter(function(a) { return a.system }).length
 
   implicitHeight: content.implicitHeight
