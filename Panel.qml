@@ -1748,7 +1748,7 @@ Panel {
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
       else if (focusSection === "photos") photoIndex = Math.max(0, Math.min(photos.length - 1, photoIndex + dx))
       // Folded: one row of icons, the apps alone.
-      else if (focusSection === "apps" && isCollapsed("apps")) appIndex = Math.max(0, Math.min(sectionApps.length - 1, appIndex + dx))
+      else if (focusSection === "apps" && isCollapsed("apps")) appIndex = Math.max(0, Math.min(sectionApps.length, appIndex + dx))
       else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
       return
     }
@@ -1795,7 +1795,8 @@ Panel {
     // Editing: Enter shows or hides the section under the cursor.
     if (editing) { toggleSectionShown(focusSection); return }
     // A folded section opens on Enter; its content is not there to act on.
-    if ((focusSection === "media" || focusSection === "notifications" || focusSection === "photos" || focusSection === "received" || focusSection === "apps") && isCollapsed(focusSection)) {
+    // Folded Apps keeps its icons (as Shortcuts): Enter opens the one under the cursor.
+    if ((focusSection === "media" || focusSection === "notifications" || focusSection === "photos" || focusSection === "received") && isCollapsed(focusSection)) {
       toggleCollapsed(focusSection)
       return
     }
@@ -3710,6 +3711,22 @@ Panel {
                           onActivated: root.openApp(modelData)
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
                         }
+                      }
+                      // All apps, always last: the same place whatever the row holds.
+                      AppTile {
+                        compact: true
+                        width: implicitWidth
+                        height: implicitHeight
+                        iconSize: Style.space(22)
+                        canPin: false
+                        app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
+                        here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
+                        glide: root.cursorGlide
+                        motion: root.motion
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onActivated: root.openAppsView()
+                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
                       }
                     }
                   }
