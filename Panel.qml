@@ -1336,9 +1336,15 @@ Panel {
   // recent; All apps always last. `appsFoldedWidth` is the room the row has.
   property real appsFoldedWidth: 0
   readonly property real foldedTile: Style.space(22) + Style.space(6) + Style.space(4)
-  readonly property int foldedRoom: Math.max(0, Math.floor((appsFoldedWidth - foldedTile - Style.space(9)) / foldedTile))
+  readonly property real foldedDivider: 1 + Style.space(4)
+  // Room for icons once All apps has its place.
+  readonly property real foldedSpace: Math.max(0, appsFoldedWidth - foldedTile)
+  readonly property int foldedRoom: Math.floor(foldedSpace / foldedTile)
   readonly property int foldedPinned: Math.min(sectionRows.pinned.length, foldedRoom)
-  readonly property int foldedRecent: Math.min(sectionRows.recent.length, foldedRoom - foldedPinned)
+  // Recent ones only where the divider and a whole icon still fit after the
+  // pinned; pinned that fill the row leave none, and no divider.
+  readonly property int foldedRecent: Math.min(sectionRows.recent.length, Math.max(0, Math.floor(
+    (foldedSpace - foldedPinned * foldedTile - (foldedPinned > 0 ? foldedDivider : 0)) / foldedTile)))
   // The keys' stops in the folded row, in its order (indexes as unfolded).
   readonly property var foldedStops: {
     var out = []
