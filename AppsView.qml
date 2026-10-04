@@ -20,6 +20,7 @@ Item {
   property Item glide: null
   property bool cursorActive: false
   property real motion: 1
+  property bool animate: true
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
@@ -167,6 +168,7 @@ Item {
       columns: view.columns
       gap: view.gap
       showEmpty: true
+      animate: view.animate
       cursorAt: view.cursorActive ? view.cursor : -1
       glide: view.glide
       motion: view.motion

@@ -43,11 +43,18 @@ Item {
   property bool incoming: false
   // A pinned tile dragged out of the row: let go, it is unpinned.
   property bool outside: false
-  readonly property int allSlot: Model.allAppsSlot(count, columns, false)
-  readonly property int cells: allTile ? allSlot + 1 : count
-
-  implicitHeight: cells > 0 ? Math.ceil(cells / columns) * (cellHeight + gap) - gap
+  // Size animations are for the user's own changes: off while the page appears.
+  property bool animate: true
+  // The slots in use now, an app coming in included: a tile that goes to a
+  // new line takes its room at once, the rows below moving with it, not on
+  // the drop.
+  readonly property int cells: allTile ? Model.allAppsSlot(count, columns, incoming) + 1 : count + (incoming && count > 0 ? 1 : 0)
+  readonly property real fullHeight: cells > 0 ? Math.ceil(cells / columns) * (cellHeight + gap) - gap
     : (showEmpty ? emptyBox.height : 0)
+
+  implicitHeight: shownHeight
+  property real shownHeight: fullHeight
+  Behavior on shownHeight { enabled: row.animate; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
 
   AppTile { id: probe; visible: false; app: ({ name: "x" }) }
 
@@ -70,7 +77,7 @@ Item {
   // is not over the row.
   function slotAt(at) {
     var p = row.mapFromItem(null, at.x, at.y)
-    var h = Math.max(implicitHeight, cellHeight)
+    var h = Math.max(fullHeight, cellHeight)
     if (p.x < -gap || p.x > width + gap || p.y < -cellHeight * 0.4 || p.y > h + cellHeight * 0.4) return -1
     var col = Math.max(0, Math.min(columns - 1, Math.floor(p.x / (cellWidth + gap))))
     var r = Math.max(0, Math.floor(p.y / (cellHeight + gap)))
@@ -111,7 +118,7 @@ Item {
   // Empty, on the All apps page: a box to drop an app into.
   Rectangle {
     id: emptyBox
-    visible: row.showEmpty && row.cells === 0
+    visible: row.showEmpty && row.count === 0 && !row.allTile
     width: row.width
     height: Math.round(row.cellHeight * 0.75)
     radius: Style.cornerRadius

@@ -3730,6 +3730,7 @@ Panel {
                       z: moving ? 2 : 0
                       apps: root.sectionRows.pinned
                       columns: root.appColumns
+                      animate: root.settled
                       allTile: true
                       // The All apps tile is the section's last stop.
                       cursorAt: !(root.cursorActive && root.focusSection === "apps") ? -1
@@ -4484,6 +4485,7 @@ Panel {
                 glide: root.cursorGlide
                 cursorActive: root.cursorActive
                 motion: root.motion
+                animate: root.settled
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 onOpenRequested: function(app) { root.openApp(app) }
