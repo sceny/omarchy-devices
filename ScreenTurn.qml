@@ -29,7 +29,7 @@ PanelWindow {
   readonly property bool armed: !!phone && (Object.keys(phone.screenWatchers).length > 0
     || (phone.demo && phone.demoScreenKind === "ready"))
   screen: barWindow ? barWindow.screen : null
-  visible: armed || journey.running || card.opacity > 0.01
+  visible: armed || journey.running || fade.running || card.opacity > 0.01
   anchors { top: true; bottom: true; left: true; right: true }
   color: "transparent"
   WlrLayershell.namespace: "sceny-devices-turn"
@@ -67,11 +67,32 @@ PanelWindow {
     toW = turning ? f[2] : t[2]
     toH = turning ? f[3] : t[3]
     toX = t[0] + t[2] / 2; toY = t[1] + t[3] / 2
+    fade.stop()
+    arrived = false
+    revealed = false
     card.opacity = 1
+    holdLimit.restart()
     journey.start()
   }
   property real toX: 0
   property real toY: 0
+
+  // The card holds where it arrived until the window shows under it (the
+  // watcher says so once the new picture is there), then fades over it.
+  property bool arrived: false
+  property bool revealed: false
+  function fadeWhenBoth() { if (arrived && revealed && !fade.running && card.opacity > 0) fade.start() }
+  Connections {
+    target: turn.phone
+    function onScreenRevealed(id) {
+      if (!turn.ev || String(turn.ev.device || "") !== id) return
+      turn.revealed = true
+      turn.fadeWhenBoth()
+    }
+  }
+  // The window shows at most this late (the watcher's own limit, and a beat).
+  Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.fadeWhenBoth() } }
+  NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.InCubic }
 
   SequentialAnimation {
     id: journey
@@ -83,8 +104,7 @@ PanelWindow {
       NumberAnimation { target: turn; property: "rot"; to: turn.toRot; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
       NumberAnimation { target: turn; property: "sc"; to: turn.toSc; duration: (Model.MOTION.outMs + Model.MOTION.inMs) * turn.motion; easing.type: Easing.OutCubic }
     }
-    // The window shows again under it (the bridge, at the same beat).
-    NumberAnimation { target: card; property: "opacity"; to: 0; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.InCubic }
+    ScriptAction { script: { turn.arrived = true; turn.fadeWhenBoth() } }
   }
 
   BorderSurface {

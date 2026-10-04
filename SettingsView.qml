@@ -772,7 +772,7 @@ Column {
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
       }
-      // A switch on Screen and apps (Docked by the bar).
+      // A choice on Screen and apps (Opens under the bar, Opens as a window).
       Text {
         visible: listRow.row.kind === "screenAction" && listRow.row.on !== undefined
         text: listRow.row.on === true ? Model.GLYPH.checked : Model.GLYPH.unchecked

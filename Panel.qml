@@ -331,8 +331,11 @@ Panel {
   // The service sends results to Omarchy's on-screen display while no panel
   // is open (the file chooser closes it, for one).
   onOpenedChanged: {
-    // Closed mid-opening (Esc, a click away): the card is the page again next time.
-    if (!opened && screenOpening) { screenOpening = null; cardMorphing = false }
+    // The screen opening outlives the panel's fade (the card stays the
+    // waiting window while it fades over the real one); opened again, the
+    // card is the page from the start.
+    if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
+    else if (screenOpening) openingGone.restart()
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
@@ -408,7 +411,7 @@ Panel {
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId))
-  // Docked by the bar or tiled, for a device: its profile (with one device,
+  // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
   // the flat keys).
   function screenDockedFor(id) {
     for (var i = 0; i < pairedDevices.length; i++)
@@ -483,6 +486,13 @@ Panel {
   readonly property var screenOpeningRect: screenOpening ? dockRectFor(screenOpening.id) : null
   function startScreenOpening(d) {
     if (!phone || !d || screenOpening) return
+    // Its docked window is open already (wherever the user put it): brought
+    // forward, no card journey to a place it may not be.
+    if (phone.screenWatchers[String(d.id)]) {
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(String(d.id)) })
+      return
+    }
     cardMorphing = true
     morphSettle.stop()
     screenOpening = { id: String(d.id), name: Model.deviceLabel(d) }
@@ -492,6 +502,14 @@ Panel {
     if (!screenOpening) return
     screenOpening = null
     morphSettle.restart()
+  }
+  // A demo turn: the watcher's "revealed", as a new picture would bring it.
+  Timer { id: demoReveal; interval: 450; onTriggered: if (root.phone) root.phone.screenRevealed("demo") }
+  // KeyboardPanel fades out in 140 ms: the opening ends after that.
+  Timer {
+    id: openingGone
+    interval: 220
+    onTriggered: if (!root.opened) { root.screenOpening = null; root.cardMorphing = false }
   }
   // The card's size animates while the shape changes, and for one beat
   // after it goes back.
@@ -510,7 +528,8 @@ Panel {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
       else phone.pressScreen(screenId, false)
     }
-    else if (key === "dock") toggleScreenDocked(screenId)
+    else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
   }
   // Read again while the page shows (a setting turned on, the cable
   // plugged in, the install done); a pairing on the page stops when it goes.
@@ -1739,7 +1758,8 @@ Panel {
       var shape = kind === "turn" ? [2400, 1080] : [2176, 1812]
       var to = Model.dockRect(Object.assign({ display: shape }, root.dockCtx()))
       root.phone.screenTurn = { kind: kind === "turn" ? "turn" : "morph", angle: -90, from: [from.x, from.y, from.w, from.h],
-        to: [to.x, to.y, to.w, to.h], monitor: panel.screen ? panel.screen.name : "", at: Date.now() }
+        to: [to.x, to.y, to.w, to.h], monitor: panel.screen ? panel.screen.name : "", device: "demo", at: Date.now() }
+      demoReveal.restart()
       return JSON.stringify(root.phone.screenTurn)
     }
     // Demo only: the Screen shortcut as a click would (docked, the card

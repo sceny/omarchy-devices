@@ -1034,31 +1034,34 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[0], 2560 - 1152 - 5)
         self.assertEqual(bridge.dock_rect(dict(self.TOP, barPos="bottom"), (1080, 2316))[1], 1440 - 35 - 1008 - 5)
 
-    def test_refit_on_rotation(self):
+    def test_refit_puts_the_window_inside_the_cards_border(self):
         mons = [{"id": 1, "x": 2560, "y": 0}]
-        upright = bridge.dock_rect(self.TOP, (1080, 2316))
-        win = {"address": "0xabc", "monitor": 1, "at": [2560 + upright[0], upright[1]], "size": list(upright[2:])}
-        self.assertEqual(bridge.refit(win, self.TOP, (1080, 2316), mons), [], "already there")
-        moves = bridge.refit(win, self.TOP, (2316, 1080), mons)
-        x, y, w, h = bridge.dock_rect(self.TOP, (2316, 1080))
-        self.assertEqual(moves, ['hl.dsp.window.resize({ window = "address:0xabc", x = %d, y = %d })' % (w, h),
-                                 'hl.dsp.window.move({ window = "address:0xabc", x = %d, y = %d })' % (2560 + x, y)])
-        self.assertGreater(w, h, "landscape now")
+        card = bridge.dock_rect(self.TOP, (1080, 2316))
+        x, y, w, h = card
+        win = {"address": "0xabc", "monitor": 1, "at": [2560 + x + 2, y + 2], "size": [w - 4, h - 4]}
+        self.assertEqual(bridge.refit(win, card, mons, 2), [], "already there, inside its 2 px border")
+        self.assertEqual(bridge.resting(win, mons, 2), card)
+        turned = bridge.dock_rect(self.TOP, (2316, 1080))
+        moves = bridge.refit(win, turned, mons, 2)
+        tx, ty, tw, th = turned
+        self.assertEqual(moves, ['hl.dsp.window.resize({ window = "address:0xabc", x = %d, y = %d })' % (tw - 4, th - 4),
+                                 'hl.dsp.window.move({ window = "address:0xabc", x = %d, y = %d })' % (2560 + tx + 2, ty + 2)])
 
-    def test_a_moved_window_stays_where_it_was_put(self):
-        mon = {"width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
-        home = bridge.dock_rect(self.TOP, (1080, 2316))
-        self.assertEqual(bridge.placement(self.TOP, home, (1080, 2316), (2316, 1080), mon),
-                         bridge.dock_rect(self.TOP, (2316, 1080)), "docked: under the chip")
-        moved = (600, 200, home[2], home[3])
-        x, y, w, h = bridge.placement(self.TOP, moved, (1080, 2316), (2316, 1080), mon)
-        self.assertEqual((w, h), bridge.dock_rect(self.TOP, (2316, 1080))[2:], "same size against the docked one")
-        self.assertEqual((round(x + w / 2), round(y + h / 2)), (round(600 + home[2] / 2), round(200 + home[3] / 2)), "its centre kept")
-        bigger = (600, 200, home[2] * 1.2, home[3] * 1.2)
-        self.assertGreater(bridge.placement(self.TOP, bigger, (1080, 2316), (2316, 1080), mon)[2], w, "the user's size kept")
-        corner = (2000, 900, home[2], home[3])
-        cx, cy, cw, ch = bridge.placement(self.TOP, corner, (1080, 2316), (2316, 1080), mon)
-        self.assertTrue(cx + cw <= 2560 and cy + ch <= 1440 and cy >= 35, "kept on the screen")
+    def test_scrcpy_says_the_display_changed_before_the_picture(self):
+        line = "[server] VERBOSE: DisplayMonitor: 1080x2316 [rotation=0] -> 2316x1080 [rotation=1]"
+        self.assertEqual(bridge.parse_display_change(line), ((1080, 2316, 0), (2316, 1080, 1)))
+        self.assertIsNone(bridge.parse_display_change("[server] VERBOSE: DisplayMonitor: 1080x2316 [rotation=0] (unchanged)"))
+
+    def test_same_shape_allows_a_rounded_side(self):
+        self.assertTrue(bridge.same_shape((1080, 2316), (1088, 2320)))
+        self.assertFalse(bridge.same_shape((1080, 2316), (2316, 1080)))
+
+    def test_a_stale_lock_is_not_a_watcher(self):
+        with tempfile.TemporaryDirectory() as d:
+            lock = os.path.join(d, "w.pid")
+            open(lock, "w").write(str(os.getpid()))   # alive, but this test is no watcher
+            self.assertFalse(bridge.watch_running(lock))
+            self.assertFalse(bridge.watch_running(os.path.join(d, "none.pid")))
 
     def test_the_display_in_one_line(self):
         self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
@@ -1071,8 +1074,11 @@ class Screen(unittest.TestCase):
         self.assertEqual(cmd[5:8], ["scrcpy", "--serial", "S1"])
 
     def test_turn_or_morph(self):
-        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 1), ("turn", -90), "turned left")
-        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 3), ("turn", 90), "turned right")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 1), ("turn", -90),
+                         "rotation 1: the drawing turned clockwise, so the device turned counter-clockwise")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 3), ("turn", 90), "turned clockwise")
+        self.assertEqual(bridge.turn_of((2316, 1080), (1080, 2316), 1, 0), ("turn", 90), "back upright: the other way")
+        self.assertEqual(bridge.turn_of((1080, 2316), (1080, 2316), 0, 2), ("turn", 180), "upside down: a half turn in place")
         self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080)), ("turn", -90), "rotation unknown")
         self.assertEqual(bridge.turn_of((904, 2316), (1812, 2176)), ("morph", 0), "unfolded")
         self.assertEqual(bridge.turn_of((1812, 2176), (904, 2316)), ("morph", 0), "folded")

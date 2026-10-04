@@ -43,9 +43,9 @@ not re-printed, so the shell only wakes when something moved.
                                               x,y,w,h: the panel's card); returns once
                                               the window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
-  kdeconnect-bridge screen-watch <device> --ctx <json>   keep its docked window
-                                              under the chip in the device's shape;
-                                              JSON lines (refit: turn or morph)
+  kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
+                                              window in the device's shape; JSON lines
+                                              (refit: turn or morph; revealed)
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge screen-apps <device>           its apps, as JSON
@@ -1810,10 +1810,14 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
 #
 # On Wayland a window cannot place itself, so scrcpy's own position flags do
 # nothing: Hyprland does it. Docked is Omarchy's pop-out (floating, pinned on
-# every workspace, on top, tagged `pop`, so Omarchy's own pop toggle undocks
-# it too), phone-shaped, at the right edge under the bar, where the panel
-# opens. A window rule set just before the launch (`hyprctl eval`) opens it
-# there at once; an open window moves with dispatches.
+# every workspace, tagged `pop`, opaque like Omarchy's picture-in-picture),
+# in the device's own shape under its chip, where the panel's card is. A
+# window rule set just before the launch (`hyprctl eval`) opens it there at
+# once; an open window moves with dispatches by its address.
+#
+# Rectangles here are the card's: Hyprland draws a window's border outside
+# its geometry, so the window itself is the rectangle inset by the border
+# (inner), and window plus border cover the card exactly.
 
 DOCK_HEIGHT = 0.7       # the docked window's box: of the monitor's height
 DOCK_WIDTH = 0.45       # and of its width (a tablet in landscape meets this one)
@@ -1893,7 +1897,21 @@ def parse_rect(text):
     return tuple(int(float(p)) for p in parts) if len(parts) == 4 and all(re.match(r"^-?\d+(\.\d+)?$", p) for p in parts) else None
 
 
-def dock_rule_lua(name, title, aspect, top, docked, rect=None):
+def border_size():
+    try:
+        return int(json.loads(subprocess.run(["hyprctl", "getoption", "general:border_size", "-j"],
+                                             capture_output=True, text=True, timeout=5).stdout or "{}").get("int", 0))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return 0
+
+
+def inner(rect, border):
+    """The window's own geometry for a card rectangle (x, y, w, h)."""
+    x, y, w, h = rect
+    return x + border, y + border, w - 2 * border, h - 2 * border
+
+
+def dock_rule_lua(name, title, aspect, top, docked, rect=None, border=0):
     """Lua that sets (or replaces, or with docked False just ends) the rule
     docking windows titled `title`. The position names the docked width
     itself: a rule's window_w is the size before the rule's own.
@@ -1907,9 +1925,10 @@ def dock_rule_lua(name, title, aspect, top, docked, rect=None):
         # Where the panel's card is, as the card ends its opening: the window
         # takes its place exactly and fades in (and out when it closes), as
         # Hyprland's pop-in at full size is a fade alone.
-        x, y, w, h = rect
+        x, y, w, h = inner(rect, border)
         lua += ("_G.sceny_devices_rules[%s] = hl.window_rule({ name = %s, match = { title = %s }, "
                 "tag = \"+pop\", float = true, pin = true, animation = \"popin 100%%\", keep_aspect_ratio = true, "
+                "opacity = \"1 1\", "
                 "size = { %d, %d }, move = { %d, %d } })\n") % (
             lua_string(name), lua_string(name), lua_string(title_regex(title)), w, h, x, y)
     elif docked:
@@ -1950,38 +1969,57 @@ def dock_geometry(mon, display, rect=None):
 
 
 def dock_window(win, docked, display, rect=None):
-    """Docks an open window or undocks it, with Omarchy's pop-out toggle
-    (`omarchy-hyprland-window-pop`, which acts on the focused window): it
-    pins, floats, sizes and places it, and toggling again tiles it."""
-    if bool(win.get("pinned")) == docked:
-        return
-    subprocess.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = %s })" % lua_string("address:" + win["address"])],
-                   capture_output=True, timeout=5)
-    mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
-    args = [str(v) for v in dock_geometry(mon, display, rect)] if docked else []
-    subprocess.run(["omarchy-hyprland-window-pop"] + args, capture_output=True, timeout=10)
+    """Docks an open window (floating, pinned, tagged `pop`, at the card's
+    rectangle) or undocks it (tiled, unpinned), as Omarchy's pop-out does,
+    by its address: the panel keeps the keyboard. Each step only when the
+    window is not in that state already."""
+    q = lua_string("address:" + win["address"])
+    run = lambda lua: subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+    if docked:
+        mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
+        w, h, x, y = dock_geometry(mon, display, rect)
+        b = border_size()
+        if not win.get("floating"):
+            run('hl.dsp.window.float({ window = %s, action = "toggle" })' % q)
+        run("hl.dsp.window.resize({ window = %s, x = %d, y = %d })" % (q, w - 2 * b, h - 2 * b))
+        run("hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, x + b, y + b))
+        if not win.get("pinned"):
+            run("hl.dsp.window.pin({ window = %s })" % q)
+        run('hl.dsp.window.tag({ window = %s, tag = "+pop" })' % q)
+    else:
+        if win.get("pinned"):
+            run("hl.dsp.window.pin({ window = %s })" % q)
+        run('hl.dsp.window.tag({ window = %s, tag = "-pop" })' % q)
+        if win.get("floating"):
+            run('hl.dsp.window.float({ window = %s, action = "toggle" })' % q)
 
 
 # ---- Re-fit: the docked window follows the device's shape ----
 #
-# Rotating or unfolding the device changes its display; scrcpy then resizes
-# its window on its own, and a docked one would drift from under the chip.
 # While a docked window is open, `screen-watch` (run by the panel's service,
-# JSON lines out) looks at the window four times a second and asks the
-# device for its display when the window changed, or every 2 s. A new shape
-# is a turn (width and height swapped: the panel turns a card from the old
-# place to the new) or a morph (a fold, anything else: the card's rectangle
-# morphs): the window hides, the event goes out, the window is moved under
-# the card and shows again as the card fades. An undocked window is left
-# alone; the watcher ends with the window.
+# JSON lines out) keeps it in the device's shape. scrcpy runs verbose, so its
+# output (a log the watcher reads every 10 ms) says when the device's
+# display changes, before the new picture is even sent:
+#
+#   [server] VERBOSE: DisplayMonitor: 1080x2316 [rotation=0] -> 2316x1080 [rotation=1]
+#
+# Then, in order: a `refit` event (the panel's ScreenTurn card appears over
+# the window: a turn turns it, the way the device turned; anything else, a
+# fold, morphs it); the window hides and moves under the card; scrcpy's
+# "Texture: WxH" says the new picture arrived (scrcpy resizes its window
+# then, so it is put back); once the picture is there and the card has
+# travelled (Model.MOTION, out then in), the window shows and `revealed`
+# goes out, and the card fades over it. "Texture" alone (an older scrcpy, a
+# missed line) starts the same, a frame late. The window's size and the
+# device's display are looked at as well, for a change the log missed. A
+# window the user moved stays where they put it (placement). An undocked
+# window is left alone; the watcher ends with the window.
 
 WATCH_LOOK_SEC = 0.25
 WATCH_ASK_SEC = 2
-WATCH_LOG_SEC = 0.01    # scrcpy's log, read this often: a turn is covered within a frame or two
-# The card's journey (Model.MOTION: out, then in), and when the window
-# moves under it.
-TURN_MOVE_SEC = 0.12
-TURN_SHOW_SEC = 0.32
+WATCH_LOG_SEC = 0.01
+TURN_TRAVEL_SEC = 0.33  # the card's journey: Model.MOTION.outMs + inMs, and a beat
+TURN_WAIT_SEC = 1.5     # the new picture, at most; then the window shows anyway
 
 
 def current_display(serial):
@@ -1993,25 +2031,42 @@ def current_display(serial):
     return parse_display(out), int(m.group(1)) if m else -1
 
 
+def parse_display_change(line):
+    """scrcpy's server, verbose: the display changing, as ((w, h, rotation)
+    before, (w, h, rotation) after), or None."""
+    m = re.search(r"DisplayMonitor: (\d+)x(\d+) \[rotation=(\d)\] -> (\d+)x(\d+) \[rotation=(\d)\]", line or "")
+    if not m:
+        return None
+    g = [int(v) for v in m.groups()]
+    return (g[0], g[1], g[2]), (g[3], g[4], g[5])
+
+
+def same_shape(a, b):
+    """Two sizes of the same proportions (an encoder may round a side)."""
+    return bool(a and b and a[1] and b[1]) and abs(a[0] / a[1] - b[0] / b[1]) < 0.02 * (a[0] / a[1])
+
+
 def turn_of(old, new, old_rot=-1, new_rot=-1):
     """How the shape changed: ("turn", degrees) when width and height
-    swapped (the way the device turned when its rotation says so: Android's
-    rotation counts counter-clockwise; else a quarter turn back), else
-    ("morph", 0): a fold, an unfold, a new resolution."""
-    if old and new and old[1] and new[1] and abs(old[0] / old[1] - new[1] / new[0]) < 0.02 * (new[1] / new[0]):
-        if old_rot >= 0 and new_rot >= 0:
-            step = (new_rot - old_rot) % 4
-            return "turn", {1: -90, 2: 180, 3: 90}.get(step, -90)
-        return "turn", -90
+    swapped, ("morph", 0) otherwise (a fold, an unfold, a new resolution).
+    Degrees as Qt turns a picture (clockwise is positive), the way the
+    device turned: Android's rotation is the drawing's, opposite to the
+    device, so a step of 1 is the device turned counter-clockwise (-90).
+    Rotation unknown: a quarter turn counter-clockwise."""
+    step = (new_rot - old_rot) % 4 if old_rot >= 0 and new_rot >= 0 else -1
+    if old and new and same_shape(old, (new[1], new[0])):
+        return "turn", {1: -90, 2: 180, 3: 90}.get(step, -90)
+    if step == 2 and same_shape(old, new):
+        return "turn", 180   # upside down: the same shape, a half turn in place
     return "morph", 0
 
 
 def placement(ctx, settled, old, new, mon):
-    """Where the window goes for a new display shape, on the monitor: under
-    the chip when it was there (dock_rect); where the user moved it
+    """Where the card goes for a new display shape, on the monitor: under
+    the chip when the window was there (dock_rect); where the user moved it
     otherwise, keeping its centre and its size against the docked one,
     in the new shape and kept on the screen. `settled`: its last resting
-    rectangle (x, y, w, h on the monitor)."""
+    card rectangle (x, y, w, h on the monitor)."""
     home = dock_rect(ctx, old)
     if not settled or all(abs(a - b) <= 3 for a, b in zip(settled, home)):
         return dock_rect(ctx, new)
@@ -2028,10 +2083,10 @@ def placement(ctx, settled, old, new, mon):
     return x, y, w, h
 
 
-def refit(win, ctx, display, mons, rect=None):
-    """The docked window put at `rect` (else under the chip in the display's
-    shape): the dispatches to send, [] when it is there already."""
-    x, y, w, h = rect or dock_rect(ctx, display)
+def refit(win, rect, mons, border=0):
+    """The window put at the card rectangle `rect` (inset by the border):
+    the dispatches to send, [] when it is there already."""
+    x, y, w, h = inner(rect, border)
     mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
     ax, ay = mon.get("x", 0) + x, mon.get("y", 0) + y
     if [ax, ay] == list(win.get("at") or []) and [w, h] == list(win.get("size") or []):
@@ -2039,6 +2094,13 @@ def refit(win, ctx, display, mons, rect=None):
     q = lua_string("address:" + win["address"])
     return ["hl.dsp.window.resize({ window = %s, x = %d, y = %d })" % (q, w, h),
             "hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, ax, ay)]
+
+
+def resting(win, mons, border=0):
+    """A window's card rectangle on its monitor: its geometry and border."""
+    mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
+    return (win["at"][0] - mon.get("x", 0) - border, win["at"][1] - mon.get("y", 0) - border,
+            win["size"][0] + 2 * border, win["size"][1] + 2 * border)
 
 
 def window_prop(win, prop, value):
@@ -2051,28 +2113,26 @@ def watch_lock(title):
     return os.path.join(state_dir(), "screen-watch-%s.pid" % hashlib.sha1(title.encode()).hexdigest()[:12])
 
 
-def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
-    """Keeps the device's docked window under the chip in its shape, until
-    the window closes. JSON lines: refit {kind, angle, from, to, monitor}.
+def watch_running(lock):
+    """A watcher holds the lock: its pid is alive and is a watcher (a pid
+    the system gave to something else since does not count)."""
+    try:
+        pid = int(open(lock).read().strip() or 0)
+        return b"screen-watch" in open("/proc/%d/cmdline" % pid, "rb").read()
+    except (OSError, ValueError):
+        return False
 
-    scrcpy's "Texture: WxH" line is the new shape itself: the card event
-    goes out at once (its layer is above the window and covers it the next
-    frame), the window hides, then moves under the card and shows again.
-    Nothing is asked of the device first. The window's size and the
-    device's display are looked at too, for a change the log missed."""
+
+def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time.time):
+    """Keeps the device's docked window in its shape, until the window
+    closes. JSON lines: refit {kind, angle, from, to, monitor, device},
+    revealed {device}."""
     emit = emit or (lambda ev: print(json.dumps(ev), flush=True))
     device = screen_device(device_id) or {}
     title = screen_title(device.get("name") or "Device")
     lock = watch_lock(title)
-    try:
-        os.kill(int(open(lock).read().strip() or 0), 0)
+    if watch_running(lock):
         return EXIT_OK   # one watcher per window
-    except (OSError, ValueError):
-        pass
-    status = screen_status(device_id)
-    if not status.get("serial"):
-        return EXIT_FAILED
-    serial = status["serial"]
     os.makedirs(os.path.dirname(lock), exist_ok=True)
     open(lock, "w").write(str(os.getpid()))
     try:
@@ -2080,76 +2140,83 @@ def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
             if find_window(title):
                 break
             sleep(WATCH_LOOK_SEC)
+        border = border_size()
         shape, rot = current_display(serial)
         log = open(screen_log(title), "r", errors="replace") if os.path.exists(screen_log(title)) else None
         if log:
             log.seek(0, os.SEEK_END)
         win, mons = find_window(title), hypr_json("monitors")
-        looked = asked = time.time()
+        if not win:
+            return EXIT_OK
+        looked = asked = clock()
+        settled = resting(win, mons, border)
+        pending = None   # a turn under way: {to, since, picture}
 
-        def resting(w):
-            """Its rectangle on its monitor, as it rests now."""
-            mon = next((m for m in mons if m.get("id") == w.get("monitor")), None) or {}
-            return (w["at"][0] - mon.get("x", 0), w["at"][1] - mon.get("y", 0)) + tuple(w["size"])
-
-        # Its last resting place: the card starts there, and a window the
-        # user moved stays where they put it (placement).
-        settled = resting(win) if win else None
-
-        def carry(new, angle_hint=None):
+        def carry(new, kind_angle, picture):
             """The card event, then the hidden window moved under it."""
-            nonlocal shape, settled
+            nonlocal shape, settled, pending
             mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
             to = placement(ctx, settled, shape, new, mon)
-            moves = refit(win, ctx, new, mons, to)
-            if not moves:
-                shape = new
-                return
-            kind, angle = turn_of(shape, new) if angle_hint is None else angle_hint
-            before = list(settled) if settled else list(dock_rect(ctx, shape))
-            emit({"ev": "refit", "kind": kind, "angle": angle, "from": before,
-                  "to": list(to), "monitor": mon.get("name", "")})
+            kind, angle = kind_angle
+            emit({"ev": "refit", "kind": kind, "angle": angle, "from": list(settled), "to": list(to),
+                  "monitor": mon.get("name", ""), "device": device_id})
             window_prop(win, "no_anim", "1")
             window_prop(win, "opacity", "0")
-            sleep(TURN_MOVE_SEC)
-            for lua in moves:
+            for lua in refit(win, to, mons, border):
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
-            sleep(TURN_SHOW_SEC - TURN_MOVE_SEC)
+            shape, settled = tuple(new[:2]), tuple(to)
+            pending = {"to": to, "since": clock(), "picture": picture}
+
+        def reveal():
+            """The new picture is there and the card has arrived: the window,
+            put back where scrcpy's own resize moved it from, shows under
+            the card, which then fades."""
+            nonlocal pending, win
+            win = find_window(title) or win
+            for lua in refit(win, pending["to"], mons, border):
+                subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+            window_prop(win, "opacity", "1 1")
+            emit({"ev": "revealed", "device": device_id})
+            sleep(0.15)   # the card's fade, over the window
             window_prop(win, "no_anim", "0")
-            window_prop(win, "opacity", "1")
-            shape = new
-            settled = tuple(to)
+            pending = None
 
         while True:
-            texture = None
+            change, texture = None, None
             if log:
                 for line in log.readlines():
+                    change = parse_display_change(line) or change
                     texture = parse_texture(line) or texture
-            if texture and win and win.get("pinned") and texture != tuple(shape):
-                carry(texture)
-                win, looked = find_window(title), time.time()
-                if not win:
-                    return EXIT_OK
-                continue
-            now = time.time()
-            if now - looked >= WATCH_LOOK_SEC:
+            pinned = bool(win and win.get("pinned"))
+            # The display changed: before its new picture is sent. Upside
+            # down keeps the shape but turns the picture: a half turn.
+            if change and pinned and (not same_shape(change[1][:2], shape) or (change[1][2] - change[0][2]) % 4 == 2):
+                carry(change[1][:2], turn_of(shape, change[1][:2], change[0][2], change[1][2]), False)
+            # The new picture: a turn the log said nothing of starts now.
+            if texture and pinned:
+                if pending is None and not same_shape(texture, shape):
+                    carry(texture, turn_of(shape, texture, rot), True)
+                elif pending is not None:
+                    pending["picture"] = True
+            now = clock()
+            if pending and ((pending["picture"] and now - pending["since"] >= TURN_TRAVEL_SEC)
+                            or now - pending["since"] >= TURN_WAIT_SEC):
+                reveal()
+            if now - looked >= WATCH_LOOK_SEC and not pending:
                 looked = now
                 win = find_window(title)
                 if not win:
                     return EXIT_OK
                 mons = hypr_json("monitors")
-                # At rest in the shape it should have: the user may have
-                # moved or resized it. Mid-turn (scrcpy resized it itself)
-                # it is not at rest.
-                here = resting(win)
-                if abs(here[2] / here[3] - shape[0] / shape[1]) < 0.03 if shape[0] and here[3] else True:
+                # At rest in its shape: the user may have moved or resized it.
+                here = resting(win, mons, border)
+                if same_shape(here[2:], shape):
                     settled = here
                 if win.get("pinned") and now - asked >= WATCH_ASK_SEC:
                     asked = now
                     new, new_rot = current_display(serial)
-                    if new[0] and new != tuple(shape):
-                        carry(new, turn_of(shape, new, rot, new_rot))
-                        win = find_window(title) or win
+                    if new[0] and not same_shape(new, shape):
+                        carry(new, turn_of(shape, new, rot, new_rot), True)
                     if new[0]:
                         rot = new_rot
             sleep(WATCH_LOG_SEC)
@@ -2183,6 +2250,9 @@ def screen_command(serial, title, package="", tools=None, log=""):
     its output goes."""
     run = ["scrcpy"] if not log else ["sh", "-c", 'exec "$0" "$@" >%s 2>&1' % shlex.quote(log), "scrcpy"]
     cmd = ["uwsm-app", "--"] + run + ["--serial", serial, "--window-title", title]
+    if log:
+        # Verbose: its device side says when the display changes (the watcher).
+        cmd += ["--verbosity=verbose"]
     if package:
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
@@ -2219,7 +2289,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
     subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title,
-                                                     aspect, top, docked, rect)],
+                                                     aspect, top, docked, rect, border_size())],
                    capture_output=True, timeout=5)
     log = screen_log(title) if docked and not package else ""
     if log:
@@ -2242,11 +2312,12 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     disp = status.get("display") or [0, 0]
     aspect = disp[0] / disp[1] if disp[1] else 9 / 19.5
     top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
-    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, docked, rect)],
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, docked, rect,
+                                                     border_size())],
                    capture_output=True, timeout=5)
     if win:
         dock_window(win, docked, disp, rect)
-    return say("Docked by the bar" if docked else "A window like any other")
+    return say("Opens under the bar" if docked else "Opens as a window")
 
 
 def screen_apps(device_id):
@@ -2767,10 +2838,10 @@ def main(argv):
         return fix(argv[1] if len(argv) > 1 else "")
     if argv[0] == "screen-watch":
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
-        if len(argv) < 2 or not ctx:
-            return say("screen-watch needs a device id and --ctx", EXIT_FAILED)
+        if len(argv) < 3 or not ctx:
+            return say("screen-watch needs a device id, its adb serial and --ctx", EXIT_FAILED)
         try:
-            return screen_watch(argv[1], ctx)
+            return screen_watch(argv[1], argv[2], ctx)
         except KeyboardInterrupt:
             return EXIT_OK
     if argv[0] == "screen-focus":

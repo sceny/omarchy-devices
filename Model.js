@@ -1186,9 +1186,12 @@ function screenSetup(status, device, pairing, docked) {
   }
   if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
   if (ready) {
-    actions.push({ key: "open", label: "Open its screen", hint: "A window here; right-click is Back" })
-    actions.push({ key: "dock", label: "Docked by the bar", on: docked !== false,
-                   hint: docked !== false ? "Its own shape, under its chip, on every workspace" : "Off: a window like any other" })
+    actions.push({ key: "open", label: "Show the screen", hint: "Use " + name + " here: click to tap, right-click is Back, middle-click is Home" })
+    // Where it opens: one of two, like a choice in Settings.
+    actions.push({ key: "dockOn", label: "Opens under the bar", on: docked !== false,
+                   hint: "By " + name + "'s icon, in its shape, on top on every workspace" })
+    actions.push({ key: "dockOff", label: "Opens as a window", on: docked === false,
+                   hint: "Tiles, moves and resizes like any other window" })
   }
   return {
     state: state, line: line, steps: steps, pairingNote: pairingNote,

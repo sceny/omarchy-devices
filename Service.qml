@@ -675,12 +675,16 @@ Item {
   }
   // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
   //      the device's shape; each change comes here for ScreenTurn ----
-  property var screenTurn: null            // { kind, angle, from, to, monitor, at }
+  property var screenTurn: null            // { kind, angle, from, to, monitor, device, at }
   property var screenWatchers: ({})        // device id -> its watcher
+  // The window shows again under the card (the watcher, once the new
+  // picture is there): the card fades then.
+  signal screenRevealed(string id)
   function watchScreen(id, ctx) {
-    if (demo || !id || !ctx || screenWatchers[String(id)]) return
+    var st = screenOf(id)
+    if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
     var proc = watchComponent.createObject(root, { device: String(id),
-      command: [bridge, "screen-watch", String(id), "--ctx", JSON.stringify(ctx)] })
+      command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)] })
     var next = Object.assign({}, screenWatchers)
     next[String(id)] = proc
     screenWatchers = next
@@ -696,6 +700,7 @@ Item {
           try {
             var ev = JSON.parse(line)
             if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
+            else if (ev.ev === "revealed") root.screenRevealed(String(ev.device || ""))
           } catch (e) {}
         }
       }
@@ -713,7 +718,7 @@ Item {
     if (demo || !id) return
     Quickshell.execDetached([bridge, "screen-focus", String(id)])
   }
-  // Docked by the bar or tiled: the open window moves now, the next opens so.
+  // Under the bar (docked) or as a window: the open window moves now, the next opens so.
   // `place`: where it docks ({ rect, ctx }, Panel.dockRectFor/dockCtx).
   function dockScreen(id, docked, place) {
     if (demo || !id) return
