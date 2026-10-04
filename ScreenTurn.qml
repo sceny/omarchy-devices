@@ -121,8 +121,11 @@ PanelWindow {
     color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
     borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
 
+    // Upright and its own size while the card turns and scales around it.
     Text {
       anchors.centerIn: parent
+      rotation: -turn.rot
+      scale: turn.sc > 0 ? 1 / turn.sc : 1
       text: Model.GLYPH.screen
       color: turn.foreground
       font.family: turn.fontFamily

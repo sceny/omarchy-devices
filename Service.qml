@@ -700,7 +700,11 @@ Item {
           try {
             var ev = JSON.parse(line)
             if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
-            else if (ev.ev === "revealed") root.screenRevealed(String(ev.device || ""))
+            else if (ev.ev === "revealed") {
+              // The turn's timing, for diagnosing (no device data).
+              console.info("sceny.devices screen turn: new picture after " + ev.picture_ms + " ms, shown after " + ev.shown_ms + " ms")
+              root.screenRevealed(String(ev.device || ""))
+            }
           } catch (e) {}
         }
       }

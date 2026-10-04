@@ -2165,7 +2165,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             for lua in refit(win, to, mons, border):
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             shape, settled = tuple(new[:2]), tuple(to)
-            pending = {"to": to, "since": clock(), "picture": picture}
+            pending = {"to": to, "since": clock(), "picture": picture, "picture_at": clock() if picture else None}
 
         def reveal():
             """The new picture is there and the card has arrived: the window,
@@ -2176,7 +2176,12 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             for lua in refit(win, pending["to"], mons, border):
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             window_prop(win, "opacity", "1 1")
-            emit({"ev": "revealed", "device": device_id})
+            # How long the device took for its new picture, and when the
+            # window showed (the service logs it).
+            at = pending.get("picture_at")
+            emit({"ev": "revealed", "device": device_id,
+                  "picture_ms": round((at - pending["since"]) * 1000) if at else None,
+                  "shown_ms": round((clock() - pending["since"]) * 1000)})
             sleep(0.15)   # the card's fade, over the window
             window_prop(win, "no_anim", "0")
             pending = None
@@ -2196,8 +2201,9 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             if texture and pinned:
                 if pending is None and not same_shape(texture, shape):
                     carry(texture, turn_of(shape, texture, rot), True)
-                elif pending is not None:
+                elif pending is not None and not pending["picture"]:
                     pending["picture"] = True
+                    pending["picture_at"] = clock()
             now = clock()
             if pending and ((pending["picture"] and now - pending["since"] >= TURN_TRAVEL_SEC)
                             or now - pending["since"] >= TURN_WAIT_SEC):
