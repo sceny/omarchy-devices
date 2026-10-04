@@ -3660,7 +3660,7 @@ Panel {
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(4)
                       Repeater {
-                        model: root.sectionApps
+                        model: root.sectionRows.pinned
                         AppTile {
                           required property var modelData
                           required property int index
@@ -3679,6 +3679,36 @@ Panel {
                           fontFamily: root.fontFamily
                           onActivated: root.openApp(modelData)
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
+                        }
+                      }
+                      // Between the pinned and the recent ones, while both are there.
+                      Rectangle {
+                        visible: root.sectionRows.pinned.length > 0 && root.sectionRows.recent.length > 0
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 1
+                        height: Style.space(18)
+                        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
+                      }
+                      Repeater {
+                        model: root.sectionRows.recent
+                        AppTile {
+                          required property var modelData
+                          required property int index
+                          compact: true
+                          width: implicitWidth
+                          height: implicitHeight
+                          iconSize: Style.space(22)
+                          canPin: false
+                          app: modelData
+                          working: root.appWorking(modelData)
+                          // Only folded: the open section's own tiles hold the cursor then.
+                          here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionRows.pinned.length + index
+                          glide: root.cursorGlide
+                          motion: root.motion
+                          foreground: root.foreground
+                          fontFamily: root.fontFamily
+                          onActivated: root.openApp(modelData)
+                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
                         }
                       }
                     }
