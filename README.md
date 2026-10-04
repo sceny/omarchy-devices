@@ -17,6 +17,8 @@ media and photos, without picking it up.
   videos, and the files it sent you.
 - **[Screen](docs/screen-and-apps.md)**: the phone's screen in a window
   here, with your mouse and keyboard (scrcpy, set up from the panel).
+- **[Apps](docs/apps.md)**: its apps, each in a window of its own, with
+  their icons; pin the ones you use, or open one from its notification.
 - **[Several devices](docs/calls-and-devices.md)**: a tab and a chip each.
 - **[Setup](docs/getting-started.md)**: checks with fixes, a QR code for the
   app, a demo phone to look around first.
@@ -47,6 +49,7 @@ media and photos, without picking it up.
 [Messages](docs/messages.md) ·
 [Gallery and files](docs/gallery-and-files.md) ·
 [Screen and apps](docs/screen-and-apps.md) ·
+[Apps](docs/apps.md) ·
 [Calls and devices](docs/calls-and-devices.md) ·
 [Settings](docs/settings.md) ·
 [Troubleshooting](docs/troubleshooting.md) ·

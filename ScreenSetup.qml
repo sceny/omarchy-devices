@@ -33,6 +33,36 @@ Column {
     font.pixelSize: Style.font.bodySmall
   }
 
+  // Set up already, only Wireless debugging off again: that step alone,
+  // and while the user waits for it, a ring and when it opens.
+  Text {
+    visible: !!root.setup && !!root.setup.only
+    width: root.width
+    textFormat: Text.PlainText
+    wrapMode: Text.WordWrap
+    text: root.setup ? (root.setup.only || "") : ""
+    color: root.foreground
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.body
+  }
+  Row {
+    visible: !!root.setup && !!root.setup.waitingNote
+    spacing: Style.space(8)
+    WaitRing {
+      anchors.verticalCenter: parent.verticalCenter
+      running: parent.visible
+      color: root.foreground
+      size: Math.round(Style.font.body * 0.9)
+    }
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: root.setup ? (root.setup.waitingNote || "") : ""
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+    }
+  }
   Repeater {
     model: root.setup && root.setup.state !== "ready" && root.setup.state !== "checking" ? root.setup.steps : []
 
@@ -99,6 +129,17 @@ Column {
     }
   }
 
+  // Off after a restart: the one tap that turns it on next time.
+  Text {
+    visible: !!root.setup && !!root.setup.quickTip
+    width: root.width
+    textFormat: Text.PlainText
+    wrapMode: Text.WordWrap
+    text: root.setup ? (root.setup.quickTip || "") : ""
+    color: root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+  }
   Text {
     visible: !!root.setup && root.setup.usbNote !== ""
     width: root.width

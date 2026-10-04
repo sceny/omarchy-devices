@@ -67,7 +67,14 @@ var GLYPH = {
   optional: "\u{F0766}",     // circle-outline: a check only one feature needs
   tip: "\u{F0336}",          // lightbulb-outline: a tip while the screen connects
   dockTop: "\u{F1513}",      // dock-top: the screen opens under the bar
-  window: "\u{F05B2}"        // window-restore: the screen opens as a window
+  window: "\u{F05B2}",       // window-restore: the screen opens as a window
+  pin: "\u{F0403}",          // pin: an app kept in the Apps section
+  pinOff: "\u{F0404}",       // pin-off
+  search: "\u{F0349}",       // magnify
+  // Demo apps (no real icons in demo mode)
+  clock: "\u{F0150}", calendar: "\u{F00ED}", camera: "\u{F0100}", map: "\u{F034D}", music: "\u{F075A}",
+  notes: "\u{F082E}", weather: "\u{F0599}", chat: "\u{F0B79}", mail: "\u{F01EE}", image: "\u{F02E9}",
+  calculator: "\u{F00EC}", cog: "\u{F0493}", cart: "\u{F0110}", bank: "\u{F0070}", fitness: "\u{F0E8E}"
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -144,6 +151,7 @@ function composerHint(text, device, canPing) {
 var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
+  { key: "showApps", section: "apps", label: "Apps", hint: "Its apps, each in a window here, once its screen is set up" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
   { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
@@ -153,7 +161,7 @@ var LAYOUT = [
 // A section added in a release joins a saved order at its default place
 // (normalizeSections), so Received and Photos come last for everyone who had
 // an order.
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
+var DEFAULT_SECTIONS = ["devices", "actions", "apps", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -175,10 +183,18 @@ function normalizeSections(value) {
       if (DEFAULT_SECTIONS.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key)
     }
   }
-  for (var j = 0; j < DEFAULT_SECTIONS.length; j++)
-    if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.splice(Math.min(j, out.length), 0, DEFAULT_SECTIONS[j])
+  for (var j = 0; j < DEFAULT_SECTIONS.length; j++) {
+    var k = DEFAULT_SECTIONS[j]
+    if (out.indexOf(k) >= 0) continue
+    var after = SECTION_JOINS_AFTER[k] ? out.indexOf(SECTION_JOINS_AFTER[k]) : -1
+    out.splice(after >= 0 ? after + 1 : Math.min(j, out.length), 0, k)
+  }
   return out
 }
+
+// A section added later joins a saved order beside its neighbour, wherever
+// the user put it (Apps after Shortcuts).
+var SECTION_JOINS_AFTER = { apps: "actions" }
 
 // The sections the page can show, in order: the Devices section is gone
 // from the page (tabs and Settings do its work), so it is never moved past.
@@ -848,7 +864,7 @@ function demoSnapshot(live, kind) {
   // its own buttons, a long text) and a group chat (who said what).
   dev.notifications = [
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
-    { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
+    { id: "demo-5", key: "0|com.example.whatsapp|5|null|10005", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
   ]
   return { daemon: true, demo: true, devices: [dev] }
@@ -1131,7 +1147,7 @@ function addDeviceRows(devices) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing, docked, fitTile) {
+function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -1167,9 +1183,10 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     pair: seen ? "Wireless debugging is on: scan the code with " + name
       : "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
     off: seen ? "Wireless debugging is on, but " + name + " does not know this computer any more: scan the code again"
-      : "Wireless debugging is off on " + name + ". Turn it on: Developer options › Wireless debugging",
+      : "Wireless debugging is off on " + name + ": it turns off when " + name + " restarts",
     unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
-    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable",
+    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable"
+      + (waiting ? "; the screen opens as soon as it is back" : ""),
     ready: "Ready over " + (s.via === "usb" ? "USB" : "Wi-Fi") + (s.android ? " · Android " + s.android : "")
   }[state] || "Checking…"
   if (ready && s.apps !== true) line += ". Apps in windows need Android 10"
@@ -1183,7 +1200,10 @@ function screenSetup(status, device, pairing, docked, fitTile) {
 
   var actions = []
   if (state === "tools") actions.push({ key: "install", label: "Install", hint: "Asks for your password" })
-  if (state === "pair" || state === "off" || state === "away") {
+  // Only off again (a restart): set up already, one step missing, so the
+  // page shows that step alone (`only`), and pairing again is not offered.
+  var onlyStep = state === "off" && !seen
+  if (state === "pair" || (state === "off" && !onlyStep) || state === "away") {
     if (phase === "" || phase === "error") actions.push({ key: "pair", label: state === "pair" ? "Show the code" : "Pair again", hint: "A QR code for " + name + " to scan" })
     else actions.push({ key: "stopPair", label: "Stop", hint: "" })
   }
@@ -1198,11 +1218,22 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
+    // Its apps (a window each, #116): where their sound plays. Not settled:
+    // the device gives its sound to one window at a time.
+    if (s.apps)
+      actions.push({ key: "appSound", label: "An app's sound", sound: appSound === "phone" ? "phone" : "here", device: name,
+                     hint: (appSound === "phone" ? "Its sound stays on " + name : "Its sound plays here")
+                       + ". Not settled yet: " + name + " gives its sound to one window at a time." })
   }
   return {
-    state: state, line: line, steps: steps, pairingNote: pairingNote,
+    state: state, line: line, steps: onlyStep ? [] : steps, pairingNote: pairingNote,
+    only: onlyStep ? "Turn it on: Developer options › Wireless debugging" : "",
+    waitingNote: waiting && (state === "off" || state === "away") ? "Opens as soon as it is on" : "",
     showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
     usbNote: state === "pair" || state === "away" ? "No Wi-Fi debugging (Android 10 and older)? Turn on USB debugging in Developer options and plug it in." : "",
+    // Off again after a restart: one tap next time.
+    quickTip: state === "off" && !seen ? "Next time in one tap: Developer options › Quick settings developer tiles › Wireless debugging, then pull down Quick settings" : "",
+    waiting: !!waiting && (state === "off" || state === "away"),
     actions: actions
   }
 }
@@ -1471,6 +1502,12 @@ var PROFILE_SETTINGS = {
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
   showPhotos: function(v) { return layoutFlag(v) },
+  showApps: function(v) { return layoutFlag(v) },
+  // The apps kept in the Apps section, in their order (packages).
+  pinnedApps: function(v) { return normalizePinned(v) },
+  // Where an app's sound plays: here, or left on the device. Not settled:
+  // the device gives its sound to one window at a time.
+  appSound: function(v) { return v === "phone" ? "phone" : "here" },
   showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
@@ -1710,7 +1747,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
+  layout: ["showShortcuts", "showApps", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1947,7 +1984,196 @@ var SECTION_EMPTY = {
   media: "Shows while the device plays something",
   notifications: "Shows while there are notifications",
   photos: "Shows its newest photos and videos",
+  apps: "Shows its apps once its screen is set up",
   received: "Shows the files it sends you"
+}
+
+// ---- Apps: the device's apps, each in a window of its own (#116) ----
+// The list comes from the bridge (`apps`): {package, name, system, icon,
+// opened}. icon: a safe PNG's path, "" not read yet, "none" none to read.
+
+var APPS_RECENT = 7       // recently opened, first on the All apps page
+
+function normalizePinned(v) {
+  if (typeof v === "string") {
+    try { v = JSON.parse(v) } catch (e) { v = null }
+  }
+  var out = []
+  if (v && typeof v !== "string" && typeof v.length === "number")
+    for (var i = 0; i < v.length; i++) {
+      var p = String(v[i] || "")
+      if (/^[A-Za-z][\w]*(\.[\w]+)+$/.test(p) && out.indexOf(p) < 0) out.push(p)
+    }
+  return out
+}
+
+function appByPackage(apps, pkg) {
+  for (var i = 0; i < (apps || []).length; i++) if (apps[i].package === pkg) return apps[i]
+  return null
+}
+
+// The pinned apps that are on the device, in their order.
+function pinnedAppsOf(apps, pinned) {
+  return normalizePinned(pinned).map(function(p) { return appByPackage(apps, p) }).filter(function(a) { return !!a })
+}
+
+// The section's two rows: { pinned, recent }. Every pinned app (the row
+// wraps), All apps at its right end; the recently opened ones that are not
+// pinned, one row (All apps last when nothing is pinned).
+function appSectionRows(apps, pinned, columns) {
+  var keep = normalizePinned(pinned)
+  var shown = pinnedAppsOf(apps, keep)
+  return {
+    pinned: shown,
+    recent: recentApps(apps, true).filter(function(a) { return keep.indexOf(a.package) < 0 })
+      .slice(0, Math.max(0, shown.length > 0 ? columns : columns - 1))
+  }
+}
+
+// The All apps tile's slot in the pinned row: the row's last column, or
+// after the pins once they fill it (`extra`: an app coming in).
+function allAppsSlot(count, columns, extra) {
+  return Math.max(columns - 1, count + (extra ? 1 : 0))
+}
+
+// Pinned at a place among the ones shown (a drop, a move), or moved there
+// when it already is. `shown`: the pinned packages the row draws, in order
+// (the list also keeps apps this device does not have, which stay where
+// they are); without it, every pinned one is shown.
+function pinAppAt(pinned, pkg, at, shown) {
+  var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
+  var drawn = (shown || keep).filter(function(p) { return p !== pkg && keep.indexOf(p) >= 0 })
+  var k = Math.max(0, Math.min(drawn.length, at))
+  // Before the one it lands in front of, else just after the last one drawn.
+  var place = k < drawn.length ? keep.indexOf(drawn[k]) : (drawn.length > 0 ? keep.indexOf(drawn[drawn.length - 1]) + 1 : keep.length)
+  keep.splice(place, 0, pkg)
+  return keep
+}
+
+// Where the keys go among tiles laid out in groups (pinned, recent, all),
+// each group a grid of `columns`: the rows, each a list of flat indexes.
+function cursorRows(groups, columns) {
+  var rows = [], base = 0, c = Math.max(1, columns)
+  for (var g = 0; g < groups.length; g++) {
+    for (var i = 0; i < groups[g]; i += c) {
+      var row = []
+      for (var j = i; j < Math.min(groups[g], i + c); j++) row.push(base + j)
+      rows.push(row)
+    }
+    base += groups[g]
+  }
+  return rows
+}
+
+// One key: the index it goes to, or -1 when it leaves the tiles (up from
+// the first row, down from the last). Sideways it stays in its row. A row
+// may repeat an index over empty columns (a tile at the row's end), so up
+// and down land under the column: sideways skips the repeats.
+function cursorStep(rows, index, dx, dy) {
+  var r = -1, col = 0
+  for (var i = 0; i < rows.length; i++) {
+    var at = rows[i].indexOf(index)
+    if (at >= 0) { r = i; col = at; break }
+  }
+  if (r < 0) return rows.length > 0 && rows[0].length > 0 ? rows[0][0] : -1
+  if (dx !== 0) {
+    var k = col
+    while (k + dx >= 0 && k + dx < rows[r].length) {
+      k += dx
+      if (rows[r][k] !== index) return rows[r][k]
+    }
+    return index
+  }
+  var t = r + (dy > 0 ? 1 : -1)
+  if (t < 0 || t >= rows.length) return -1
+  return rows[t][Math.min(col, rows[t].length - 1)]
+}
+
+function recentApps(apps, withSystem) {
+  return (apps || []).filter(function(a) { return (a.opened || 0) > 0 && (withSystem || !a.system) })
+    .sort(function(a, b) { return b.opened - a.opened })
+}
+
+// Accents and case do not matter to a search.
+function foldText(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+}
+
+function byName(a, b) {
+  var x = foldText(a.name), y = foldText(b.name)
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+// The All apps page: { recent, all }, every app, the system's own too.
+// Without a search, the recently opened ones lead (also in the list, as on
+// a phone); with one, the matches, those whose name starts with it first.
+function appsForPage(apps, query) {
+  var shown = apps || []
+  var q = foldText(query).trim()
+  if (q === "")
+    return { recent: recentApps(shown, true).slice(0, APPS_RECENT), all: shown.slice().sort(byName) }
+  // The name; a package only when the search looks like one (a dot).
+  var hits = shown.filter(function(a) { return foldText(a.name).indexOf(q) >= 0 || (q.indexOf(".") >= 0 && a.package.toLowerCase().indexOf(q) >= 0) })
+  hits.sort(function(a, b) {
+    var pa = foldText(a.name).indexOf(q) === 0 ? 0 : 1, pb = foldText(b.name).indexOf(q) === 0 ? 0 : 1
+    return pa !== pb ? pa - pb : byName(a, b)
+  })
+  return { recent: [], all: hits }
+}
+
+function appsSummary(apps, pinned) {
+  var count = (apps || []).length
+  var kept = normalizePinned(pinned).filter(function(p) { return !!appByPackage(apps, p) }).length
+  var all = count === 1 ? "1 app" : count + " apps"
+  return kept > 0 ? kept + " pinned · " + all : all
+}
+
+// A tile without an icon: the name's first letter.
+function appLetter(name) {
+  // A letter (it has a case) or a digit; the shell's JavaScript has no
+  // Unicode classes in its expressions.
+  var s = String(name || "")
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i)
+    if (c.toLowerCase() !== c.toUpperCase() || (c >= "0" && c <= "9")) return c.toUpperCase()
+  }
+  return "?"
+}
+
+// KDE Connect's id of a notification is Android's key,
+// "user|package|id|tag|uid": the app it came from.
+function notificationPackage(n) {
+  var parts = String(n && (n.key || n.id) || "").split("|")
+  return parts.length >= 3 && /^[A-Za-z][\w]*(\.[\w]+)+$/.test(parts[1]) ? parts[1] : ""
+}
+
+// The app a notification can open in a window, or null (not a launchable
+// app on the device).
+function appForNotification(n, apps) {
+  var pkg = notificationPackage(n)
+  return pkg ? appByPackage(apps, pkg) : null
+}
+
+function pinApp(pinned, pkg, on) {
+  var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
+  if (on) keep.push(pkg)
+  return keep
+}
+
+// Demo: made-up apps, drawn with glyphs (no icon files), some recently opened.
+function demoApps(nowMs) {
+  var now = nowMs || Date.now()
+  var list = [
+    ["Clock", "clock", false, 3], ["Calendar", "calendar", false, 1], ["Camera", "camera", false, 0],
+    ["Maps", "map", false, 2], ["Music", "music", false, 4], ["Notes", "notes", false, 0],
+    ["Weather", "weather", false, 0], ["WhatsApp", "chat", false, 5], ["Mail", "mail", false, 0],
+    ["Photos", "image", false, 0], ["Shop", "cart", false, 0], ["Bank", "bank", false, 0],
+    ["Fitness", "fitness", false, 0], ["Calculator", "calculator", true, 0], ["Settings", "cog", true, 0]
+  ]
+  return list.map(function(e) {
+    return { package: "com.example." + e[0].toLowerCase(), name: e[0], system: e[2], icon: "", glyph: GLYPH[e[1]],
+             opened: e[3] > 0 ? now - e[3] * 3600000 : 0 }
+  })
 }
 
 // ---- Files: the device's newest photos (#65) and files it sent (#37) ----
@@ -1992,7 +2218,7 @@ function placeToResume(left, nowMs, ctx) {
   if (!left || !(nowMs - left.at >= 0 && nowMs - left.at < KEEP_PLACE_MS)) return null
   if (ctx && ctx.openingScope) return null
   if (ctx && ctx.requested && ctx.requested !== left.device) return null
-  if (!left.settingsOpen && !left.messagesOpen && !(left.y > 0)) return null
+  if (!left.settingsOpen && !left.messagesOpen && !left.appsOpen && !(left.y > 0)) return null
   return left
 }
 

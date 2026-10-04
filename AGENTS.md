@@ -61,6 +61,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
@@ -225,7 +226,9 @@ Keep them; change one only with the owner.
   network, no home, that one file read-only, limits on memory, time and
   output). The shell loads only images the bridge wrote from the decoded
   pixels (`safe/`, Gallery thumbnails, `sms/preview_*`); a QML `Image`
-  never points at a file the device sent. With no sandbox, there is no
+  never points at a file the device sent. An app's icon is read from its
+  installed package and drawn as SVG by the bridge, then decoded the same
+  way (`apps-<device>/`). With no sandbox, there is no
   picture, never an unsandboxed decode. A picture opened full size (a
   gallery tile, a received picture, a picture message's) is a JPEG made
   the same way (`open/`); one that does not decode is not opened. Other
@@ -245,6 +248,24 @@ Keep them; change one only with the owner.
   (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
+- **Apps are windows of their own, always tiled** (no setting): one
+  virtual display per app, following its window (`--flex-display`), and
+  never the device's on-screen keyboard (`--display-ime-policy=hide`):
+  typing is this computer's keyboard. All apps shows every app, the
+  system's own too (no switch). The section has two labelled rows, each
+  hidden while it has nothing: PINNED (`pinnedApps`, a setting; places
+  count the apps the device has, so another device's pins stay put) and
+  RECENT (`opened.json`, in the cache: usage, never `shell.json`; ✕ or
+  `x` takes one out, `app-forget`, until it opens again); All apps leads
+  with PINNED, a place to drop even when empty. `AppPinRow` is the pinned
+  row everywhere: its order moves through `Reorder` (drag, Shift+H /
+  Shift+L), an app dragged in opens a gap where it lands and is pinned
+  there, one dragged out is unpinned. The list is read only for a
+  device whose screen is set up, from the cache, and from the device at
+  most once a day; icons once per app version. A notification opens its
+  app (the package is in KDE Connect's id, Android's key), never the
+  message itself (#122). Opening a real app in a check is the owner's
+  go, as the screen is.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a

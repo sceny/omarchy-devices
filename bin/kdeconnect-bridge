@@ -39,9 +39,11 @@ not re-printed, so the shell only wakes when something moved.
                                               JSON lines (qr, found, paired, connected, error)
   kdeconnect-bridge screen-open <device> [package] [label] [--tiled]   its screen,
                                               or one app, in a window here (scrcpy),
-                                              docked by the bar unless --tiled (--at
-                                              x,y,w,h: the panel's card); returns once
-                                              the window is there
+                                              the screen docked by the bar unless
+                                              --tiled (--at x,y,w,h: the panel's card),
+                                              an app tiled, no on-screen keyboard (--sound phone: its sound
+                                              stays on the device); returns once the
+                                              window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
   kdeconnect-bridge screen-close <device>          close its open window
   kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
@@ -49,7 +51,11 @@ not re-printed, so the shell only wakes when something moved.
                                               (refit: turn or morph; revealed)
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
-  kdeconnect-bridge screen-apps <device>           its apps, as JSON
+  kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
+                                              icon: a safe PNG, "" not read, "none")
+  kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
+  kdeconnect-bridge app-icons <device> [package...]   read the icons not read yet
+                                              (those first): JSON lines {package, icon}
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
 
@@ -2109,14 +2115,19 @@ def placement(ctx, settled, old, new, mon):
     sx, sy, sw, sh = settled
     _, _, nw, nh = dock_rect(ctx, new)
     k = max(sw / home[2], sh / home[3]) if home[2] and home[3] else 1
-    w, h = round(nw * k), round(nh * k)
     scale = mon.get("scale") or 1
     mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
     top = (mon.get("reserved") or [0, 0])[1]
-    w, h = min(w, round(mw)), min(h, round(mh - top))
-    x = max(0, min(round(sx + sw / 2 - w / 2), round(mw - w)))
-    y = max(top, min(round(sy + sh / 2 - h / 2), round(mh - h)))
-    return x, y, w, h
+    margin = float(ctx.get("margin") or 0)
+    # Too big for the screen in the new shape (a landscape window made large,
+    # turned upright): smaller, both sides by one factor, so the window keeps
+    # the device's shape; capping one side alone left it wider than the
+    # picture inside.
+    k = min(k, (mw - 2 * margin) / nw, (mh - top - 2 * margin) / nh) if nw and nh else k
+    w, h = round(nw * k), round(nh * k)
+    x = max(margin, min(round(sx + sw / 2 - w / 2), round(mw - w - margin)))
+    y = max(top + margin, min(round(sy + sh / 2 - h / 2), round(mh - h - margin)))
+    return round(x), round(y), w, h
 
 
 def refit(win, rect, mons, border=0):
@@ -2431,11 +2442,12 @@ def parse_texture(line):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def screen_command(serial, title, package="", tools=None, log=""):
+def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
-    stays free; it follows the window's size with scrcpy 4). `log`: where
-    its output goes."""
+    stays free; it follows the window's size with scrcpy 4, and the
+    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`:
+    "phone" leaves an app's sound on the device."""
     # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
     # back and came in a late batch, after the turn they told of. Appended,
     # so the watcher can empty the file without leaving a hole.
@@ -2447,7 +2459,9 @@ def screen_command(serial, title, package="", tools=None, log=""):
     if package:
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
-            cmd += ["--flex-display"]
+            cmd += ["--flex-display", "--display-ime-policy=hide"]
+        if sound == "phone":
+            cmd += ["--no-audio"]
     return cmd
 
 
@@ -2460,10 +2474,13 @@ def launch_or_focus(title, cmd):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False):
-    """Opens the device's screen, or one of its apps, in a window here,
-    docked or tiled, and returns once the window is there (the click waits
-    meanwhile). Already open: brought forward instead of a second one."""
+def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
+                sound="here"):
+    """Opens the device's screen, docked or tiled, or one of its apps,
+    always tiled, in a window here, and returns once the window is there
+    (the click waits meanwhile). Already open: brought forward instead of a
+    second one."""
+    docked = docked and not package
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
@@ -2486,7 +2503,9 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     if log:
         os.makedirs(os.path.dirname(log), exist_ok=True)
         open(log, "w").close()   # a fresh log for this window
-    launch(screen_command(status["serial"], title, package, status["tools"], log))
+    launch(screen_command(status["serial"], title, package, status["tools"], log, sound))
+    if package:
+        apps_opened(device_id, package)
     for _ in range(WINDOW_WAIT_SEC * 4):
         win = find_window(title)
         if win:
@@ -2516,20 +2535,850 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     return say("Opens under the bar" if docked else "Opens as a window")
 
 
-def screen_apps(device_id):
-    """The device's launchable apps, user's first, as JSON."""
+# ---- Apps: the device's apps and their icons -------------------------------
+# The list (names, packages, versions, the launcher entry enabled now) comes
+# from scrcpy and the package manager over adb, kept a day in the cache. An
+# icon is read from the app's own installed packages with ranged reads (a
+# few KB each, not the packages), drawn as Android draws it (an adaptive
+# icon's two layers in a circle, vectors as SVG) and decoded in the sandbox
+# like every image from the device (fit_image): the shell loads only the PNG
+# written from the decoded pixels, once per app version.
+
+APPS_FRESH_SEC = 24 * 3600
+APP_ICON_BOX = 96
+APP_ICON_WORKERS = 4
+APP_READ_SEC = 20
+APP_FILE_MAX = 2 << 20      # an icon's file in a package, at most
+APP_TABLE_MAX = 16 << 20    # a compressed resource table read whole, at most
+
+
+def apps_dir(device_id):
+    path = os.path.join(state_dir(), "apps-" + re.sub(r"[^\w-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def parse_launcher_activities(text):
+    """`cmd package query-activities --brief` for MAIN/LAUNCHER as
+    {package: activity class}: the launcher entry each app has enabled now
+    (an app offering several icons enables one)."""
+    out = {}
+    for line in (text or "").splitlines():
+        m = re.match(r"^\s+([\w.]+)/([\w.$]+)\s*$", line)
+        if m:
+            out.setdefault(m.group(1), class_name(m.group(1), m.group(2)))
+    return out
+
+
+def parse_versions(text):
+    """`pm list packages --show-versioncode` as {package: version code}."""
+    out = {}
+    for line in (text or "").splitlines():
+        m = re.match(r"^package:(\S+) versionCode:(\d+)", line.strip())
+        if m:
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+def read_apps(serial, run=subprocess.run):
+    """The device's launchable apps: [{package, name, system, version, activity}]."""
+    out = run(["scrcpy", "--serial", serial, "--list-apps"], capture_output=True, text=True, timeout=60)
+    apps = parse_scrcpy_apps((out.stdout or "") + (out.stderr or ""))
+    out = run(["adb", "-s", serial, "shell", "pm list packages --show-versioncode; echo @@; "
+               "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"],
+              capture_output=True, text=True, timeout=30)
+    versions, _, launchers = (out.stdout or "").partition("@@")
+    versions, launchers = parse_versions(versions), parse_launcher_activities(launchers)
+    return [dict(a, version=versions.get(a["package"], ""), activity=launchers.get(a["package"], "")) for a in apps]
+
+
+def apps_opened(device_id, package=None, clock=time.time, forget=False):
+    """When each app was last opened here ({package: seconds}); with a
+    package, records it now (or, `forget`, takes it out of the recent
+    ones until it opens again). In the cache: usage, not a setting."""
+    path = os.path.join(apps_dir(device_id), "opened.json")
+    try:
+        with open(path) as f:
+            opened = json.load(f)
+    except (OSError, ValueError):
+        opened = {}
+    if package:
+        if forget:
+            opened.pop(package, None)
+        else:
+            opened[package] = clock()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(opened, f)
+        os.replace(tmp, path)
+    return opened
+
+
+def app_icon_path(device_id, app, kind="png"):
+    return os.path.join(apps_dir(device_id), "%s-%s.%s" % (app["package"], app.get("version") or "0", kind))
+
+
+def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None):
+    """The device's apps from the cache, read again when asked or older than
+    a day (and the device can be reached): {state, at, apps: [{package,
+    name, system, icon}]}, user apps first, then A to Z. `icon` is the safe
+    PNG's path, "" while not read, "none" for an app without one."""
+    path = os.path.join(apps_dir(device_id), "apps.json")
+    try:
+        with open(path) as f:
+            cached = json.load(f)
+    except (OSError, ValueError):
+        cached = {}
+    apps, at = cached.get("apps") or [], cached.get("at") or 0
+    state = "ready"
+    if refresh or not apps or clock() - at > APPS_FRESH_SEC:
+        status = status or screen_status(device_id)
+        state = status["state"]
+        if state == "ready":
+            try:
+                fresh = (read or read_apps)(status["serial"])
+            except (OSError, subprocess.TimeoutExpired):
+                fresh = []
+            if fresh:
+                apps, at = fresh, clock()
+                tmp = path + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump({"at": at, "apps": apps}, f)
+                os.replace(tmp, path)
+    shown, opened = [], apps_opened(device_id)
+    for a in sorted(apps, key=lambda a: (a.get("system", False), a.get("name", "").lower())):
+        icon = app_icon_path(device_id, a)
+        mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
+        shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
+                      "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
+    return {"state": state if not shown else "ready", "at": at, "apps": shown}
+
+
+class PhoneReader:
+    """One adb shell kept open: byte ranges of files on the device, read with
+    dd (each answer a line of base64), and an app's package paths."""
+    LOOP = ('while read -r c p o n; do case "$c" in '
+            'R) dd if="$p" bs=65536 iflag=skip_bytes,count_bytes skip="$o" count="$n" 2>/dev/null | base64 -w 0; echo;; '
+            'S) stat -c %s "$p" 2>/dev/null || echo -1;; '
+            'P) pm path "$p" 2>/dev/null | tr "\\n" " "; echo;; esac; done')
+
+    def __init__(self, serial, popen=subprocess.Popen):
+        self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
+
+    def ask(self, line):
+        import selectors
+        self.proc.stdin.write(line + "\n")
+        self.proc.stdin.flush()
+        with selectors.DefaultSelector() as sel:
+            sel.register(self.proc.stdout, selectors.EVENT_READ)
+            if not sel.select(APP_READ_SEC):
+                self.close()
+                raise OSError("the device did not answer")
+        out = self.proc.stdout.readline()
+        if out == "":
+            raise OSError("adb shell closed")
+        return out.strip()
+
+    def read(self, path, off, n):
+        return base64.b64decode(self.ask("R %s %d %d" % (path, off, n)))
+
+    def size(self, path):
+        return int(self.ask("S %s 0 0" % path))
+
+    def paths(self, package):
+        return [p[8:] for p in self.ask("P %s 0 0" % package).split() if p.startswith("package:")]
+
+    def close(self):
+        try:
+            self.proc.stdin.close()
+            self.proc.wait(timeout=3)
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            self.proc.kill()
+
+
+class RemoteFile:
+    """A file on the device as a seekable Python file (zipfile reads it),
+    read in pages as needed."""
+    PAGE = 1 << 17
+
+    def __init__(self, reader, path, size):
+        self.reader, self.path, self.length, self.pos, self.pages = reader, path, size, 0, {}
+
+    def readable(self): return True
+    def seekable(self): return True
+    def tell(self): return self.pos
+
+    def seek(self, off, whence=0):
+        self.pos = off if whence == 0 else self.pos + off if whence == 1 else self.length + off
+        return self.pos
+
+    def at(self, off, n):
+        out = bytearray()
+        while n > 0 and 0 <= off < self.length:
+            p, o = divmod(off, self.PAGE)
+            if p not in self.pages:
+                self.pages[p] = self.reader.read(self.path, p * self.PAGE, self.PAGE)
+            chunk = self.pages[p][o:o + n]
+            if not chunk:
+                break
+            out += chunk
+            off += len(chunk)
+            n -= len(chunk)
+        return bytes(out)
+
+    def read(self, n=-1):
+        data = self.at(self.pos, self.length - self.pos if n is None or n < 0 else n)
+        self.pos += len(data)
+        return data
+
+
+class BytesAt:
+    """Bytes in memory, read as RemoteFile is."""
+    def __init__(self, data):
+        self.data = data
+
+    def at(self, off, n):
+        return self.data[off:off + n]
+
+
+def _u16(b, o):
+    return int.from_bytes(b[o:o + 2], "little") if len(b) >= o + 2 else 0
+
+
+def _u32(b, o):
+    return int.from_bytes(b[o:o + 4], "little") if len(b) >= o + 4 else 0
+
+
+class StringPool:
+    """An Android ResStringPool, read lazily: only the strings asked for."""
+    def __init__(self, src, off):
+        h = src.at(off, 28)
+        self.src, self.off = src, off
+        self.hsize, self.count = _u16(h, 2), _u32(h, 8)
+        self.utf8 = bool(_u32(h, 16) & 0x100)
+        self.start = _u32(h, 20)
+        self.cache = {}
+
+    def get(self, i):
+        if i is None or i < 0 or i >= self.count:
+            return None
+        if i not in self.cache:
+            o = self.off + self.start + _u32(self.src.at(self.off + self.hsize + 4 * i, 4), 0)
+            b = self.src.at(o, 8)
+            if len(b) < 4:
+                return None
+            if self.utf8:
+                k = 2 if b[0] & 0x80 else 1
+                n = ((b[k] & 0x7F) << 8 | b[k + 1]) if b[k] & 0x80 else b[k]
+                k += 2 if b[k] & 0x80 else 1
+                s = self.src.at(o + k, n).decode("utf-8", "replace")
+            else:
+                n, k = _u16(b, 0), 2
+                if n & 0x8000:
+                    n, k = ((n & 0x7FFF) << 16) | _u16(b, 2), 4
+                s = self.src.at(o + k, 2 * n).decode("utf-16-le", "replace")
+            self.cache[i] = s
+        return self.cache[i]
+
+
+# Res_value types.
+T_REF, T_ATTR, T_STRING, T_FLOAT, T_DIM, T_FRACTION, T_DYNREF = 1, 2, 3, 4, 5, 6, 7
+T_INT_DEC, T_INT_HEX = 0x10, 0x11
+
+# android.R.attr and android.R.color: public ids, the same on every Android.
+ATTR = {"icon": 0x01010002, "name": 0x01010003, "enabled": 0x0101000e, "src": 0x01010119, "tint": 0x01010121,
+        "width": 0x01010159, "height": 0x01010155, "drawable": 0x01010199, "shape": 0x0101019a,
+        "startColor": 0x0101019d, "endColor": 0x0101019e, "angle": 0x010101a0, "type": 0x010101a1,
+        "centerX": 0x010101a2, "centerY": 0x010101a3, "gradientRadius": 0x010101a4, "color": 0x010101a5,
+        "left": 0x010101ad, "top": 0x010101ae, "right": 0x010101af, "bottom": 0x010101b0,
+        "pivotX": 0x010101b5, "pivotY": 0x010101b6, "insetLeft": 0x010101b7, "insetRight": 0x010101b8,
+        "insetTop": 0x010101b9, "insetBottom": 0x010101ba, "centerColor": 0x0101020b, "alpha": 0x0101031f,
+        "scaleX": 0x01010324, "scaleY": 0x01010325, "rotation": 0x01010326, "tintMode": 0x010103fb,
+        "viewportWidth": 0x01010402, "viewportHeight": 0x01010403, "fillColor": 0x01010404,
+        "pathData": 0x01010405, "strokeColor": 0x01010406, "strokeWidth": 0x01010407,
+        "translateX": 0x0101045a, "translateY": 0x0101045b, "inset": 0x010104b5, "strokeAlpha": 0x010104cb,
+        "fillAlpha": 0x010104cc, "startX": 0x01010510, "startY": 0x01010511, "endX": 0x01010512,
+        "endY": 0x01010513, "offset": 0x01010514, "fillType": 0x0101051e}
+FRAMEWORK_COLORS = {0x0106000b: 0xFFFFFFFF, 0x0106000c: 0xFF000000, 0x0106000d: 0x00000000}
+
+
+class Element:
+    def __init__(self, name):
+        self.name, self.attrs, self.children = name, {}, []
+
+    def get(self, name):
+        """An attribute as (type, data, raw string), by its framework id
+        (names may be stripped) or its name."""
+        return self.attrs.get(ATTR.get(name, name)) or self.attrs.get(name)
+
+
+def parse_axml(data):
+    """Android's binary XML as its root Element, or None."""
+    if not data or len(data) < 8 or _u16(data, 0) != 0x0003:
+        return None
+    src = BytesAt(data)
+    pool, resmap, stack, root = None, [], [], None
+    o = _u16(data, 2)
+    while o + 8 <= len(data):
+        t, hs, size = _u16(data, o), _u16(data, o + 2), _u32(data, o + 4)
+        if size < 8:
+            break
+        if t == 0x0001:
+            pool = StringPool(src, o)
+        elif t == 0x0180:
+            resmap = [_u32(data, o + 8 + 4 * i) for i in range((size - 8) // 4)]
+        elif t == 0x0102 and pool:
+            e = o + hs
+            el = Element(pool.get(_u32(data, e + 4)) or "")
+            astart, asize, acount = _u16(data, e + 8), _u16(data, e + 10), _u16(data, e + 12)
+            for i in range(min(acount, 256)):
+                a = e + astart + i * asize
+                if a + 20 > len(data):
+                    break
+                ni = _u32(data, a + 4)
+                val = (data[a + 15], _u32(data, a + 16), pool.get(_u32(data, a + 8)))
+                if ni < len(resmap):
+                    el.attrs[resmap[ni]] = val
+                name = pool.get(ni)
+                if name:
+                    el.attrs[name] = val
+            if stack:
+                stack[-1].children.append(el)
+            else:
+                root = el
+            stack.append(el)
+            if len(stack) > 64:
+                break
+        elif t == 0x0103 and stack:
+            stack.pop()
+        o += size
+    return root
+
+
+class Arsc:
+    """A resources.arsc (in memory, or ranged reads of a package): a
+    resource's values per configuration, walking chunk headers only as far
+    as the type asked for."""
+    def __init__(self, src, base=0):
+        self.src, self.base = src, base
+        h = src.at(base, 12)
+        if len(h) < 12 or _u16(h, 0) != 0x0002:
+            raise ValueError("not a resource table")
+        self.strings = StringPool(src, base + 12)
+        ps = base + 12 + _u32(src.at(base + 16, 4), 0)
+        ph = src.at(ps, 288)
+        if _u16(ph, 0) != 0x0200:
+            raise ValueError("no package")
+        self.package = _u32(ph, 8)
+        self.types = StringPool(src, ps + _u32(ph, 268))
+        ks = ps + _u32(ph, 276)
+        self.walk = ks + _u32(src.at(ks + 4, 4), 0)
+        self.end = ps + _u32(ph, 4)
+        self.chunks = []
+        self.walked_to = 0
+
+    def _walk_until(self, tid):
+        # Type chunks come in type order: the walk stops past the type.
+        while self.walk + 9 <= self.end and self.walked_to <= tid:
+            h = self.src.at(self.walk, 9)
+            t, size = _u16(h, 0), _u32(h, 4)
+            if len(h) < 9 or size < 8:
+                self.walk = self.end
+                break
+            if t in (0x0201, 0x0202):
+                self.walked_to = max(self.walked_to, h[8])
+            if t == 0x0201:
+                self.chunks.append((h[8], self.walk))
+            self.walk += size
+
+    def values(self, resid):
+        """[(config bytes, type, data)] of a resource id of this package."""
+        if resid >> 24 != self.package:
+            return []
+        tid, idx = (resid >> 16) & 0xFF, resid & 0xFFFF
+        self._walk_until(tid)
+        out = []
+        for t, off in self.chunks:
+            if t != tid:
+                continue
+            h = self.src.at(off, 84)
+            hs, flags, count, estart = _u16(h, 2), h[9], _u32(h, 12), _u32(h, 16)
+            eo = None
+            if flags & 0x01:   # sparse: (index, offset / 4) pairs, sorted
+                pairs = self.src.at(off + hs, 4 * count)
+                lo, hi = 0, count - 1
+                while lo <= hi:
+                    mid = (lo + hi) // 2
+                    i = _u16(pairs, 4 * mid)
+                    if i == idx:
+                        eo = _u16(pairs, 4 * mid + 2) * 4
+                        break
+                    lo, hi = (mid + 1, hi) if i < idx else (lo, mid - 1)
+            elif idx < count and flags & 0x02:
+                v = _u16(self.src.at(off + hs + 2 * idx, 2), 0)
+                eo = None if v == 0xFFFF else v * 4
+            elif idx < count:
+                v = _u32(self.src.at(off + hs + 4 * idx, 4), 0)
+                eo = None if v == 0xFFFFFFFF else v
+            if eo is None:
+                continue
+            e = self.src.at(off + estart + eo, 16)
+            if len(e) < 8:
+                continue
+            esize, eflags = _u16(e, 0), _u16(e, 2)
+            if eflags & 0x0008:                 # compact entry
+                out.append((h[20:84], eflags >> 8, _u32(e, 4)))
+            elif not eflags & 0x0001 and len(e) >= esize + 8:
+                out.append((h[20:84], e[esize + 3], _u32(e, esize + 4)))
+        return out
+
+
+def config_rank(cfg):
+    """How well a configuration suits an icon here (higher is better), or
+    None for one that does not apply: a locale, a carrier, night, a car or
+    a TV. Any density (vectors) first, then the highest density."""
+    if len(cfg) < 32 or _u16(cfg, 4) or _u16(cfg, 6) or _u16(cfg, 8) or _u16(cfg, 10):
+        return None
+    if (cfg[29] & 0x30) == 0x20 or (cfg[29] & 0x0F) not in (0, 1):
+        return None
+    density = _u16(cfg, 14)
+    rank = 10000 if density == 0xFFFE else 9000 if density == 0xFFFF else min(density, 640) - max(0, density - 640)
+    return rank * 100 + min(_u16(cfg, 24), 99)
+
+
+def sniff(data):
+    """What a file in a package is, by its first bytes (its name may be
+    obfuscated, without an extension)."""
+    if not data or len(data) < 12:
+        return None
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if _u16(data, 0) == 0x0003:
+        return "xml"
+    return None
+
+
+def class_name(package, name):
+    return package + name if name.startswith(".") else name if "." in name else package + "." + name
+
+
+def num(v, default=0.0):
+    """A number attribute (float, dimension, fraction, integer)."""
+    if not v:
+        return default
+    t, d, raw = v
+    if t == T_FLOAT:
+        return struct_float(d)
+    if t in (T_DIM, T_FRACTION):
+        mant = (d >> 8) & 0xFFFFFF
+        mant = mant - (1 << 24) if mant & 0x800000 else mant
+        return mant * (1.0 / (1 << 8), 1.0 / (1 << 15), 1.0 / (1 << 23), 1.0 / (1 << 31))[(d >> 4) & 0x3]
+    if t in (T_INT_DEC, T_INT_HEX):
+        return float(d - (1 << 32) if d >= 1 << 31 else d)
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
+
+def struct_float(d):
+    import struct
+    return struct.unpack("<f", struct.pack("<I", d & 0xFFFFFFFF))[0]
+
+
+def argb_of(t, d):
+    if t in (0x1C, 0x1E):
+        return d
+    if t in (0x1D, 0x1F):
+        return 0xFF000000 | d
+    return None
+
+
+def css(argb):
+    return "#%06x" % (argb & 0xFFFFFF), ((argb >> 24) & 0xFF) / 255.0
+
+
+class Apk:
+    """One installed package of an app, a zip read through ranged reads."""
+    def __init__(self, src):
+        import zipfile
+        self.src = src
+        self.zip = zipfile.ZipFile(src)
+        self.names = set(self.zip.namelist())
+        self._arsc = False
+
+    def read(self, name, limit=APP_FILE_MAX):
+        if name not in self.names or self.zip.getinfo(name).file_size > limit:
+            return None
+        return self.zip.read(name)
+
+    def arsc(self):
+        import zipfile
+        if self._arsc is False:
+            self._arsc = None
+            if "resources.arsc" in self.names:
+                info = self.zip.getinfo("resources.arsc")
+                try:
+                    if info.compress_type == zipfile.ZIP_STORED and isinstance(self.src, RemoteFile):
+                        lh = self.src.at(info.header_offset, 30)
+                        self._arsc = Arsc(self.src, info.header_offset + 30 + _u16(lh, 26) + _u16(lh, 28))
+                    elif info.file_size <= APP_TABLE_MAX:
+                        self._arsc = Arsc(BytesAt(self.zip.read("resources.arsc")))
+                except ValueError:
+                    self._arsc = None   # a split without resources of its own
+        return self._arsc
+
+
+class IconDrawing:
+    """An app's icon drawn as SVG from its packages (the base and its
+    splits, which hold the densities)."""
+    def __init__(self, apks):
+        self.apks, self.depth, self.ids = apks, 0, 0
+
+    def best(self, resid):
+        """(apk, type, data) of the configuration that suits best."""
+        found = []
+        for apk in self.apks:
+            table = apk.arsc()
+            for cfg, t, d in table.values(resid) if table else []:
+                r = config_rank(cfg)
+                if r is not None:
+                    found.append((r, len(found), apk, t, d))
+        return max(found, key=lambda f: (f[0], -f[1]))[2:] if found else None
+
+    def resolve(self, resid):
+        """Follows aliases (@drawable/a is @mipmap/b) to a value."""
+        b = self.best(resid)
+        for _ in range(6):
+            if not b or b[1] not in (T_REF, T_DYNREF):
+                break
+            b = self.best(b[2])
+        return b
+
+    def file_name(self, b):
+        return b[0].arsc().strings.get(b[2]) if b and b[1] == T_STRING else None
+
+    def color(self, v):
+        """(css, alpha) of a colour attribute, ("file", apk, name) for a
+        colour file (a gradient, a selector), or None."""
+        for _ in range(6):
+            if not v:
+                return None
+            argb = argb_of(v[0], v[1])
+            if argb is not None:
+                return css(argb)
+            if v[0] not in (T_REF, T_DYNREF) or not v[1]:
+                return None
+            if v[1] in FRAMEWORK_COLORS:
+                return css(FRAMEWORK_COLORS[v[1]])
+            b = self.best(v[1])
+            if not b:
+                return None
+            if b[1] == T_STRING:
+                return ("file", b[0], self.file_name(b))
+            v = (b[1], b[2], None)
+        return None
+
+    def solid(self, v):
+        c = self.color(v)
+        return c if c and c[0] != "file" else None
+
+    def paint(self, v):
+        """(fill, alpha, defs) for a vector's fill or stroke colour."""
+        c = self.color(v)
+        if not c:
+            return None, 0, ""
+        if c[0] != "file":
+            return c[0], c[1], ""
+        root = parse_axml(c[1].read(c[2], 256 << 10))
+        if root and root.name == "selector":
+            for item in root.children:
+                if not any(isinstance(k, str) and k.startswith("state_") for k in item.attrs):
+                    s = self.solid(item.get("color"))
+                    return (s[0], s[1] * num(item.get("alpha"), 1.0), "") if s else (None, 0, "")
+        if root and root.name == "gradient":
+            return self.gradient(root)
+        return None, 0, ""
+
+    def stops(self, g):
+        stops = [(num(i.get("offset")), self.solid(i.get("color"))) for i in g.children if i.name == "item"]
+        stops = [s for s in stops if s[1]]
+        if not stops:
+            keys = [("startColor", 0), ("centerColor", 0.5), ("endColor", 1)]
+            stops = [(o, self.solid(g.get(k))) for k, o in keys if self.solid(g.get(k))]
+        return "".join('<stop offset="%g" stop-color="%s" stop-opacity="%.3f"/>' % (o, c[0], c[1]) for o, c in stops), stops
+
+    def gradient(self, g):
+        """A vector's gradient (in its viewport's units)."""
+        body, stops = self.stops(g)
+        if not stops:
+            return None, 0, ""
+        self.ids += 1
+        gid, kind = "g%d" % self.ids, int(num(g.get("type")))
+        if kind == 0:
+            return "url(#%s)" % gid, 1.0, ('<linearGradient id="%s" gradientUnits="userSpaceOnUse" x1="%g" y1="%g" x2="%g" y2="%g">%s</linearGradient>'
+                                         % (gid, num(g.get("startX")), num(g.get("startY")), num(g.get("endX")), num(g.get("endY")), body))
+        if kind == 1:
+            return "url(#%s)" % gid, 1.0, ('<radialGradient id="%s" gradientUnits="userSpaceOnUse" cx="%g" cy="%g" r="%g">%s</radialGradient>'
+                                         % (gid, num(g.get("centerX")), num(g.get("centerY")), num(g.get("gradientRadius"), 1), body))
+        return stops[0][1][0], stops[0][1][1], ""   # a sweep: its first colour
+
+    def tinted(self, markup, el):
+        """Android's tint (src_in): the shape in one colour."""
+        tint = self.solid(el.get("tint")) if el is not None else None
+        if not tint or not markup:
+            return markup
+        self.ids += 1
+        return ('<filter id="t%d" color-interpolation-filters="sRGB"><feFlood flood-color="%s" flood-opacity="%.3f"/>'
+                '<feComposite in2="SourceGraphic" operator="in"/></filter><g filter="url(#t%d)">%s</g>'
+                % (self.ids, tint[0], tint[1], self.ids, markup))
+
+    def drawable(self, v, box, tint_by=None):
+        """A drawable attribute (a reference or a colour) in a box."""
+        self.depth += 1
+        try:
+            if self.depth > 8 or not v:
+                return ""
+            argb = argb_of(v[0], v[1])
+            if argb is not None:
+                return self.rect(box, css(argb))
+            if v[0] not in (T_REF, T_DYNREF) or not v[1]:
+                return ""
+            b = self.resolve(v[1])
+            if not b:
+                return ""
+            if b[1] == T_STRING:
+                return self.file(b[0], self.file_name(b), box, tint_by)
+            argb = argb_of(b[1], b[2])
+            return self.rect(box, css(argb)) if argb is not None else ""
+        finally:
+            self.depth -= 1
+
+    def rect(self, box, color):
+        return '<rect x="%g" y="%g" width="%g" height="%g" fill="%s" fill-opacity="%.3f"/>' % (box + color)
+
+    def file(self, apk, name, box, tint_by=None):
+        data = apk.read(name) if name else None
+        kind = sniff(data)
+        if kind == "xml":
+            root = parse_axml(data)
+            return self.element(root, box) if root else ""
+        if not kind:
+            return ""
+        return self.tinted('<image x="%g" y="%g" width="%g" height="%g" preserveAspectRatio="none" href="data:%s;base64,%s"/>'
+                           % (box + (kind, base64.b64encode(data).decode())), tint_by)
+
+    def element(self, el, box):
+        n, (x, y, w, h) = el.name, box
+        if n == "adaptive-icon":
+            out = ""
+            for part in ("background", "foreground"):
+                for c in (c for c in el.children if c.name == part):
+                    v = c.get("drawable")
+                    layer = self.drawable(v, box) if v else "".join(self.element(k, box) for k in c.children)
+                    # A background in the device's theme colours (not in the
+                    # package): the light circle the launcher shows.
+                    out += layer or (self.rect(box, ("#ffffff", 1.0)) if part == "background" else "")
+            return out
+        if n == "vector":
+            vw = num(el.get("viewportWidth")) or num(el.get("width"), 24) or 24
+            vh = num(el.get("viewportHeight")) or num(el.get("height"), 24) or 24
+            defs = []
+            body = self.tinted(self.group(el, defs), el)
+            return ('<svg x="%g" y="%g" width="%g" height="%g" viewBox="0 0 %g %g" preserveAspectRatio="none">'
+                    '<defs>%s</defs><g opacity="%.3f">%s</g></svg>' % (box + (vw, vh, "".join(defs), num(el.get("alpha"), 1.0), body)))
+        if n == "bitmap":
+            return self.drawable(el.get("src"), box, el)
+        if n == "inset":
+            def side(k, extent):
+                v = el.get(k) or el.get("inset")
+                return 0 if not v else num(v) * extent if v[0] == T_FRACTION else num(v) / 108.0 * w
+            l, r, t, b = side("insetLeft", w), side("insetRight", w), side("insetTop", h), side("insetBottom", h)
+            inner = (x + l, y + t, max(0.0, w - l - r), max(0.0, h - t - b))
+            v = el.get("drawable")
+            return self.drawable(v, inner) if v else "".join(self.element(k, inner) for k in el.children)
+        if n == "layer-list":
+            out = ""
+            for item in (i for i in el.children if i.name == "item"):
+                d = {k: num(item.get(k)) / 108.0 * w for k in ("left", "top", "right", "bottom")}
+                inner = (x + d["left"], y + d["top"], w - d["left"] - d["right"], h - d["top"] - d["bottom"])
+                v = item.get("drawable")
+                out += self.drawable(v, inner) if v else "".join(self.element(k, inner) for k in item.children)
+            return out
+        if n == "color":
+            c = self.solid(el.get("color"))
+            return self.rect(box, c) if c else ""
+        if n == "shape":
+            fill, alpha, defs = None, 1.0, ""
+            for c in el.children:
+                if c.name == "solid" and self.solid(c.get("color")):
+                    fill, alpha = self.solid(c.get("color"))
+                elif c.name == "gradient":
+                    body, stops = self.stops(c)
+                    if len(stops) == 1:
+                        fill, alpha = stops[0][1]
+                    elif stops:
+                        self.ids += 1
+                        a = int(num(c.get("angle"))) % 360
+                        x1, y1, x2, y2 = {90: (0, 1, 0, 0), 180: (1, 0, 0, 0), 270: (0, 0, 0, 1)}.get(a, (0, 0, 1, 0))
+                        defs = '<defs><linearGradient id="g%d" x1="%g" y1="%g" x2="%g" y2="%g">%s</linearGradient></defs>' % (self.ids, x1, y1, x2, y2, body)
+                        fill = "url(#g%d)" % self.ids
+            if fill is None:
+                return ""
+            if int(num(el.get("shape"))) == 1:
+                return defs + '<ellipse cx="%g" cy="%g" rx="%g" ry="%g" fill="%s" fill-opacity="%.3f"/>' % (x + w / 2, y + h / 2, w / 2, h / 2, fill, alpha)
+            return defs + self.rect(box, (fill, alpha))
+        return ""
+
+    def group(self, el, defs):
+        out, clips = "", 0
+        for c in el.children:
+            if c.name == "group":
+                px, py = num(c.get("pivotX")), num(c.get("pivotY"))
+                out += '<g transform="translate(%g %g) rotate(%g) scale(%g %g) translate(%g %g)">%s</g>' % (
+                    num(c.get("translateX")) + px, num(c.get("translateY")) + py, num(c.get("rotation")),
+                    num(c.get("scaleX"), 1), num(c.get("scaleY"), 1), -px, -py, self.group(c, defs))
+            elif c.name == "clip-path" and (c.get("pathData") or (0, 0, None))[2]:
+                self.ids += 1
+                defs.append('<clipPath id="c%d"><path d="%s"/></clipPath>' % (self.ids, html.escape(c.get("pathData")[2])))
+                out += '<g clip-path="url(#c%d)">' % self.ids
+                clips += 1
+            elif c.name == "path" and (c.get("pathData") or (0, 0, None))[2]:
+                fill, fa, fdef = self.paint(c.get("fillColor"))
+                stroke, sa, sdef = self.paint(c.get("strokeColor"))
+                defs.extend(d for d in (fdef, sdef) if d)
+                a = ['d="%s"' % html.escape(c.get("pathData")[2]), 'fill="%s"' % (fill or "none")]
+                if fill:
+                    a.append('fill-opacity="%.3f"' % (fa * num(c.get("fillAlpha"), 1.0)))
+                    if int(num(c.get("fillType"))) == 1:
+                        a.append('fill-rule="evenodd"')
+                if stroke:
+                    a.append('stroke="%s" stroke-opacity="%.3f" stroke-width="%g"' % (
+                        stroke, sa * num(c.get("strokeAlpha"), 1.0), num(c.get("strokeWidth"))))
+                out += "<path %s/>" % " ".join(a)
+        return out + "</g>" * clips
+
+
+def launcher_icon(manifest, activity=""):
+    """The icon the launcher shows, from an app's manifest: the enabled
+    launcher entry's (`activity`, when known), else the first enabled
+    launcher entry's, else the application's."""
+    root = parse_axml(manifest)
+    app = next((c for c in root.children if c.name == "application"), None) if root else None
+    if not app:
+        return None
+    package = (root.get("package") or (0, 0, ""))[2] or ""
+    entries = [a for a in app.children if a.name in ("activity", "activity-alias")]
+    for act in entries:
+        if activity and class_name(package, (act.get("name") or (0, 0, ""))[2] or "") == activity:
+            return act.get("icon") or app.get("icon")
+    for act in entries:
+        if act.get("enabled") and act.get("enabled")[1] == 0:
+            continue
+        for f in (f for f in act.children if f.name == "intent-filter"):
+            if any((c.get("name") or (0, 0, ""))[2] == "android.intent.category.LAUNCHER" for c in f.children) and act.get("icon"):
+                return act.get("icon")
+    return app.get("icon")
+
+
+def icon_document(apks, activity=""):
+    """An app's icon: ("svg", text) drawn as Android does (an adaptive icon's
+    layers in a circle), ("bitmap", bytes) for a plain picture, or None."""
+    if not apks or "AndroidManifest.xml" not in apks[0].names:
+        return None
+    ref = launcher_icon(apks[0].read("AndroidManifest.xml"), activity)
+    if not ref or ref[0] not in (T_REF, T_DYNREF):
+        return None
+    drawing = IconDrawing(apks)
+    b = drawing.resolve(ref[1])
+    data = b[0].read(drawing.file_name(b)) if b else None
+    kind = sniff(data)
+    if kind and kind != "xml":
+        return ("bitmap", data)
+    root = parse_axml(data) if kind else None
+    body = drawing.element(root, (0, 0, 108, 108)) if root else ""
+    if not body:
+        return None
+    if root.name == "adaptive-icon":
+        return ("svg", '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="18 18 72 72">'
+                       '<defs><clipPath id="m"><circle cx="54" cy="54" r="36"/></clipPath></defs>'
+                       '<g clip-path="url(#m)">%s</g></svg>' % body)
+    return ("svg", '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 108 108">%s</svg>' % body)
+
+
+def read_app_icon(reader, device_id, app):
+    """Reads one app's icon and writes its safe PNG (or a mark that it has
+    none): the path, or "none"."""
+    dst = app_icon_path(device_id, app)
+    try:
+        apks = [Apk(RemoteFile(reader, p, reader.size(p))) for p in reader.paths(app["package"])]
+        doc = icon_document(apks, app.get("activity") or "")
+    except (OSError, ValueError, KeyError, IndexError, EOFError, RuntimeError) as error:
+        if isinstance(error, OSError) and "did not answer" in str(error):
+            raise
+        doc = None
+    if doc:
+        src = dst + (".svg" if doc[0] == "svg" else ".src")
+        with open(src, "w" if doc[0] == "svg" else "wb") as f:
+            f.write(doc[1])
+        ok = fit_image(src, dst, APP_ICON_BOX)
+        os.remove(src)
+        if ok:
+            for old in os.listdir(apps_dir(device_id)):
+                if old.startswith(app["package"] + "-") and os.path.join(apps_dir(device_id), old) != dst:
+                    os.remove(os.path.join(apps_dir(device_id), old))
+            return dst
+    open(app_icon_path(device_id, app, "none"), "w").close()
+    return "none"
+
+
+def app_icons(device_id, packages=None, emit=None, reader=PhoneReader):
+    """Reads the icons not read yet (`packages` first, in their order), a few
+    apps at once, emitting {package, icon} as each is ready."""
+    emit = emit or (lambda line: print(json.dumps(line), flush=True))
+    path = os.path.join(apps_dir(device_id), "apps.json")
+    try:
+        with open(path) as f:
+            apps = json.load(f).get("apps") or []
+    except (OSError, ValueError):
+        return
+    order = {p: i for i, p in enumerate(packages or [])}
+    todo = [a for a in apps if (not packages or a["package"] in order)
+            and not os.path.isfile(app_icon_path(device_id, a)) and not os.path.isfile(app_icon_path(device_id, a, "none"))]
+    todo.sort(key=lambda a: (order.get(a["package"], len(order)), a.get("system", False), a.get("name", "").lower()))
+    if not todo:
+        return
     status = screen_status(device_id)
     if status["state"] != "ready":
-        return {"state": status["state"], "apps": []}
-    try:
-        out = subprocess.run(["scrcpy", "--serial", status["serial"], "--list-apps"],
-                             capture_output=True, text=True, timeout=60)
-        apps = parse_scrcpy_apps((out.stdout or "") + (out.stderr or ""))
-    except (OSError, subprocess.TimeoutExpired):
-        apps = []
-    apps.sort(key=lambda a: (a["system"], a["name"].lower()))
-    return {"state": "ready", "apps": apps}
+        return
+    queue, lock = list(todo), threading.Lock()
 
+    def work():
+        phone = reader(status["serial"])
+        try:
+            while True:
+                with lock:
+                    if not queue:
+                        return
+                    app = queue.pop(0)
+                icon = read_app_icon(phone, device_id, app)
+                with lock:
+                    emit({"package": app["package"], "icon": icon})
+        except OSError:
+            return
+        finally:
+            phone.close()
+
+    threads = [threading.Thread(target=work, daemon=True) for _ in range(min(APP_ICON_WORKERS, len(todo)))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 # ---- Text messages ---------------------------------------------------------
@@ -3065,14 +3914,26 @@ def main(argv):
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         return screen_dock(argv[1], argv[2] == "on", rect=at, ctx=ctx)
-    if argv[0] in ("screen", "screen-pair", "screen-open", "screen-apps"):
+    if argv[0] == "apps":
+        if len(argv) < 2:
+            return say("apps needs a device id", EXIT_FAILED)
+        print(json.dumps(apps_list(argv[1], refresh="--refresh" in argv), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "app-forget":
+        if len(argv) < 3:
+            return say("app-forget needs a device id and a package", EXIT_FAILED)
+        apps_opened(argv[1], argv[2], forget=True)
+        return EXIT_OK
+    if argv[0] == "app-icons":
+        if len(argv) < 2:
+            return say("app-icons needs a device id", EXIT_FAILED)
+        app_icons(argv[1], argv[2:])
+        return EXIT_OK
+    if argv[0] in ("screen", "screen-pair", "screen-open"):
         if len(argv) < 2:
             return say("%s needs a device id" % argv[0], EXIT_FAILED)
         if argv[0] == "screen":
             print(json.dumps(screen_status(argv[1])))
-            return EXIT_OK
-        if argv[0] == "screen-apps":
-            print(json.dumps(screen_apps(argv[1]), ensure_ascii=False))
             return EXIT_OK
         if argv[0] == "screen-pair":
             try:
@@ -3085,12 +3946,13 @@ def main(argv):
         for a in argv[2:]:
             if skip:
                 skip = False
-            elif a in ("--at", "--ctx"):
+            elif a in ("--at", "--ctx", "--sound"):
                 skip = True
             elif a not in ("--tiled", "--docked", "--fit"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv)
+                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv,
+                           sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK
