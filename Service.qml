@@ -473,18 +473,60 @@ Item {
     wasReachable = next
   }
   property var wasReachable: ({})
-  // Diagnose (#101): the person's coding agent (Omarchy's `omarchy agent
-  // prompt`), with what went wrong and the plugin's guide for agents, which
-  // says to ask before any change and never to touch the phone's data.
+  // Fix with AI (#101): the person's default coding agent, launched as
+  // Omarchy launches it (`omarchy agent prompt`, its own mode), with the
+  // facts and the plugin's skill by path, as `omarchy agent crash` does.
   readonly property string pluginFolder: bridge.replace(/\/bin\/kdeconnect-bridge$/, "")
-  function diagnose(what) {
-    if (demo) { report("Demo: the agent would look into: " + what, false); return }
-    var prompt = "Devices (the Omarchy plugin sceny.devices) shows a problem: " + what + ". "
-      + "Help me fix it. First read " + pluginFolder + "/docs/internals/help-for-agents.md (or use its setup-help skill) "
-      + "and follow its rules: ask me before any change, never text, ring or open my phone's data, "
-      + "and say exactly what anything run as root will do before running it."
-    var proc = silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] })
-    proc.running = true
+  property string agentName: ""
+  Process {
+    running: true
+    command: ["omarchy-default-agent"]
+    stdout: StdioCollector { onStreamFinished: root.agentName = text.trim() }
+  }
+  // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
+  // did, "" when none ran).
+  function fixWithAi(problems) {
+    if (demo) { report("Demo: your coding agent would open on it", false); return }
+    // No default agent yet: Omarchy's own choice of one, first.
+    if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
+    var lines = (problems || []).map(function(p) {
+      return "  - " + p.label + (p.detail ? ": " + p.detail : "") + (p.tried ? " (the plugin's own fix was tried: " + p.tried + ")" : "")
+    }).join("\n")
+    var prompt = "Devices, the Omarchy shell plugin sceny.devices, shows a problem on this machine and I want it fixed.\n\n"
+      + "What it shows:\n" + lines + "\n\n"
+      + "Use the setup-help skill: it covers how to investigate, how to fix it, and when it is worth reporting "
+      + "(never with personal data). If your harness has no skill mechanism, read the skill files directly and follow them instead:\n\n"
+      + "  " + pluginFolder + "/.claude/skills/setup-help/SKILL.md"
+    silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
+  }
+
+  // A fix that stopped at a step only the user can do, or did not work: per
+  // device and feature ("id:key"). { text, wait (it can be seen when done:
+  // read again on its own), failed, tried }.
+  property var featurePending: ({})
+  function setPending(id, key, value) {
+    var next = Object.assign({}, featurePending)
+    if (value) next[String(id) + ":" + key] = value
+    else delete next[String(id) + ":" + key]
+    featurePending = next
+  }
+  function pendingFor(id, key) { return featurePending[String(id) + ":" + key] || null }
+  // Waiting for a step that can be seen when done: read again every few
+  // seconds, for two minutes at most.
+  Timer {
+    interval: 4000
+    repeat: true
+    running: root.openPanels > 0 && Object.keys(root.featurePending).some(function(k) { return root.featurePending[k].wait })
+    onTriggered: {
+      var now = Date.now(), ids = {}
+      Object.keys(root.featurePending).forEach(function(k) {
+        var p = root.featurePending[k]
+        if (!p.wait) return
+        if (now - p.at > 120000) { var n = Object.assign({}, p, { wait: false }); var all = Object.assign({}, root.featurePending); all[k] = n; root.featurePending = all; return }
+        ids[k.split(":")[0]] = true
+      })
+      Object.keys(ids).forEach(function(id) { root.readFeatures(id) })
+    }
   }
 
   // A fix run on its own (no click): nothing said, done or not.
@@ -708,8 +750,12 @@ Item {
   // this computer's installs first, together and after the card; then each
   // step for the device in order. A permission that cannot be granted from
   // here says the switch to turn on, on the device. `key`: busy meanwhile.
-  function runSteps(id, steps, key) {
+  // `left`: the step after them only the user can do ({ text, wait }), shown
+  // as pending once they are done.
+  function runSteps(id, steps, key, left) {
     if (!id || !steps || steps.length === 0 || isBusy(key)) return
+    var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
+    if (feature) setPending(id, feature, null)
     setBusy(key, true)
     var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
     var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
@@ -719,18 +765,35 @@ Item {
     if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
     if (firewall) queue.push({ root: "firewall" })
     rest.forEach(function(s) { queue.push({ step: s }) })
-    function finish() { setBusy(key, false); readFeatures(id); runDoctor() }
+    var stoppedAt = null
+    function finish() {
+      setBusy(key, false)
+      if (feature) {
+        if (stoppedAt) setPending(id, feature, stoppedAt)
+        else if (left) setPending(id, feature, Object.assign({ at: Date.now(), failed: false, tried: "it did what it could; one step is left" }, left))
+      }
+      readFeatures(id)
+      runDoctor()
+    }
     function next(i) {
       if (i >= queue.length) { finish(); return }
       var q = queue[i]
-      if (q.root) { askRoot(q.root, function(code) { if (code === 0) next(i + 1); else finish() }); return }
+      if (q.root) {
+        askRoot(q.root, function(code) {
+          if (code === 0) next(i + 1)
+          else { if (code !== 1) stoppedAt = { text: "Did not install", wait: false, failed: true, at: Date.now(), tried: "its install did not work" }; finish() }
+        })
+        return
+      }
       var s = q.step
       var cmd = s.fix.verb === "device" ? [bridge, "device-fix", s.fix.what, String(id)].concat(s.fix.arg ? [s.fix.arg] : [])
                                         : [bridge, "fix", s.fix.what]
       var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: i < queue.length - 1 })
       proc.exited.connect(function(code) {
-        if (code !== 0 && s.orAsk) { root.report(s.orAsk, false); finish(); return }
-        if (code !== 0) { finish(); return }
+        // A step for the user (a permission adb could not grant): said in
+        // the row, and seen when done where it can be.
+        if (code !== 0 && s.orAsk) { stoppedAt = { text: s.orAsk, wait: s.fix.what === "grant", failed: false, at: Date.now(), tried: "it could not " + s.label.toLowerCase() }; finish(); return }
+        if (code !== 0) { stoppedAt = { text: "Did not work: " + s.label, wait: false, failed: true, at: Date.now(), tried: "it did not work at: " + s.label }; finish(); return }
         next(i + 1)
       })
       proc.running = true

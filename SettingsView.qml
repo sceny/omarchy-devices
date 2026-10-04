@@ -35,8 +35,23 @@ Column {
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
   signal fixAllRequested()
-  // Diagnose (#101): the person's coding agent, with what went wrong.
-  signal diagnoseRequested(string what)
+  // Fix with AI (#101): the person's coding agent, with what went wrong.
+  // what: "features" (the section's), "feature" or "check" (a row's).
+  signal fixWithAiRequested(string what, int index)
+  signal checkAgainRequested()
+  property string agentName: ""
+  readonly property string aiTip: agentName !== "" ? "Opens " + agentName + ", your default coding agent, in a terminal, on what is wrong here"
+    : "Choose your coding agent first (Omarchy's own choice), then again"
+  // What it can do's problems: a marker and the section's own Fix all and
+  // Fix with AI in its title.
+  readonly property int featureProblems: rows.filter(function(r) { return r.kind === "feature" && r.problem }).length
+  readonly property string featuresLine: {
+    var f = rows.filter(function(r) { return r.kind === "feature" })
+    if (featureProblems > 0) return featureProblems + (featureProblems === 1 ? " needs attention" : " need attention")
+    var on = f.filter(function(r) { return r.state === "on" }).length
+    var setup = f.filter(function(r) { return r.state === "setup" }).length
+    return on + " on" + (setup > 0 ? " · " + setup + " to set up" : "")
+  }
   property int fixAllCount: 0
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
@@ -216,23 +231,65 @@ Column {
     }
   }
 
-  // ---- What it can do (docs/design/setup.md): a row per feature ----
+  // ---- What it can do (docs/design/setup.md): a row per feature, folding;
+  //      a problem marks its title, which then holds Fix all and Fix with AI ----
   Item { visible: root.firstIndex("feature") >= 0; width: 1; height: Style.space(6) }
-  PanelSectionHeader {
+  RowLayout {
     visible: root.firstIndex("feature") >= 0
-    text: "WHAT IT CAN DO"
-    foreground: root.foreground
-    fontFamily: root.fontFamily
+    width: root.width
+    spacing: Style.space(4)
+    FoldToggle {
+      id: featuresFold
+      Layout.fillWidth: true
+      title: "WHAT IT CAN DO"
+      summary: root.featuresLine
+      folded: root.isFolded("features")
+      foreground: root.featureProblems > 0 ? Color.urgent : root.foreground
+      fontFamily: root.fontFamily
+      motion: root.motion
+      animate: root.animate
+      onToggled: root.foldToggled("features")
+    }
+    Button {
+      visible: root.featureProblems > 0 && root.fixAllCount > 0
+      Layout.preferredHeight: featuresFold.headerHeight
+      text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all"
+      enabled: !(root.phone && root.phone.isBusy("fixAll"))
+      tooltipText: "Every fix the plugin can do, here and on the device"
+      verticalPadding: 0
+      bordered: true
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      onClicked: root.fixAllRequested()
+    }
+    Button {
+      visible: root.featureProblems > 0
+      Layout.preferredHeight: featuresFold.headerHeight
+      text: "Fix with AI"
+      tooltipText: root.aiTip
+      verticalPadding: 0
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      onClicked: root.fixWithAiRequested("features", -1)
+    }
   }
-  Repeater {
-    model: root.rows
-    FeatureRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "feature"
-      width: root.width
-      row: modelData
-      rowIndex: index
+  FoldBody {
+    visible: root.firstIndex("feature") >= 0
+    open: !root.isFolded("features")
+    motion: root.motion
+    animate: root.animate
+    Repeater {
+      model: root.rows
+      FeatureRow {
+        required property var modelData
+        required property int index
+        visible: modelData.kind === "feature"
+        width: root.width
+        row: modelData
+        rowIndex: index
+      }
     }
   }
 
@@ -448,7 +505,7 @@ Column {
   // password only after its card says what for.
   Button {
     visible: root.scopeKind === "connection" && root.fixAllCount > 0
-    text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix what I can (" + root.fixAllCount + ")"
+    text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all (" + root.fixAllCount + ")"
     iconText: Model.GLYPH.check
     enabled: !(root.phone && root.phone.isBusy("fixAll"))
     tooltipText: "Runs every fix the plugin can do here and on the device; anything that needs your password is shown first"
@@ -1415,7 +1472,7 @@ Column {
         }
         Text {
           Layout.fillWidth: true
-          visible: text !== "" && featureRow.row.state !== "on"
+          visible: text !== "" && featureRow.row.state !== "on" && !featureRow.row.pending
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           text: featureRow.row.detail || featureRow.row.hint || ""
@@ -1423,9 +1480,48 @@ Column {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
+        // What a fix left: the step for the user, then waiting for it (it is
+        // seen when done) or Check again; or that it did not work.
+        RowLayout {
+          visible: !!featureRow.row.pending
+          Layout.fillWidth: true
+          spacing: Style.space(6)
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: featureRow.row.pending ? featureRow.row.pending.text : ""
+            color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          WaitRing {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
+            running: visible
+            color: root.dim
+            size: Math.round(Style.font.caption * 0.9)
+          }
+          Text {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
+            textFormat: Text.PlainText
+            text: "Waiting for it…"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Button {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait !== true && featureRow.row.pending.failed !== true
+            text: "Check again"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            onClicked: root.checkAgainRequested()
+          }
+        }
       }
       Button {
-        visible: featureRow.acts && featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
+        visible: featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
+                                     || featureRow.row.problem === true)
         Layout.alignment: Qt.AlignVCenter
         text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
         enabled: !featureRow.working
@@ -1437,14 +1533,15 @@ Column {
         fontSize: Style.font.bodySmall
         onClicked: root.featureRequested(featureRow.rowIndex)
       }
-      PanelActionButton {
-        visible: featureRow.row.state === "attention" && !featureRow.working
+      Button {
+        visible: featureRow.row.problem === true && !featureRow.working
         Layout.alignment: Qt.AlignVCenter
-        iconText: Model.GLYPH.tip
-        tooltipText: "Diagnose: your coding agent looks into it with you (asks before changing anything)"
+        text: "Fix with AI"
+        tooltipText: root.aiTip
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: root.diagnoseRequested((featureRow.row.label || "") + " needs attention: " + (featureRow.row.detail || ""))
+        fontSize: Style.font.bodySmall
+        onClicked: root.fixWithAiRequested("feature", featureRow.rowIndex)
       }
       ToggleSwitch {
         visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
@@ -1556,14 +1653,15 @@ Column {
         fontSize: Style.font.bodySmall
         onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
       }
-      PanelActionButton {
+      Button {
         visible: checkRow.failing
         Layout.alignment: Qt.AlignVCenter
-        iconText: Model.GLYPH.tip
-        tooltipText: "Diagnose: your coding agent looks into it with you (asks before changing anything)"
+        text: "Fix with AI"
+        tooltipText: root.aiTip
         foreground: root.foreground
         fontFamily: root.fontFamily
-        onClicked: root.diagnoseRequested((checkRow.row.label || "") + ": " + (checkRow.row.status || "") + (checkRow.row.detail ? " (" + checkRow.row.detail + ")" : ""))
+        fontSize: Style.font.bodySmall
+        onClicked: root.fixWithAiRequested("check", checkRow.rowIndex)
       }
     }
   }

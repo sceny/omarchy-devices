@@ -680,9 +680,36 @@ Panel {
     if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
     return screenInstalled ? null : { state: "tools", line: "Needs scrcpy and adb here" }
   }
+  // Each row with what a fix left (pending: a step for the user, waiting
+  // or to check again; or it did not work) and whether it is a problem
+  // (Fix and Fix with AI show on every problem, always).
   function featureRowsFor(d) {
     if (!d || !phone) return []
+    var pend = phone.featurePending
     return Model.featureRows(phone.featureReports[String(d.id)] || null, screenBrief(String(d.id)), setupChecks, Model.deviceLabel(d))
+      .map(function(r) {
+        var p = pend[String(d.id) + ":" + r.key] || null
+        if (p && r.state === "on") p = null   // done: nothing pending
+        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed) })
+      })
+  }
+  // Pending steps that are done (the feature is on now) go.
+  onDeviceFeaturesChanged: {
+    if (!phone || !device) return
+    deviceFeatures.forEach(function(r) { if (r.state === "on" && phone.pendingFor(device.id, r.key)) phone.setPending(device.id, r.key, null) })
+  }
+  // Fix with AI: what is wrong, and what the plugin's own fix did.
+  function aiProblem(r) { return { label: r.label, detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
+  function fixWithAi(what, index) {
+    if (!phone) return
+    var list = []
+    if (what === "features") list = featureRowsFor(featureDevice()).filter(function(r) { return r.problem || r.state === "setup" }).map(aiProblem)
+    else if (what === "feature") list = [aiProblem(settingsRows[index])]
+    else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
+    else if (what === "gallery") list = [{ label: "Gallery", detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
+    if (list.length === 0) return
+    phone.fixWithAi(list)
+    root.close()
   }
   readonly property var deviceFeatures: featureRowsFor(device)
   readonly property int featureIssues: Model.featuresNeedAttention(deviceFeatures)
@@ -696,8 +723,12 @@ Panel {
     if (!d || !phone || !row) return
     if (row.key === "screen") { openScreenSetup(String(d.id)); return }
     var plan = Model.featurePlan(row)
-    if (plan.length > 0) phone.runSteps(String(d.id), plan, "feature:" + row.key)
-    else if (row.steps && row.steps.length > 0) phone.report(row.steps[0].orAsk || row.steps[0].label, false)
+    // What is left after them: the step only the user can do, shown in the
+    // row (waiting for it where it can be seen, else Check again).
+    var rest = (row.steps || [])[plan.length]
+    var left = rest ? { text: rest.orAsk || rest.label, wait: false } : null
+    if (plan.length > 0) phone.runSteps(String(d.id), plan, "feature:" + row.key, left)
+    else if (left) phone.setPending(String(d.id), row.key, Object.assign({ at: Date.now(), failed: false, tried: "" }, left))
   }
   // Off: its KDE Connect plugins off for this device, so it stops sending it.
   function featureSwitch(row, on) {
@@ -4424,13 +4455,14 @@ Panel {
                           else root.phone.refreshPhotos(true)
                         }
                       }
-                      PanelActionButton {
+                      Button {
                         visible: !!root.photoInfo && root.photoInfo.ok === false && root.photoInfo.missing !== "sshfs"
-                        iconText: Model.GLYPH.tip
-                        tooltipText: "Diagnose: your coding agent looks into it with you"
+                        text: "Fix with AI"
+                        tooltipText: root.phone && root.phone.agentName ? "Opens " + root.phone.agentName + ", your default coding agent, in a terminal" : "Choose your coding agent first (Omarchy's own choice)"
                         foreground: root.foreground
                         fontFamily: root.fontFamily
-                        onClicked: if (root.phone) { root.phone.diagnose("the gallery: " + (root.photoInfo.error || "it could not read the device")); root.close() }
+                        fontSize: Style.font.bodySmall
+                        onClicked: root.fixWithAi("gallery", -1)
                       }
                       // A mount left behind clears with KDE Connect's restart
                       // (#98): on a click, no password.
@@ -4852,7 +4884,9 @@ Panel {
                 onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
                 onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
                 onFixAllRequested: root.fixAll()
-                onDiagnoseRequested: function(what) { if (root.phone) { root.phone.diagnose(what); root.close() } }
+                onFixWithAiRequested: function(what, index) { root.fixWithAi(what, index) }
+                onCheckAgainRequested: if (root.phone && root.featureDevice()) root.phone.readFeatures(String(root.featureDevice().id))
+                agentName: root.phone ? root.phone.agentName : ""
                 fixAllCount: root.fixAllCount
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview
