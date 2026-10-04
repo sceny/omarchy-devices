@@ -299,32 +299,36 @@ Keep them; change one only with the owner.
   minutes); the bridge pairs only with the device that scanned it. Reading
   the state connects only to a device adb already trusts. Opening a real
   device's screen in a check is the owner's go: it shows their data.
-- **The screen's window docks by the bar** unless the device's
-  `screenDocked` is off: Omarchy's pop-out (floating, pinned, on top,
-  tagged `pop`) under the device's chip, where its panel card is, in the
-  device's own shape (its display now, rotation and a foldable's screen
-  included, fitted to 70% of the screen's height and 45% of its width:
-  `Model.dockRect`, `fit_display`). On Screen the card grows into that
-  rectangle at `Model.MOTION` and waits there (*Connecting…*); the window
-  opens at exactly that place under it (a Hyprland rule set with
-  `hyprctl eval` just before, `no_anim`), and the panel fades out over it.
-  A failure grows the card back. An open window docks and undocks with
-  Omarchy's pop toggle at the same rectangle. The window fades in and out
-  (the rule's pop-in at 100%: no scaling). While docked, `screen-watch`
-  (run by the service, JSON lines) re-fits it under the chip when the
-  device turns or folds: scrcpy's own `Texture: WxH` line (its output goes
-  to a log the watcher reads every 20 ms) hides the window within a frame;
-  the window's size (4 times a second) and the device's display (every
-  2 s) are the backups. A turn (width and height swapped) turns a card in
-  the panel's look by a quarter or half turn, anything else morphs it,
-  from the old rectangle to the new (`ScreenTurn.qml`, mapped while a
-  docked screen is open so it starts at once) while the hidden window
-  moves under it; the window shows again as the card fades. A separate
-  window can always show one turned frame before it hides; only drawing
-  the screen in the panel (#118) removes that. The bridge's `dock_rect`
-  mirrors `Model.dockRect`: change both, and their shared test cases. `omarchy-launch-or-focus`
-  brings an open one forward instead of a second. Tiled, the Screen tile
-  waits instead.
+- **The screen opens under the bar unless the device's `screenDocked`
+  is off** (the page's *Opens under the bar* / *Opens as a window*):
+  Omarchy's pop-out (floating, pinned, tagged `pop`, opaque like its
+  picture-in-picture) under the device's chip, in the device's own shape
+  (its display now, rotation and a foldable's screen included, fitted to
+  70% of the screen's height and 45% of its width: `Model.dockRect`,
+  `fit_display`). On Screen the card grows into that rectangle at
+  `Model.MOTION` and waits there (*Connecting…*); the window opens exactly
+  there under it (a Hyprland rule set with `hyprctl eval` just before; the
+  window inset by Hyprland's border, which is drawn outside it, so window
+  and border cover the card) and fades in; the panel then fades out as the
+  card, which keeps the phone's shape until it is gone. A failure grows the
+  card back. Its window already open: brought forward, no card journey.
+  Docking and undocking an open window go by its address, so the panel
+  keeps the keyboard.
+- **A docked screen follows the device's turns and folds**
+  (`screen-watch`, run by the service, JSON lines; `ScreenTurn.qml`, mapped
+  while a docked screen is open). scrcpy runs verbose and its output goes
+  to a log read every 10 ms: its device side's `DisplayMonitor: … -> …`
+  line comes before the new picture is sent, so the card appears over the
+  window (a turn turns it the way the device turned, from Android's
+  rotation; a half turn upside down; anything else morphs it) and the
+  window hides and moves under it before a turned picture can show. The
+  window shows again only once its new picture is there (scrcpy's
+  `Texture: WxH`; scrcpy resizes the window then, so it is put back) and
+  the card has travelled; the watcher then says `revealed` and the card
+  fades over it. `Texture` alone starts the same a frame late; the window's
+  size and the device's display are looked at as backups. A window the user
+  moved or resized stays put and turns in place. The bridge's `dock_rect`
+  mirrors `Model.dockRect`: change both, and their shared test cases.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and
