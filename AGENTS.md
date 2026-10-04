@@ -36,6 +36,13 @@ its folder are caches under `~/.cache/sceny.devices/`.
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
   screen*`), which KDE Connect does not offer. Each second source serves
   only its feature; everything else stays KDE Connect.
+- **Omarchy only: use what Omarchy provides.** Its commands
+  (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
+  `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
+  it installs (Avahi, `qrencode`, `uwsm-app`, ufw letting mDNS in) and its
+  Hyprland (Lua dispatch). Read `/usr/share/omarchy/bin` and
+  `/usr/share/omarchy/default/hypr` before writing a helper; no paths for
+  other distributions, compositors or an older Hyprland.
 - **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
   D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
   connection per call and cannot listen. One Python process (PyGObject) holds
@@ -273,7 +280,9 @@ Keep them; change one only with the owner.
   as KDE Connect shows it (one word). Pairing actions show their result
   in place (`Model.shownInPlace`): no toast unless they fail.
 - **Fixes change the system only on a click.** `fix install`, `fix firewall`,
-  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt); the
+  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
+  packages through Omarchy's `omarchy-pkg-add`, with Omarchy's bin on the
+  `PATH` pkexec clears); the
   firewall rule is limited to the local network the default route is on,
   never opened to everyone.
 - **A feature that needs more than KDE Connect ships its own setup.** A
@@ -293,8 +302,9 @@ Keep them; change one only with the owner.
   `screenDocked` is off: Omarchy's pop-out (floating, pinned, on top,
   tagged `pop`), phone-shaped, at the right edge under the bar. Wayland
   windows cannot place themselves, so a Hyprland rule (`hyprctl eval`, one
-  per device, replaced on each launch) places it as it opens, and
-  dispatches move an open one. Opening it closes the panel (a place); the
+  per device, replaced on each launch) places it as it opens, an open one
+  docks and undocks with Omarchy's pop toggle, and
+  `omarchy-launch-or-focus` brings an open one forward instead of a second. Opening it closes the panel (a place); the
   Screen tile waits from the click until the window is there.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its

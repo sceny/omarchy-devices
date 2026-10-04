@@ -931,15 +931,6 @@ class Screen(unittest.TestCase):
             {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "Pixel 8"},
             {"serial": "0A1B2C3D", "state": "unauthorized", "usb": True, "model": ""}])
 
-    def test_mdns_services(self):
-        text = ("List of discovered mdns services\n"
-                "adb-0A1B2C3D-xYz\t_adb-tls-connect._tcp\t192.168.1.20:37099\n"
-                "sceny-abc\t_adb-tls-pairing._tcp.\t192.168.1.20:41011\n"
-                "printer\t_ipp._tcp\t192.168.1.9:631\n")
-        self.assertEqual(bridge.parse_mdns(text), [
-            {"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099},
-            {"name": "sceny-abc", "kind": "pairing", "host": "192.168.1.20", "port": 41011}])
-
     def test_scrcpy_apps_short_and_long_names(self):
         text = ("[server] INFO: List of apps:\n"
                 " * Settings                       com.android.settings\n"
@@ -1002,19 +993,21 @@ class Screen(unittest.TestCase):
         self.assertNotIn("hl.window_rule", tiled, "tiled: the rule only ends")
 
     def test_an_open_window_is_brought_forward_not_opened_twice(self):
-        saved = (bridge.screen_device, bridge.find_window, bridge.hypr_dispatch, bridge.screen_status)
-        calls, launched = [], []
+        saved = (bridge.screen_device, bridge.find_window, bridge.screen_status)
+        launched = []
         bridge.screen_device = lambda i: {"id": i, "name": "Pixel 8"}
         bridge.find_window = lambda t: {"address": "0xabc", "title": t} if t == "Pixel 8 · Screen" else None
-        bridge.hypr_dispatch = lambda lua, *c: calls.append(lua) or True
         bridge.screen_status = lambda i: self.fail("no status needed")
         try:
             with contextlib.redirect_stdout(open(os.devnull, "w")):
                 self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
         finally:
-            bridge.screen_device, bridge.find_window, bridge.hypr_dispatch, bridge.screen_status = saved
-        self.assertEqual(launched, [])
-        self.assertIn('hl.dsp.focus({ window = "address:0xabc" })', calls[0])
+            bridge.screen_device, bridge.find_window, bridge.screen_status = saved
+        self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
+
+    def test_dock_geometry(self):
+        mon = {"x": 2560, "y": 0, "width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
+        self.assertEqual(bridge.dock_geometry(mon, 0.4664), (470, 1008, 4640, 45))
 
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
@@ -1036,8 +1029,9 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.fix("screen"), bridge.EXIT_OK)
         finally:
             bridge.subprocess.run = saved
-        self.assertEqual(ran, [["pkexec", "/bin/sh", "-c", "/usr/bin/pacman -S --needed --noconfirm "
-                                "scrcpy android-tools android-udev avahi && /usr/bin/systemctl enable --now avahi-daemon.service"]])
+        self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
+                                os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
+                         "Omarchy's pkg add, as root; Avahi is Omarchy's already")
 
     def test_avahi_finds_the_device(self):
         text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"

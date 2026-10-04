@@ -60,6 +60,7 @@ import shutil
 import os
 import quopri
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1402,14 +1403,23 @@ def doctor():
     # Optional: only the screen and apps need it, so it never lights the
     # gear's dot.
     tools = screen_tools()
-    missing = not tools["scrcpy"] or not tools["adb"]
     checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen and apps",
-                   "status": ("scrcpy " + tools["version"]) if tools["ok"] else ("Not installed" if missing else "Avahi stopped"),
-                   "detail": "" if tools["ok"] else ("Mirror a device and open its apps in windows here: scrcpy and adb" if missing
-                                                     else "Avahi finds devices on Wi-Fi; it is not running"),
+                   "status": ("scrcpy " + tools["version"]) if tools["ok"] else "Not installed",
+                   "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
                    # Installed: the next step is on a device, so it leads there.
-                   "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else ("Install" if missing else "Start")})
+                   "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else "Install"})
     return {"checks": checks, "network": lan, "firewall": fw}
+
+
+OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
+
+
+def pkg_add(packages):
+    """Omarchy's `omarchy pkg add`, as root through pkexec (the panel has no
+    terminal for sudo). pkexec clears PATH, so Omarchy's bin goes back on it
+    for the helpers the command calls."""
+    return ["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN,
+            os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
 
 
 def fix(what):
@@ -1423,7 +1433,7 @@ def fix(what):
             return say(error.message, EXIT_FAILED)
         return say("Looking for devices on the network")
     if what == "install":
-        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "kdeconnect"]
+        cmd = pkg_add(["kdeconnect"])
     elif what == "start":
         if subprocess.run(["systemctl", "--user", "start", DAEMON_UNIT], timeout=15).returncode == 0:
             return say("KDE Connect started")
@@ -1435,13 +1445,11 @@ def fix(what):
         return say("Could not start KDE Connect", EXIT_FAILED)
     elif what == "sshfs":
         # KDE Connect mounts a device's storage with it (photos).
-        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm", "sshfs"]
+        cmd = pkg_add(["sshfs"])
     elif what == "screen":
         # The device's screen and apps here (scrcpy over adb); android-udev
         # lets adb reach a device on a USB cable.
-        # Avahi finds the device on Wi-Fi (adb's own mDNS is not built in).
-        cmd = ["pkexec", "/bin/sh", "-c", "/usr/bin/pacman -S --needed --noconfirm %s && /usr/bin/systemctl enable --now %s"
-               % (" ".join(SCREEN_PACKAGES), AVAHI_UNIT)]
+        cmd = pkg_add(SCREEN_PACKAGES)
     elif what == "firewall":
         lan = local_network()
         if not lan:
@@ -1481,11 +1489,10 @@ def fix(what):
 # only on the user's click.
 #
 # The device announces Wireless debugging over mDNS. Arch's adb is built
-# without mDNS, so Avahi finds it (Omarchy runs it; ufw lets mDNS in), and
-# adb's own is the fallback.
+# without mDNS, so Avahi finds it: Omarchy installs and enables it, and its
+# ufw rules let mDNS in.
 
-SCREEN_PACKAGES = ["scrcpy", "android-tools", "android-udev", "avahi"]
-AVAHI_UNIT = "avahi-daemon.service"
+SCREEN_PACKAGES = ["scrcpy", "android-tools", "android-udev"]
 SCRCPY_APPS = (3, 0)    # --new-display and --start-app
 SCRCPY_FLEX = (4, 0)    # --flex-display: the device's display follows the window
 APPS_MIN_SDK = 29       # a virtual display to run an app on: Android 10
@@ -1501,25 +1508,16 @@ def scrcpy_version(text):
     return (int(m.group(1)), int(m.group(2))) if m else ()
 
 
-def avahi_running(run=subprocess.run):
-    try:
-        return run(["systemctl", "is-active", "--quiet", AVAHI_UNIT], timeout=5).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-
-
 def screen_tools(run=subprocess.run):
-    """Whether scrcpy, adb and mDNS (Avahi) are here, and what this scrcpy
-    can do."""
+    """Whether scrcpy and adb are here, and what this scrcpy can do."""
     scrcpy, adb = shutil.which("scrcpy"), shutil.which("adb")
-    mdns = bool(shutil.which("avahi-browse")) and avahi_running(run)
     version = ()
     if scrcpy:
         try:
             version = scrcpy_version(run([scrcpy, "--version"], capture_output=True, text=True, timeout=10).stdout)
         except (OSError, subprocess.TimeoutExpired):
             pass
-    return {"scrcpy": bool(scrcpy), "adb": bool(adb), "mdns": mdns, "ok": bool(scrcpy and adb and mdns),
+    return {"scrcpy": bool(scrcpy), "adb": bool(adb), "ok": bool(scrcpy and adb),
             "version": "%d.%d" % version if version else "",
             "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX}
 
@@ -1537,27 +1535,11 @@ def parse_adb_devices(text):
     return out
 
 
-def parse_mdns(text):
-    """`adb mdns services` as [{name, kind, host, port}]; kind is "pairing"
-    (a device showing a pairing code or QR) or "connect" (a device with
-    Wireless debugging on)."""
-    out = []
-    for line in (text or "").splitlines():
-        parts = line.split()
-        if len(parts) < 3 or "_adb-tls-" not in parts[1]:
-            continue
-        host, _, port = parts[-1].rpartition(":")
-        if not port.isdigit():
-            continue
-        out.append({"name": parts[0], "kind": "pairing" if "pairing" in parts[1] else "connect",
-                    "host": host, "port": int(port)})
-    return out
-
-
 def parse_avahi(text):
-    """`avahi-browse -rpt` (resolved, parsable) as parse_mdns does: IPv4
-    entries of adb's two services. A line: =;iface;IPv4;name;type;domain;
-    host;address;port;txt."""
+    """`avahi-browse -rpt` (resolved, parsable) as [{name, kind, host,
+    port}]: IPv4 entries of adb's two services, kind "pairing" (a device
+    showing a pairing code or QR) or "connect" (Wireless debugging on). A
+    line: =;iface;IPv4;name;type;domain;host;address;port;txt."""
     out = []
     for line in (text or "").splitlines():
         f = line.split(";")
@@ -1568,18 +1550,15 @@ def parse_avahi(text):
 
 
 def mdns_services():
-    """What devices announce for adb now: Avahi first, adb's own mDNS if
-    Avahi is not here."""
-    if shutil.which("avahi-browse"):
-        def browse(kind):
-            try:
-                return parse_avahi(subprocess.run(["avahi-browse", "-rpt", kind], capture_output=True,
-                                                  text=True, timeout=8).stdout)
-            except (OSError, subprocess.TimeoutExpired):
-                return []
-        with concurrent.futures.ThreadPoolExecutor(2) as pool:
-            return [s for found in pool.map(browse, ("_adb-tls-pairing._tcp", "_adb-tls-connect._tcp")) for s in found]
-    return parse_mdns(adb(["mdns", "services"])[1])
+    """What devices announce for adb now (Avahi), both services at once."""
+    def browse(kind):
+        try:
+            return parse_avahi(subprocess.run(["avahi-browse", "-rpt", kind], capture_output=True,
+                                              text=True, timeout=8).stdout)
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+    with concurrent.futures.ThreadPoolExecutor(2) as pool:
+        return [s for found in pool.map(browse, ("_adb-tls-pairing._tcp", "_adb-tls-connect._tcp")) for s in found]
 
 
 def parse_scrcpy_apps(text):
@@ -1692,11 +1671,9 @@ def screen_record(device_id, update=None):
 
 
 def adb(args, timeout=10):
-    """One adb call: (exit code, stdout). mDNS goes through adb's own
-    backend, which needs no Avahi."""
-    env = dict(os.environ, ADB_MDNS_OPENSCREEN="1")
+    """One adb call: (exit code, stdout and stderr)."""
     try:
-        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout, env=env)
+        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout)
         return out.returncode, (out.stdout or "") + (out.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as error:
         return 1, str(error)
@@ -1888,45 +1865,30 @@ def find_window(title):
     return next((c for c in hypr_json("clients") if c.get("title") == title), None)
 
 
-def hypr_dispatch(lua, *classic):
-    """A dispatch as Omarchy's own scripts make it: Lua first, the classic
-    form for an older Hyprland."""
-    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-    try:
-        out = run(["hyprctl", "dispatch", lua])
-        if out.returncode == 0 and "error" not in (out.stdout or "").lower():
-            return True
-        return run(["hyprctl", "dispatch"] + list(classic)).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+def dock_geometry(mon, aspect):
+    """Where a docked window goes on a monitor (`hyprctl monitors`):
+    (width, height, x, y), in the desktop's coordinates."""
+    scale = mon.get("scale") or 1
+    mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
+    # Rounded as the rule's are, so a docked window lands where a docked
+    # launch does.
+    h = round(mh * DOCK_HEIGHT)
+    w = round(mh * DOCK_HEIGHT * aspect)
+    top = (mon.get("reserved") or [0, 0])[1]
+    return w, h, round(mon.get("x", 0) + mw - w - DOCK_GAP), round(mon.get("y", 0) + top + DOCK_GAP)
 
 
 def dock_window(win, docked, aspect):
-    """Docks an open window (floating, pinned, sized and placed like the
-    rule) or undocks it (an ordinary tiled window)."""
-    w = "address:" + win["address"]
-    q = lua_string(w)
-    if docked:
-        mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
-        scale = mon.get("scale") or 1
-        mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
-        top = (mon.get("reserved") or [0, 0])[1]
-        h = int(mh * DOCK_HEIGHT)
-        width = int(h * aspect)
-        x, y = int(mon.get("x", 0) + mw - width - DOCK_GAP), int(mon.get("y", 0) + top + DOCK_GAP)
-        if not win.get("floating"):
-            hypr_dispatch("hl.dsp.window.float({ window = %s, action = \"toggle\" })" % q, "togglefloating", w)
-        hypr_dispatch("hl.dsp.window.resize({ window = %s, x = %d, y = %d })" % (q, width, h), "resizewindowpixel", "exact %d %d,%s" % (width, h, w))
-        hypr_dispatch("hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, x, y), "movewindowpixel", "exact %d %d,%s" % (x, y, w))
-        if not win.get("pinned"):
-            hypr_dispatch("hl.dsp.window.pin({ window = %s })" % q, "pin", w)
-        hypr_dispatch("hl.dsp.window.tag({ window = %s, tag = \"+pop\" })" % q, "tagwindow", "+pop", w)
-    else:
-        if win.get("pinned"):
-            hypr_dispatch("hl.dsp.window.pin({ window = %s })" % q, "pin", w)
-        hypr_dispatch("hl.dsp.window.tag({ window = %s, tag = \"-pop\" })" % q, "tagwindow", "-pop", w)
-        if win.get("floating"):
-            hypr_dispatch("hl.dsp.window.float({ window = %s, action = \"toggle\" })" % q, "togglefloating", w)
+    """Docks an open window or undocks it, with Omarchy's pop-out toggle
+    (`omarchy-hyprland-window-pop`, which acts on the focused window): it
+    pins, floats, sizes and places it, and toggling again tiles it."""
+    if bool(win.get("pinned")) == docked:
+        return
+    subprocess.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = %s })" % lua_string("address:" + win["address"])],
+                   capture_output=True, timeout=5)
+    mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
+    args = [str(v) for v in dock_geometry(mon, aspect)] if docked else []
+    subprocess.run(["omarchy-hyprland-window-pop"] + args, capture_output=True, timeout=10)
 
 
 def screen_title(name, label=""):
@@ -1945,19 +1907,25 @@ def screen_command(serial, title, package="", tools=None):
     return cmd
 
 
+def launch_or_focus(title, cmd):
+    """Omarchy's `omarchy-launch-or-focus`: the window with this title is
+    brought forward, else the command runs (it evals the command line, so
+    each part is quoted)."""
+    pattern = re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", title)
+    subprocess.Popen(["omarchy-launch-or-focus", pattern, shlex.join(cmd)], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep):
     """Opens the device's screen, or one of its apps, in a window here,
     docked or tiled, and returns once the window is there (the click waits
     meanwhile). Already open: brought forward instead of a second one."""
-    launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
-                                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
-    open_now = find_window(title)
-    if open_now:
-        w = "address:" + open_now["address"]
-        hypr_dispatch("hl.dsp.focus({ window = %s })" % lua_string(w), "focuswindow", w)
+    launch = launch or (lambda cmd: launch_or_focus(title, cmd))
+    if find_window(title):
+        launch(["true"])   # focuses it; the command never runs
         return say("%s is open" % (label or name + "'s screen"))
     status = screen_status(device_id)
     if status["state"] != "ready":
