@@ -131,6 +131,14 @@ class NotificationCounts(unittest.TestCase):
         self.assertIsNone(bridge.device_notification_count("S", lambda args, timeout=15: (1, "")))
 
 
+class PinEvents(unittest.TestCase):
+    def test_our_window_pinned(self):
+        lines = ["activewindow>>foot,x", "pin>>55d0c1a2b3c4,1", "pin>>aaaa,0"]
+        self.assertTrue(bridge.pinned_event(lines, "0x55d0c1a2b3c4"))
+        self.assertFalse(bridge.pinned_event(lines, "0xbbbb"))
+        self.assertFalse(bridge.pinned_event(["openwindow>>55d0c1a2b3c4,1,x,y"], "0x55d0c1a2b3c4"))
+
+
 class Mounts(unittest.TestCase):
     def test_a_dead_mount_is_asked_in_a_child_with_a_limit(self):
         ran = []

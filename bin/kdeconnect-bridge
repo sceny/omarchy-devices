@@ -2611,6 +2611,27 @@ def watch_running(lock):
         return False
 
 
+def hypr_events():
+    """Hyprland's event socket (socket2), read without blocking, or None."""
+    import socket
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
+                        os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        sock.setblocking(False)
+        return sock
+    except OSError:
+        return None
+
+
+def pinned_event(lines, address):
+    """Whether Hyprland's events pin (or unpin) the window at `address`:
+    `pin>>ADDRESS,1` (the address without 0x)."""
+    ours = str(address or "").lower().replace("0x", "")
+    return any(l.startswith("pin>>") and l[5:].split(",")[0].lower().replace("0x", "") == ours for l in lines)
+
+
 def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time.time, fit=False):
     """Keeps the device's docked window in its shape, until the window
     closes. JSON lines: refit {kind, angle, from, to, monitor, device},
@@ -2637,6 +2658,10 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
         if not win:
             return EXIT_OK
         looked = asked = clock()
+        # Omarchy's toggle (Super+O) pins the window at its own size first:
+        # the pin event brings the next look now, not at its quarter second,
+        # so that size barely shows.
+        events, events_buf = hypr_events(), b""
         settled = resting(win, mons, border)
         was_pinned = bool(win.get("pinned"))
         pending = None   # a turn under way: {to, since, picture}
@@ -2743,6 +2768,17 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             if log and not pending and log.tell() > LOG_MAX:
                 os.truncate(screen_log(title), 0)
                 log.seek(0)
+            if events is not None:
+                try:
+                    events_buf += events.recv(65536)
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    events = None
+                if b"\n" in events_buf:
+                    lines, _, events_buf = events_buf.rpartition(b"\n")
+                    if win and pinned_event(lines.decode("utf-8", "replace").splitlines(), win.get("address")):
+                        looked = 0
             if now - looked >= WATCH_LOOK_SEC and not pending:
                 looked = now
                 win = find_window(title)
@@ -2780,6 +2816,8 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             os.remove(lock)
         except OSError:
             pass
+        if locals().get("events") is not None:
+            events.close()
 
 
 def screen_title(name, label=""):
