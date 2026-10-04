@@ -78,11 +78,13 @@ PanelWindow {
   property real toX: 0
   property real toY: 0
 
-  // The card holds where it arrived until the window shows under it (the
-  // watcher says so once the new picture is there), then fades over it.
+  // The card fades as soon as the window shows under it (the watcher says
+  // so once the new picture is there), wherever it is in its journey: the
+  // screen is never held back for the card. It holds only while the
+  // picture is late.
   property bool arrived: false
   property bool revealed: false
-  function fadeWhenBoth() { if (arrived && revealed && !fade.running && card.opacity > 0) fade.start() }
+  function fadeWhenBoth() { if (revealed && !fade.running && card.opacity > 0) fade.start() }
   Connections {
     target: turn.phone
     function onScreenRevealed(id) {

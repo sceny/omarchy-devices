@@ -322,10 +322,11 @@ Keep them; change one only with the owner.
   window (a turn turns it the way the device turned, from Android's
   rotation; a half turn upside down; anything else morphs it) and the
   window hides and moves under it before a turned picture can show. The
-  window shows again only once its new picture is there (scrcpy's
-  `Texture: WxH`; scrcpy resizes the window then, so it is put back) and
-  the card has travelled; the watcher then says `revealed` and the card
-  fades over it. `Texture` alone starts the same a frame late; the window's
+  window shows again as soon as its new picture is there (scrcpy's
+  `Texture: WxH`; scrcpy resizes the window then, so it is put back),
+  never held back for the card: the watcher says `revealed` and the card
+  fades over it wherever it is. scrcpy runs under `stdbuf -oL -eL`:
+  written to a file, its own lines were buffered and came in a late batch. `Texture` alone starts the same a frame late; the window's
   size and the device's display are looked at as backups. A window the user
   moved or resized stays put and turns in place. The bridge's `dock_rect`
   mirrors `Model.dockRect`: change both, and their shared test cases.

@@ -2008,8 +2008,8 @@ def dock_window(win, docked, display, rect=None):
 # fold, morphs it); the window hides and moves under the card; scrcpy's
 # "Texture: WxH" says the new picture arrived (scrcpy resizes its window
 # then, so it is put back); once the picture is there and the card has
-# travelled (Model.MOTION, out then in), the window shows and `revealed`
-# goes out, and the card fades over it. "Texture" alone (an older scrcpy, a
+# had its head start (TURN_MIN_SEC), the window shows and `revealed` goes
+# out, and the card fades over it wherever it is in its journey. "Texture" alone (an older scrcpy, a
 # missed line) starts the same, a frame late. The window's size and the
 # device's display are looked at as well, for a change the log missed. A
 # window the user moved stays where they put it (placement). An undocked
@@ -2018,8 +2018,9 @@ def dock_window(win, docked, display, rect=None):
 WATCH_LOOK_SEC = 0.25
 WATCH_ASK_SEC = 2
 WATCH_LOG_SEC = 0.01
-TURN_TRAVEL_SEC = 0.33  # the card's journey: Model.MOTION.outMs + inMs, and a beat
+TURN_MIN_SEC = 0.1      # the card's head start before the window shows (it then fades over it)
 TURN_WAIT_SEC = 1.5     # the new picture, at most; then the window shows anyway
+LOG_MAX = 1 << 20       # verbose scrcpy logs every pointer move: emptied past this
 
 
 def current_display(serial):
@@ -2168,7 +2169,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             pending = {"to": to, "since": clock(), "picture": picture, "picture_at": clock() if picture else None}
 
         def reveal():
-            """The new picture is there and the card has arrived: the window,
+            """The new picture is there: the window,
             put back where scrcpy's own resize moved it from, shows under
             the card, which then fades."""
             nonlocal pending, win
@@ -2205,9 +2206,14 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                     pending["picture"] = True
                     pending["picture_at"] = clock()
             now = clock()
-            if pending and ((pending["picture"] and now - pending["since"] >= TURN_TRAVEL_SEC)
+            # The new picture is there: the window shows at once (after the
+            # card's head start), and the card fades over it wherever it is.
+            if pending and ((pending["picture"] and now - pending["since"] >= TURN_MIN_SEC)
                             or now - pending["since"] >= TURN_WAIT_SEC):
                 reveal()
+            if log and not pending and log.tell() > LOG_MAX:
+                os.truncate(screen_log(title), 0)
+                log.seek(0)
             if now - looked >= WATCH_LOOK_SEC and not pending:
                 looked = now
                 win = find_window(title)
@@ -2254,7 +2260,10 @@ def screen_command(serial, title, package="", tools=None, log=""):
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4). `log`: where
     its output goes."""
-    run = ["scrcpy"] if not log else ["sh", "-c", 'exec "$0" "$@" >%s 2>&1' % shlex.quote(log), "scrcpy"]
+    # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
+    # back and came in a late batch, after the turn they told of. Appended,
+    # so the watcher can empty the file without leaving a hole.
+    run = ["scrcpy"] if not log else ["sh", "-c", 'exec stdbuf -oL -eL "$0" "$@" >>%s 2>&1' % shlex.quote(log), "scrcpy"]
     cmd = ["uwsm-app", "--"] + run + ["--serial", serial, "--window-title", title]
     if log:
         # Verbose: its device side says when the display changes (the watcher).
@@ -2300,6 +2309,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     log = screen_log(title) if docked and not package else ""
     if log:
         os.makedirs(os.path.dirname(log), exist_ok=True)
+        open(log, "w").close()   # a fresh log for this window
     launch(screen_command(status["serial"], title, package, status["tools"], log))
     for _ in range(WINDOW_WAIT_SEC * 4):
         if find_window(title):
