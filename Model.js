@@ -2066,7 +2066,9 @@ function cursorRows(groups, columns) {
 }
 
 // One key: the index it goes to, or -1 when it leaves the tiles (up from
-// the first row, down from the last). Sideways it stays in its row.
+// the first row, down from the last). Sideways it stays in its row. A row
+// may repeat an index over empty columns (a tile at the row's end), so up
+// and down land under the column: sideways skips the repeats.
 function cursorStep(rows, index, dx, dy) {
   var r = -1, col = 0
   for (var i = 0; i < rows.length; i++) {
@@ -2074,7 +2076,14 @@ function cursorStep(rows, index, dx, dy) {
     if (at >= 0) { r = i; col = at; break }
   }
   if (r < 0) return rows.length > 0 && rows[0].length > 0 ? rows[0][0] : -1
-  if (dx !== 0) return rows[r][Math.max(0, Math.min(rows[r].length - 1, col + dx))]
+  if (dx !== 0) {
+    var k = col
+    while (k + dx >= 0 && k + dx < rows[r].length) {
+      k += dx
+      if (rows[r][k] !== index) return rows[r][k]
+    }
+    return index
+  }
   var t = r + (dy > 0 ? 1 : -1)
   if (t < 0 || t >= rows.length) return -1
   return rows[t][Math.min(col, rows[t].length - 1)]

@@ -1323,7 +1323,10 @@ Panel {
     var p = sectionRows.pinned.length, r = sectionRows.recent.length, all = p + r
     if (p === 0) return [Model.cursorRows([r], appColumns)[0] ? Model.cursorRows([r], appColumns)[0].concat([all]) : [all]]
     var rows = Model.cursorRows([p], appColumns)
-    rows[Model.allAppsSlot(p, appColumns, false) < appColumns ? 0 : rows.length - 1].push(all)
+    // All apps sits in the last column: the empty ones before it repeat
+    // their left neighbour, so Down from it lands beneath it.
+    if (p < appColumns) { while (rows[0].length < appColumns - 1) rows[0].push(rows[0][rows[0].length - 1]); rows[0].push(all) }
+    else rows[rows.length - 1].push(all)
     var recent = Model.cursorRows([r], appColumns)
     for (var i = 0; i < recent.length; i++) rows.push(recent[i].map(function(k) { return k + p }))
     return rows

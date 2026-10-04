@@ -991,6 +991,9 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   assert.equal(M.cursorStep(grid, 1, 0, -1), -1, "up from the first row: out")
   assert.equal(M.cursorStep(grid, 11, 0, 1), -1, "down from the last: out")
   assert.equal(M.cursorStep(M.cursorRows([0, 3], 5), 0, 0, -1), -1, "no pinned row: up leaves")
+  const padded = [[0, 1, 1, 1, 9], [2, 3, 4, 5, 6]]
+  assert.deepEqual([M.cursorStep(padded, 1, 1, 0), M.cursorStep(padded, 9, 0, 1), M.cursorStep(padded, 9, -1, 0), M.cursorStep(padded, 6, 0, -1)], [9, 6, 1, 9],
+                   "a tile at the row's end: sideways skips the empty columns, down lands beneath it")
   const page = M.appsForPage(apps, "")
   assert.deepEqual([names(page.recent), names(page.all)], [["maps", "Clock", "Settings"], ["Bank", "Clock", "École", "maps", "Settings"]],
                    "every app, the system's own too; A to Z, case aside")
