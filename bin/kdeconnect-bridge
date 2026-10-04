@@ -2006,10 +2006,32 @@ def turn_of(old, new, old_rot=-1, new_rot=-1):
     return "morph", 0
 
 
-def refit(win, ctx, display, mons):
-    """The docked window put under the chip in the display's shape: the
-    dispatches to send, [] when it is there already."""
-    x, y, w, h = dock_rect(ctx, display)
+def placement(ctx, settled, old, new, mon):
+    """Where the window goes for a new display shape, on the monitor: under
+    the chip when it was there (dock_rect); where the user moved it
+    otherwise, keeping its centre and its size against the docked one,
+    in the new shape and kept on the screen. `settled`: its last resting
+    rectangle (x, y, w, h on the monitor)."""
+    home = dock_rect(ctx, old)
+    if not settled or all(abs(a - b) <= 3 for a, b in zip(settled, home)):
+        return dock_rect(ctx, new)
+    sx, sy, sw, sh = settled
+    _, _, nw, nh = dock_rect(ctx, new)
+    k = max(sw / home[2], sh / home[3]) if home[2] and home[3] else 1
+    w, h = round(nw * k), round(nh * k)
+    scale = mon.get("scale") or 1
+    mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
+    top = (mon.get("reserved") or [0, 0])[1]
+    w, h = min(w, round(mw)), min(h, round(mh - top))
+    x = max(0, min(round(sx + sw / 2 - w / 2), round(mw - w)))
+    y = max(top, min(round(sy + sh / 2 - h / 2), round(mh - h)))
+    return x, y, w, h
+
+
+def refit(win, ctx, display, mons, rect=None):
+    """The docked window put at `rect` (else under the chip in the display's
+    shape): the dispatches to send, [] when it is there already."""
+    x, y, w, h = rect or dock_rect(ctx, display)
     mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
     ax, ay = mon.get("x", 0) + x, mon.get("y", 0) + y
     if [ax, ay] == list(win.get("at") or []) and [w, h] == list(win.get("size") or []):
@@ -2065,19 +2087,28 @@ def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
         win, mons = find_window(title), hypr_json("monitors")
         looked = asked = time.time()
 
+        def resting(w):
+            """Its rectangle on its monitor, as it rests now."""
+            mon = next((m for m in mons if m.get("id") == w.get("monitor")), None) or {}
+            return (w["at"][0] - mon.get("x", 0), w["at"][1] - mon.get("y", 0)) + tuple(w["size"])
+
+        # Its last resting place: the card starts there, and a window the
+        # user moved stays where they put it (placement).
+        settled = resting(win) if win else None
+
         def carry(new, angle_hint=None):
             """The card event, then the hidden window moved under it."""
-            nonlocal shape
-            moves = refit(win, ctx, new, mons)
+            nonlocal shape, settled
+            mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
+            to = placement(ctx, settled, shape, new, mon)
+            moves = refit(win, ctx, new, mons, to)
             if not moves:
                 shape = new
                 return
             kind, angle = turn_of(shape, new) if angle_hint is None else angle_hint
-            mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
-            before = list(dock_rect(ctx, shape)) if shape[0] else \
-                [win["at"][0] - mon.get("x", 0), win["at"][1] - mon.get("y", 0)] + list(win["size"])
+            before = list(settled) if settled else list(dock_rect(ctx, shape))
             emit({"ev": "refit", "kind": kind, "angle": angle, "from": before,
-                  "to": list(dock_rect(ctx, new)), "monitor": mon.get("name", "")})
+                  "to": list(to), "monitor": mon.get("name", "")})
             window_prop(win, "no_anim", "1")
             window_prop(win, "opacity", "0")
             sleep(TURN_MOVE_SEC)
@@ -2087,6 +2118,7 @@ def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
             window_prop(win, "no_anim", "0")
             window_prop(win, "opacity", "1")
             shape = new
+            settled = tuple(to)
 
         while True:
             texture = None
@@ -2106,6 +2138,12 @@ def screen_watch(device_id, ctx, sleep=time.sleep, emit=None):
                 if not win:
                     return EXIT_OK
                 mons = hypr_json("monitors")
+                # At rest in the shape it should have: the user may have
+                # moved or resized it. Mid-turn (scrcpy resized it itself)
+                # it is not at rest.
+                here = resting(win)
+                if abs(here[2] / here[3] - shape[0] / shape[1]) < 0.03 if shape[0] and here[3] else True:
+                    settled = here
                 if win.get("pinned") and now - asked >= WATCH_ASK_SEC:
                     asked = now
                     new, new_rot = current_display(serial)

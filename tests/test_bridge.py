@@ -1045,6 +1045,21 @@ class Screen(unittest.TestCase):
                                  'hl.dsp.window.move({ window = "address:0xabc", x = %d, y = %d })' % (2560 + x, y)])
         self.assertGreater(w, h, "landscape now")
 
+    def test_a_moved_window_stays_where_it_was_put(self):
+        mon = {"width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
+        home = bridge.dock_rect(self.TOP, (1080, 2316))
+        self.assertEqual(bridge.placement(self.TOP, home, (1080, 2316), (2316, 1080), mon),
+                         bridge.dock_rect(self.TOP, (2316, 1080)), "docked: under the chip")
+        moved = (600, 200, home[2], home[3])
+        x, y, w, h = bridge.placement(self.TOP, moved, (1080, 2316), (2316, 1080), mon)
+        self.assertEqual((w, h), bridge.dock_rect(self.TOP, (2316, 1080))[2:], "same size against the docked one")
+        self.assertEqual((round(x + w / 2), round(y + h / 2)), (round(600 + home[2] / 2), round(200 + home[3] / 2)), "its centre kept")
+        bigger = (600, 200, home[2] * 1.2, home[3] * 1.2)
+        self.assertGreater(bridge.placement(self.TOP, bigger, (1080, 2316), (2316, 1080), mon)[2], w, "the user's size kept")
+        corner = (2000, 900, home[2], home[3])
+        cx, cy, cw, ch = bridge.placement(self.TOP, corner, (1080, 2316), (2316, 1080), mon)
+        self.assertTrue(cx + cw <= 2560 and cy + ch <= 1440 and cy >= 35, "kept on the screen")
+
     def test_the_display_in_one_line(self):
         self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
 
