@@ -497,7 +497,7 @@ Panel {
     }
     cardMorphing = true
     morphSettle.stop()
-    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext) }
+    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext), since: Date.now() }
     screenTipNext++
     phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
   }
@@ -508,6 +508,14 @@ Panel {
   }
   // A demo turn: the watcher's "revealed", as a new picture would bring it.
   Timer { id: demoReveal; interval: 450; onTriggered: if (root.phone) root.phone.screenRevealed("demo") }
+  // The screen is open under the card: the panel fades out over it, and the
+  // keyboard goes to it.
+  function handOffScreen(id) {
+    if (!opened) return
+    close()
+    if (phone) Qt.callLater(function() { root.phone.focusScreen(id) })
+  }
+  Timer { id: handOff; property string device: ""; onTriggered: root.handOffScreen(device) }
   // KeyboardPanel fades out in 140 ms: the opening ends after that.
   Timer {
     id: openingGone
@@ -556,8 +564,12 @@ Panel {
     // where the card was), and the keyboard goes to it.
     function onScreenOpened(id) {
       if (!root.opened) return
-      root.close()
-      if (root.phone) Qt.callLater(function() { root.phone.focusScreen(id) })
+      // The tip stays up long enough to be read; a slower phone adds nothing.
+      var o = root.screenOpening
+      var wait = o && o.tip ? Model.tipReadMs(o.tip) - (Date.now() - o.since) : 0
+      handOff.device = id
+      if (wait > 0) { handOff.interval = wait; handOff.restart() }
+      else root.handOffScreen(id)
     }
     function onScreenOpenFailed(id) { root.endScreenOpening() }
     // Set up: the Screen shortcut joins the device's shortcuts, once (the
@@ -2320,20 +2332,6 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
         }
-        // A tip while it connects: one each opening.
-        Text {
-          anchors.horizontalCenter: parent.horizontalCenter
-          width: parent.width
-          topPadding: Style.space(14)
-          horizontalAlignment: Text.AlignHCenter
-          wrapMode: Text.WordWrap
-          textFormat: Text.PlainText
-          text: root.screenOpening && root.screenOpening.tip ? root.screenOpening.tip : ""
-          visible: text !== ""
-          color: Qt.darker(root.foreground, 1.55)
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
         Text {
           anchors.horizontalCenter: parent.horizontalCenter
           text: "\u{F0996}"
@@ -2341,6 +2339,58 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.icon
           RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: !!root.screenOpening }
+        }
+      }
+      // Tips: a section of its own at the foot of the waiting card, one tip
+      // each opening, up long enough to be read (Model.tipReadMs).
+      Rectangle {
+        id: tipBox
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: root.pageGutter
+        height: tipColumn.implicitHeight + 2 * Style.space(12)
+        radius: Style.cornerRadius
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+        border.width: 1
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+        opacity: root.screenOpening && root.screenOpening.tip ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Column {
+          id: tipColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.space(14)
+          anchors.rightMargin: Style.space(14)
+          spacing: Style.space(6)
+          Row {
+            spacing: Style.space(6)
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Model.GLYPH.tip
+              color: Color.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            PanelSectionHeader {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "TIP"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: root.screenOpening && root.screenOpening.tip ? root.screenOpening.tip : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            lineHeight: 1.15
+          }
         }
       }
 

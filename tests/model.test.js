@@ -915,3 +915,10 @@ test("screen tips: one each opening, all of them in turn", () => {
   assert.equal(M.screenTip(-1), M.SCREEN_TIPS[M.SCREEN_TIPS.length - 1])
   assert.ok(M.SCREEN_TIPS.every(t => t.length <= 60), "short enough for the card")
 })
+
+test("screen tips: up long enough to be read, never long", () => {
+  assert.equal(M.tipReadMs(""), 1000)
+  assert.equal(M.tipReadMs("Right-click is Back, middle-click is Home"), 1000 + 20 * 41)
+  assert.ok(M.SCREEN_TIPS.every(t => M.tipReadMs(t) <= 2200))
+  assert.equal(M.tipReadMs("x".repeat(500)), 2200)
+})

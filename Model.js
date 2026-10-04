@@ -64,7 +64,8 @@ var GLYPH = {
   callText: "\u{F0369}",     // message-text
   screen: "\u{F0989}",       // monitor-cellphone: the device's screen in a window here
   apps: "\u{F003B}",         // apps: its apps, each in a window
-  optional: "\u{F0766}"      // circle-outline: a check only one feature needs
+  optional: "\u{F0766}",     // circle-outline: a check only one feature needs
+  tip: "\u{F0336}"           // lightbulb-outline: a tip while the screen connects
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -1253,6 +1254,12 @@ var SCREEN_TIPS = [
   "Alt+N opens the phone's notifications",
   "Rather a window like any other? Settings › Screen and apps"
 ]
+// How long a tip stays up at least, so it can be read: about a second and
+// a little more per letter, never more than 2.2 s (a phone that takes longer
+// to connect adds nothing).
+function tipReadMs(text) {
+  return Math.min(2200, 1000 + 20 * String(text || "").length)
+}
 function screenTip(n) {
   var k = ((Math.floor(n) % SCREEN_TIPS.length) + SCREEN_TIPS.length) % SCREEN_TIPS.length
   return SCREEN_TIPS[k]
