@@ -1332,6 +1332,21 @@ Panel {
     return rows
   }
   property int appIndex: 0
+  // Folded: as many icons as fit beside the title, pinned first, then
+  // recent; All apps always last. `appsFoldedWidth` is the room the row has.
+  property real appsFoldedWidth: 0
+  readonly property real foldedTile: Style.space(22) + Style.space(6) + Style.space(4)
+  readonly property int foldedRoom: Math.max(0, Math.floor((appsFoldedWidth - foldedTile - Style.space(9)) / foldedTile))
+  readonly property int foldedPinned: Math.min(sectionRows.pinned.length, foldedRoom)
+  readonly property int foldedRecent: Math.min(sectionRows.recent.length, foldedRoom - foldedPinned)
+  // The keys' stops in the folded row, in its order (indexes as unfolded).
+  readonly property var foldedStops: {
+    var out = []
+    for (var i = 0; i < foldedPinned; i++) out.push(i)
+    for (var j = 0; j < foldedRecent; j++) out.push(sectionRows.pinned.length + j)
+    out.push(sectionApps.length)
+    return out
+  }
   function appsSetUp(id) {
     if (!phone) return false
     if (phone.demo) return true
@@ -1748,7 +1763,10 @@ Panel {
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
       else if (focusSection === "photos") photoIndex = Math.max(0, Math.min(photos.length - 1, photoIndex + dx))
       // Folded: one row of icons, the apps alone.
-      else if (focusSection === "apps" && isCollapsed("apps")) appIndex = Math.max(0, Math.min(sectionApps.length, appIndex + dx))
+      else if (focusSection === "apps" && isCollapsed("apps")) {
+        var at = foldedStops.indexOf(appIndex)
+        appIndex = foldedStops[Math.max(0, Math.min(foldedStops.length - 1, (at < 0 ? 0 : at) + dx))]
+      }
       else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
       return
     }
@@ -3638,11 +3656,16 @@ Panel {
                   EditBar { section: "apps"; item: appsColumn }
 
                   RowLayout {
+                    id: appsHeaderRow
                     visible: !root.editing
                     width: parent.width
                     spacing: Style.space(4)
+                    // The folded icons' room: the header less its title (no
+                    // summary while they show) and a gap.
+                    Binding { target: root; property: "appsFoldedWidth"; value: appsHeaderRow.width - appsFold.implicitWidth - appsHeaderRow.spacing - Style.space(12) }
 
                     FoldToggle {
+                      id: appsFold
                       Layout.fillWidth: true
                       foreground: root.foreground
                       fontFamily: root.fontFamily
@@ -3661,7 +3684,7 @@ Panel {
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(4)
                       Repeater {
-                        model: root.sectionRows.pinned
+                        model: root.sectionRows.pinned.slice(0, root.foldedPinned)
                         AppTile {
                           required property var modelData
                           required property int index
@@ -3684,14 +3707,14 @@ Panel {
                       }
                       // Between the pinned and the recent ones, while both are there.
                       Rectangle {
-                        visible: root.sectionRows.pinned.length > 0 && root.sectionRows.recent.length > 0
+                        visible: root.foldedPinned > 0 && root.foldedRecent > 0
                         anchors.verticalCenter: parent.verticalCenter
                         width: 1
                         height: Style.space(18)
                         color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.25)
                       }
                       Repeater {
-                        model: root.sectionRows.recent
+                        model: root.sectionRows.recent.slice(0, root.foldedRecent)
                         AppTile {
                           required property var modelData
                           required property int index
