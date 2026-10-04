@@ -405,6 +405,19 @@ Panel {
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing)
+  // The viewed device's screen works: the Screen pill and row are on. Read
+  // when Settings opens, once scrcpy is here (about a second; never in a demo
+  // of the checks).
+  readonly property bool screenReady: {
+    var st = phone && device ? phone.screenOf(String(device.id)) : null
+    return !!st && st.state === "ready"
+  }
+  readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
+  function readScreenForPills() {
+    if (phone && device && opened && showSettings && screenInstalled) phone.readScreen(String(device.id))
+  }
+  onShowSettingsChanged: readScreenForPills()
+  onScreenInstalledChanged: readScreenForPills()
   function openScreenSetup(id) {
     if (!id) return
     if (!settingsOpen) openSettings()
@@ -586,12 +599,13 @@ Panel {
   }
 
   readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
-    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks, screenReady)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
-    connection: Model.connectionSummary(setupChecks, ignoredChecks),
+    connection: Model.connectionSummary(setupChecks, ignoredChecks, screenReady),
+    connectionPills: Model.connectionPills(setupChecks, ignoredChecks, screenReady),
     devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
@@ -2477,7 +2491,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings"
+            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
@@ -2695,7 +2709,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings")
+                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: {
@@ -3735,7 +3749,7 @@ Panel {
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
                     readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
-                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection")
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Connection")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground

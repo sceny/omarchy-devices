@@ -640,6 +640,7 @@ Column {
     id: listRow
     property var row: ({})
     property int rowIndex: -1
+    readonly property bool hasPills: !!row.pills && row.pills.length > 0
     readonly property bool working: !!root.phone && (root.phone.isBusy("pair:" + row.id) || root.phone.isBusy("accept:" + row.id) || root.phone.isBusy("reject:" + row.id))
 
     hasCursor: false
@@ -708,13 +709,28 @@ Column {
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          visible: text !== ""
+          visible: text !== "" && !listRow.hasPills
           readonly property string note: root.pairingNotes[listRow.row.id] || ""
           text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
           color: note !== "" ? Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+        // Connection: a pill per capability, on, off (more can be set up)
+        // or failing, in place of a one-word summary.
+        Flow {
+          visible: listRow.hasPills
+          Layout.fillWidth: true
+          Layout.topMargin: Style.space(3)
+          spacing: Style.space(4)
+          Repeater {
+            model: listRow.hasPills ? listRow.row.pills : []
+            CapabilityPill {
+              required property var modelData
+              pill: modelData
+            }
+          }
         }
         // Pairing: the key to compare, drawn as on the pop-up.
         PairingKey {
@@ -915,6 +931,41 @@ Column {
             }
           }
         }
+      }
+    }
+  }
+
+  // A capability on the Connection row: on (✓), off (○: an optional
+  // feature not set up; neutral, nothing is wrong) or failing (!).
+  component CapabilityPill: Rectangle {
+    id: pillBox
+    property var pill: ({})
+    readonly property bool failing: pill.state === "fail"
+    readonly property bool on: pill.state === "on"
+    implicitWidth: pillRow.implicitWidth + Style.space(12)
+    implicitHeight: pillRow.implicitHeight + Style.space(4)
+    radius: height / 2
+    color: "transparent"
+    border.width: 1
+    border.color: failing ? Color.urgent : (on ? Qt.darker(root.foreground, 1.3) : Qt.darker(root.foreground, 2.2))
+    Row {
+      id: pillRow
+      anchors.centerIn: parent
+      spacing: Style.space(4)
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: pillBox.failing ? Model.GLYPH.alert : (pillBox.on ? Model.GLYPH.check : Model.GLYPH.optional)
+        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: pillBox.pill.label || ""
+        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
       }
     }
   }

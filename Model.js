@@ -1067,23 +1067,47 @@ function connectionIssues(checks, ignored) {
   return computerChecks(checks).filter(function(c) { return !c.ok && !c.optional && skip.indexOf(c.key) < 0 }).length
 }
 
-function connectionSummary(checks, ignored) {
+// The Connection row's pills: what this computer can do, one per thing.
+// "on" works; "off" is an optional feature not set up yet (more can be
+// done, nothing is wrong); "fail" is a required check failing, the only
+// state that lights the gear's dot (an ignored one reads "off"). The
+// Screen is on only once the viewed device's is ready, not when scrcpy is
+// merely installed. `screenReady`: that device's state is "ready".
+var PILL_LABELS = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen" }
+function connectionPills(checks, ignored, screenReady) {
+  var skip = ignored || []
+  return computerChecks(checks).map(function(c) {
+    var state = c.ok ? "on" : (c.optional || skip.indexOf(c.key) >= 0 ? "off" : "fail")
+    if (c.key === "screen" && c.ok && screenReady !== true) state = "off"
+    return { key: c.key, label: PILL_LABELS[c.key] || CHECK_NAMES[c.key] || c.label, state: state }
+  })
+}
+
+// One line under the pills, or in their place in a tooltip: what is to fix,
+// else how much more can be set up, else that everything is on.
+function connectionSummary(checks, ignored, screenReady) {
   var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
   var n = connectionIssues(checks, ignored)
-  return n === 0 ? "All good" : (n === 1 ? "1 to fix" : n + " to fix")
+  if (n > 0) return n === 1 ? "1 to fix" : n + " to fix"
+  var off = connectionPills(checks, ignored, screenReady).filter(function(p) { return p.state === "off" }).length
+  return off === 0 ? "Everything on" : (off === 1 ? "1 more to set up" : off + " more to set up")
 }
 
 // The Connection page's rows, in one list for the keyboard: this computer's
 // checks (status icon, name, short status, one action; a failing one can be
 // ignored). It checks what exists; Add a device (addDeviceRows) makes a new
 // pairing.
-function connectionRows(checks, ignored) {
+function connectionRows(checks, ignored, screenReady) {
   var skip = ignored || []
   var rows = computerChecks(checks).map(function(c) {
-    return { kind: "check", key: c.key, ok: !!c.ok, optional: !!c.optional, ignored: !c.ok && !c.optional && skip.indexOf(c.key) >= 0,
+    var row = { kind: "check", key: c.key, ok: !!c.ok, optional: !!c.optional, ignored: !c.ok && !c.optional && skip.indexOf(c.key) >= 0,
              label: CHECK_NAMES[c.key] || c.label, status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
+    // Installed is half of it: on once the device's own steps are done.
+    if (c.key === "screen" && c.ok)
+      Object.assign(row, screenReady === true ? { status: "On", fix: "" } : { ok: false, status: "Not set up on the device" })
+    return row
   })
   return rows
 }
@@ -1645,7 +1669,8 @@ function settingsPageRows(ctx) {
     }
   }
   if (scope === "root") {
-    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
+    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network",
+                pills: ctx.connectionPills || [] })
     rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
     rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
   }

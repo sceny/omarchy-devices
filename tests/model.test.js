@@ -811,7 +811,29 @@ test("screen and apps: an optional check never lights the gear's dot", () => {
   const screen = rows.find(r => r.key === "screen")
   assert.deepEqual([screen.label, screen.optional, screen.fix, screen.ignored], ["Screen and apps", true, "screen", false])
   assert.equal(M.connectionIssues(checks, []), 0)
-  assert.equal(M.connectionSummary(checks, []), "All good")
+  assert.equal(M.connectionSummary(checks, []), "1 more to set up", "optional and off: more can be done, nothing to fix")
+})
+
+test("connection pills: on, off (more can be set up) and failing", () => {
+  const base = [{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: true, status: "Running" },
+    { key: "firewall", ok: false, status: "Closed", fix: "firewall" }, { key: "network", ok: true }]
+  const installed = base.concat([{ key: "screen", ok: true, optional: true, status: "scrcpy 4.1", fix: "setup" }])
+  const states = (checks, ignored, ready) => M.connectionPills(checks, ignored, ready).map(p => p.label + ":" + p.state)
+  assert.deepEqual(states(installed, [], false), ["KDE Connect:on", "Firewall:fail", "Network:on", "Screen:off"],
+    "installed, not set up on the device: off, not on")
+  assert.deepEqual(states(installed, ["firewall"], true), ["KDE Connect:on", "Firewall:off", "Network:on", "Screen:on"], "ignored reads off")
+  assert.equal(M.connectionSummary(installed, [], false), "1 to fix", "a fix comes first")
+  assert.equal(M.connectionSummary(installed, ["firewall"], false), "2 more to set up")
+  assert.equal(M.connectionSummary(installed, ["firewall"], true), "1 more to set up")
+  const allOn = base.map(c => c.key === "firewall" ? Object.assign({}, c, { ok: true }) : c).concat([installed[4]])
+  assert.equal(M.connectionSummary(allOn, [], true), "Everything on")
+  const row = M.connectionRows(installed, [], false).find(r => r.key === "screen")
+  assert.deepEqual([row.ok, row.status, row.fix], [false, "Not set up on the device", "setup"])
+  const on = M.connectionRows(installed, [], true).find(r => r.key === "screen")
+  assert.deepEqual([on.ok, on.status, on.fix], [true, "On", ""])
+  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, [], false) })
+    .find(r => r.kind === "connection").pills
+  assert.equal(pills.length, 4)
 })
 
 test("screen and apps: each state's line, current step and actions", () => {
