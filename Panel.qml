@@ -4606,7 +4606,8 @@ Panel {
       width: parent.width
       implicitHeight: barRow.implicitHeight + Style.space(12)
       hasCursor: false
-      CursorStop { here: root.cursorActive && root.focusSection === editBar.section; glide: root.cursorGlide }
+      // Only while editing: hidden, it took the cursor from the section's own first tile.
+      CursorStop { here: root.editing && root.cursorActive && root.focusSection === editBar.section; glide: root.cursorGlide }
       foreground: root.foreground
       // Solid while it moves, so what it passes over never shows through.
       color: sectionMove.from >= 0 && sectionMove.from === editBar.place ? Qt.tint(root.bar ? root.bar.background : Color.background, fill)
