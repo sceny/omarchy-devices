@@ -43,6 +43,7 @@ not re-printed, so the shell only wakes when something moved.
                                               x,y,w,h: the panel's card); returns once
                                               the window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
+  kdeconnect-bridge screen-close <device>          close its open window
   kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
                                               window in the device's shape; JSON lines
                                               (refit: turn or morph; revealed)
@@ -2964,6 +2965,17 @@ def main(argv):
             return screen_watch(argv[1], argv[2], ctx)
         except KeyboardInterrupt:
             return EXIT_OK
+    if argv[0] == "screen-close":
+        # Its screen's window closed (the shortcut's ✕), as Hyprland closes
+        # windows: scrcpy ends, the window fades out.
+        if len(argv) < 2:
+            return say("screen-close needs a device id", EXIT_FAILED)
+        device = screen_device(argv[1]) or {}
+        win = find_window(screen_title(device.get("name") or "Device"))
+        if win:
+            subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"])],
+                           capture_output=True, timeout=5)
+        return EXIT_OK
     if argv[0] == "screen-focus":
         if len(argv) < 2:
             return say("screen-focus needs a device id", EXIT_FAILED)

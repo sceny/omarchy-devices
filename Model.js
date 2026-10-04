@@ -1239,6 +1239,12 @@ function dockRect(ctx) {
   return { x: Math.round(x), y: Math.round(y), w: size.w, h: size.h }
 }
 
+// The screen's window title (the bridge's screen_title): how the panel
+// knows the window is open, from Hyprland's own list of windows.
+function screenTitle(name) {
+  return String(name || "Device") + " · Screen"
+}
+
 // One tip while the screen connects (the card waits a second or two each
 // time): a different one each opening, so they teach a little at a time.
 // All true of scrcpy as it opens here (its Alt shortcuts: Super belongs to

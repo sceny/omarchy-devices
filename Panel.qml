@@ -1231,6 +1231,11 @@ Panel {
   readonly property var sections: drawnSections
 
 
+  // A shortcut that is on: the Screen, while its window is open.
+  function actionOn(key) {
+    return key === "screen" && !!phone && !!device && phone.screenIsOpen(String(device.id))
+  }
+
   function runAction(key) {
     if (!phone) return
     if (key === "ring") phone.ring()
@@ -1241,6 +1246,11 @@ Panel {
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
     else if (key === "kdeconnect") { phone.openKdeConnect(); root.close() }
+    else if (key === "screen" && device && phone.screenIsOpen(String(device.id))) {
+      // Its screen is open: brought forward with the keyboard, at once.
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(String(root.device.id)) })
+    }
     else if (key === "screen" && device) {
       if (screenDockedFor(String(device.id))) startScreenOpening(device)
       else phone.pressScreen(String(device.id), false)
@@ -3247,9 +3257,9 @@ Panel {
                           required property var modelData
                           required property int index
                           iconText: modelData.glyph
-                          tooltipText: modelData.label
+                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : modelData.label
                           size: Style.space(22)
-                          foreground: root.foreground
+                          foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
                           fontFamily: root.fontFamily
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
@@ -4856,6 +4866,20 @@ Panel {
     property var action: ({})
     property int tileIndex: 0
     readonly property bool working: root.phone ? root.phone.isBusy(action.key) : false
+    // On (the Screen while its window is open): tinted in the accent, with
+    // a ✕ to turn it off; a click brings it forward.
+    readonly property bool isOn: root.actionOn(action.key)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: tile.radius
+      color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+      border.width: 1
+      border.color: Color.accent
+      opacity: tile.isOn ? 1 : 0
+      visible: opacity > 0
+      Behavior on opacity { NumberAnimation { duration: (tile.isOn ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+    }
 
     hasCursor: false
     CursorStop { here: root.cursorActive && root.focusSection === "actions" && root.actionIndex === tileIndex; glide: root.cursorGlide }
@@ -4877,7 +4901,7 @@ Panel {
           id: tileGlyph
           anchors.centerIn: parent
           text: tile.action.glyph || ""
-          color: root.foreground
+          color: tile.isOn ? Color.accent : root.foreground
           opacity: tile.working ? 0 : 1.0
           font.family: root.fontFamily
           font.pixelSize: Style.font.heading + 2
@@ -4911,9 +4935,23 @@ Panel {
       onClicked: root.runAction(tile.action.key)
     }
 
+    // Turns it off (closes its screen's window), over the tile's own click.
+    PanelActionButton {
+      visible: tile.isOn
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.margins: Style.space(2)
+      size: Style.space(18)
+      iconText: Model.GLYPH.close
+      tooltipText: "Close its screen"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onClicked: if (root.phone && root.device) root.phone.closeScreen(String(root.device.id))
+    }
+
     PanelToolTip {
       visible: tileMouse.containsMouse && (tile.action.hint || "") !== ""
-      text: tile.action.hint || ""
+      text: tile.isOn ? "Its screen is open: click to bring it forward" : (tile.action.hint || "")
       fontFamily: root.fontFamily
     }
   }

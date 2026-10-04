@@ -2,6 +2,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import "Model.js" as Model
 
@@ -604,6 +605,26 @@ Item {
   signal screenOpenFailed(string id)
 
   function screenOf(id) { return screenStates[String(id)] || null }
+  // Devices whose screen window is open, docked or not: Hyprland's own list
+  // of windows (Quickshell keeps it from Hyprland's events, for the shell
+  // already: no polling), by the window's title. The Screen shortcut is on
+  // meanwhile. Worked out only while a panel shows the shortcut.
+  readonly property var screenOpen: {
+    if (openPanels === 0) return ({})
+    var titles = {}
+    var list = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < list.length; i++) titles[String(list[i].title || "")] = true
+    var out = {}
+    var devs = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var j = 0; j < devs.length; j++)
+      if (titles[Model.screenTitle(devs[j].name)]) out[String(devs[j].id)] = true
+    return out
+  }
+  function screenIsOpen(id) { return !!id && screenOpen[String(id)] === true }
+  function closeScreen(id) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-close", String(id)])
+  }
   // The device's display shape, for the card that becomes its window: the
   // status read now, else the one the bridge kept (screen.json), so the card
   // takes the right shape from the first frame of an opening.

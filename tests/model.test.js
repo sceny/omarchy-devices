@@ -922,3 +922,8 @@ test("screen tips: up long enough to be read, never long", () => {
   assert.ok(M.SCREEN_TIPS.every(t => M.tipReadMs(t) <= 2200))
   assert.equal(M.tipReadMs("x".repeat(500)), 2200)
 })
+
+test("screen: the window's title, as the bridge names it", () => {
+  assert.equal(M.screenTitle("Pixel 8"), "Pixel 8 · Screen")
+  assert.equal(M.screenTitle(""), "Device · Screen")
+})
