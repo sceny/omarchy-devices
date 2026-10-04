@@ -174,6 +174,9 @@ Keep them; change one only with the owner.
   folded Shortcuts become a row of icons that still work.
   Every section, on the main page and in settings, uses the same
   `FoldToggle`/`FoldBody`; a new section does too, with its own summary.
+  Every header is one height (`FoldToggle.headerHeight`), folded or open,
+  so the title never moves: what a header shows beside its title (icons, a
+  cover, buttons) is at most that tall.
 - **Sections move without being rebuilt.** Shortcuts, Now playing and
   Notifications are fixed items placed by `sectionOrder`
   (`sectionsBox`), so a new order keeps the media cards and a half-typed

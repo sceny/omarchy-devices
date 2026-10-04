@@ -1335,7 +1335,7 @@ Panel {
   // Folded: as many icons as fit beside the title, pinned first, then
   // recent; All apps always last. `appsFoldedWidth` is the room the row has.
   property real appsFoldedWidth: 0
-  readonly property real foldedTile: Style.space(22) + Style.space(6) + Style.space(4)
+  readonly property real foldedTile: Style.space(18) + Style.space(4) + Style.space(4)
   readonly property real foldedDivider: 1 + Style.space(4)
   // Room for icons once All apps has its place.
   readonly property real foldedSpace: Math.max(0, appsFoldedWidth - foldedTile)
@@ -3497,7 +3497,13 @@ Panel {
                     }
 
                     Row {
-                      visible: root.isCollapsed("actions")
+                      id: actionsFoldedRow
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("actions")
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (actionsFoldedRow.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(2)
 
@@ -3696,7 +3702,13 @@ Panel {
                     }
 
                     Row {
-                      visible: root.isCollapsed("apps")
+                      id: appsFoldedRow
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("apps")
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (appsFoldedRow.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(4)
                       Repeater {
@@ -3707,7 +3719,7 @@ Panel {
                           compact: true
                           width: implicitWidth
                           height: implicitHeight
-                          iconSize: Style.space(22)
+                          iconSize: Style.space(18)
                           canPin: false
                           app: modelData
                           working: root.appWorking(modelData)
@@ -3737,7 +3749,7 @@ Panel {
                           compact: true
                           width: implicitWidth
                           height: implicitHeight
-                          iconSize: Style.space(22)
+                          iconSize: Style.space(18)
                           canPin: false
                           app: modelData
                           working: root.appWorking(modelData)
@@ -3756,7 +3768,7 @@ Panel {
                         compact: true
                         width: implicitWidth
                         height: implicitHeight
-                        iconSize: Style.space(22)
+                        iconSize: Style.space(18)
                         canPin: false
                         app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
                         here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
@@ -3951,7 +3963,13 @@ Panel {
 
                     // Folded, the line keeps a play/pause for the shown player.
                     PanelActionButton {
-                      visible: root.isCollapsed("media") && !!root.shownPlayerObject
+                      id: mediaFoldedPlay
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("media") && !!root.shownPlayerObject
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (mediaFoldedPlay.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       iconText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? Model.GLYPH.pause : Model.GLYPH.play
                       tooltipText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? "Pause" : "Play"
@@ -3970,7 +3988,7 @@ Panel {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.left
                         tooltipText: "Previous player"
-                        size: Style.space(20)
+                        size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
                         fontFamily: root.fontFamily
@@ -4007,7 +4025,7 @@ Panel {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.right
                         tooltipText: "Next player"
-                        size: Style.space(20)
+                        size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
                         fontFamily: root.fontFamily
@@ -4577,6 +4595,7 @@ Panel {
                 apps: root.allApps
                 pinned: root.pinnedApps
                 listState: root.appList ? root.appList.state : ""
+                reading: !!root.phone && !!root.device && root.phone.appsReading(String(root.device.id))
                 deviceName: root.device ? Model.deviceLabel(root.device) : ""
                 isWorking: function(app) { return root.appWorking(app) }
                 glide: root.cursorGlide

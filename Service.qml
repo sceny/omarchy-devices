@@ -760,6 +760,10 @@ Item {
     appsProc.running = true
   }
   property var appsAgain: null
+  // A device's list or its icons being read now (the All apps page's ring).
+  function appsReading(id) {
+    return !!id && ((appsProc.running && appsProc.device === String(id)) || (iconsProc.running && iconsProc.device === String(id)))
+  }
   function setApps(id, list) {
     var next = Object.assign({}, appLists)
     next[String(id)] = list
