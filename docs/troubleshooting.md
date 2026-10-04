@@ -11,7 +11,7 @@
 | A photo is missing | Gallery shows what the phone's gallery does; a folder marked hidden or `.nomedia` is left out. The first look takes up to a minute. |
 | No notifications after pairing again | Notifications' *Fix* (with the screen set up), else restart the phone ([#95](https://github.com/sceny/omarchy-devices/issues/95)). |
 | *Call* on a notification does nothing | Android blocks it from the background ([#30](https://github.com/sceny/omarchy-devices/issues/30)): open the app in a window from the notification. |
-| Anything else | **Diagnose** (the lightbulb beside an error): your coding agent looks into it with you, asking before it changes anything. |
+| Anything else | **Fix with AI** beside a problem: your default coding agent opens in a terminal on it. |
 
 ## What KDE Connect cannot do
 

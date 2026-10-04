@@ -290,9 +290,17 @@ Keep them; change one only with the owner.
   A device that comes back gets its notifications read again while no
   panel is open (`device-fix renotify`), so one dismissed there while its
   cancel was lost goes.
-- **Diagnose hands an error to the person's coding agent** (`omarchy agent
-  prompt`) with `docs/internals/help-for-agents.md`: the agent asks before
-  any change and never opens the phone's data.
+- **Fix with AI, on every problem, always** (a feature's row, a failing
+  check, the gallery's error, and the title of *What it can do* for all of
+  them, beside *Fix all*): the person's default coding agent, launched
+  exactly as Omarchy launches it (`omarchy agent prompt`, its own mode; no
+  default yet: `omarchy agent --pick`), named in the tooltip, with the
+  problems, what the plugin's own fix tried, and the `setup-help` skill by
+  path (as `omarchy agent crash` does). What the agent fixes that our fix
+  missed it proposes as an issue (`reporting.md`: Omarchy's rules, nothing
+  private, KDE Connect's faults on this repository only). A fix that stops
+  at the user's step says it in the row: *Waiting for it…* where it can be
+  seen when done, else *Check again*.
 - **Look at the render before saying done.** A measurement is not the layout
   fitting. Use `slowMotion 10` to catch a transition mid-way.
 - **After every shell restart, confirm the panel answers over IPC.** A QML

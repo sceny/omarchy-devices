@@ -42,9 +42,11 @@ GitHub release with these notes.
   ([#52](https://github.com/sceny/omarchy-devices/issues/52)) and a player
   paused long enough for Android to hide it
   ([#33](https://github.com/sceny/omarchy-devices/issues/33)).
-- **Diagnose** ([#101](https://github.com/sceny/omarchy-devices/issues/101)):
-  beside an error, your coding agent looks into it with you, with the
-  plugin's guide for agents.
+- **Fix with AI** ([#101](https://github.com/sceny/omarchy-devices/issues/101)):
+  beside every problem, and for all of them in *What it can do*'s title
+  next to *Fix all*: your default coding agent opens on it, as Omarchy
+  opens it, with the plugin's guide; what it fixes that the plugin's own
+  fix missed, it offers to report (nothing private in it).
 
 ## 0.7.0 — 2026-10-02
 
