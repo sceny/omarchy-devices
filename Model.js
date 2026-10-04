@@ -1167,8 +1167,7 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting) {
     pair: seen ? "Wireless debugging is on: scan the code with " + name
       : "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
     off: seen ? "Wireless debugging is on, but " + name + " does not know this computer any more: scan the code again"
-      : "Wireless debugging is off on " + name + " (it turns off when " + name + " restarts). Turn it on: Developer options › Wireless debugging"
-        + (waiting ? "; the screen opens as soon as it is" : ""),
+      : "Wireless debugging is off on " + name + ": it turns off when " + name + " restarts",
     unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
     away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable"
       + (waiting ? "; the screen opens as soon as it is back" : ""),
@@ -1185,7 +1184,10 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting) {
 
   var actions = []
   if (state === "tools") actions.push({ key: "install", label: "Install", hint: "Asks for your password" })
-  if (state === "pair" || state === "off" || state === "away") {
+  // Only off again (a restart): set up already, one step missing, so the
+  // page shows that step alone (`only`), and pairing again is not offered.
+  var onlyStep = state === "off" && !seen
+  if (state === "pair" || (state === "off" && !onlyStep) || state === "away") {
     if (phase === "" || phase === "error") actions.push({ key: "pair", label: state === "pair" ? "Show the code" : "Pair again", hint: "A QR code for " + name + " to scan" })
     else actions.push({ key: "stopPair", label: "Stop", hint: "" })
   }
@@ -1202,7 +1204,9 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting) {
                      hint: "Beside another window, its tile takes " + name + "'s width" })
   }
   return {
-    state: state, line: line, steps: steps, pairingNote: pairingNote,
+    state: state, line: line, steps: onlyStep ? [] : steps, pairingNote: pairingNote,
+    only: onlyStep ? "Turn it on: Developer options › Wireless debugging" : "",
+    waitingNote: waiting && (state === "off" || state === "away") ? "Opens as soon as it is on" : "",
     showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
     usbNote: state === "pair" || state === "away" ? "No Wi-Fi debugging (Android 10 and older)? Turn on USB debugging in Developer options and plug it in." : "",
     // Off again after a restart: one tap next time.

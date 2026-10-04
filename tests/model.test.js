@@ -856,7 +856,7 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([seen.steps.map(x => x.done), step(seen)], [[true, true, true, false], "pair"], "Wireless debugging seen: ticked, the code is next")
   assert.equal(seen.line, "Wireless debugging is on: scan the code with Pixel 8")
   const off = M.screenSetup(M.demoScreen("off"), phone, null)
-  assert.deepEqual([step(off), acts(off)[0]], ["wireless", "pair"], "off: trusted before; Wireless debugging is the step")
+  assert.deepEqual([off.only, acts(off)], ["Turn it on: Developer options › Wireless debugging", ["check"]], "off: trusted before; Wireless debugging is the one step")
   assert.match(off.line, /Wireless debugging is off on Pixel 8/)
   const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
   assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place"]])
@@ -946,11 +946,15 @@ test("screen: the window's title, as the bridge names it", () => {
 test("screen after a restart: says why, opens by itself when it can, one tap next time", () => {
   const phone = { name: "Pixel 8" }
   const off = M.screenSetup(M.demoScreen("off"), phone, null, true, false, true)
-  assert.match(off.line, /turns off when Pixel 8 restarts/)
-  assert.match(off.line, /the screen opens as soon as it is$/)
+  assert.equal(off.line, "Wireless debugging is off on Pixel 8: it turns off when Pixel 8 restarts")
+  assert.deepEqual([off.steps, off.only, off.waitingNote], [[], "Turn it on: Developer options › Wireless debugging", "Opens as soon as it is on"],
+                   "the one step missing, alone, and it waits")
+  assert.deepEqual(off.actions.map(a => a.key), ["check"], "set up already: no pairing again")
   assert.equal(off.waiting, true)
   assert.match(off.quickTip, /Quick settings developer tiles/)
   const notWaiting = M.screenSetup(M.demoScreen("off"), phone, null, true, false, false)
-  assert.ok(!/opens as soon/.test(notWaiting.line), "only when Screen was pressed")
+  assert.equal(notWaiting.waitingNote, "", "only when Screen was pressed")
+  const forgotten = M.screenSetup(Object.assign(M.demoScreen("off"), { seen: true }), phone, null, true, false, false)
+  assert.ok(forgotten.actions.some(a => a.key === "pair"), "on, but it forgot this computer: pair again")
   assert.equal(M.screenSetup(M.demoScreen("ready"), phone, null, true, false, true).waiting, false)
 })
