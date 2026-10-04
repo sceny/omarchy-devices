@@ -1219,6 +1219,12 @@ Panel {
       if (leaveMessages === true) closeMessagesView()
       else { phone.report(Model.deviceLabel(target) + " has no text messages", false); return }
     }
+    // All apps follows the tab to the device's own apps; one whose screen
+    // is not set up has none, so its main page instead.
+    if (appsOpen) {
+      if (appsSetUp(id) && leaveMessages !== true) { readAppsFor(String(id)); if (appsView) appsView.reset() }
+      else closeAppsView()
+    }
     var from = -1, to = -1
     for (var i = 0; i < tabDevices.length; i++) {
       if (device && tabDevices[i].id === device.id) from = i
@@ -2200,6 +2206,7 @@ Panel {
       return JSON.stringify({
         opened: root.opened,
         messagesOpen: root.messagesOpen,
+        appsOpen: root.appsOpen,
         preview: !!root.phone && root.phone.preview,
         editing: root.editing,
         call: root.call,
@@ -3133,6 +3140,7 @@ Panel {
                   fontFamily: root.fontFamily
                   onClicked: {
                     if (root.messagesOpen) root.closeMessagesView()
+                    else if (root.appsOpen) root.closeAppsView()
                     else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
                     else if (root.computerIssues > 0) root.openConnection()
                     else root.openSettings()
