@@ -31,7 +31,7 @@ Column {
   property bool screenOpen: false
   signal screenPlaceChosen(bool docked)
   signal appSoundChosen(string sound)
-  // What it can do: a feature's one action, its switch; Fix what I can.
+  // What it can do: a feature's one action, its switch; Fix all.
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
   signal fixAllRequested()

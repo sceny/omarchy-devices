@@ -1162,7 +1162,7 @@ function addDeviceRows(devices) {
 // One table says what each feature needs; its state is worked out from the
 // bridge's report (`features <device>`), the screen's state and this
 // computer's checks, never set by hand. Everything reads these states: the
-// device page's rows, the gear dot, the pills, Fix what I can.
+// device page's rows, the status, the gear dot, the pills, Fix all.
 
 // plugins: KDE Connect's, for this device (short names); permissions: KDE
 // Connect's on the device (read over adb); computer: a check that must be ok
@@ -1277,7 +1277,7 @@ function featurePlan(row) {
   return out
 }
 
-// Fix what I can: every feature's automatic steps, this computer's package
+// Fix all: every feature's automatic steps, this computer's package
 // installs first and once each, each other step once.
 function fixAllPlan(rows) {
   var seen = {}, installs = [], rest = []

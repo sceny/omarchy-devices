@@ -25,7 +25,7 @@ click each. An iPhone shares files and the clipboard only.
 ## Check this computer
 
 **This computer** checks KDE Connect, the firewall and the network, with a
-fix for each, or *Fix what I can*. Before a password, a card says exactly
+fix for each, or *Fix all*. Before a password, a card says exactly
 what it is for.
 
 ![This computer: KDE Connect, the firewall and the network, all good (demo data)](images/connection.png)

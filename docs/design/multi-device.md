@@ -384,11 +384,13 @@ one's.
 
 *(Decided: settings manage devices.)*
 
-### 8.1 One device: one flat page
+### 8.1 One device: the same shape
 
-With one device, Settings is today's page: its groups apply to that device,
-with no *Defaults*, no *Custom* marks and no device list. *Nickname* and
-*Icon* join the top, and *Connection* and *Add a device* the bottom.
+With one device, Settings has the same shape as with several
+([setup.md](setup.md), section 6): the device is the one row of My
+devices, and its page holds its nickname, icon and what it can do. Its
+layout is the defaults (the flat keys), so there is no *For all devices*,
+no *Custom* mark, and no bar place or tab to choose.
 
 ### 8.2 Two or more devices
 

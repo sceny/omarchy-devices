@@ -204,17 +204,34 @@ Keep them; change one only with the owner.
   ✓ Done or `E` keeps them and Esc puts back what was there when it began. It edits the viewed device's profile (with one device, the
   flat keys), and is off on every open. Settings keeps only what has no
   place on the page (nickname, icon, place in the bar, the device list);
-  *Defaults for all devices* keeps the sections, shortcuts and bar,
+  *For all devices* keeps the sections, shortcuts and bar,
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
+- **Settings has one shape whatever the number of devices**
+  (`docs/design/setup.md`, section 6): the status first (*Everything
+  works*, or each problem once, its line opening the page that fixes it,
+  with *Fix all* and *Fix with AI*), MY DEVICES (every device, the one in
+  view too, asking to pair, Add a device), *For all devices* (two or more
+  devices only: with one, its layout is the defaults), This computer.
+  Folds go one level deep; anything deeper is a page, with its back arrow.
 - **Each device's settings are its own** (`docs/design/multi-device.md`):
-  with two or more devices, Settings lists them; a device's page edits its
-  nickname, icon, place in the bar, tab, and any group it changes (marked
-  CUSTOM, with *use the defaults*); *Defaults for all devices* edits the
-  flat keys. Identity (nickname, icon, bar, tab) is never inherited. With
-  one device, Settings is one flat page. Moving a device writes down how
-  each one shows in the bar, so moving never changes it.
+  a device's page (tabs to the others' pages) edits its nickname, icon,
+  and with two or more devices its place in the bar, tab, and any group
+  it changes (marked CUSTOM, with *use the defaults*); *For all devices*
+  edits the flat keys. Identity (nickname, icon, bar, tab) is never
+  inherited. Moving a device writes down how each one shows in the bar,
+  so moving never changes it.
+- **A problem shows once, where its cause is**, and is counted the same
+  everywhere (`Model.settingsProblems`): this computer's failing checks
+  (not optional, not ignored) and connected devices' features that need
+  attention or whose fix did not work. Settings' status lists them; the
+  gear's dot and a line at the top of the main page (folding in) count
+  them. This computer holds only this computer (a package installed is
+  all it says of the screen or the gallery); a feature that needs
+  something here says so and its button opens This computer. *Fix all*
+  runs what its page is about: the status everything, This computer its
+  checks, a device's page that device.
 - **The gallery and received files are read, never kept beyond the cache**
   (two sections, Gallery and Received, each gone while it has nothing).
   The gallery is read from the device's storage (KDE Connect's sftp, which
@@ -314,8 +331,7 @@ Keep them; change one only with the owner.
   device, Away), what is missing, one action that runs every step the
   plugin can do (`featurePlan`) and stops at the first only the user can
   do, and a switch where its KDE Connect plugins can be turned off for that
-  device. The gear's dot lights for a feature that needs attention and is
-  not optional. Screen and apps keeps its own page.
+  device. Screen and apps keeps its own page.
 - **A password only for what was shown.** A fix that needs root (packages,
   the firewall) is described first (`fix <what> --describe`: why, every
   package pacman would install, the firewall's rules as written) on a card
@@ -326,7 +342,7 @@ Keep them; change one only with the owner.
 - **This computer and Add a device are two Settings pages:** one checks what
   exists, the other makes a new pairing (then goes on to the new device's
   page, what it can do). This computer (`settingsScope` `connection`, once
-  Connection): this computer's checks, *Fix what I can* (status icon, name, short status,
+  Connection): this computer's checks, *Fix all* (status icon, name, short status,
   one action; *Ignore* stops a check lighting the gear's dot, kept in
   `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
   device (`addDevice`): requests to pair, the steps on the device, devices

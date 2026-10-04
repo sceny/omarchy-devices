@@ -2,23 +2,24 @@
 
 # Settings
 
-Press `s` or the cog. With several devices, they are listed: drag one by
-its grip (the first opens with the panel), or open one for its own page.
+Press `s` or the cog. Settings starts with whether everything works; when
+something needs you, each problem is listed with *Fix all* and *Fix with
+AI* (your default coding agent opens on it). The main page shows a red
+line too.
 
-![Settings: what the device can do, This computer and Add a device (demo data)](images/settings.png)
+![Settings: the status, My devices and This computer (demo data)](images/settings.png)
 
-- **What it can do:** a row per feature, *On* or what it still needs. Its
-  button does every step the plugin can (turns on KDE Connect's part,
-  allows a permission on the phone, installs a package) and tells you the
-  one left to you. The switch turns a feature off for that device. When
-  something is wrong, its title says so, with *Fix all* and *Fix with AI*
-  (your default coding agent opens on it).
+- **My devices:** open one for its own page (tabs go to the next). Drag one
+  by its grip to reorder (the first opens with the panel).
+- **What it can do**, on a device's page: a row per feature, *On* or what
+  it still needs. Its button does every step the plugin can and tells you
+  the one left to you. The switch turns a feature off for that device.
 - **Sections, shortcuts and the bar** are edited on the page itself (`E`).
-  *Defaults for all devices* sets them for devices that did not change
-  them.
-- **This computer** checks KDE Connect, the firewall and the network, with
-  *Fix what I can*. A red dot on the cog means something needs you;
-  *Ignore* one you will not fix.
+  With two or more devices, *For all devices* sets them for devices that
+  did not change them.
+- **This computer** checks KDE Connect, the firewall, the network and the
+  tools the screen and the gallery need, with *Fix all*. *Ignore* one you
+  will not fix.
 - **Add a device** pairs a new one, then shows what it can do.
 - **A password** is asked only after a card says what for: the packages by
   name, the firewall rule as written. Nothing else runs with it.

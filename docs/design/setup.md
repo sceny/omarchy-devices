@@ -69,7 +69,7 @@ bridge's report (`doctor`, now per device), never set by hand:
 | Apps | | | the screen; Android 10 |
 
 Everything reads the same states: the gear dot, Connection's pills, the
-device page's rows, the hints in sections, *Fix what I can*, *Diagnose*.
+device page's rows, the hints in sections, *Fix all*, *Fix with AI*.
 
 ## 5. Just works
 
@@ -93,26 +93,39 @@ so the phone stops sending it.
 
 ## 6. Settings
 
+One shape whatever the number of devices; each setting where its scope
+is; folds one level deep, anything deeper a page of its own.
+
 ```
 Settings
-├─ <Device>                    (one device: this is the root page)
-│   ├─ Nickname · Icon · Bar · Tab
-│   ├─ WHAT IT CAN DO          a row per feature: its state, one action
-│   ├─ Sections, shortcuts and bar   (edited on the page)
-│   └─ Unpair
-├─ This computer               the sources' part here, Fix what I can
-├─ Add a device                pair it, then the features it can turn on
-└─ Defaults for all devices    (several devices)
+├─ Status                      Everything works, or each problem once (its place ›),
+│                              Fix all, Fix with AI
+├─ MY DEVICES                  every device (the one in view too), asking to pair
+│   ├─ <Device> ›              its page, with tabs to the others
+│   │   ├─ THIS DEVICE         nickname, icon; with several: bar, tab
+│   │   ├─ WHAT IT CAN DO      a row per feature: its state, one action, a switch
+│   │   ├─ Sections, shortcuts and bar   (edited on the page; the defaults or its own)
+│   │   └─ Unpair
+│   └─ Add a device ›          pair it, then its page
+├─ For all devices ›           (two or more: with one, its layout is the defaults)
+└─ This computer ›             KDE Connect, firewall, network, Screen tools, Gallery tools
 ```
 
-- **The device page** says what it can do and does it: one row per feature,
-  with a switch where it can be turned off, the state, and its action.
-  Screen and apps keeps its own page (its steps, where it opens, the sound).
-- **This computer** is Connection, renamed: KDE Connect, the firewall, the
-  packages; *planned:* the network and Bluetooth rows.
-- **Add a device** pairs, then shows what the new device can turn on.
-- **KDE Connect settings** goes: nothing is left there that the plugin does
-  not do.
+- **A problem shows once, where its cause is.** This computer holds only
+  this computer (KDE Connect, the firewall, the network, the packages); a
+  device's page holds that device (its features, its permissions, Wireless
+  debugging, its mount). A feature that needs something here says so
+  (*Needs sshfs on this computer*) and its button opens This computer.
+- **The status** lists every problem (Model.settingsProblems: a check
+  failing here, not optional nor ignored; a feature that needs attention
+  or a fix that did not work, on a connected device). The gear's dot and
+  a line at the top of the main page count the same list.
+- **Fix all** runs what its page is about: the status everything (this
+  computer first, one password), This computer its checks, a device's
+  page that device's features.
+- **Screen and apps** keeps its own page (its steps, where it opens, the
+  sound). **KDE Connect settings** goes: nothing is left there that the
+  plugin does not do.
 
 ## 7. KDE Connect's faults, handled here
 
