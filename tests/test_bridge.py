@@ -1087,10 +1087,15 @@ class Screen(unittest.TestCase):
             state, calls, run = layout(inverted)
             win = {"address": "0xabc", "title": "Pixel 8 · Screen", "size": [1261, 1381], "floating": False}
             look = lambda: {"size": [state["w"], 1381]}
-            self.assertTrue(bridge.fit_tile(win, (1080, 2316), run=run, look=look, sleep=lambda s: None))
+            self.assertTrue(bridge.fit_tile(win, (1080, 2316), run=run, look=look, sleep=lambda s: None, monitor_width=2560))
             self.assertEqual(state["w"], round(1381 * 1080 / 2316), "inverted=%s" % inverted)
         alone = {"address": "0xabc", "title": "x", "size": [2536, 1381], "floating": False}
-        self.assertFalse(bridge.fit_tile(alone, (1080, 2316), run=lambda lua: None, look=lambda: alone, sleep=lambda s: None))
+        self.assertFalse(bridge.fit_tile(alone, (1080, 2316), run=lambda lua: None, look=lambda: alone, sleep=lambda s: None, monitor_width=2560))
+        state, calls, run = layout(False)
+        turned = {"address": "0xabc", "title": "x", "size": [644, 1381], "floating": False}
+        state["w"] = 644
+        bridge.fit_tile(turned, (2316, 1080), run=run, look=lambda: {"size": [state["w"], 1381]}, sleep=lambda s: None, monitor_width=2560)
+        self.assertEqual(state["w"], 1280, "landscape: back to half the monitor, never more")
         self.assertFalse(bridge.fit_tile(dict(alone, floating=True), (1080, 2316)), "docked: not a tile")
 
     def test_the_display_in_one_line(self):

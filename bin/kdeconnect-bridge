@@ -2161,7 +2161,7 @@ def looks_stretched(old, new, grid=24):
     return diff / (grid * grid * 3) < 12
 
 
-def fit_tile(win, display, run=None, look=None, sleep=time.sleep):
+def fit_tile(win, display, run=None, look=None, sleep=time.sleep, monitor_width=None):
     """A tiled screen window made the device's width at the tile's height
     (a phone upright in a half-screen tile is otherwise mostly black), the
     window beside it taking the rest. Hyprland's layout moves a tile's shared
@@ -2172,7 +2172,15 @@ def fit_tile(win, display, run=None, look=None, sleep=time.sleep):
     if win.get("floating") or win.get("fullscreen") or not display or not display[1]:
         return False
     w, h = win["size"]
+    # Never more than half the monitor: a phone turned to landscape goes back
+    # to an even split (its picture letterboxed above and below), not to a
+    # tile that squeezes the one beside it.
+    if monitor_width is None:
+        mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
+        monitor_width = mon.get("width", 0) / (mon.get("scale") or 1)
     target = round(h * display[0] / display[1])
+    if monitor_width:
+        target = min(target, round(monitor_width / 2))
     if abs(w - target) <= 2:
         return True
     q = lua_string("address:" + win["address"])
