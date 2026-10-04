@@ -679,7 +679,10 @@ Item {
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
     if (docked === false) cmd.push("--tiled")
     else cmd = cmd.concat(placeArgs(place))
-    var proc = actionComponent.createObject(root, { key: key, command: cmd })
+    var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
+    // Connecting takes a moment: said by the card or the tile in a panel;
+    // with none open (a key), by Omarchy's on-screen display.
+    if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
     proc.exited.connect(function(code) {
       if (code === 0) {
         root.screenOpened(String(id))
@@ -1124,6 +1127,9 @@ Item {
       property string key: ""
       property var wait: null
       property int exitCode: -1
+      // Its success says nothing worth a toast (the screen's window opening
+      // is the answer itself); a failure is still said.
+      property bool quietSuccess: false
 
       stdout: StdioCollector { id: procOut }
       stderr: StdioCollector { id: procErr }
@@ -1140,7 +1146,7 @@ Item {
           return
         }
         root.setBusy(proc.key, false)
-        if (proc.exitCode === 0) root.report(out, false)
+        if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false) }
         else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false)
         else root.report(err || out || "That did not work", true)
         proc.destroy()
