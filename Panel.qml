@@ -342,6 +342,8 @@ Panel {
     if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
     else {
       screenWaitOpen = ""   // closed: no longer waiting to open the screen
+      // A password card not answered goes with the panel: nothing runs.
+      if (phone && phone.rootAsk) phone.cancelRoot()
       if (screenOpening) openingGone.restart()
     }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
