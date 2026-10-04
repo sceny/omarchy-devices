@@ -1751,6 +1751,9 @@ Panel {
     }
     // Where a docked screen goes on this panel's screen: the chip's place
     // (what the bridge's watcher gets), for checks.
+    // Where the viewed device's docked screen would open, from the shape the
+    // panel knows now (the status, else the one kept), for checks.
+    function dockRect(): string { return JSON.stringify(root.device ? root.dockRectFor(String(root.device.id)) : null) }
     function dockCtx(): string { return JSON.stringify(Object.assign({ monitor: panel.screen ? panel.screen.name : "" }, root.dockCtx())) }
     // Demo only: a watcher's event as it would come (refit, revealed), for
     // a check driven from outside with a stand-in window.
