@@ -1097,6 +1097,8 @@ class Screen(unittest.TestCase):
         lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.47, 35, True, (1900, 40, 470, 1008))
         self.assertIn("size = { 470, 1008 }, move = { 1900, 40 }", lua)
         self.assertIn('animation = "popin 100%"', lua, "a fade in and out, no scaling")
+        self.assertIn('tag = "-default-opacity"', lua, "opaque: out of Omarchy's default opacity")
+        self.assertIn('opacity = "1 1"', lua)
 
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
