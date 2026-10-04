@@ -41,7 +41,7 @@ not re-printed, so the shell only wakes when something moved.
                                               or one app, in a window here (scrcpy),
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
-                                              an app tiled (--sound phone: its sound
+                                              an app tiled, no on-screen keyboard (--sound phone: its sound
                                               stays on the device); returns once the
                                               window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
@@ -2439,8 +2439,8 @@ def parse_texture(line):
 def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
-    stays free; it follows the window's size with scrcpy 4, and its
-    keyboard shows in the window). `log`: where its output goes. `sound`:
+    stays free; it follows the window's size with scrcpy 4, and the
+    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`:
     "phone" leaves an app's sound on the device."""
     # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
     # back and came in a late batch, after the turn they told of. Appended,
@@ -2453,7 +2453,7 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     if package:
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
-            cmd += ["--flex-display", "--display-ime-policy=local"]
+            cmd += ["--flex-display", "--display-ime-policy=hide"]
         if sound == "phone":
             cmd += ["--no-audio"]
     return cmd

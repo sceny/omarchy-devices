@@ -249,8 +249,10 @@ Keep them; change one only with the owner.
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
 - **Apps are windows of their own, always tiled** (no setting): one
-  virtual display per app, following its window (`--flex-display`), the
-  keyboard in the window. The section shows the pinned apps
+  virtual display per app, following its window (`--flex-display`), and
+  never the device's on-screen keyboard (`--display-ime-policy=hide`):
+  typing is this computer's keyboard. All apps shows every app, the
+  system's own too (no switch). The section shows the pinned apps
   (`pinnedApps`, a setting) then the recently opened (`opened.json`, in
   the cache: usage, never `shell.json`). The list is read only for a
   device whose screen is set up, from the cache, and from the device at

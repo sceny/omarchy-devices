@@ -1348,7 +1348,7 @@ Panel {
     return JSON.stringify({ open: appsOpen, count: allApps.length, state: appList ? appList.state : "",
                             section: sectionApps.map(function(a) { return a.name }), pinned: pinnedApps,
                             cursor: appsOpen && appsView ? (appsView.stops[appsView.cursor] || {}).name || "" : (focusSection === "apps" ? appIndex : -1),
-                            shown: appsView ? appsView.page.all.length : 0, system: appsView ? appsView.showSystem : false,
+                            shown: appsView ? appsView.page.all.length : 0,
                             sound: device ? appSoundFor(String(device.id)) : "" })
   }
   function closeAppsView() {
@@ -2341,7 +2341,6 @@ Panel {
           if (!appsView) return
           if (t === "/") appsView.focusSearch()
           else if (t === "p" && root.cursorActive) appsView.togglePin()
-          else if (t === "s") appsView.toggleSystem()
           else if (t === "m") root.openMessagesView(-1)
           return
         }
@@ -3092,7 +3091,7 @@ Panel {
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
-              : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.filter(function(a) { return !a.system }).length : "All apps")
+              : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground

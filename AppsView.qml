@@ -4,10 +4,10 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// All apps: every app of the device, each opening in a window here. A
-// search, the system apps on request, the recently opened first, then A to
-// Z. The panel's keys move the cursor here (moveKey, activate); `/` goes to
-// the search, `p` pins the app under the cursor, `s` shows the system apps.
+// All apps: every app of the device (the system's own too), each opening in
+// a window here. A search, the recently opened first, then A to Z. The
+// panel's keys move the cursor here (moveKey, activate); `/` goes to the
+// search, `p` pins the app under the cursor.
 Item {
   id: view
 
@@ -28,9 +28,8 @@ Item {
   signal hovered()
 
   readonly property color dim: Qt.darker(foreground, 1.55)
-  property bool showSystem: false
   readonly property bool searchFocused: searchField.activeFocus
-  readonly property var page: Model.appsForPage(apps, searchField.text, showSystem)
+  readonly property var page: Model.appsForPage(apps, searchField.text)
   // Where the keys can go: the recent row, then the list.
   readonly property var stops: page.recent.concat(page.all)
   property int cursor: 0
@@ -38,7 +37,6 @@ Item {
   readonly property real gap: Style.space(6)
   readonly property int columns: Math.max(1, Math.floor((width + gap) / (Style.space(84) + gap)))
   readonly property real cellWidth: (width - gap * (columns - 1)) / columns
-  readonly property int systemCount: apps.filter(function(a) { return a.system }).length
 
   implicitHeight: content.implicitHeight
 
@@ -73,7 +71,6 @@ Item {
     var app = stops[cursor]
     if (app) pinRequested(app, pinned.indexOf(app.package) < 0)
   }
-  function toggleSystem() { showSystem = !showSystem }
   // Esc: the search's own step first (PanelField), then the page goes back.
   function goBack() {
     if (searchField.text !== "") { searchField.text = ""; return true }
@@ -81,7 +78,6 @@ Item {
   }
   function reset() {
     searchField.text = ""
-    showSystem = false
     cursor = 0
   }
 
@@ -105,18 +101,6 @@ Item {
         onAccepted: { if (view.page.all.length > 0) view.openRequested(view.page.all[0]) }
         onTextChanged: view.cursor = 0
         Keys.onDownPressed: { focus = false; view.cursor = 0 }
-      }
-      Button {
-        visible: view.systemCount > 0
-        text: "System apps"
-        iconText: Model.GLYPH.android
-        tooltipText: (view.showSystem ? "Hide" : "Show") + " the " + view.systemCount + " apps " + view.deviceName + " comes with (s)"
-        selected: view.showSystem
-        bordered: true
-        foreground: view.foreground
-        fontFamily: view.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: view.toggleSystem()
       }
       PanelActionButton {
         iconText: Model.GLYPH.refresh
@@ -194,7 +178,7 @@ Item {
     PanelSectionHeader {
       visible: view.page.all.length > 0
       Layout.fillWidth: true
-      text: searchField.text.trim() !== "" ? "MATCHES" : (view.showSystem ? "ALL APPS" : "APPS") + " · " + view.page.all.length
+      text: searchField.text.trim() !== "" ? "MATCHES" : "ALL APPS · " + view.page.all.length
       foreground: view.foreground
       fontFamily: view.fontFamily
     }

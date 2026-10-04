@@ -17,7 +17,7 @@ GitHub release with these notes.
 - **Apps** ([#116](https://github.com/sceny/omarchy-devices/issues/116)):
   the phone's apps, each in a window of its own, tiled, with their real
   icons. An Apps section (pinned, then recently opened), an All apps page
-  (search, system apps on request), and a notification's window button
+  with a search, and a notification's window button
   that opens its app. An app's sound plays here or stays on the phone.
 
 ## 0.7.0 — 2026-10-02

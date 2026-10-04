@@ -8,14 +8,13 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
 ![All apps: search, the recently opened, then A to Z (demo data)](images/apps.png)
 
 - **Apps** on the main page: the apps you pin, then the ones you opened
-  last. **All apps** (`a`) has the rest: type to search (`/`), *System
-  apps* (`s`) shows the ones the phone came with.
+  last. **All apps** (`a`) has every app; type to search (`/`).
 - **Pin** an app (hover it, or `p`) to keep it in the Apps section.
 - **A notification** opens its app in a window (its window button, or
   `o`). It opens the app, not that message: KDE Connect cannot open a
   notification yet.
 - The window tiles like any other, and the app fills it as you resize it.
-  The keyboard shows here, not on the phone.
+  Type with your keyboard: the phone's on-screen keyboard never shows.
 - **Sound**: here, or left on the phone (*Screen and apps* page). The
   phone gives its sound to one window at a time.
 

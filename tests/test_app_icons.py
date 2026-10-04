@@ -313,11 +313,11 @@ class Cache(unittest.TestCase):
 
 
 class Opens(unittest.TestCase):
-    def test_an_app_is_tiled_with_its_keyboard_here(self):
+    def test_an_app_is_tiled_without_an_on_screen_keyboard(self):
         cmd = bridge.screen_command("SERIAL", "Clock · Pixel 8", "com.example.app", {"flex": True}, sound="phone")
         self.assertIn("--start-app=com.example.app", cmd)
         self.assertIn("--flex-display", cmd)
-        self.assertIn("--display-ime-policy=local", cmd)
+        self.assertIn("--display-ime-policy=hide", cmd, "typing is this computer's keyboard")
         self.assertIn("--no-audio", cmd, "its sound stays on the device")
         self.assertNotIn("--no-audio", bridge.screen_command("SERIAL", "Clock · Pixel 8", "com.example.app", {"flex": True}))
 

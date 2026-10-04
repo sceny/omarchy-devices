@@ -71,7 +71,6 @@ var GLYPH = {
   pin: "\u{F0403}",          // pin: an app kept in the Apps section
   pinOff: "\u{F0404}",       // pin-off
   search: "\u{F0349}",       // magnify
-  android: "\u{F0032}",      // android: the system's own apps
   // Demo apps (no real icons in demo mode)
   clock: "\u{F0150}", calendar: "\u{F00ED}", camera: "\u{F0100}", map: "\u{F034D}", music: "\u{F075A}",
   notes: "\u{F082E}", weather: "\u{F0599}", chat: "\u{F0B79}", mail: "\u{F01EE}", image: "\u{F02E9}",
@@ -2043,11 +2042,11 @@ function byName(a, b) {
   return x < y ? -1 : x > y ? 1 : 0
 }
 
-// The All apps page: { recent, all }. Without a search, the recently opened
-// ones lead (also in the list, as on a phone); with one, the matches, those
-// whose name starts with it first. System apps only when asked.
-function appsForPage(apps, query, showSystem) {
-  var shown = (apps || []).filter(function(a) { return showSystem || !a.system })
+// The All apps page: { recent, all }, every app, the system's own too.
+// Without a search, the recently opened ones lead (also in the list, as on
+// a phone); with one, the matches, those whose name starts with it first.
+function appsForPage(apps, query) {
+  var shown = apps || []
   var q = foldText(query).trim()
   if (q === "")
     return { recent: recentApps(shown, true).slice(0, APPS_RECENT), all: shown.slice().sort(byName) }
@@ -2061,9 +2060,9 @@ function appsForPage(apps, query, showSystem) {
 }
 
 function appsSummary(apps, pinned) {
-  var users = (apps || []).filter(function(a) { return !a.system }).length
+  var count = (apps || []).length
   var kept = normalizePinned(pinned).filter(function(p) { return !!appByPackage(apps, p) }).length
-  var all = users === 1 ? "1 app" : users + " apps"
+  var all = count === 1 ? "1 app" : count + " apps"
   return kept > 0 ? kept + " pinned · " + all : all
 }
 
