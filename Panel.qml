@@ -331,6 +331,8 @@ Panel {
   // The service sends results to Omarchy's on-screen display while no panel
   // is open (the file chooser closes it, for one).
   onOpenedChanged: {
+    // Closed mid-opening (Esc, a click away): the card is the page again next time.
+    if (!opened && screenOpening) { screenOpening = null; cardMorphing = false }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
@@ -493,7 +495,6 @@ Panel {
     interval: Model.MOTION.inMs * root.motion + 40
     onTriggered: if (!root.screenOpening) root.cardMorphing = false
   }
-  onOpenedChanged: if (!opened && screenOpening) { screenOpening = null; cardMorphing = false }
   function screenAction(key) {
     if (!phone || screenId === "") return
     if (key === "install") phone.fixSetup("screen")
