@@ -6,7 +6,7 @@ Press `s` or the cog. Settings starts with whether everything works, and
 lists what needs you with *Fix all* and *Fix with AI* (your coding agent
 opens on it). The main page shows a red line too.
 
-![Settings: the status, My devices and This computer (demo data)](images/settings.png)
+![Settings: one thing to fix with Fix all and Fix with AI, My devices and This computer (demo data)](images/settings.png)
 
 - **My devices:** open one for its page (tabs go to the next); drag by the
   grip to reorder.
