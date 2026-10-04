@@ -171,6 +171,11 @@ PanelWindow {
     radius: Style.cornerRadius
     color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, 1)
     borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+    // Fading, the card is one picture: an item's opacity applies to each of
+    // its parts, so its dark background showed through its own picture and
+    // the hand-off dimmed.
+    layer.enabled: fade.running
+    layer.smooth: true
 
     // The pictures, inside the card's border (the window sits there too).
     Item {
@@ -191,7 +196,8 @@ PanelWindow {
         // the picture fills it; a fold changes it, so each picture keeps its
         // own proportions inside it (the card's colour around it).
         fillMode: turn.turning ? Image.PreserveAspectCrop : Image.PreserveAspectFit
-        opacity: 1 - turn.blend
+        // Solid under the new picture as it fades in over it: two pictures
+        // fading at once let the card's background show through.
       }
       // The new one is laid out for the new shape: turned back by the turn
       // still to come (the card's rotation brings it upright), on its side

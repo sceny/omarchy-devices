@@ -2156,20 +2156,6 @@ def looks_stretched(old, new, grid=24):
     return diff / (grid * grid * 3) < 12
 
 
-def fade_seconds():
-    """How long Hyprland fades a window's opacity (its "fade" animation;
-    speed is in tenths of a second): set_prop opacity is animated even with
-    no_anim, so the card waits it out before it goes."""
-    try:
-        for a in json.loads(subprocess.run(["hyprctl", "animations", "-j"], capture_output=True, text=True,
-                                           timeout=5).stdout or "[[]]")[0]:
-            if a.get("name") == "fade":
-                return float(a.get("speed", 0)) / 10 if a.get("enabled") else 0.0
-    except (OSError, ValueError, IndexError, subprocess.TimeoutExpired):
-        pass
-    return 0.3
-
-
 def window_prop(win, prop, value):
     q = lua_string("address:" + win["address"])
     subprocess.run(["hyprctl", "dispatch", 'hl.dsp.window.set_prop({ window = %s, prop = "%s", value = "%s" })' % (q, prop, value)],
@@ -2208,7 +2194,6 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                 break
             sleep(WATCH_LOOK_SEC)
         border = border_size()
-        fade = fade_seconds()
         shape, rot = current_display(serial)
         log = open(screen_log(title), "r", errors="replace") if os.path.exists(screen_log(title)) else None
         if log:
@@ -2267,15 +2252,13 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             for lua in refit(win, pending["to"], mons, border):
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             window_prop(win, "opacity", "1 1")
-            # The window fades in under the card (Hyprland animates opacity):
-            # the card, showing the same picture, goes only once it is in.
-            sleep(fade)
             # How long the device took for its new picture, and when the
             # window showed (the service logs it).
             at = pending.get("picture_at")
             emit({"ev": "revealed", "device": device_id,
                   "picture_ms": round((at - pending["since"]) * 1000) if at else None,
                   "shown_ms": round((clock() - pending["since"]) * 1000)})
+            sleep(0.15)   # the card's fade, over the window
             window_prop(win, "no_anim", "0")
             for p in pending.get("stills", []):
                 threading.Timer(2.0, lambda p=p: os.path.exists(p) and os.remove(p)).start()
