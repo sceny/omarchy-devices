@@ -1747,6 +1747,8 @@ Panel {
       if (focusSection === "actions") actionIndex = Math.max(0, Math.min(actions.length - 1, actionIndex + dx))
       else if (focusSection === "media") showPlayer(shownPlayer + dx)
       else if (focusSection === "photos") photoIndex = Math.max(0, Math.min(photos.length - 1, photoIndex + dx))
+      // Folded: one row of icons, the apps alone.
+      else if (focusSection === "apps" && isCollapsed("apps")) appIndex = Math.max(0, Math.min(sectionApps.length - 1, appIndex + dx))
       else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
       return
     }
@@ -3660,11 +3662,12 @@ Panel {
                         AppTile {
                           required property var modelData
                           required property int index
-                          width: Style.space(26)
-                          implicitHeight: Style.space(26)
+                          compact: true
+                          width: implicitWidth
+                          height: implicitHeight
                           iconSize: Style.space(22)
                           canPin: false
-                          app: Object.assign({}, modelData, { name: "" })
+                          app: modelData
                           working: root.appWorking(modelData)
                           // Only folded: the open section's own tiles hold the cursor then.
                           here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === index

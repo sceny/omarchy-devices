@@ -58,16 +58,20 @@ Item {
   readonly property bool hasIcon: !!app.icon && app.icon !== "none"
   readonly property bool hot: mouse.containsMouse || here
 
-  implicitWidth: Style.space(76)
-  implicitHeight: column.implicitHeight + Style.space(12)
+  // Compact (a folded section's row of icons): the icon alone, centred, so
+  // the cursor's highlight sits around it.
+  property bool compact: false
+  implicitWidth: compact ? iconSize + Style.space(6) : Style.space(76)
+  implicitHeight: compact ? iconSize + Style.space(6) : column.implicitHeight + Style.space(12)
 
   CursorStop { here: tile.here; glide: tile.glide }
 
   Column {
     id: column
     anchors.horizontalCenter: parent.horizontalCenter
-    anchors.top: parent.top
-    anchors.topMargin: Style.space(6)
+    anchors.top: tile.compact ? undefined : parent.top
+    anchors.topMargin: tile.compact ? 0 : Style.space(6)
+    anchors.verticalCenter: tile.compact ? parent.verticalCenter : undefined
     spacing: Style.space(5)
 
     Item {
@@ -118,6 +122,7 @@ Item {
     }
 
     Text {
+      visible: !tile.compact
       anchors.horizontalCenter: parent.horizontalCenter
       width: tile.width - Style.space(4)
       horizontalAlignment: Text.AlignHCenter
