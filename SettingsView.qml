@@ -1430,7 +1430,7 @@ Column {
       Button {
         visible: featureRow.acts && featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
         Layout.alignment: Qt.AlignVCenter
-        text: featureRow.working ? "Working…" : (featureRow.row.key === "screen" ? "Set up" : featureRow.row.state === "attention" ? "Fix" : "Turn on")
+        text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
         enabled: !featureRow.working
         tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
           ? "Shows what your password is for before asking for it" : "Does what it can, then says what is left"
