@@ -3092,7 +3092,7 @@ Panel {
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
-              : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + Model.appsSummary(root.allApps, root.pinnedApps) : "All apps")
+              : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.filter(function(a) { return !a.system }).length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
