@@ -91,14 +91,19 @@ Item {
         border.color: Qt.rgba(tile.foreground.r, tile.foreground.g, tile.foreground.b, 0.25)
         opacity: icon.status === Image.Ready ? 0 : 1
         Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * tile.motion; easing.type: Easing.OutCubic } }
+        // Centred by what it paints, not its text box: a glyph sits off the
+        // middle of its line, which shows in a small circle.
         Text {
-          anchors.centerIn: parent
+          id: mark
           textFormat: Text.PlainText
           text: tile.app.glyph || Model.appLetter(tile.app.name)
           color: tile.foreground
           font.family: tile.fontFamily
           font.pixelSize: tile.app.glyph ? Math.round(tile.iconSize * 0.5) : Math.round(tile.iconSize * 0.42)
           font.bold: !tile.app.glyph
+          x: Math.round(parent.width / 2 - (markBounds.tightBoundingRect.x + markBounds.tightBoundingRect.width / 2))
+          y: Math.round(parent.height / 2 - (baselineOffset + markBounds.tightBoundingRect.y + markBounds.tightBoundingRect.height / 2))
+          TextMetrics { id: markBounds; font: mark.font; text: mark.text }
         }
       }
       Image {
