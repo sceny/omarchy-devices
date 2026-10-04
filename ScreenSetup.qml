@@ -99,6 +99,17 @@ Column {
     }
   }
 
+  // Off after a restart: the one tap that turns it on next time.
+  Text {
+    visible: !!root.setup && !!root.setup.quickTip
+    width: root.width
+    textFormat: Text.PlainText
+    wrapMode: Text.WordWrap
+    text: root.setup ? (root.setup.quickTip || "") : ""
+    color: root.dim
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+  }
   Text {
     visible: !!root.setup && root.setup.usbNote !== ""
     width: root.width

@@ -335,6 +335,7 @@ Panel {
     // waiting window while it fades over the real one); opened again, the
     // card is the page from the start.
     if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
+    else screenWaitOpen = ""
     else if (screenOpening) openingGone.restart()
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
@@ -410,7 +411,13 @@ Panel {
   }
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
   readonly property var screenSetup: screenId === "" ? null
-    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId))
+    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId),
+                        screenWaitOpen !== "" && screenWaitOpen === screenId)
+  // The user pressed Screen while the device could not be reached (off after
+  // a restart, away): its page says what to do, and the screen opens by
+  // itself the moment it can, with no second click. Leaving the page or
+  // closing the panel lets it go.
+  property string screenWaitOpen: ""
   // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
   // the flat keys).
   function screenDockedFor(id) {
@@ -467,6 +474,12 @@ Panel {
   property string screenAutoPaired: ""
   onScreenSetupChanged: {
     var s = screenSetup
+    // Waiting to open (screenWaitOpen) and now it can: it opens.
+    if (s && screenWaitOpen !== "" && screenWaitOpen === screenId && s.state === "ready") {
+      screenWaitOpen = ""
+      screenAction("open")
+      return
+    }
     if (!s || !phone || !opened || !showSettings || screenPairing || screenAutoPaired === screenId) return
     var st = phone.screenOf(screenId)
     if (st && st.seen === true && (s.state === "pair" || s.state === "off")) {
@@ -572,12 +585,17 @@ Panel {
   onScreenIdChanged: {
     if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
     screenAutoPaired = ""
+    if (screenWaitOpen !== "" && screenWaitOpen !== screenId) screenWaitOpen = ""
   }
   Connections {
     target: root.phone
     function onScreenSetupNeeded(id) {
       root.endScreenOpening()
-      if (root.opened) root.openScreenSetup(id)
+      if (!root.opened) return
+      // Set up before, out of reach now: open it as soon as it can be.
+      var st = root.phone ? root.phone.screenOf(id) : null
+      root.screenWaitOpen = st && (st.state === "off" || st.state === "away") ? String(id) : ""
+      root.openScreenSetup(id)
     }
     // A place opened: the panel fades out over it (docked, the window is
     // where the card was), and the keyboard goes to it.

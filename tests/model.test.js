@@ -942,3 +942,15 @@ test("screen: the window's title, as the bridge names it", () => {
   assert.equal(M.screenTitle("Pixel 8"), "Pixel 8 · Screen")
   assert.equal(M.screenTitle(""), "Device · Screen")
 })
+
+test("screen after a restart: says why, opens by itself when it can, one tap next time", () => {
+  const phone = { name: "Pixel 8" }
+  const off = M.screenSetup(M.demoScreen("off"), phone, null, true, false, true)
+  assert.match(off.line, /turns off when Pixel 8 restarts/)
+  assert.match(off.line, /the screen opens as soon as it is$/)
+  assert.equal(off.waiting, true)
+  assert.match(off.quickTip, /Quick settings developer tiles/)
+  const notWaiting = M.screenSetup(M.demoScreen("off"), phone, null, true, false, false)
+  assert.ok(!/opens as soon/.test(notWaiting.line), "only when Screen was pressed")
+  assert.equal(M.screenSetup(M.demoScreen("ready"), phone, null, true, false, true).waiting, false)
+})

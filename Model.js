@@ -1131,7 +1131,7 @@ function addDeviceRows(devices) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing, docked, fitTile) {
+function screenSetup(status, device, pairing, docked, fitTile, waiting) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -1167,9 +1167,11 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     pair: seen ? "Wireless debugging is on: scan the code with " + name
       : "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
     off: seen ? "Wireless debugging is on, but " + name + " does not know this computer any more: scan the code again"
-      : "Wireless debugging is off on " + name + ". Turn it on: Developer options › Wireless debugging",
+      : "Wireless debugging is off on " + name + " (it turns off when " + name + " restarts). Turn it on: Developer options › Wireless debugging"
+        + (waiting ? "; the screen opens as soon as it is" : ""),
     unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
-    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable",
+    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable"
+      + (waiting ? "; the screen opens as soon as it is back" : ""),
     ready: "Ready over " + (s.via === "usb" ? "USB" : "Wi-Fi") + (s.android ? " · Android " + s.android : "")
   }[state] || "Checking…"
   if (ready && s.apps !== true) line += ". Apps in windows need Android 10"
@@ -1203,6 +1205,9 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     state: state, line: line, steps: steps, pairingNote: pairingNote,
     showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
     usbNote: state === "pair" || state === "away" ? "No Wi-Fi debugging (Android 10 and older)? Turn on USB debugging in Developer options and plug it in." : "",
+    // Off again after a restart: one tap next time.
+    quickTip: state === "off" && !seen ? "Next time in one tap: Developer options › Quick settings developer tiles › Wireless debugging, then pull down Quick settings" : "",
+    waiting: !!waiting && (state === "off" || state === "away"),
     actions: actions
   }
 }
