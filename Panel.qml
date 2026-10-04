@@ -342,11 +342,19 @@ Panel {
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
-    // Where it was, for a reopen within Model.KEEP_PLACE_MS (onOpened).
+    // Where it was, for a reopen within Model.KEEP_PLACE_MS (onOpened): the
+    // page the user chose, not a detour the panel took by itself (screenDetour).
+    else if (screenDetour && screenId === screenDetour.id)
+      leftPlace = Object.assign({ at: Date.now(), device: device ? String(device.id) : "" }, screenDetour.from)
     else leftPlace = { at: Date.now(), settingsOpen: settingsOpen, messagesOpen: messagesOpen, scope: targetScope,
                        device: device ? String(device.id) : "", y: panelFlick ? panelFlick.contentY : 0 }
+    if (!opened) screenDetour = null
   }
   property var leftPlace: null
+  // The panel went to a screen's setup page by itself (the user pressed
+  // Screen and it could not open yet): where the user was, so that is the
+  // place kept when the panel closes there. Gone once the user leaves it.
+  property var screenDetour: null
   // The page's keyboard cursor, drawn once (CursorGlide, in pageHost).
   property Item cursorGlide: null
 
@@ -588,6 +596,7 @@ Panel {
     if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
     screenAutoPaired = ""
     if (screenWaitOpen !== "" && screenWaitOpen !== screenId) screenWaitOpen = ""
+    if (screenDetour && screenDetour.id !== screenId) screenDetour = null   // the user went elsewhere
   }
   Connections {
     target: root.phone
@@ -597,6 +606,8 @@ Panel {
       // Set up before, out of reach now: open it as soon as it can be.
       var st = root.phone ? root.phone.screenOf(id) : null
       root.screenWaitOpen = st && (st.state === "off" || st.state === "away") ? String(id) : ""
+      root.screenDetour = { id: String(id), from: { settingsOpen: root.settingsOpen, messagesOpen: root.messagesOpen, scope: root.targetScope,
+                                                    y: panelFlick ? panelFlick.contentY : 0 } }
       root.openScreenSetup(id)
     }
     // A place opened: the panel fades out over it (docked, the window is
