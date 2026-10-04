@@ -314,22 +314,31 @@ Keep them; change one only with the owner.
   card back. Its window already open: brought forward, no card journey.
   Docking and undocking an open window go by its address, so the panel
   keeps the keyboard.
-- **A docked screen follows the device's turns and folds**
-  (`screen-watch`, run by the service, JSON lines; `ScreenTurn.qml`, mapped
-  while a docked screen is open). scrcpy runs verbose and its output goes
-  to a log read every 10 ms: its device side's `DisplayMonitor: … -> …`
-  line comes before the new picture is sent, so the card appears over the
-  window (a turn turns it the way the device turned, from Android's
-  rotation; a half turn upside down; anything else morphs it) and the
-  window hides and moves under it before a turned picture can show. The
-  window shows again as soon as its new picture is there (scrcpy's
-  `Texture: WxH`; scrcpy resizes the window then, so it is put back),
-  never held back for the card: the watcher says `revealed` and the card
-  fades over it wherever it is. scrcpy runs under `stdbuf -oL -eL`:
-  written to a file, its own lines were buffered and came in a late batch. `Texture` alone starts the same a frame late; the window's
-  size and the device's display are looked at as backups. A window the user
-  moved or resized stays put and turns in place. The bridge's `dock_rect`
-  mirrors `Model.dockRect`: change both, and their shared test cases.
+- **A docked screen follows the device's turns and folds, as Android turns
+  its own screen** (`screen-watch`, run by the service, JSON lines;
+  `ScreenTurn.qml`, mapped while a docked screen is open). scrcpy runs
+  verbose under `stdbuf -oL -eL` (written to a file, its lines were held
+  back), its output a log read every 10 ms. Its device side's
+  `DisplayMonitor: … -> …` comes before the new picture is sent: a still of
+  the window's own last picture (`grim -T`, by the window's toplevel id, so
+  it works while hidden) goes out with the `refit` event, the card shows it
+  over the window and turns it (the way the device turned, from Android's
+  rotation; a half turn upside down) or morphs it (a fold: each picture
+  fitted at its own proportions, never zoomed or stretched), softening as
+  it moves; the window hides and moves under it. When `Texture: WxH` says
+  the new picture came, a still of it (taken again while it is only the old
+  picture stretched to the new size) goes out as `picture`: it fades in on
+  the card over the old one, laid out for the new shape and turned back by
+  the turn still to come, so the two turn into each other. The card lands
+  showing exactly that picture; the window then shows under it (`revealed`)
+  and the card fades as one layer (an item's opacity applies to each of its
+  parts: its background showed through). Stills live in
+  `$XDG_RUNTIME_DIR/sceny.devices/` and are removed after the turn; they
+  are this computer's own screen pixels, not a file the device sent.
+  `Texture` alone starts with the plain card, a frame late. A window the
+  user moved or resized stays put and turns in place. The bridge's
+  `dock_rect` mirrors `Model.dockRect`: change both, and their shared test
+  cases.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and
