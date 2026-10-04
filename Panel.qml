@@ -1750,6 +1750,9 @@ Panel {
       if (root.device) root.phone.readScreen(String(root.device.id))
       return root.screenInfo()
     }
+    // Where a docked screen goes on this panel's screen: the chip's place
+    // (what the bridge's watcher gets), for checks.
+    function dockCtx(): string { return JSON.stringify(Object.assign({ monitor: panel.screen ? panel.screen.name : "" }, root.dockCtx())) }
     // Demo only: a watcher's event as it would come (refit, revealed), for
     // a check driven from outside with a stand-in window.
     function screenEvent(json: string): string {
