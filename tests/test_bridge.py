@@ -991,9 +991,36 @@ class Screen(unittest.TestCase):
                          "192.168.1.20:40001", "asked the device")
         self.assertEqual(bridge.match_adb(vpn, [usb], [], serial="FFFF")[0], None, "another phone on the cable")
 
+    def test_docking_rule(self):
+        self.assertEqual(bridge.title_regex("Pixel (8) · Screen"), "^Pixel \\(8\\) · Screen$")
+        lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.4664, 35, True)
+        for part in ('float = true', 'pin = true', 'tag = "+pop"', '"(monitor_h*0.7*0.4664)"', '"(monitor_w-monitor_h*0.7*0.4664-10)"', '"(45)"',
+                     'match = { title = "^Pixel 8 · Screen$" }', 'old:set_enabled(false)'):
+            self.assertIn(part, lua)
+        tiled = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.4664, 35, False)
+        self.assertIn("old:set_enabled(false)", tiled)
+        self.assertNotIn("hl.window_rule", tiled, "tiled: the rule only ends")
+
+    def test_an_open_window_is_brought_forward_not_opened_twice(self):
+        saved = (bridge.screen_device, bridge.find_window, bridge.hypr_dispatch, bridge.screen_status)
+        calls, launched = [], []
+        bridge.screen_device = lambda i: {"id": i, "name": "Pixel 8"}
+        bridge.find_window = lambda t: {"address": "0xabc", "title": t} if t == "Pixel 8 · Screen" else None
+        bridge.hypr_dispatch = lambda lua, *c: calls.append(lua) or True
+        bridge.screen_status = lambda i: self.fail("no status needed")
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
+        finally:
+            bridge.screen_device, bridge.find_window, bridge.hypr_dispatch, bridge.screen_status = saved
+        self.assertEqual(launched, [])
+        self.assertIn('hl.dsp.focus({ window = "address:0xabc" })', calls[0])
+
     def test_the_screen_and_an_app(self):
-        self.assertEqual(bridge.screen_command("S1", "Pixel 8"),
-                         ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8"])
+        self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
+                         ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8 · Screen"])
+        self.assertEqual(bridge.screen_title("Pixel 8"), "Pixel 8 · Screen")
+        self.assertEqual(bridge.screen_title("Pixel 8", "Messages"), "Messages · Pixel 8")
         app = bridge.screen_command("S1", "Messages · Pixel 8", "com.example.app", {"flex": True})
         self.assertIn("--new-display", app)
         self.assertIn("--start-app=com.example.app", app)

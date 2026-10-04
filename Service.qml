@@ -595,8 +595,11 @@ Item {
   property var screenStates: ({})          // device id -> the bridge's status
   property var screenPairing: null         // { device, phase, qr, message }
   property string screenThen: ""           // a device to open once read (Screen shortcut)
+  property bool screenThenDocked: true
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id)
+  // Its window is there (a place: the panel closes).
+  signal screenOpened(string id)
 
   function screenOf(id) { return screenStates[String(id)] || null }
   function setScreen(id, status) {
@@ -605,7 +608,9 @@ Item {
     screenStates = next
     if (screenThen !== "" && screenThen === String(id)) {
       screenThen = ""
-      if (status && status.state === "ready") openScreen(id, "", "")
+      if (status && status.state === "ready" && !demo) { launchScreen(id, "", "", screenThenDocked); return }
+      setBusy("screen", false)
+      if (status && status.state === "ready") report("Demo: no window opens", false)
       else screenSetupNeeded(String(id))
     }
   }
@@ -618,19 +623,35 @@ Item {
     screenProc.running = true
   }
   // The Screen shortcut: its window when the device is ready, else its
-  // setup page. The state is read first, so it never acts on a stale one.
-  function pressScreen(id) {
-    if (!id) return
+  // setup page. The state is read first, so it never acts on a stale one;
+  // the tile waits (its ring) from the click until the window is there.
+  function pressScreen(id, docked) {
+    if (!id || isBusy("screen")) return
+    setBusy("screen", true)
     screenThen = String(id)
+    screenThenDocked = docked !== false
     readScreen(id)
   }
-  function openScreen(id, pkg, label) {
+  function openScreen(id, pkg, label, docked) {
     if (demo) { report("Demo: no window opens", false); return }
-    var key = "screen:" + id + ":" + (pkg || "")
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     if (isBusy(key)) return
     setBusy(key, true)
-    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "screen-open", String(id), pkg || "", label || ""] })
+    launchScreen(id, pkg, label, docked)
+  }
+  // Busy is already set: the bridge returns once the window is there.
+  function launchScreen(id, pkg, label, docked) {
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
+    var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
+    if (docked === false) cmd.push("--tiled")
+    var proc = actionComponent.createObject(root, { key: key, command: cmd })
+    proc.exited.connect(function(code) { if (code === 0) root.screenOpened(String(id)) })
     proc.running = true
+  }
+  // Docked by the bar or tiled: the open window moves now, the next opens so.
+  function dockScreen(id, docked) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-dock", String(id), docked ? "on" : "off"])
   }
   function startScreenPair(id) {
     if (pairProc.running || demoPairQr.running) return
@@ -661,7 +682,10 @@ Item {
     property string device: ""
     stdout: StdioCollector {
       onStreamFinished: {
-        try { root.setScreen(screenProc.device, JSON.parse(text)) } catch (e) {}
+        // Unreadable: no state, so a click waiting on it ends (setScreen).
+        var st = null
+        try { st = JSON.parse(text) } catch (e) {}
+        root.setScreen(screenProc.device, st)
       }
     }
     onExited: if (root.screenThen !== "" && root.screenThen !== screenProc.device) Qt.callLater(function() { root.readScreen(root.screenThen) })

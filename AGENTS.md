@@ -289,6 +289,13 @@ Keep them; change one only with the owner.
   minutes); the bridge pairs only with the device that scanned it. Reading
   the state connects only to a device adb already trusts. Opening a real
   device's screen in a check is the owner's go: it shows their data.
+- **The screen's window docks by the bar** unless the device's
+  `screenDocked` is off: Omarchy's pop-out (floating, pinned, on top,
+  tagged `pop`), phone-shaped, at the right edge under the bar. Wayland
+  windows cannot place themselves, so a Hyprland rule (`hyprctl eval`, one
+  per device, replaced on each launch) places it as it opens, and
+  dispatches move an open one. Opening it closes the panel (a place); the
+  Screen tile waits from the click until the window is there.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and

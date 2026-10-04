@@ -37,8 +37,11 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
   kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
                                               JSON lines (qr, found, paired, connected, error)
-  kdeconnect-bridge screen-open <device> [package] [label]   its screen, or one
-                                              app, in a window here (scrcpy)
+  kdeconnect-bridge screen-open <device> [package] [label] [--tiled]   its screen,
+                                              or one app, in a window here (scrcpy),
+                                              docked by the bar unless --tiled; returns
+                                              once the window is there
+  kdeconnect-bridge screen-dock <device> on|off    dock or undock its window
   kdeconnect-bridge screen-apps <device>           its apps, as JSON
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
@@ -1819,6 +1822,117 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     return EXIT_OK
 
 
+# ---- The screen's window: docked or tiled (Hyprland) ----
+#
+# On Wayland a window cannot place itself, so scrcpy's own position flags do
+# nothing: Hyprland does it. Docked is Omarchy's pop-out (floating, pinned on
+# every workspace, on top, tagged `pop`, so Omarchy's own pop toggle undocks
+# it too), phone-shaped, at the right edge under the bar, where the panel
+# opens. A window rule set just before the launch (`hyprctl eval`) opens it
+# there at once; an open window moves with dispatches.
+
+DOCK_HEIGHT = 0.7       # of the monitor's height
+DOCK_GAP = 10
+WINDOW_WAIT_SEC = 20
+
+
+def title_regex(title):
+    """An exact match for a window title, for Hyprland's (RE2) rules."""
+    return "^" + re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", title) + "$"
+
+
+def lua_string(text):
+    return json.dumps(text, ensure_ascii=False)
+
+
+def dock_rule_lua(name, title, aspect, top, docked):
+    """Lua that sets (or replaces, or with docked False just ends) the rule
+    docking windows titled `title`. The position names the docked width
+    itself: a rule's window_w is the size before the rule's own.
+    Handles are kept in a table of ours so a later launch replaces the rule
+    instead of adding another."""
+    lua = ("_G.sceny_devices_rules = _G.sceny_devices_rules or {}\n"
+           "local old = _G.sceny_devices_rules[%s]\n"
+           "if old then old:set_enabled(false) end\n"
+           "_G.sceny_devices_rules[%s] = nil\n") % (lua_string(name), lua_string(name))
+    if docked:
+        h = "(monitor_h*%s)" % DOCK_HEIGHT
+        lua += ("_G.sceny_devices_rules[%s] = hl.window_rule({ name = %s, match = { title = %s }, "
+                "tag = \"+pop\", float = true, pin = true, keep_aspect_ratio = true, "
+                "size = { \"(monitor_h*%s*%.4f)\", \"%s\" }, "
+                "move = { \"(monitor_w-monitor_h*%s*%.4f-%d)\", \"(%d)\" } })\n") % (
+            lua_string(name), lua_string(name), lua_string(title_regex(title)), DOCK_HEIGHT, aspect, h,
+            DOCK_HEIGHT, aspect, DOCK_GAP, top + DOCK_GAP)
+    return lua
+
+
+def device_aspect(serial):
+    """Width over height of the device's screen, upright (`wm size`; the
+    override when there is one)."""
+    out = adb(["-s", serial, "shell", "wm", "size"])[1]
+    sizes = re.findall(r"(\d+)x(\d+)", out)
+    if not sizes:
+        return 9 / 19.5
+    w, h = (int(x) for x in sizes[-1])
+    return min(w, h) / max(w, h)
+
+
+def hypr_json(what):
+    try:
+        return json.loads(subprocess.run(["hyprctl", what, "-j"], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+
+
+def find_window(title):
+    return next((c for c in hypr_json("clients") if c.get("title") == title), None)
+
+
+def hypr_dispatch(lua, *classic):
+    """A dispatch as Omarchy's own scripts make it: Lua first, the classic
+    form for an older Hyprland."""
+    run = lambda cmd: subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+    try:
+        out = run(["hyprctl", "dispatch", lua])
+        if out.returncode == 0 and "error" not in (out.stdout or "").lower():
+            return True
+        return run(["hyprctl", "dispatch"] + list(classic)).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def dock_window(win, docked, aspect):
+    """Docks an open window (floating, pinned, sized and placed like the
+    rule) or undocks it (an ordinary tiled window)."""
+    w = "address:" + win["address"]
+    q = lua_string(w)
+    if docked:
+        mon = next((m for m in hypr_json("monitors") if m.get("id") == win.get("monitor")), None) or {}
+        scale = mon.get("scale") or 1
+        mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
+        top = (mon.get("reserved") or [0, 0])[1]
+        h = int(mh * DOCK_HEIGHT)
+        width = int(h * aspect)
+        x, y = int(mon.get("x", 0) + mw - width - DOCK_GAP), int(mon.get("y", 0) + top + DOCK_GAP)
+        if not win.get("floating"):
+            hypr_dispatch("hl.dsp.window.float({ window = %s, action = \"toggle\" })" % q, "togglefloating", w)
+        hypr_dispatch("hl.dsp.window.resize({ window = %s, x = %d, y = %d })" % (q, width, h), "resizewindowpixel", "exact %d %d,%s" % (width, h, w))
+        hypr_dispatch("hl.dsp.window.move({ window = %s, x = %d, y = %d })" % (q, x, y), "movewindowpixel", "exact %d %d,%s" % (x, y, w))
+        if not win.get("pinned"):
+            hypr_dispatch("hl.dsp.window.pin({ window = %s })" % q, "pin", w)
+        hypr_dispatch("hl.dsp.window.tag({ window = %s, tag = \"+pop\" })" % q, "tagwindow", "+pop", w)
+    else:
+        if win.get("pinned"):
+            hypr_dispatch("hl.dsp.window.pin({ window = %s })" % q, "pin", w)
+        hypr_dispatch("hl.dsp.window.tag({ window = %s, tag = \"-pop\" })" % q, "tagwindow", "-pop", w)
+        if win.get("floating"):
+            hypr_dispatch("hl.dsp.window.float({ window = %s, action = \"toggle\" })" % q, "togglefloating", w)
+
+
+def screen_title(name, label=""):
+    return "%s · %s" % (label, name) if label else "%s · Screen" % name
+
+
 def screen_command(serial, title, package="", tools=None):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
@@ -1831,19 +1945,51 @@ def screen_command(serial, title, package="", tools=None):
     return cmd
 
 
-def screen_open(device_id, package="", label="", launch=None):
-    """Opens the device's screen, or one of its apps, in a window here."""
+def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep):
+    """Opens the device's screen, or one of its apps, in a window here,
+    docked or tiled, and returns once the window is there (the click waits
+    meanwhile). Already open: brought forward instead of a second one."""
     launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name, label)
+    open_now = find_window(title)
+    if open_now:
+        w = "address:" + open_now["address"]
+        hypr_dispatch("hl.dsp.focus({ window = %s })" % lua_string(w), "focuswindow", w)
+        return say("%s is open" % (label or name + "'s screen"))
     status = screen_status(device_id)
     if status["state"] != "ready":
         return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
     if package and not status["apps"]:
         return say("Apps in a window need Android 10 and scrcpy 3", EXIT_FAILED)
+    top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title,
+                                                     device_aspect(status["serial"]), top, docked)],
+                   capture_output=True, timeout=5)
+    launch(screen_command(status["serial"], title, package, status["tools"]))
+    for _ in range(WINDOW_WAIT_SEC * 4):
+        if find_window(title):
+            return say("%s is open" % (label or name + "'s screen"))
+        sleep(0.25)
+    return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
+
+
+def screen_dock(device_id, docked, package="", label=""):
+    """Docks or undocks the device's open window (and the next ones)."""
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
-    launch(screen_command(status["serial"], "%s · %s" % (label, name) if label else name, package, status["tools"]))
-    return say("Opening %s" % (label or name + "'s screen"))
+    title = screen_title(name, label)
+    win = find_window(title)
+    status = screen_status(device_id) if win or docked else {}
+    aspect = device_aspect(status["serial"]) if status.get("serial") else 9 / 19.5
+    top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, docked)],
+                   capture_output=True, timeout=5)
+    if win:
+        dock_window(win, docked, aspect)
+    return say("Docked by the bar" if docked else "A window like any other")
 
 
 def screen_apps(device_id):
@@ -2362,6 +2508,10 @@ def main(argv):
         return EXIT_OK
     if argv[0] == "fix":
         return fix(argv[1] if len(argv) > 1 else "")
+    if argv[0] == "screen-dock":
+        if len(argv) < 3:
+            return say("screen-dock needs a device id and on or off", EXIT_FAILED)
+        return screen_dock(argv[1], argv[2] == "on")
     if argv[0] in ("screen", "screen-pair", "screen-open", "screen-apps"):
         if len(argv) < 2:
             return say("%s needs a device id" % argv[0], EXIT_FAILED)
@@ -2376,7 +2526,8 @@ def main(argv):
                 return screen_pair(argv[1])
             except KeyboardInterrupt:
                 return EXIT_CANCELLED
-        return screen_open(argv[1], argv[2] if len(argv) > 2 else "", argv[3] if len(argv) > 3 else "")
+        rest = [a for a in argv[2:] if a not in ("--tiled", "--docked")]
+        return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "", docked="--tiled" not in argv)
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK

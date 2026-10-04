@@ -772,6 +772,15 @@ Column {
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
       }
+      // A switch on Screen and apps (Docked by the bar).
+      Text {
+        visible: listRow.row.kind === "screenAction" && listRow.row.on !== undefined
+        text: listRow.row.on === true ? Model.GLYPH.checked : Model.GLYPH.unchecked
+        color: listRow.row.on === true ? root.foreground : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.alignment: Qt.AlignVCenter
+      }
       Text {
         visible: listRow.row.kind === "resetGroup"
         text: Model.GLYPH.reset

@@ -27,6 +27,7 @@
       ],
       "batteryLowOnly": true,
       "showCalls": true,
+      "screenDocked": true,
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
@@ -178,6 +179,13 @@
         "label": "Calls",
         "defaultValue": true,
         "description": "While the phone rings, the caller in the bar and over the panel; a missed call stays until closed."
+      },
+      {
+        "key": "screenDocked",
+        "type": "boolean",
+        "label": "Screen docked by the bar",
+        "defaultValue": true,
+        "description": "The device's screen opens as a phone-shaped window at the right edge under the bar, on every workspace. Off, a window like any other."
       },
       {
         "key": "lowBatteryPercent",

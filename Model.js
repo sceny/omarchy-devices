@@ -1128,7 +1128,7 @@ function addDeviceRows(devices) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing) {
+function screenSetup(status, device, pairing, docked) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -1185,7 +1185,11 @@ function screenSetup(status, device, pairing) {
     else actions.push({ key: "stopPair", label: "Stop", hint: "" })
   }
   if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
-  if (ready) actions.push({ key: "open", label: "Open its screen", hint: "A window here; right-click is Back" })
+  if (ready) {
+    actions.push({ key: "open", label: "Open its screen", hint: "A window here; right-click is Back" })
+    actions.push({ key: "dock", label: "Docked by the bar", on: docked !== false,
+                   hint: docked !== false ? "Phone-shaped, at the right edge, on every workspace" : "Off: a window like any other" })
+  }
   return {
     state: state, line: line, steps: steps, pairingNote: pairingNote,
     showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
@@ -1196,7 +1200,11 @@ function screenSetup(status, device, pairing) {
 
 // The page's keyboard rows: one per action, in order.
 function screenRows(setup) {
-  return (setup ? setup.actions : []).map(function(a) { return { kind: "screenAction", key: a.key, label: a.label, hint: a.hint } })
+  return (setup ? setup.actions : []).map(function(a) {
+    var row = { kind: "screenAction", key: a.key, label: a.label, hint: a.hint }
+    if (a.on !== undefined) row.on = a.on
+    return row
+  })
 }
 
 // Made-up states for the demo phone (screenshots and checks): nothing in a
@@ -1359,6 +1367,8 @@ var PROFILE_SETTINGS = {
   showPhotos: function(v) { return layoutFlag(v) },
   showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
+  // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
+  screenDocked: function(v) { return layoutFlag(v) },
   collapsed: function(v) { return collapsedState(v) }
 }
 

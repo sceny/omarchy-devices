@@ -404,7 +404,20 @@ Panel {
   }
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
   readonly property var screenSetup: screenId === "" ? null
-    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing)
+    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId))
+  // Docked by the bar or tiled, for a device: its profile (with one device,
+  // the flat keys).
+  function screenDockedFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenDocked
+    return true
+  }
+  function toggleScreenDocked(id) {
+    var next = !screenDockedFor(id)
+    if (singleDevice) persistSettings({ screenDocked: next })
+    else persistDeviceProfile(String(id), { screenDocked: next })
+    if (phone) phone.dockScreen(id, next)
+  }
   // The viewed device's screen works: the Screen pill and row are on. Read
   // when Settings opens, once scrcpy is here (about a second; never in a demo
   // of the checks).
@@ -450,7 +463,8 @@ Panel {
     else if (key === "pair") phone.startScreenPair(screenId)
     else if (key === "stopPair") phone.stopScreenPair()
     else if (key === "check") phone.readScreen(screenId)
-    else if (key === "open") phone.openScreen(screenId, "", "")
+    else if (key === "open") phone.openScreen(screenId, "", "", screenDockedFor(screenId))
+    else if (key === "dock") toggleScreenDocked(screenId)
   }
   // Read again while the page shows (a setting turned on, the cable
   // plugged in, the install done); a pairing on the page stops when it goes.
@@ -467,6 +481,8 @@ Panel {
   Connections {
     target: root.phone
     function onScreenSetupNeeded(id) { if (root.opened) root.openScreenSetup(id) }
+    // A place opened: the panel closes (the docked window is where it was).
+    function onScreenOpened(id) { if (root.opened) root.close() }
     // Set up: the Screen shortcut joins the device's shortcuts, once (the
     // user may take it away). Only an open panel writes, so one monitor's.
     function onScreenStatesChanged() {
@@ -1136,7 +1152,7 @@ Panel {
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
     else if (key === "kdeconnect") { phone.openKdeConnect(); root.close() }
-    else if (key === "screen" && device) phone.pressScreen(String(device.id))
+    else if (key === "screen" && device) phone.pressScreen(String(device.id), screenDockedFor(String(device.id)))
   }
 
   // ---- Settings ----
