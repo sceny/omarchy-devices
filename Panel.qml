@@ -3497,7 +3497,13 @@ Panel {
                     }
 
                     Row {
-                      visible: root.isCollapsed("actions")
+                      id: actionsFoldedRow
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("actions")
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (actionsFoldedRow.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(2)
 
@@ -3696,7 +3702,13 @@ Panel {
                     }
 
                     Row {
-                      visible: root.isCollapsed("apps")
+                      id: appsFoldedRow
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("apps")
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (appsFoldedRow.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       spacing: Style.space(4)
                       Repeater {
@@ -3951,7 +3963,13 @@ Panel {
 
                     // Folded, the line keeps a play/pause for the shown player.
                     PanelActionButton {
-                      visible: root.isCollapsed("media") && !!root.shownPlayerObject
+                      id: mediaFoldedPlay
+                      // Folded, it fades in as the summary does (FoldToggle), at the
+                      // panel's pace; open, it fades out.
+                      readonly property bool shown: root.isCollapsed("media") && !!root.shownPlayerObject
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (mediaFoldedPlay.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       iconText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? Model.GLYPH.pause : Model.GLYPH.play
                       tooltipText: root.shownPlayerObject && root.shownPlayerObject.isPlaying ? "Pause" : "Play"
