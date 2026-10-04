@@ -1518,30 +1518,36 @@ Column {
             onClicked: root.checkAgainRequested()
           }
         }
-      }
-      Button {
-        visible: featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
-                                     || featureRow.row.problem === true)
-        Layout.alignment: Qt.AlignVCenter
-        text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
-        enabled: !featureRow.working
-        tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
-          ? "Shows what your password is for before asking for it" : "Does what it can, then says what is left"
-        bordered: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: root.featureRequested(featureRow.rowIndex)
-      }
-      Button {
-        visible: featureRow.row.problem === true && !featureRow.working
-        Layout.alignment: Qt.AlignVCenter
-        text: "Fix with AI"
-        tooltipText: root.aiTip
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: root.fixWithAiRequested("feature", featureRow.rowIndex)
+        // Its actions, on a line of their own so the name keeps its room.
+        Row {
+          visible: fixButton.visible || aiButton.visible
+          Layout.topMargin: Style.space(4)
+          spacing: Style.space(6)
+          Button {
+            id: fixButton
+            visible: featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
+                                         || featureRow.row.problem === true)
+            text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
+            enabled: !featureRow.working
+            tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
+              ? "Shows what your password is for before asking for it" : "Does what it can, then says what is left"
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: root.featureRequested(featureRow.rowIndex)
+          }
+          Button {
+            id: aiButton
+            visible: featureRow.row.problem === true && !featureRow.working
+            text: "Fix with AI"
+            tooltipText: root.aiTip
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: root.fixWithAiRequested("feature", featureRow.rowIndex)
+          }
+        }
       }
       ToggleSwitch {
         visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
