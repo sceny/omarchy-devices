@@ -203,8 +203,6 @@ Item {
           required property int index
           width: view.cellWidth
           z: dragging ? 10 : 0
-          property real followX: 0
-          property real followY: 0
           transform: Translate {
             x: recentTile.followX
             y: recentTile.followY
@@ -212,8 +210,9 @@ Item {
             Behavior on y { enabled: !recentTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
           }
           dragEnabled: true
-          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; pinRow.externalMove(modelData, at) }
-          onDragEnded: function(at) { pinRow.externalDrop(modelData, at); followX = 0; followY = 0 }
+          followsPointer: true
+          onDragMoved: function(dx, dy, at) { pinRow.externalMove(modelData, at) }
+          onDragEnded: function(at) { pinRow.externalDrop(modelData, at) }
           app: modelData
           pinned: view.pinned.indexOf(modelData.package) >= 0
           working: view.isWorking(modelData)
@@ -251,8 +250,6 @@ Item {
           required property int index
           width: view.cellWidth
           z: dragging ? 10 : 0
-          property real followX: 0
-          property real followY: 0
           transform: Translate {
             x: allTile.followX
             y: allTile.followY
@@ -260,8 +257,9 @@ Item {
             Behavior on y { enabled: !allTile.dragging; NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
           }
           dragEnabled: true
-          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; pinRow.externalMove(modelData, at) }
-          onDragEnded: function(at) { pinRow.externalDrop(modelData, at); followX = 0; followY = 0 }
+          followsPointer: true
+          onDragMoved: function(dx, dy, at) { pinRow.externalMove(modelData, at) }
+          onDragEnded: function(at) { pinRow.externalDrop(modelData, at) }
           app: modelData
           pinned: view.pinned.indexOf(modelData.package) >= 0
           working: view.isWorking(modelData)

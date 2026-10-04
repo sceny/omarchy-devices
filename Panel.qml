@@ -3768,8 +3768,6 @@ Panel {
                           required property int index
                           width: recentRow.cell
                           z: dragging ? 10 : 0
-                          property real followX: 0
-                          property real followY: 0
                           transform: Translate {
                             x: recentTile.followX
                             y: recentTile.followY
@@ -3785,8 +3783,9 @@ Panel {
                           fontFamily: root.fontFamily
                           // Up into PINNED, where it is dropped (only while that row shows).
                           dragEnabled: root.sectionRows.pinned.length > 0
-                          onDragMoved: function(dx, dy, at) { followX = dx; followY = dy; sectionPins.externalMove(modelData, at) }
-                          onDragEnded: function(at) { sectionPins.externalDrop(modelData, at); followX = 0; followY = 0 }
+                          followsPointer: true
+                          onDragMoved: function(dx, dy, at) { sectionPins.externalMove(modelData, at) }
+                          onDragEnded: function(at) { sectionPins.externalDrop(modelData, at) }
                           onActivated: root.openApp(modelData)
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true

@@ -26,6 +26,21 @@ Item {
   // a click.
   property bool dragEnabled: false
   readonly property bool dragging: mouse.dragging
+  // A tile dragged out of its row (`followsPointer`): where it is drawn,
+  // from its own place (the owner's Translate). Kept under the pointer every
+  // frame, so it stays there when its row moves meanwhile (a row above
+  // growing a line); back to 0 when let go.
+  property bool followsPointer: false
+  property real followX: 0
+  property real followY: 0
+  function refollow() {
+    var now = tile.mapToItem(null, 0, 0)
+    var baseX = now.x - followX, baseY = now.y - followY
+    followX = (mouse.pointer.x - mouse.pressAt.x) - (baseX - mouse.origin.x)
+    followY = (mouse.pointer.y - mouse.pressAt.y) - (baseY - mouse.origin.y)
+  }
+  FrameAnimation { running: tile.followsPointer && mouse.dragging; onTriggered: tile.refollow() }
+  onDraggingChanged: if (!dragging) { followX = 0; followY = 0 }
   property Item glide: null
   property real motion: 1
   property real iconSize: Style.space(40)
@@ -123,13 +138,16 @@ Item {
     // Held by a drag: the page does not scroll under it.
     preventStealing: tile.dragEnabled
     property point pressAt
+    property point pointer
+    property point origin
     property bool dragging: false
     property bool dragged: false
     onEntered: tile.hovered()
-    onPressed: function(m) { pressAt = mapToItem(null, m.x, m.y); dragging = false; dragged = false }
+    onPressed: function(m) { pressAt = mapToItem(null, m.x, m.y); pointer = pressAt; origin = tile.mapToItem(null, 0, 0); dragging = false; dragged = false }
     onPositionChanged: function(m) {
       if (!pressed || !tile.dragEnabled) return
       var p = mapToItem(null, m.x, m.y)
+      pointer = p
       var dx = p.x - pressAt.x, dy = p.y - pressAt.y
       if (!dragging && Math.abs(dx) + Math.abs(dy) > Style.space(8)) { dragging = true; dragged = true; tile.dragStarted() }
       if (dragging) tile.dragMoved(dx, dy, p)
