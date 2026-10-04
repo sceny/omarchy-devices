@@ -75,10 +75,13 @@ Item {
     }
     Image {
       id: foldThumb
-      readonly property bool shown: fold.folded && fold.thumb !== "" && status !== Image.Error
-      Layout.preferredWidth: shown ? Style.space(18) : 0
+      // Its room is kept while there is a cover, folded or open, so nothing
+      // beside it moves: like the summary and the folded icons, it only fades.
+      readonly property bool has: fold.thumb !== "" && status !== Image.Error
+      readonly property bool shown: fold.folded && has
+      Layout.preferredWidth: has ? Style.space(18) : 0
       Layout.preferredHeight: Style.space(18)
-      Layout.rightMargin: shown ? Style.space(8) : 0
+      Layout.rightMargin: has ? Style.space(8) : 0
       Layout.alignment: Qt.AlignVCenter
       source: fold.thumb
       sourceSize.width: 36
@@ -87,8 +90,6 @@ Item {
       asynchronous: true
       clip: true
       opacity: shown ? 1 : 0
-      Behavior on Layout.preferredWidth { enabled: fold.animate; NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
-      Behavior on Layout.rightMargin { enabled: fold.animate; NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
       Behavior on opacity { enabled: fold.animate; NumberAnimation { duration: (foldThumb.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
     }
 
