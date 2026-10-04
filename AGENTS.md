@@ -306,7 +306,10 @@ Keep them; change one only with the owner.
   (its display now, rotation and a foldable's screen included, fitted to
   70% of the screen's height and 45% of its width: `Model.dockRect`,
   `fit_display`). On Screen the card grows into that rectangle at
-  `Model.MOTION` and waits there (*Connecting…*); the window opens exactly
+  `Model.MOTION` and waits there (*Connecting…*, with one tip from
+  `Model.SCREEN_TIPS`, a different one each opening: only what is true of
+  scrcpy as it opens here, Alt shortcuts since Super belongs to Hyprland);
+  the window opens exactly
   there under it (a Hyprland rule set with `hyprctl eval` just before; the
   window inset by Hyprland's border, which is drawn outside it, so window
   and border cover the card) and fades in; the panel then fades out as the
