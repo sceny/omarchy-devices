@@ -1482,19 +1482,19 @@ Column {
         }
         // What a fix left: the step for the user, then waiting for it (it is
         // seen when done) or Check again; or that it did not work.
-        RowLayout {
+        Text {
           visible: !!featureRow.row.pending
           Layout.fillWidth: true
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: featureRow.row.pending ? featureRow.row.pending.text : ""
+          color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+        RowLayout {
+          visible: !!featureRow.row.pending && featureRow.row.pending.failed !== true
           spacing: Style.space(6)
-          Text {
-            Layout.fillWidth: true
-            textFormat: Text.PlainText
-            wrapMode: Text.WordWrap
-            text: featureRow.row.pending ? featureRow.row.pending.text : ""
-            color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
           WaitRing {
             visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
             running: visible
@@ -1525,7 +1525,8 @@ Column {
           spacing: Style.space(6)
           Button {
             id: fixButton
-            visible: featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
+            // Not while it waits for the user's step: nothing to press again.
+            visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
                                          || featureRow.row.problem === true)
             text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
             enabled: !featureRow.working
