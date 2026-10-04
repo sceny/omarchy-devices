@@ -2,6 +2,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import "Model.js" as Model
 
@@ -554,11 +555,13 @@ Item {
     next[what] = true
     setupFixing = next
     var proc = actionComponent.createObject(root, { key: "fix:" + what, command: [bridge, "fix", what] })
-    proc.exited.connect(function() {
+    proc.exited.connect(function(code) {
       var done = Object.assign({}, root.setupFixing)
       delete done[what]
       root.setupFixing = done
       Qt.callLater(root.runDoctor)
+      // Installed for the screen: the next steps are on the device.
+      if (what === "screen" && code === 0 && root.device) root.screenSetupNeeded(String(root.device.id))
     })
     proc.running = true
   }
@@ -584,6 +587,270 @@ Item {
     running: root.setupWanted > 0
     triggeredOnStart: true
     onTriggered: root.runDoctor()
+  }
+
+  // ---- Screen and apps (kdeconnect-bridge screen*): scrcpy over adb ----
+  // Where each device stands, read while its Screen and apps page shows and
+  // when the Screen shortcut is pressed; the QR pairing runs while the page
+  // shows its code. A demo reads nothing: its states are made up.
+  property var screenStates: ({})          // device id -> the bridge's status
+  property var screenPairing: null         // { device, phase, qr, message }
+  property string screenThen: ""           // a device to open once read (Screen shortcut)
+  property bool screenThenDocked: true
+  property var screenThenPlace: null       // where the docked window goes: a function, read at launch
+  property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
+  property string demoScreenKind: "pair"
+  signal screenSetupNeeded(string id)
+  // Its window is there (a place: the panel closes), or it did not open.
+  signal screenOpened(string id)
+  signal screenOpenFailed(string id)
+
+  function screenOf(id) { return screenStates[String(id)] || null }
+  // Devices whose screen window is open, docked or not: Hyprland's own list
+  // of windows (Quickshell keeps it from Hyprland's events, for the shell
+  // already: no polling), by the window's title. The Screen shortcut is on
+  // meanwhile. Worked out only while a panel shows the shortcut.
+  readonly property var screenOpen: {
+    if (openPanels === 0) return ({})
+    var titles = {}
+    var list = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < list.length; i++) titles[String(list[i].title || "")] = true
+    var out = {}
+    var devs = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var j = 0; j < devs.length; j++)
+      if (titles[Model.screenTitle(devs[j].name)]) out[String(devs[j].id)] = true
+    return out
+  }
+  function screenIsOpen(id) { return !!id && screenOpen[String(id)] === true }
+  function closeScreen(id) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-close", String(id)])
+  }
+  // The device's display shape, for the card that becomes its window: the
+  // status read now, else the one the bridge kept (screen.json), so the card
+  // takes the right shape from the first frame of an opening.
+  function screenDisplay(id) {
+    var st = screenOf(id)
+    if (st && st.display && st.display[0] > 0) return st.display
+    var kept = screenKept[String(id)]
+    return kept && kept.display && kept.display[0] > 0 ? kept.display : null
+  }
+  property var screenKept: ({})
+  FileView {
+    path: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/sceny.devices/screen.json"
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: { try { root.screenKept = JSON.parse(text()) || {} } catch (e) {} }
+  }
+  function setScreen(id, status) {
+    var next = Object.assign({}, screenStates)
+    next[String(id)] = status
+    screenStates = next
+    if (screenThen !== "" && screenThen === String(id)) {
+      screenThen = ""
+      if (status && status.state === "ready" && !demo) {
+        // Read now: the card has grown to the display's real shape.
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit)
+        return
+      }
+      if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
+      setBusy("screen", false)
+      screenSetupNeeded(String(id))
+    }
+  }
+  function readScreen(id) {
+    if (!id) return
+    if (demo) { setScreen(id, Model.demoScreen(demoScreenKind)); return }
+    if (screenProc.running) return   // its exit reads a device still waiting
+    screenProc.device = String(id)
+    screenProc.command = [bridge, "screen", String(id)]
+    screenProc.running = true
+  }
+  // The Screen shortcut: its window when the device is ready, else its
+  // setup page. The state is read first, so it never acts on a stale one;
+  // the tile waits (its ring) from the click until the window is there.
+  // `place`: a function giving where the docked window goes ({ rect: the
+  // panel's card as it becomes the window, ctx: the chip's place }), read
+  // once the state is.
+  function pressScreen(id, docked, place, fit) {
+    if (!id || isBusy("screen")) return
+    setBusy("screen", true)
+    screenThen = String(id)
+    screenThenDocked = docked !== false
+    screenThenPlace = place || null
+    screenThenFit = fit === true
+    readScreen(id)
+  }
+  function openScreen(id, pkg, label, docked) {
+    if (demo) { report("Demo: no window opens", false); return }
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
+    if (isBusy(key)) return
+    setBusy(key, true)
+    launchScreen(id, pkg, label, docked)
+  }
+  // Busy is already set: the bridge returns once the window is there.
+  // `place` ({ rect: { x, y, w, h } on the monitor, ctx }): exactly where
+  // it opens, and the chip it stays under when the device turns.
+  function placeArgs(place) {
+    var out = []
+    if (place && place.rect) out.push("--at", [place.rect.x, place.rect.y, place.rect.w, place.rect.h].join(","))
+    if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
+    return out
+  }
+  function launchScreen(id, pkg, label, docked, place, fit) {
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
+    var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
+    if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
+    else cmd = cmd.concat(placeArgs(place))
+    var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
+    // Connecting takes a moment: said by the card or the tile in a panel;
+    // with none open (a key), by Omarchy's on-screen display.
+    if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
+    proc.exited.connect(function(code) {
+      if (code === 0) {
+        root.screenOpened(String(id))
+        // Docked, it follows turns under the chip; tiled, its tile takes the
+        // device's width as it turns.
+        if (!pkg) root.watchScreen(id, place && place.ctx ? place.ctx : ({}), fit === true)
+      }
+      else root.screenOpenFailed(String(id))
+    })
+    proc.running = true
+  }
+  // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
+  //      the device's shape; each change comes here for ScreenTurn ----
+  property var screenTurn: null            // { kind, angle, from, to, monitor, device, still, at }
+  property real turnMotion: 1              // ScreenTurn's pace (slowMotion, for checks)
+  property var screenWatchers: ({})        // device id -> its watcher
+  // The window shows again under the card (the watcher, once the new
+  // picture is there): the card fades then.
+  signal screenRevealed(string id)
+  // The device's new picture, a still of it, while the card turns.
+  signal screenPicture(string id, string path)
+  function watchScreen(id, ctx, fit) {
+    var st = screenOf(id)
+    if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
+    // (ctx is {} for a tiled screen: only a docked one goes under the chip)
+    var proc = watchComponent.createObject(root, { device: String(id),
+      command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)].concat(fit ? ["--fit"] : []) })
+    var next = Object.assign({}, screenWatchers)
+    next[String(id)] = proc
+    screenWatchers = next
+    proc.running = true
+  }
+  Component {
+    id: watchComponent
+    Process {
+      id: watchProc
+      property string device: ""
+      stdout: SplitParser {
+        onRead: function(line) {
+          try {
+            var ev = JSON.parse(line)
+            if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
+            else if (ev.ev === "picture") root.screenPicture(String(ev.device || ""), String(ev.still || ""))
+            else if (ev.ev === "revealed") {
+              // The turn's timing, for diagnosing (no device data).
+              console.info("sceny.devices screen turn: new picture after " + ev.picture_ms + " ms, shown after " + ev.shown_ms + " ms")
+              root.screenRevealed(String(ev.device || ""))
+            }
+          } catch (e) {}
+        }
+      }
+      onExited: {
+        var next = Object.assign({}, root.screenWatchers)
+        delete next[watchProc.device]
+        root.screenWatchers = next
+        watchProc.destroy()
+      }
+    }
+  }
+
+  // The keyboard to its window, once the panel has let go of it.
+  function focusScreen(id) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-focus", String(id)])
+  }
+  // Under the bar (docked) or as a window: the open window moves now, the next opens so.
+  // `place`: where it docks ({ rect, ctx }, Panel.dockRectFor/dockCtx).
+  function dockScreen(id, docked, place) {
+    if (demo || !id) return
+    var cmd = [bridge, "screen-dock", String(id), docked ? "on" : "off"]
+    if (docked) cmd = cmd.concat(placeArgs(place))
+    Quickshell.execDetached(cmd)
+    if (docked && place) watchScreen(id, place.ctx)
+  }
+  function startScreenPair(id) {
+    if (pairProc.running || demoPairQr.running) return
+    screenPairing = { device: String(id), phase: "starting", qr: null, message: "" }
+    if (demo) { demoPairQr.running = true; return }
+    pairProc.command = [bridge, "screen-pair", String(id)]
+    pairProc.running = true
+  }
+  function stopScreenPair() {
+    screenPairing = null
+    if (pairProc.running) pairProc.running = false
+  }
+  function pairingEvent(ev) {
+    if (!screenPairing) return
+    var p = Object.assign({}, screenPairing)
+    if (ev.ev === "qr") { p.phase = "qr"; p.qr = Model.qrGrid(String(ev.ascii || "")) }
+    else if (ev.ev === "error") { p.phase = "error"; p.message = String(ev.message || "") }
+    else p.phase = String(ev.ev || "")
+    screenPairing = p
+    if (p.phase === "connected") {
+      readScreen(p.device)
+      screenPairing = null
+    }
+  }
+
+  Process {
+    id: screenProc
+    property string device: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        // Unreadable: no state, so a click waiting on it ends (setScreen).
+        var st = null
+        try { st = JSON.parse(text) } catch (e) {}
+        root.setScreen(screenProc.device, st)
+      }
+    }
+    onExited: if (root.screenThen !== "" && root.screenThen !== screenProc.device) Qt.callLater(function() { root.readScreen(root.screenThen) })
+  }
+  Process {
+    id: pairProc
+    stdout: SplitParser {
+      onRead: function(line) {
+        try { root.pairingEvent(JSON.parse(line)) } catch (e) {}
+      }
+    }
+    // Ended without an answer (the code ran out is an error event first).
+    onExited: function(code) {
+      if (root.screenPairing && root.screenPairing.phase !== "error")
+        root.screenPairing = Object.assign({}, root.screenPairing, { phase: "error", message: "Pairing stopped" })
+    }
+  }
+  // A demo's Screen: it waits like a connection, then opens nothing (the
+  // card grows back), or with demoScreen "opens" acts as if a window opened
+  // (the panel fades as the card, to see the hand-off).
+  Timer {
+    id: demoOpening
+    property string device: ""
+    interval: 2000
+    onTriggered: {
+      root.setBusy("screen", false)
+      if (root.demoScreenKind === "opens") { root.screenOpened(device); return }
+      root.report("Demo: no window opens", false)
+      root.screenOpenFailed(device)
+    }
+  }
+  // The demo's code: made like a real one, for a code nobody can use.
+  Process {
+    id: demoPairQr
+    command: ["qrencode", "-t", "ASCII", "-m", "0", "WIFI:T:ADB;S:sceny-demo;P:demo;;"]
+    stdout: StdioCollector {
+      onStreamFinished: root.pairingEvent({ ev: "qr", ascii: text })
+    }
   }
 
   // Pairing acts on any device the daemon knows, not only the one followed.
@@ -886,6 +1153,9 @@ Item {
       property string key: ""
       property var wait: null
       property int exitCode: -1
+      // Its success says nothing worth a toast (the screen's window opening
+      // is the answer itself); a failure is still said.
+      property bool quietSuccess: false
 
       stdout: StdioCollector { id: procOut }
       stderr: StdioCollector { id: procErr }
@@ -902,7 +1172,7 @@ Item {
           return
         }
         root.setBusy(proc.key, false)
-        if (proc.exitCode === 0) root.report(out, false)
+        if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false) }
         else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false)
         else root.report(err || out || "That did not work", true)
         proc.destroy()

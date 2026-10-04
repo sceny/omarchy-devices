@@ -6,6 +6,13 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+- **Screen** ([#2](https://github.com/sceny/omarchy-devices/issues/2)): the
+  phone's screen in a window here (scrcpy). Set up from the panel: install
+  on a click, the steps on the phone, and pairing by scanning a QR code.
+  It opens docked by the bar, phone-shaped, or as a window like any other.
+
 ## 0.7.0 — 2026-10-02
 
 ### Highlights

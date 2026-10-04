@@ -27,6 +27,8 @@
       ],
       "batteryLowOnly": true,
       "showCalls": true,
+      "screenDocked": true,
+      "screenFitTile": false,
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
@@ -178,6 +180,20 @@
         "label": "Calls",
         "defaultValue": true,
         "description": "While the phone rings, the caller in the bar and over the panel; a missed call stays until closed."
+      },
+      {
+        "key": "screenDocked",
+        "type": "boolean",
+        "label": "Screen opens under the bar",
+        "defaultValue": true,
+        "description": "The device's screen opens under its chip in the bar, in the device's own shape, on every workspace: the panel grows into it. Off, a window like any other."
+      },
+      {
+        "key": "screenFitTile",
+        "type": "boolean",
+        "label": "Fit a tiled screen to the device (experimental)",
+        "defaultValue": false,
+        "description": "When the screen opens as a window, beside another window its tile takes the device's width, and follows it as it turns. Hyprland has no such option; the plugin moves the tile's edge."
       },
       {
         "key": "lowBatteryPercent",

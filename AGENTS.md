@@ -32,6 +32,17 @@ its folder are caches under `~/.cache/sceny.devices/`.
   links every KDE bug report, merge request, branch and fork we create or
   follow; and a plugin issue (`bug`), blocked by it. The plugin changes only
   when the owner asks for a workaround.
+- **Second sources, one feature each, by the owner's decision.** The
+  device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
+  screen*`), which KDE Connect does not offer. Each second source serves
+  only its feature; everything else stays KDE Connect.
+- **Omarchy only: use what Omarchy provides.** Its commands
+  (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
+  `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
+  it installs (Avahi, `qrencode`, `uwsm-app`, ufw letting mDNS in) and its
+  Hyprland (Lua dispatch). Read `/usr/share/omarchy/bin` and
+  `/usr/share/omarchy/default/hypr` before writing a helper; no paths for
+  other distributions, compositors or an older Hyprland.
 - **The bridge speaks D-Bus; QML speaks to the bridge.** QML has no generic
   D-Bus binding, and every shell D-Bus client (`busctl`, `gdbus`) opens a
   connection per call and cannot listen. One Python process (PyGObject) holds
@@ -49,6 +60,9 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
+| `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
+| `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
@@ -266,9 +280,86 @@ Keep them; change one only with the owner.
   `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
   as KDE Connect shows it (one word). Pairing actions show their result
   in place (`Model.shownInPlace`): no toast unless they fail.
-- **Fixes change the system only on a click.** `fix install` and `fix firewall`
-  go through `pkexec` (one password prompt); the firewall rule is limited to
-  the local network the default route is on, never opened to everyone.
+- **Fixes change the system only on a click.** `fix install`, `fix firewall`,
+  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
+  packages through Omarchy's `omarchy-pkg-add`, with Omarchy's bin on the
+  `PATH` pkexec clears); the
+  firewall rule is limited to the local network the default route is on,
+  never opened to everyone.
+- **A feature that needs more than KDE Connect ships its own setup.** A
+  package, a setting on the device or a pairing is a step the panel walks
+  the user through: a check (Connection's row from `doctor`; optional when
+  only that feature needs it, so it never lights the gear's dot), a fix on
+  a click, and the steps on the device, each ticked when it is done. Never
+  a manual install in the docs instead. Test the setup on a machine
+  without the dependency before installing it, and install it through the
+  new fix.
+- **Pairing adb is the user's own act.** The panel shows a QR code (Android's
+  *Pair device with QR code*, a new name and password each time, two
+  minutes); the bridge pairs only with the device that scanned it. Reading
+  the state connects only to a device adb already trusts. Opening a real
+  device's screen in a check is the owner's go: it shows their data.
+- **The screen opens under the bar unless the device's `screenDocked`
+  is off** (the page's *Opens under the bar* / *Opens as a window*):
+  Omarchy's pop-out (floating, pinned, tagged `pop`, opaque like its
+  picture-in-picture) under the device's chip, in the device's own shape
+  (its display now, rotation and a foldable's screen included, fitted to
+  70% of the screen's height and 45% of its width: `Model.dockRect`,
+  `fit_display`). On Screen the card grows into that rectangle at
+  `Model.MOTION` and waits there (*Connecting…*, with one tip from
+  `Model.SCREEN_TIPS`, a different one each opening: only what is true of
+  scrcpy as it opens here, Alt shortcuts since Super belongs to Hyprland);
+  the window opens exactly
+  there under it (a Hyprland rule set with `hyprctl eval` just before; the
+  window inset by Hyprland's border, which is drawn outside it, so window
+  and border cover the card) and fades in; the panel then fades out as the
+  card, which keeps the phone's shape until it is gone. A failure grows the
+  card back. Its window already open: brought forward, no card journey.
+  Docking and undocking an open window go by its address, so the panel
+  keeps the keyboard.
+- **A docked screen follows the device's turns and folds, as Android turns
+  its own screen** (`screen-watch`, run by the service, JSON lines;
+  `ScreenTurn.qml`, mapped while a docked screen is open). scrcpy runs
+  verbose under `stdbuf -oL -eL` (written to a file, its lines were held
+  back), its output a log read every 10 ms. Its device side's
+  `DisplayMonitor: … -> …` comes before the new picture is sent: a still of
+  the window's own last picture (`grim -T`, by the window's toplevel id, so
+  it works while hidden) goes out with the `refit` event, the card shows it
+  over the window and turns it (the way the device turned, from Android's
+  rotation; a half turn upside down) or morphs it (a fold: each picture
+  fitted at its own proportions, never zoomed or stretched), softening as
+  it moves; the window hides and moves under it. When `Texture: WxH` says
+  the new picture came, a still of it (taken again while it is only the old
+  picture stretched to the new size) goes out as `picture`. The transition
+  is blur to reveal: the old picture blurs at once and stays blurred while
+  the new one is on its way (a few hundred ms on a real phone; a sharp
+  sideways picture held meanwhile reads as a third state), the new one
+  fades in under the blur, laid out for the new shape, then sharpens. Once
+  sharp, the window shows under it (`revealed`) and the card fades as one
+  layer (an item's opacity applies to each of its
+  parts: its background showed through). Stills live in
+  `$XDG_RUNTIME_DIR/sceny.devices/` and are removed after the turn; they
+  are this computer's own screen pixels, not a file the device sent.
+  `Texture` alone starts with the plain card, a frame late. A window the
+  user moved or resized stays put and turns in place. The bridge's
+  `dock_rect` mirrors `Model.dockRect`: change both, and their shared test
+  cases.
+- **What the platform does not offer natively is behind a switch marked
+  (experimental), off by default.** A screen that opens as a window is tiled
+  by Omarchy's layout; with *Fit its tile to it (experimental)*
+  (`screenFitTile`), its tile takes the device's width at the tile's
+  height, at most half the monitor, the window beside it the rest, when it
+  opens and as the device turns (`fit_tile`, `--fit`; the layout moves a
+  shared edge from either side, so the change is measured and corrected).
+  Alone on its workspace, a tile fills it.
+- **Keys the panel tells are this machine's,** read from Hyprland
+  (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
+  description or command; `bound_keys`), never assumed. An action with no
+  key here says *no shortcut*, on the page and in the tips alike.
+- **Setting up the screen adds the Screen shortcut, once.** When a
+  device's screen first reads ready with a panel open, Screen joins its
+  shortcuts (the flat keys with one device, its profile with several) and
+  its profile notes `screenShortcut: "added"`, so a removal stays removed.
 
 ## Workflow
 

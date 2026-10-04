@@ -803,3 +803,142 @@ test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
   assert.equal(M.pairSecondsLeft(0, 45000), 0, "never below 0")
   assert.equal(M.pairSecondsLeft(5000, 4000), 30, "a clock read before the start: never above 30")
 })
+
+test("screen and apps: an optional check never lights the gear's dot", () => {
+  const checks = [{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: true, status: "Running" },
+    { key: "screen", ok: false, optional: true, status: "Not installed", detail: "scrcpy and adb", fix: "screen", fixLabel: "Install" }]
+  const rows = M.connectionRows(checks, [])
+  const screen = rows.find(r => r.key === "screen")
+  assert.deepEqual([screen.label, screen.optional, screen.fix, screen.ignored], ["Screen and apps", true, "screen", false])
+  assert.equal(M.connectionIssues(checks, []), 0)
+  assert.equal(M.connectionSummary(checks, []), "1 more to set up", "optional and off: more can be done, nothing to fix")
+})
+
+test("connection pills: on, off (more can be set up) and failing", () => {
+  const base = [{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: true, status: "Running" },
+    { key: "firewall", ok: false, status: "Closed", fix: "firewall" }, { key: "network", ok: true }]
+  const installed = base.concat([{ key: "screen", ok: true, optional: true, status: "scrcpy 4.1", fix: "setup" }])
+  const states = (checks, ignored, ready) => M.connectionPills(checks, ignored, ready).map(p => p.label + ":" + p.state)
+  assert.deepEqual(states(installed, [], false), ["KDE Connect:on", "Firewall:fail", "Network:on", "Screen:off"],
+    "installed, not set up on the device: off, not on")
+  assert.deepEqual(states(installed, ["firewall"], true), ["KDE Connect:on", "Firewall:off", "Network:on", "Screen:on"], "ignored reads off")
+  assert.equal(M.connectionSummary(installed, [], false), "1 to fix", "a fix comes first")
+  assert.equal(M.connectionSummary(installed, ["firewall"], false), "2 more to set up")
+  assert.equal(M.connectionSummary(installed, ["firewall"], true), "1 more to set up")
+  const allOn = base.map(c => c.key === "firewall" ? Object.assign({}, c, { ok: true }) : c).concat([installed[4]])
+  assert.equal(M.connectionSummary(allOn, [], true), "Everything on")
+  const row = M.connectionRows(installed, [], false).find(r => r.key === "screen")
+  assert.deepEqual([row.ok, row.status, row.fix], [false, "Not set up on the device", "setup"])
+  const on = M.connectionRows(installed, [], true).find(r => r.key === "screen")
+  assert.deepEqual([on.ok, on.status, on.fix], [true, "On", ""])
+  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, [], false) })
+    .find(r => r.kind === "connection").pills
+  assert.equal(pills.length, 4)
+})
+
+test("screen and apps: each state's line, current step and actions", () => {
+  const phone = { name: "Pixel 8" }
+  const step = s => s.steps.filter(x => x.current).map(x => x.key)[0] || ""
+  const acts = s => s.actions.map(a => a.key)
+  const checking = M.screenSetup(null, phone, null)
+  assert.deepEqual([checking.line, acts(checking)], ["Checking…", []])
+  const tools = M.screenSetup(M.demoScreen("tools"), phone, null)
+  assert.deepEqual([step(tools), acts(tools)], ["tools", ["install"]])
+  const pair = M.screenSetup(M.demoScreen("pair"), phone, null)
+  assert.deepEqual([step(pair), acts(pair), pair.showQr], ["developer", ["pair", "check"], false])
+  assert.ok(pair.usbNote !== "", "older phones: the cable")
+  const waiting = M.screenSetup(M.demoScreen("pair"), phone, { phase: "qr", qr: { size: 21, dark: [] } })
+  assert.deepEqual([acts(waiting), waiting.showQr, waiting.pairingNote], [["stopPair", "check"], true, "Waiting for Pixel 8 to scan it…"])
+  assert.equal(step(waiting), "pair", "a code on show: scanning it is the step")
+  const failed = M.screenSetup(M.demoScreen("pair"), phone, { phase: "error", message: "The code was not scanned in time" })
+  assert.deepEqual([acts(failed)[0], failed.showQr, failed.pairingNote], ["pair", false, "The code was not scanned in time"])
+  const seen = M.screenSetup(M.demoScreen("seen"), phone, null)
+  assert.deepEqual([seen.steps.map(x => x.done), step(seen)], [[true, true, true, false], "pair"], "Wireless debugging seen: ticked, the code is next")
+  assert.equal(seen.line, "Wireless debugging is on: scan the code with Pixel 8")
+  const off = M.screenSetup(M.demoScreen("off"), phone, null)
+  assert.deepEqual([step(off), acts(off)[0]], ["wireless", "pair"], "off: trusted before; Wireless debugging is the step")
+  assert.match(off.line, /Wireless debugging is off on Pixel 8/)
+  const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
+  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place"]])
+  assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
+  assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
+  assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")
+  assert.deepEqual(M.screenKeyLines({ pop: ["Alt", "P"] }, true).map(k => M.keyText(k.keys) + " " + k.text),
+                   ["Alt+P Frees it from the bar", "no shortcut Full screen, once freed", "Alt+P Again: back under the bar"],
+                   "this machine's keys; none for full screen here: said")
+  assert.deepEqual(M.screenKeyLines({}, false).map(k => k.keys), [null], "no key: no shortcut, not a made-up one")
+  assert.deepEqual(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].keys.map(k => k.keys.join("+")), ["Super+F"])
+  assert.equal(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].docked, false)
+  assert.equal(M.readSettings({}).defaults.screenDocked, true)
+  assert.equal(M.readSettings({}).defaults.screenFitTile, false, "experimental: off unless chosen")
+  assert.ok(!M.screenRows(ready).some(r => r.key === "fitTile"), "docked: no tile to fit")
+  const tiled = M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false, true))
+  assert.deepEqual(tiled.filter(r => r.key === "fitTile").map(r => [r.label, r.on]), [["Fit its tile to it (experimental)", true]])
+  const usb = M.screenSetup({ state: "ready", tools: { ok: true }, via: "usb", android: "9", apps: false }, phone, null)
+  assert.equal(usb.line, "Ready over USB · Android 9. Apps in windows need Android 10")
+  assert.match(M.screenSetup(M.demoScreen("pair"), { name: "Galaxy S24" }, null).steps[1].text, /Software information/, "Samsung's own path")
+})
+
+test("screen and apps: set up adds the Screen shortcut once, where the device's shortcuts live", () => {
+  const dev = { id: "p1", paired: true }
+  const one = M.readSettings({ shortcuts: ["ring", "messages"] })
+  const changes = M.screenShortcutChanges({ shortcuts: ["ring", "messages"] }, "p1", M.resolveProfile(one, dev, true), true, true)
+  assert.deepEqual(changes.shortcuts, ["ring", "messages", "screen"], "one device: the flat keys")
+  assert.equal(changes.devices.p1.screenShortcut, "added")
+  const after = M.readSettings(Object.assign({ shortcuts: ["ring", "messages"] }, changes, { shortcuts: ["ring"] }))
+  assert.equal(M.screenShortcutChanges({}, "p1", M.resolveProfile(after, dev, true), true, true), null, "taken away later: stays away")
+  const many = M.readSettings({})
+  const own = M.screenShortcutChanges({}, "p1", M.resolveProfile(many, dev, false), false, false)
+  assert.ok(!("shortcuts" in own), "several devices: not the defaults")
+  assert.deepEqual(own.devices.p1.shortcuts.slice(-1), ["screen"])
+  const has = M.readSettings({ shortcuts: ["screen"] })
+  assert.ok(!("shortcuts" in M.screenShortcutChanges({}, "p1", M.resolveProfile(has, dev, true), true, true)), "already there: only the note")
+})
+
+test("screen opening: any device's shape, where the card is", () => {
+  const top = { barPos: "top", screenW: 2560, screenH: 1440, barW: 2560, barH: 35, gap: 5, margin: 5, anchorX: 2200, anchorY: 0, anchorW: 40, anchorH: 35 }
+  const phone = M.dockRect(Object.assign({ display: [1080, 2316] }, top))
+  assert.deepEqual([phone.w, phone.h, phone.y], [470, 1008, 40], "a phone meets the height, under the bar")
+  assert.equal(phone.x, 2220 - 235, "centred on the chip, as Omarchy's cards are")
+  const tablet = M.dockRect(Object.assign({ display: [2560, 1600] }, top))
+  assert.deepEqual([tablet.w, tablet.h], [1152, 720], "a tablet in landscape meets the width")
+  assert.equal(tablet.x, 2560 - 1152 - 5, "kept on the screen")
+  const fold = M.dockRect(Object.assign({ display: [2176, 1812] }, top))
+  assert.ok(Math.abs(fold.w / fold.h - 2176 / 1812) < 0.01, "an open foldable keeps its shape")
+  const unknown = M.dockRect(Object.assign({ display: null }, top))
+  assert.equal(unknown.h, 1008, "unknown: a phone's shape")
+  const low = M.dockRect(Object.assign({ display: [1080, 2316] }, top, { barPos: "bottom" }))
+  assert.equal(low.y, 1440 - 35 - 1008 - 5)
+})
+
+test("screen and apps: a row on the device's page, and a Screen shortcut", () => {
+  const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" } })
+  assert.ok(rows.some(r => r.kind === "screen"), "the one-device page")
+  assert.ok(!M.settingsPageRows({ scope: "defaults", single: false, devices: [] }).some(r => r.kind === "screen"), "not the defaults: it is a device's")
+  assert.equal(M.shortcutByKey("screen").needs, "", "scrcpy, not KDE Connect: shown whatever the device offers")
+})
+
+test("screen tips: one each opening, all of them in turn, with this machine's keys", () => {
+  const keys = { pop: ["Super", "O"], fullscreen: ["Super", "F"] }
+  const seen = new Set()
+  for (let n = 0; n < M.SCREEN_TIPS.length; n++) seen.add(M.screenTip(1000 + n, keys))
+  assert.equal(seen.size, M.SCREEN_TIPS.length)
+  assert.ok(seen.has("Free it (Super+O), then full screen (Super+F)"))
+  const rebound = new Set(M.SCREEN_TIPS.map((_, n) => M.screenTip(n, { pop: ["Alt", "P"], fullscreen: ["Super", "F"] })))
+  assert.ok(rebound.has("Free it (Alt+P), then full screen (Super+F)"), "the machine's own key")
+  const none = new Set(M.SCREEN_TIPS.map((_, n) => M.screenTip(n, {})))
+  assert.ok(none.has("Free it (no shortcut), then full screen (no shortcut)"), "no key here: said, as on the page")
+  assert.ok(M.SCREEN_TIPS.every(t => t.length <= 60), "short enough for the card")
+})
+
+test("screen tips: up long enough to be read, never long", () => {
+  assert.equal(M.tipReadMs(""), 1000)
+  assert.equal(M.tipReadMs("Right-click is Back, middle-click is Home"), 1000 + 20 * 41)
+  assert.ok(M.SCREEN_TIPS.every(t => M.tipReadMs(t) <= 2200))
+  assert.equal(M.tipReadMs("x".repeat(500)), 2200)
+})
+
+test("screen: the window's title, as the bridge names it", () => {
+  assert.equal(M.screenTitle("Pixel 8"), "Pixel 8 · Screen")
+  assert.equal(M.screenTitle(""), "Device · Screen")
+})

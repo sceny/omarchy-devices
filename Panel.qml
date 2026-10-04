@@ -202,21 +202,22 @@ Panel {
   // from settings (the height). Only page changes animate it: a fold already
   // animates the height itself, and a second animation on top would lag.
   // The page's width, plus its margins on both sides (pageGutter).
-  readonly property real targetCardWidth: panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
+  readonly property real targetCardWidth: screenOpeningRect ? screenOpeningRect.w
+    : panel.fittedContentWidth((showMessages ? Style.space(880) : Style.space(400)) + 2 * pageGutter)
   // The margin every page keeps on both sides, wide enough for the scroll
   // bar (about 7 px, drawn at the right edge) and a gap: when the bar shows,
   // nothing is under it, and nothing shifts when it comes or goes.
   readonly property real pageGutter: Style.space(12)
   // No cap of our own: KeyboardPanel already clamps to what fits on screen.
-  readonly property real targetCardHeight: panel.fittedContentHeight(column.implicitHeight)
+  readonly property real targetCardHeight: screenOpeningRect ? screenOpeningRect.h : panel.fittedContentHeight(column.implicitHeight)
   property real cardWidth: targetCardWidth
   property real cardHeight: targetCardHeight
   Behavior on cardWidth {
-    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running || root.cardMorphing
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
   Behavior on cardHeight {
-    enabled: pageSwap.running || deviceSwap.running || previewSwap.running
+    enabled: pageSwap.running || deviceSwap.running || previewSwap.running || root.cardMorphing
     NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
   }
 
@@ -330,6 +331,11 @@ Panel {
   // The service sends results to Omarchy's on-screen display while no panel
   // is open (the file chooser closes it, for one).
   onOpenedChanged: {
+    // The screen opening outlives the panel's fade (the card stays the
+    // waiting window while it fades over the real one); opened again, the
+    // card is the page from the start.
+    if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
+    else if (screenOpening) openingGone.restart()
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
     if (opened) settleTimer.restart()
@@ -393,6 +399,211 @@ Panel {
   // The profile the page's groups edit: the device's own on its page, else
   // the defaults (with one device, the flat keys as always).
   readonly property var editProfile: editingDevice ? scopeProfile : Model.resolveProfile(profilesRead, null, true)
+  // Screen and apps: a page for one device ("screen:<id>"), set up through
+  // scrcpy and adb (Model.screenSetup); reached from the Screen shortcut
+  // and from the device's page.
+  readonly property string screenId: settingsScope.indexOf("screen:") === 0 ? settingsScope.slice(7) : ""
+  readonly property var screenDevice: {
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === screenId) return list[i]
+    return null
+  }
+  readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
+  readonly property var screenSetup: screenId === "" ? null
+    : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId))
+  // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
+  // the flat keys).
+  function screenDockedFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenDocked
+    return true
+  }
+  // Experimental: a tiled screen's tile takes the device's width.
+  function screenFitFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenFitTile
+    return false
+  }
+  function toggleScreenFit(id) {
+    var next = !screenFitFor(id)
+    if (singleDevice) persistSettings({ screenFitTile: next })
+    else persistDeviceProfile(String(id), { screenFitTile: next })
+  }
+  function toggleScreenDocked(id) {
+    var next = !screenDockedFor(id)
+    if (singleDevice) persistSettings({ screenDocked: next })
+    else persistDeviceProfile(String(id), { screenDocked: next })
+    if (phone) phone.dockScreen(id, next, { rect: dockRectFor(id), ctx: dockCtx() })
+  }
+  // The viewed device's screen works: the Screen pill and row are on. Read
+  // when Settings opens, once scrcpy is here (about a second; never in a demo
+  // of the checks).
+  readonly property bool screenReady: {
+    var st = phone && device ? phone.screenOf(String(device.id)) : null
+    return !!st && st.state === "ready"
+  }
+  readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
+  function readScreenForPills() {
+    if (phone && device && opened && showSettings && screenInstalled) phone.readScreen(String(device.id))
+  }
+  onShowSettingsChanged: readScreenForPills()
+  onScreenInstalledChanged: readScreenForPills()
+  function openScreenSetup(id) {
+    if (!id) return
+    if (!settingsOpen) openSettings()
+    openScope("screen:" + id)
+    if (phone) phone.readScreen(id)
+  }
+  // A Connection row's button: its fix, or for Screen and apps once
+  // installed, the viewed device's setup page.
+  function fixRequested(what) {
+    if (!phone) return
+    if (what === "setup") openScreenSetup(device ? String(device.id) : "")
+    else phone.fixSetup(what)
+  }
+  // Wireless debugging seen on the device while its page shows: the code
+  // shows by itself, once per visit (Stop, or a failure, leaves it to the
+  // button). Showing a code pairs nothing until the device scans it.
+  property string screenAutoPaired: ""
+  onScreenSetupChanged: {
+    var s = screenSetup
+    if (!s || !phone || !opened || !showSettings || screenPairing || screenAutoPaired === screenId) return
+    var st = phone.screenOf(screenId)
+    if (st && st.seen === true && (s.state === "pair" || s.state === "off")) {
+      screenAutoPaired = screenId
+      phone.startScreenPair(screenId)
+    }
+  }
+  // ---- The screen opening, docked: the card becomes the window ----
+  // On Screen, the card grows into the docked window's rectangle (the
+  // device's display fitted under the chip, Model.dockRect) and waits there
+  // (Connecting…); the window opens at exactly that place under it, with no
+  // animation of its own, then the panel fades out over it. Tiled, the tile
+  // waits instead. A failure grows the card back to the page.
+  property var screenOpening: null        // { id, name, tip } while it opens
+  // Which tip the next opening shows: in memory, from the day, so a restart
+  // does not start over at the first.
+  property int screenTipNext: Math.floor(Date.now() / 86400000)
+  property bool cardMorphing: false       // the card's size follows at MOTION
+  // The chip's place, as KeyboardPanel places a card: the bridge keeps a
+  // docked window there when the device turns or unfolds.
+  function dockCtx() {
+    var a = panel.anchorScreenPos
+    return { barPos: panel.barPos, screenW: panel.screenW, screenH: panel.screenH,
+      barW: panel.barW, barH: panel.barH, gap: panel.gap, margin: panel.margin,
+      anchorX: a.x, anchorY: a.y, anchorW: panel.anchorW, anchorH: panel.anchorH }
+  }
+  function dockRectFor(id) {
+    return Model.dockRect(Object.assign({ display: phone ? phone.screenDisplay(String(id)) : null }, dockCtx()))
+  }
+  readonly property var screenOpeningRect: screenOpening ? dockRectFor(screenOpening.id) : null
+  function startScreenOpening(d) {
+    if (!phone || !d || screenOpening) return
+    // Its docked window is open already (wherever the user put it): brought
+    // forward, no card journey to a place it may not be.
+    if (phone.screenWatchers[String(d.id)]) {
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(String(d.id)) })
+      return
+    }
+    cardMorphing = true
+    morphSettle.stop()
+    var known = phone.screenOf(String(d.id))
+    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext, known ? known.keys : null), since: Date.now() }
+    screenTipNext++
+    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
+  }
+  function endScreenOpening() {
+    if (!screenOpening) return
+    screenOpening = null
+    morphSettle.restart()
+  }
+  // A demo turn: the watcher's "revealed", as a new picture would bring it.
+  Timer { id: demoReveal; interval: 450; onTriggered: if (root.phone) root.phone.screenRevealed("demo") }
+  // The screen is open under the card: the panel fades out over it, and the
+  // keyboard goes to it.
+  function handOffScreen(id) {
+    if (!opened) return
+    close()
+    if (phone) Qt.callLater(function() { root.phone.focusScreen(id) })
+  }
+  Timer { id: handOff; property string device: ""; onTriggered: root.handOffScreen(device) }
+  // KeyboardPanel fades out in 140 ms: the opening ends after that.
+  Timer {
+    id: openingGone
+    interval: 220
+    onTriggered: if (!root.opened) { root.screenOpening = null; root.cardMorphing = false }
+  }
+  // The card's size animates while the shape changes, and for one beat
+  // after it goes back.
+  Timer {
+    id: morphSettle
+    interval: Model.MOTION.inMs * root.motion + 40
+    onTriggered: if (!root.screenOpening) root.cardMorphing = false
+  }
+  function screenAction(key) {
+    if (!phone || screenId === "") return
+    if (key === "install") phone.fixSetup("screen")
+    else if (key === "pair") phone.startScreenPair(screenId)
+    else if (key === "stopPair") phone.stopScreenPair()
+    else if (key === "check") phone.readScreen(screenId)
+    else if (key === "open" && phone.screenIsOpen(screenId)) {
+      // Open: brought forward with the keyboard, as the shortcut does.
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(root.screenId) })
+    }
+    else if (key === "open") {
+      if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
+      else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
+    }
+    else if (key === "place") toggleScreenDocked(screenId)
+    else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "fitTile") toggleScreenFit(screenId)
+  }
+  // Read again while the page shows (a setting turned on, the cable
+  // plugged in, the install done); a pairing on the page stops when it goes.
+  Timer {
+    interval: 3000
+    repeat: true
+    running: root.opened && root.showSettings && root.screenId !== "" && !root.screenPairing
+    onTriggered: if (root.phone) root.phone.readScreen(root.screenId)
+  }
+  onScreenIdChanged: {
+    if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
+    screenAutoPaired = ""
+  }
+  Connections {
+    target: root.phone
+    function onScreenSetupNeeded(id) {
+      root.endScreenOpening()
+      if (root.opened) root.openScreenSetup(id)
+    }
+    // A place opened: the panel fades out over it (docked, the window is
+    // where the card was), and the keyboard goes to it.
+    function onScreenOpened(id) {
+      if (!root.opened) return
+      // The tip stays up long enough to be read; a slower phone adds nothing.
+      var o = root.screenOpening
+      var wait = o && o.tip ? Model.tipReadMs(o.tip) - (Date.now() - o.since) : 0
+      handOff.device = id
+      if (wait > 0) { handOff.interval = wait; handOff.restart() }
+      else root.handOffScreen(id)
+    }
+    function onScreenOpenFailed(id) { root.endScreenOpening() }
+    // Set up: the Screen shortcut joins the device's shortcuts, once (the
+    // user may take it away). Only an open panel writes, so one monitor's.
+    function onScreenStatesChanged() {
+      if (!root.opened || !root.phone) return
+      for (var i = 0; i < root.pairedDevices.length; i++) {
+        var d = root.pairedDevices[i]
+        var st = root.phone.screenOf(String(d.id))
+        if (!st || st.state !== "ready" || root.phone.demo) continue
+        var changes = Model.screenShortcutChanges(root.settings, String(d.id), Model.resolveProfile(root.profilesRead, d, i === 0), root.singleDevice, i === 0)
+        if (changes) root.persistSettings(changes)
+      }
+    }
+  }
   // What the settings page binds to: never missing, even for the moment a
   // reload tears the panel down.
   readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true, showPhotos: true, showReceived: true,
@@ -523,12 +734,14 @@ Panel {
     onTriggered: if (root.phone) root.phone.searchDevices(true)
   }
 
-  readonly property var settingsRows: settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
+  readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
+    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks, screenReady)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
-    connection: Model.connectionSummary(setupChecks, ignoredChecks),
+    connection: Model.connectionSummary(setupChecks, ignoredChecks, screenReady),
+    connectionPills: Model.connectionPills(setupChecks, ignoredChecks, screenReady),
     devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
@@ -644,7 +857,14 @@ Panel {
     return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
       rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
   }
+  function screenInfo() {
+    var s = screenSetup
+    return JSON.stringify(s ? { state: s.state, line: s.line, current: s.steps.filter(function(x) { return x.current }).map(function(x) { return x.key }),
+      pairing: s.pairingNote, qr: s.showQr, actions: s.actions.map(function(a) { return a.key }) } : { scope: settingsScope })
+  }
   function settingsBack() {
+    // Screen and apps goes back to its device's page (with one device, root).
+    if (screenId !== "") { openScope(manyDevices ? screenId : "root"); return true }
     if (settingsScope !== "root") { openScope("root"); return true }
     return false
   }
@@ -694,7 +914,7 @@ Panel {
   // device all of Settings (its settings), name the device.
   readonly property bool heroNeutral: showSettings
     && (settingsScope === "connection" || settingsScope === "addDevice" || (manyDevices && !editingDevice))
-  readonly property var heroDevice: heroNeutral ? null : (showSettings && editingDevice ? scopeDevice : device)
+  readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : (showSettings && editingDevice ? scopeDevice : device))
   readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
   property bool nicknameFocused: false
@@ -1030,6 +1250,11 @@ Panel {
   readonly property var sections: drawnSections
 
 
+  // A shortcut that is on: the Screen, while its window is open.
+  function actionOn(key) {
+    return key === "screen" && !!phone && !!device && phone.screenIsOpen(String(device.id))
+  }
+
   function runAction(key) {
     if (!phone) return
     if (key === "ring") phone.ring()
@@ -1040,6 +1265,15 @@ Panel {
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
     else if (key === "kdeconnect") { phone.openKdeConnect(); root.close() }
+    else if (key === "screen" && device && phone.screenIsOpen(String(device.id))) {
+      // Its screen is open: brought forward with the keyboard, at once.
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(String(root.device.id)) })
+    }
+    else if (key === "screen" && device) {
+      if (screenDockedFor(String(device.id))) startScreenOpening(device)
+      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)))
+    }
   }
 
   // ---- Settings ----
@@ -1138,7 +1372,9 @@ Panel {
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
     else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
-    else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
+    else if (row.kind === "check" && phone && row.fix !== "" && (!row.ok || row.optional)) fixRequested(row.fix)
+    else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
+    else if (row.kind === "screenAction") screenAction(row.key)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1529,7 +1765,7 @@ Panel {
       else { root.settingsOpen = false; root.messagesOpen = false }
       return root.targetPage
     }
-    function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; return String(root.motion) }
+    function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; if (root.phone) root.phone.turnMotion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
     // Demo: sample failing checks on this computer, to look at the fixes and
@@ -1546,6 +1782,57 @@ Panel {
         { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" }
       ]
       return JSON.stringify({ issues: root.computerIssues })
+    }
+    // Screen and apps on the viewed device: its page, as the device's row
+    // would open it; what the page shows. demoScreen: a made-up state
+    // (tools, pair, off, unauthorized, away, ready; demo only).
+    function screen(): string { if (root.device) root.openScreenSetup(String(root.device.id)); return root.screenInfo() }
+    function screenInfo(): string { return root.screenInfo() }
+    function demoScreen(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.phone.demoScreenKind = kind || "pair"
+      if (root.device) root.phone.readScreen(String(root.device.id))
+      return root.screenInfo()
+    }
+    // Where a docked screen goes on this panel's screen: the chip's place
+    // (what the bridge's watcher gets), for checks.
+    // Where the viewed device's docked screen would open, from the shape the
+    // panel knows now (the status, else the one kept), for checks.
+    function dockRect(): string { return JSON.stringify(root.device ? root.dockRectFor(String(root.device.id)) : null) }
+    function dockCtx(): string { return JSON.stringify(Object.assign({ monitor: panel.screen ? panel.screen.name : "" }, root.dockCtx())) }
+    // Demo only: a watcher's event as it would come (refit, revealed), for
+    // a check driven from outside with a stand-in window.
+    function screenEvent(json: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var ev = JSON.parse(json)
+      if (ev.ev === "refit") root.phone.screenTurn = Object.assign({ at: Date.now() }, ev)
+      else if (ev.ev === "revealed") root.phone.screenRevealed(String(ev.device || ""))
+      else if (ev.ev === "picture") root.phone.screenPicture(String(ev.device || ""), String(ev.still || ""))
+      return "ok"
+    }
+    // Demo only: the docked screen turning or folding, as the watcher
+    // reports it (kind: turn or morph), on this panel's screen.
+    function demoTurn(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var from = root.dockRectFor("demo")
+      var shape = kind === "turn" ? [2400, 1080] : [2176, 1812]
+      var to = Model.dockRect(Object.assign({ display: shape }, root.dockCtx()))
+      root.phone.screenTurn = { kind: kind === "turn" ? "turn" : "morph", angle: -90, from: [from.x, from.y, from.w, from.h],
+        to: [to.x, to.y, to.w, to.h], monitor: panel.screen ? panel.screen.name : "", device: "demo", at: Date.now() }
+      demoReveal.restart()
+      return JSON.stringify(root.phone.screenTurn)
+    }
+    // Demo only: the Screen shortcut as a click would (docked, the card
+    // becomes the window; a demo opens none, so it grows back).
+    function pressScreen(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.runAction("screen")
+      return JSON.stringify({ opening: root.screenOpening, rect: root.screenOpeningRect })
+    }
+    function pressScreenAction(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.screenAction(key)
+      return root.screenInfo()
     }
     // Demo: the phone away, last seen 12 minutes ago on this network.
     function demoAway(): string {
@@ -2047,10 +2334,103 @@ Panel {
         }
       }
 
+      // The screen opening: in the card as it becomes the window, the device
+      // and a ring until the window takes its place.
+      Column {
+        anchors.centerIn: parent
+        width: parent.width - 2 * root.pageGutter
+        spacing: Style.space(10)
+        opacity: root.screenOpening ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: Model.GLYPH.screen
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon * 2
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: parent.width
+          horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.WordWrap
+          textFormat: Text.PlainText
+          text: root.screenOpening ? "Connecting to " + root.screenOpening.name + "…" : ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: "\u{F0996}"
+          color: Qt.darker(root.foreground, 1.55)
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+          RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: !!root.screenOpening }
+        }
+      }
+      // Tips: a section of its own at the foot of the waiting card, one tip
+      // each opening, up long enough to be read (Model.tipReadMs).
+      Rectangle {
+        id: tipBox
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.margins: root.pageGutter
+        height: tipColumn.implicitHeight + 2 * Style.space(12)
+        radius: Style.cornerRadius
+        color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+        border.width: 1
+        border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+        opacity: root.screenOpening && root.screenOpening.tip ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        Column {
+          id: tipColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: Style.space(14)
+          anchors.rightMargin: Style.space(14)
+          spacing: Style.space(6)
+          Row {
+            spacing: Style.space(6)
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              text: Model.GLYPH.tip
+              color: Color.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.body
+            }
+            PanelSectionHeader {
+              anchors.verticalCenter: parent.verticalCenter
+              text: "TIP"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+            }
+          }
+          Text {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            textFormat: Text.PlainText
+            text: root.screenOpening && root.screenOpening.tip ? root.screenOpening.tip : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+            lineHeight: 1.15
+          }
+        }
+      }
+
       Flickable {
         id: panelFlick
         WheelScroll { flickable: panelFlick; motion: root.motion }
         anchors.fill: parent
+        // The screen opening: the page gives way to the waiting window.
+        opacity: root.screenOpening ? 0 : 1
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.outMs : Model.MOTION.inMs) * root.motion; easing.type: Easing.OutCubic } }
         contentWidth: width
         contentHeight: column.implicitHeight
         clip: true
@@ -2388,7 +2768,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings"
+            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
@@ -2568,7 +2948,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
+            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
@@ -2606,7 +2986,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Settings")
+                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: {
@@ -2896,9 +3276,9 @@ Panel {
                           required property var modelData
                           required property int index
                           iconText: modelData.glyph
-                          tooltipText: modelData.label
+                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : modelData.label
                           size: Style.space(22)
-                          foreground: root.foreground
+                          foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
                           fontFamily: root.fontFamily
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
@@ -3646,7 +4026,7 @@ Panel {
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
                     readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
-                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "Connection")
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Connection")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground
@@ -3712,7 +4092,12 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                screenSetup: root.screenSetup
+                screenQr: root.screenPairing ? root.screenPairing.qr : null
+                screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)
+                onScreenPlaceChosen: function(docked) { if (root.screenDockedFor(root.screenId) !== docked) root.toggleScreenDocked(root.screenId) }
+                onScreenCloseRequested: if (root.phone) root.phone.closeScreen(root.screenId)
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
@@ -3743,7 +4128,7 @@ Panel {
                 appPlatform: root.appPlatform
                 onAppPlatformSet: function(p) { root.setAppPlatform(p) }
                 justPaired: root.justPaired
-                onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                onFixRequested: function(what) { root.fixRequested(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview
                 onPreviewRequested: root.startPreview()
@@ -4503,6 +4888,20 @@ Panel {
     property var action: ({})
     property int tileIndex: 0
     readonly property bool working: root.phone ? root.phone.isBusy(action.key) : false
+    // On (the Screen while its window is open): tinted in the accent, with
+    // a ✕ to turn it off; a click brings it forward.
+    readonly property bool isOn: root.actionOn(action.key)
+
+    Rectangle {
+      anchors.fill: parent
+      radius: tile.radius
+      color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+      border.width: 1
+      border.color: Color.accent
+      opacity: tile.isOn ? 1 : 0
+      visible: opacity > 0
+      Behavior on opacity { NumberAnimation { duration: (tile.isOn ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+    }
 
     hasCursor: false
     CursorStop { here: root.cursorActive && root.focusSection === "actions" && root.actionIndex === tileIndex; glide: root.cursorGlide }
@@ -4524,7 +4923,7 @@ Panel {
           id: tileGlyph
           anchors.centerIn: parent
           text: tile.action.glyph || ""
-          color: root.foreground
+          color: tile.isOn ? Color.accent : root.foreground
           opacity: tile.working ? 0 : 1.0
           font.family: root.fontFamily
           font.pixelSize: Style.font.heading + 2
@@ -4558,9 +4957,23 @@ Panel {
       onClicked: root.runAction(tile.action.key)
     }
 
+    // Turns it off (closes its screen's window), over the tile's own click.
+    PanelActionButton {
+      visible: tile.isOn
+      anchors.top: parent.top
+      anchors.right: parent.right
+      anchors.margins: Style.space(2)
+      size: Style.space(18)
+      iconText: Model.GLYPH.close
+      tooltipText: "Close its screen"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onClicked: if (root.phone && root.device) root.phone.closeScreen(String(root.device.id))
+    }
+
     PanelToolTip {
       visible: tileMouse.containsMouse && (tile.action.hint || "") !== ""
-      text: tile.action.hint || ""
+      text: tile.isOn ? "Its screen is open: click to bring it forward" : (tile.action.hint || "")
       fontFamily: root.fontFamily
     }
   }
