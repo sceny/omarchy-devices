@@ -931,6 +931,8 @@ Column {
     readonly property bool optional: row.optional === true
     readonly property bool failing: row.ok !== true && row.ignored !== true && !optional
     readonly property bool offering: row.ok !== true && (failing || optional)
+    // Optional and installed: its button leads to the next step (Set up a device).
+    readonly property bool leading: row.ok === true && optional && (row.fix || "") !== ""
     readonly property bool fixing: root.setupFixing[row.fix] === true
     hasCursor: false
     CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
@@ -996,7 +998,7 @@ Column {
         }
       }
       Button {
-        visible: checkRow.offering && (checkRow.row.fix || "") !== ""
+        visible: (checkRow.offering || checkRow.leading) && (checkRow.row.fix || "") !== ""
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
         iconText: checkRow.fixing ? "\u{F0996}" : ""

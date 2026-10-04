@@ -411,6 +411,26 @@ Panel {
     openScope("screen:" + id)
     if (phone) phone.readScreen(id)
   }
+  // A Connection row's button: its fix, or for Screen and apps once
+  // installed, the viewed device's setup page.
+  function fixRequested(what) {
+    if (!phone) return
+    if (what === "setup") openScreenSetup(device ? String(device.id) : "")
+    else phone.fixSetup(what)
+  }
+  // Wireless debugging seen on the device while its page shows: the code
+  // shows by itself, once per visit (Stop, or a failure, leaves it to the
+  // button). Showing a code pairs nothing until the device scans it.
+  property string screenAutoPaired: ""
+  onScreenSetupChanged: {
+    var s = screenSetup
+    if (!s || !phone || !opened || !showSettings || screenPairing || screenAutoPaired === screenId) return
+    var st = phone.screenOf(screenId)
+    if (st && st.seen === true && (s.state === "pair" || s.state === "off")) {
+      screenAutoPaired = screenId
+      phone.startScreenPair(screenId)
+    }
+  }
   function screenAction(key) {
     if (!phone || screenId === "") return
     if (key === "install") phone.fixSetup("screen")
@@ -427,7 +447,10 @@ Panel {
     running: root.opened && root.showSettings && root.screenId !== "" && !root.screenPairing
     onTriggered: if (root.phone) root.phone.readScreen(root.screenId)
   }
-  onScreenIdChanged: if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
+  onScreenIdChanged: {
+    if (screenId === "" && phone && phone.screenPairing) phone.stopScreenPair()
+    screenAutoPaired = ""
+  }
   Connections {
     target: root.phone
     function onScreenSetupNeeded(id) { if (root.opened) root.openScreenSetup(id) }
@@ -1186,7 +1209,7 @@ Panel {
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
     else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
     else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
-    else if (row.kind === "check" && phone && !row.ok && row.fix !== "") phone.fixSetup(row.fix)
+    else if (row.kind === "check" && phone && row.fix !== "" && (!row.ok || row.optional)) fixRequested(row.fix)
     else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
     else if (row.kind === "screenAction") screenAction(row.key)
   }
@@ -3811,7 +3834,7 @@ Panel {
                 appPlatform: root.appPlatform
                 onAppPlatformSet: function(p) { root.setAppPlatform(p) }
                 justPaired: root.justPaired
-                onFixRequested: function(what) { if (root.phone) root.phone.fixSetup(what) }
+                onFixRequested: function(what) { root.fixRequested(what) }
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview
                 onPreviewRequested: root.startPreview()

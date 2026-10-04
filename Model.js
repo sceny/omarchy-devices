@@ -1111,17 +1111,21 @@ function screenSetup(status, device, pairing) {
   var state = String(s.state || "checking")
   var ready = state === "ready"
   var trusted = ready || state === "off" || state === "unauthorized"
+  // Wireless debugging seen on this Wi-Fi (the device announces it): the
+  // steps before the code are done, whatever adb knows yet.
+  var seen = s.seen === true
   var samsung = isSamsung(device)
   var phase = pairing ? String(pairing.phase || "") : ""
   var steps = [
     { key: "tools", text: "scrcpy and adb on this computer", done: tools.ok === true },
-    { key: "developer", done: trusted,
+    { key: "developer", done: trusted || seen,
       text: "On " + name + ", turn on Developer options: " + (samsung ? "Settings › About phone › Software information" : "Settings › About phone")
-        + " › tap Build number seven times" },
-    { key: "wireless", done: ready,
-      text: "Turn on Wireless debugging: Settings › " + (samsung ? "" : "System › ") + "Developer options › Wireless debugging, and allow it on this Wi-Fi" },
+        + " › tap Build number seven times (it asks for your PIN)" },
+    { key: "wireless", done: ready || seen,
+      text: "Turn on Wireless debugging: Settings › " + (samsung ? "Developer options (at the bottom)" : "System › Developer options")
+        + " › Wireless debugging, and Allow on this network. This page ticks it when it sees it" },
     { key: "pair", done: trusted, qr: true,
-      text: "Tap Pair device with QR code, and scan the code here" }
+      text: "Tap the words Wireless debugging to open it, then Pair device with QR code, and scan the code here" }
   ]
   // A code on show: the steps before it are done on the device by now,
   // so scanning it is the step.
@@ -1133,8 +1137,10 @@ function screenSetup(status, device, pairing) {
   var line = {
     checking: "Checking…",
     tools: "Install scrcpy and adb to see " + name + "'s screen, and open its apps in windows, here",
-    pair: "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
-    off: "Wireless debugging is off on " + name + ". Turn it on: Developer options › Wireless debugging",
+    pair: seen ? "Wireless debugging is on: scan the code with " + name
+      : "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
+    off: seen ? "Wireless debugging is on, but " + name + " does not know this computer any more: scan the code again"
+      : "Wireless debugging is off on " + name + ". Turn it on: Developer options › Wireless debugging",
     unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
     away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable",
     ready: "Ready over " + (s.via === "usb" ? "USB" : "Wi-Fi") + (s.android ? " · Android " + s.android : "")
@@ -1175,6 +1181,8 @@ function demoScreen(kind) {
   var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
   if (kind === "tools") return { state: "tools", tools: { ok: false } }
   if (kind === "ready") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true }
+  // Wireless debugging just turned on, not paired yet.
+  if (kind === "seen") return { state: "pair", seen: true, tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
   return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
 }
 

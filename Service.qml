@@ -554,11 +554,13 @@ Item {
     next[what] = true
     setupFixing = next
     var proc = actionComponent.createObject(root, { key: "fix:" + what, command: [bridge, "fix", what] })
-    proc.exited.connect(function() {
+    proc.exited.connect(function(code) {
       var done = Object.assign({}, root.setupFixing)
       delete done[what]
       root.setupFixing = done
       Qt.callLater(root.runDoctor)
+      // Installed for the screen: the next steps are on the device.
+      if (what === "screen" && code === 0 && root.device) root.screenSetupNeeded(String(root.device.id))
     })
     proc.running = true
   }

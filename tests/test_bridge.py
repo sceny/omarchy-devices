@@ -987,8 +987,17 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.fix("screen"), bridge.EXIT_OK)
         finally:
             bridge.subprocess.run = saved
-        self.assertEqual(ran, [["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm",
-                                "scrcpy", "android-tools", "android-udev"]])
+        self.assertEqual(ran, [["pkexec", "/bin/sh", "-c", "/usr/bin/pacman -S --needed --noconfirm "
+                                "scrcpy android-tools android-udev avahi && /usr/bin/systemctl enable --now avahi-daemon.service"]])
+
+    def test_avahi_finds_the_device(self):
+        text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"
+                "=;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local;Pixel-8.local;192.168.1.20;37099;\n"
+                "=;wlan0;IPv6;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local;Pixel-8.local;fe80::1;37099;\n"
+                "=;wlan0;IPv4;sceny-abc;_adb-tls-pairing._tcp;local;Pixel-8.local;192.168.1.20;41011;\n")
+        self.assertEqual(bridge.parse_avahi(text), [
+            {"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099},
+            {"name": "sceny-abc", "kind": "pairing", "host": "192.168.1.20", "port": 41011}])
 
     def test_the_record_survives(self):
         with tempfile.TemporaryDirectory() as d:

@@ -1399,10 +1399,13 @@ def doctor():
     # Optional: only the screen and apps need it, so it never lights the
     # gear's dot.
     tools = screen_tools()
+    missing = not tools["scrcpy"] or not tools["adb"]
     checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen and apps",
-                   "status": ("scrcpy " + tools["version"]) if tools["ok"] else "Not installed",
-                   "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
-                   "fix": "" if tools["ok"] else "screen", "fixLabel": "Install"})
+                   "status": ("scrcpy " + tools["version"]) if tools["ok"] else ("Not installed" if missing else "Avahi stopped"),
+                   "detail": "" if tools["ok"] else ("Mirror a device and open its apps in windows here: scrcpy and adb" if missing
+                                                     else "Avahi finds devices on Wi-Fi; it is not running"),
+                   # Installed: the next step is on a device, so it leads there.
+                   "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else ("Install" if missing else "Start")})
     return {"checks": checks, "network": lan, "firewall": fw}
 
 
@@ -1433,7 +1436,9 @@ def fix(what):
     elif what == "screen":
         # The device's screen and apps here (scrcpy over adb); android-udev
         # lets adb reach a device on a USB cable.
-        cmd = ["pkexec", "/usr/bin/pacman", "-S", "--needed", "--noconfirm"] + SCREEN_PACKAGES
+        # Avahi finds the device on Wi-Fi (adb's own mDNS is not built in).
+        cmd = ["pkexec", "/bin/sh", "-c", "/usr/bin/pacman -S --needed --noconfirm %s && /usr/bin/systemctl enable --now %s"
+               % (" ".join(SCREEN_PACKAGES), AVAHI_UNIT)]
     elif what == "firewall":
         lan = local_network()
         if not lan:
@@ -1468,8 +1473,13 @@ def fix(what):
 # Connect device by address (Wi-Fi) or by name (USB). Reading the state
 # connects to a device adb already trusts; pairing and opening run only on
 # the user's click.
+#
+# The device announces Wireless debugging over mDNS. Arch's adb is built
+# without mDNS, so Avahi finds it (Omarchy runs it; ufw lets mDNS in), and
+# adb's own is the fallback.
 
-SCREEN_PACKAGES = ["scrcpy", "android-tools", "android-udev"]
+SCREEN_PACKAGES = ["scrcpy", "android-tools", "android-udev", "avahi"]
+AVAHI_UNIT = "avahi-daemon.service"
 SCRCPY_APPS = (3, 0)    # --new-display and --start-app
 SCRCPY_FLEX = (4, 0)    # --flex-display: the device's display follows the window
 APPS_MIN_SDK = 29       # a virtual display to run an app on: Android 10
@@ -1485,16 +1495,25 @@ def scrcpy_version(text):
     return (int(m.group(1)), int(m.group(2))) if m else ()
 
 
+def avahi_running(run=subprocess.run):
+    try:
+        return run(["systemctl", "is-active", "--quiet", AVAHI_UNIT], timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def screen_tools(run=subprocess.run):
-    """Whether scrcpy and adb are here, and what this scrcpy can do."""
+    """Whether scrcpy, adb and mDNS (Avahi) are here, and what this scrcpy
+    can do."""
     scrcpy, adb = shutil.which("scrcpy"), shutil.which("adb")
+    mdns = bool(shutil.which("avahi-browse")) and avahi_running(run)
     version = ()
     if scrcpy:
         try:
             version = scrcpy_version(run([scrcpy, "--version"], capture_output=True, text=True, timeout=10).stdout)
         except (OSError, subprocess.TimeoutExpired):
             pass
-    return {"scrcpy": bool(scrcpy), "adb": bool(adb), "ok": bool(scrcpy and adb),
+    return {"scrcpy": bool(scrcpy), "adb": bool(adb), "mdns": mdns, "ok": bool(scrcpy and adb and mdns),
             "version": "%d.%d" % version if version else "",
             "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX}
 
@@ -1527,6 +1546,34 @@ def parse_mdns(text):
         out.append({"name": parts[0], "kind": "pairing" if "pairing" in parts[1] else "connect",
                     "host": host, "port": int(port)})
     return out
+
+
+def parse_avahi(text):
+    """`avahi-browse -rpt` (resolved, parsable) as parse_mdns does: IPv4
+    entries of adb's two services. A line: =;iface;IPv4;name;type;domain;
+    host;address;port;txt."""
+    out = []
+    for line in (text or "").splitlines():
+        f = line.split(";")
+        if len(f) < 9 or f[0] != "=" or f[2] != "IPv4" or "_adb-tls-" not in f[4] or not f[8].isdigit():
+            continue
+        out.append({"name": f[3], "kind": "pairing" if "pairing" in f[4] else "connect", "host": f[7], "port": int(f[8])})
+    return out
+
+
+def mdns_services():
+    """What devices announce for adb now: Avahi first, adb's own mDNS if
+    Avahi is not here."""
+    if shutil.which("avahi-browse"):
+        found = []
+        for kind in ("_adb-tls-pairing._tcp", "_adb-tls-connect._tcp"):
+            try:
+                found += parse_avahi(subprocess.run(["avahi-browse", "-rpt", kind], capture_output=True,
+                                                    text=True, timeout=8).stdout)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return found
+    return parse_mdns(adb(["mdns", "services"])[1])
 
 
 def parse_scrcpy_apps(text):
@@ -1628,18 +1675,21 @@ def screen_status(device_id):
     """
     tools = screen_tools()
     status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
-              "apps": False, "wireless": True}
+              "apps": False, "wireless": True, "seen": False}
     if not tools["ok"]:
         return status
     device = screen_device(device_id) or {"id": device_id}
     adb(["start-server"], timeout=15)
-    mdns = parse_mdns(adb(["mdns", "services"])[1])
+    mdns = mdns_services()
+    addresses = set(device.get("addresses") or [])
+    # Wireless debugging on, seen before pairing: the steps on the device
+    # before the code are done.
+    status["seen"] = any(s["host"] in addresses for s in mdns)
     devices = parse_adb_devices(adb(["devices", "-l"])[1])
     serial, via, state = match_adb(device, devices, mdns)
     if not serial:
         # A device adb trusts with Wireless debugging on shows up in mDNS
         # before adb connects to it by itself: connect now.
-        addresses = set(device.get("addresses") or [])
         for s in mdns:
             if s["kind"] == "connect" and s["host"] in addresses:
                 adb(["connect", "%s:%d" % (s["host"], s["port"])], timeout=CONNECT_WAIT_SEC)
@@ -1693,8 +1743,7 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     emit({"ev": "qr", "ascii": ascii_code, "seconds": wait})
     found = None
     for _ in range(int(wait)):
-        found = next((s for s in parse_mdns(adb(["mdns", "services"])[1])
-                      if s["kind"] == "pairing" and s["name"] == name), None)
+        found = next((s for s in mdns_services() if s["kind"] == "pairing" and s["name"] == name), None)
         if found:
             break
         sleep(1)
@@ -1709,8 +1758,7 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     screen_record(device_id, {"paired": True, "at": int(time.time())})
     emit({"ev": "paired"})
     for _ in range(CONNECT_WAIT_SEC):
-        service = next((s for s in parse_mdns(adb(["mdns", "services"])[1])
-                        if s["kind"] == "connect" and s["host"] == found["host"]), None)
+        service = next((s for s in mdns_services() if s["kind"] == "connect" and s["host"] == found["host"]), None)
         if service:
             adb(["connect", "%s:%d" % (service["host"], service["port"])], timeout=CONNECT_WAIT_SEC)
             break
