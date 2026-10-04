@@ -30,6 +30,7 @@ Column {
   // Its screen's window is open: the tile is on, with its ✕.
   property bool screenOpen: false
   signal screenPlaceChosen(bool docked)
+  signal appSoundChosen(string sound)
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
@@ -527,10 +528,20 @@ Column {
   }
   Repeater {
     model: root.scopeKind === "screen" ? root.rows : []
+    ScreenSoundRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "appSound"
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "screenAction" && modelData.key !== "open" && modelData.key !== "place"
+      visible: modelData.kind === "screenAction" && modelData.key !== "open" && modelData.key !== "place" && modelData.key !== "appSound"
       width: root.width
       row: modelData
       rowIndex: index
@@ -1120,6 +1131,68 @@ Column {
 
   // Where the screen opens: one of two, as a choice is drawn in Settings
   // (the chosen one filled), with a line on the chosen one.
+  // Where an app's sound plays (#116): one of two, as where the screen opens.
+  component ScreenSoundRow: Column {
+    id: ssr
+    property var row: ({})
+    property int rowIndex: -1
+    width: root.width
+    spacing: Style.space(6)
+    topPadding: Style.space(6)
+
+    PanelSectionHeader {
+      text: "AN APP'S SOUND"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    Item {
+      width: parent.width
+      height: soundRow.implicitHeight + Style.space(8)
+      CursorStop { here: root.cursorIndex === ssr.rowIndex; glide: root.cursorGlide }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        onEntered: root.hovered(ssr.rowIndex)
+      }
+      Row {
+        id: soundRow
+        anchors.verticalCenter: parent.verticalCenter
+        x: Style.space(4)
+        spacing: Style.space(4)
+        Button {
+          text: "Here"
+          iconText: Model.GLYPH.volume
+          selected: ssr.row.sound === "here"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("here")
+        }
+        Button {
+          text: "On " + (ssr.row.device || "the device")
+          iconText: Model.GLYPH.phone
+          selected: ssr.row.sound === "phone"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("phone")
+        }
+      }
+    }
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: ssr.row.hint || ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+  }
+
   component ScreenPlaceRow: Column {
     id: spr
     property var row: ({})

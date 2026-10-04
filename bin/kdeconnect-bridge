@@ -2498,6 +2498,8 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
         os.makedirs(os.path.dirname(log), exist_ok=True)
         open(log, "w").close()   # a fresh log for this window
     launch(screen_command(status["serial"], title, package, status["tools"], log, sound))
+    if package:
+        apps_opened(device_id, package)
     for _ in range(WINDOW_WAIT_SEC * 4):
         win = find_window(title)
         if win:
@@ -2584,6 +2586,24 @@ def read_apps(serial, run=subprocess.run):
     return [dict(a, version=versions.get(a["package"], ""), activity=launchers.get(a["package"], "")) for a in apps]
 
 
+def apps_opened(device_id, package=None, clock=time.time):
+    """When each app was last opened here ({package: seconds}); with a
+    package, records it now. In the cache: usage, not a setting."""
+    path = os.path.join(apps_dir(device_id), "opened.json")
+    try:
+        with open(path) as f:
+            opened = json.load(f)
+    except (OSError, ValueError):
+        opened = {}
+    if package:
+        opened[package] = clock()
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(opened, f)
+        os.replace(tmp, path)
+    return opened
+
+
 def app_icon_path(device_id, app, kind="png"):
     return os.path.join(apps_dir(device_id), "%s-%s.%s" % (app["package"], app.get("version") or "0", kind))
 
@@ -2615,12 +2635,12 @@ def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None)
                 with open(tmp, "w") as f:
                     json.dump({"at": at, "apps": apps}, f)
                 os.replace(tmp, path)
-    shown = []
+    shown, opened = [], apps_opened(device_id)
     for a in sorted(apps, key=lambda a: (a.get("system", False), a.get("name", "").lower())):
         icon = app_icon_path(device_id, a)
         mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
         shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
-                      "icon": icon if os.path.isfile(icon) else mark})
+                      "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
     return {"state": state if not shown else "ready", "at": at, "apps": shown}
 
 

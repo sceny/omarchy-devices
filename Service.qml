@@ -599,8 +599,9 @@ Item {
   property bool screenThenDocked: true
   property var screenThenPlace: null       // where the docked window goes: a function, read at launch
   property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
+  property var screenThenApp: null         // an app to open once read, instead of the screen ({ package, name, sound })
   property string demoScreenKind: "pair"
-  signal screenSetupNeeded(string id)
+  signal screenSetupNeeded(string id, var app)
   // Its window is there (a place: the panel closes), or it did not open.
   signal screenOpened(string id)
   signal screenOpenFailed(string id)
@@ -648,6 +649,16 @@ Item {
     screenStates = next
     if (screenThen !== "" && screenThen === String(id)) {
       screenThen = ""
+      var app = screenThenApp
+      screenThenApp = null
+      if (app) {
+        var key = "screen:" + id + ":" + app.package
+        if (status && status.state === "ready" && !demo) { launchScreen(id, app.package, app.name, false, null, false, app.sound); return }
+        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open in a window here", false); return }
+        setBusy(key, false)
+        screenSetupNeeded(String(id), app)
+        return
+      }
       if (status && status.state === "ready" && !demo) {
         // Read now: the card has grown to the display's real shape.
         launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit)
@@ -681,6 +692,18 @@ Item {
     screenThenFit = fit === true
     readScreen(id)
   }
+  // An app's tile: its window, tiled, once the state is read (as the
+  // Screen shortcut), else the screen's setup page. `sound`: "phone" leaves
+  // its sound on the device.
+  function pressApp(id, app, sound) {
+    if (!id || !app) return
+    var key = "screen:" + id + ":" + app.package
+    if (isBusy(key) || isBusy("screen")) return
+    setBusy(key, true)
+    screenThen = String(id)
+    screenThenApp = { package: app.package, name: app.name, sound: sound || "here" }
+    readScreen(id)
+  }
   function openScreen(id, pkg, label, docked) {
     if (demo) { report("Demo: no window opens", false); return }
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
@@ -697,10 +720,11 @@ Item {
     if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
     return out
   }
-  function launchScreen(id, pkg, label, docked, place, fit) {
+  function launchScreen(id, pkg, label, docked, place, fit, sound) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
-    if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
+    if (pkg) { cmd.push("--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
+    else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
     // Connecting takes a moment: said by the card or the tile in a panel;
@@ -708,6 +732,7 @@ Item {
     if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
     proc.exited.connect(function(code) {
       if (code === 0) {
+        if (pkg) root.appOpened(String(id), pkg)
         root.screenOpened(String(id))
         // Docked, it follows turns under the chip; tiled, its tile takes the
         // device's width as it turns.
@@ -717,6 +742,91 @@ Item {
     })
     proc.running = true
   }
+  // ---- Apps (#116): each device's apps (kdeconnect-bridge apps, kept a day
+  //      in the cache), and their icons as they are read (app-icons) ----
+  property var appLists: ({})              // device id -> { state, at, apps: [{ package, name, system, icon, opened }] }
+  readonly property var demoAppList: ({ state: "ready", at: 0, apps: Model.demoApps(Date.now()) })
+  function appsOf(id) {
+    if (demo) return demoAppList
+    return id ? (appLists[String(id)] || null) : null
+  }
+  // The list from the cache at once; read from the device when asked or a
+  // day old (and it can be reached). Then the icons not read yet.
+  function readApps(id, refresh) {
+    if (!id || demo) return
+    if (appsProc.running) { if (appsProc.device !== String(id) || refresh) appsAgain = { id: String(id), refresh: refresh === true }; return }
+    appsProc.device = String(id)
+    appsProc.command = [bridge, "apps", String(id)].concat(refresh ? ["--refresh"] : [])
+    appsProc.running = true
+  }
+  property var appsAgain: null
+  function setApps(id, list) {
+    var next = Object.assign({}, appLists)
+    next[String(id)] = list
+    appLists = next
+  }
+  function readIcons(id) {
+    var list = appLists[String(id)]
+    if (!list || iconsProc.running) return
+    var missing = (list.apps || []).filter(function(a) { return a.icon === "" })
+    if (missing.length === 0) return
+    iconsProc.device = String(id)
+    iconsProc.command = [bridge, "app-icons", String(id)]
+    iconsProc.running = true
+  }
+  // Icons come one by one: drawn a few at a time, not a new list per icon.
+  property var iconsPending: ({})
+  function applyIcons() {
+    var id = iconsProc.device
+    var list = appLists[id]
+    if (!list || Object.keys(iconsPending).length === 0) return
+    var pending = iconsPending
+    iconsPending = ({})
+    setApps(id, Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return pending[a.package] !== undefined ? Object.assign({}, a, { icon: pending[a.package] }) : a
+    }) }))
+  }
+  Timer { id: iconsBatch; interval: 400; onTriggered: root.applyIcons() }
+  signal appOpened(string id, string pkg)
+  onAppOpened: function(id, pkg) {
+    var list = appLists[id]
+    if (!list) return
+    setApps(id, Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return a.package === pkg ? Object.assign({}, a, { opened: Date.now() }) : a
+    }) }))
+  }
+  Process {
+    id: appsProc
+    property string device: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var list = null
+        try { list = JSON.parse(text) } catch (e) {}
+        if (list && list.apps) {
+          root.setApps(appsProc.device, list)
+          root.readIcons(appsProc.device)
+        }
+      }
+    }
+    onExited: if (root.appsAgain) { var again = root.appsAgain; root.appsAgain = null; Qt.callLater(function() { root.readApps(again.id, again.refresh) }) }
+  }
+  Process {
+    id: iconsProc
+    property string device: ""
+    stdout: SplitParser {
+      onRead: function(line) {
+        var e = null
+        try { e = JSON.parse(line) } catch (err) {}
+        if (!e || !e.package) return
+        var next = Object.assign({}, root.iconsPending)
+        next[e.package] = e.icon || "none"
+        root.iconsPending = next
+        if (!iconsBatch.running) iconsBatch.start()
+      }
+    }
+    onExited: root.applyIcons()
+  }
+
   // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
   //      the device's shape; each change comes here for ScreenTurn ----
   property var screenTurn: null            // { kind, angle, from, to, monitor, device, still, at }

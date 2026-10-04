@@ -29,10 +29,12 @@
       "showCalls": true,
       "screenDocked": true,
       "screenFitTile": false,
+      "appSound": "here",
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
       "showShortcuts": true,
+      "showApps": true,
       "showMedia": true,
       "showNotifications": true,
       "showReceived": true,
@@ -46,6 +48,7 @@
       "sectionOrder": [
         "devices",
         "actions",
+        "apps",
         "media",
         "notifications",
         "received",
@@ -66,6 +69,13 @@
         "label": "Show shortcuts",
         "defaultValue": true,
         "description": "The row of quick action buttons under the header."
+      },
+      {
+        "key": "showApps",
+        "type": "boolean",
+        "label": "Show apps",
+        "defaultValue": true,
+        "description": "The device's apps, each opening in a window here: the pinned ones, then the recently opened; All apps for the rest. Shows once its screen is set up."
       },
       {
         "key": "showMedia",
@@ -102,6 +112,7 @@
         "defaultValue": [
           "devices",
           "actions",
+          "apps",
           "media",
           "notifications",
           "received",
@@ -112,6 +123,7 @@
           "enum": [
             "devices",
             "actions",
+            "apps",
             "media",
             "notifications",
             "received",
@@ -194,6 +206,17 @@
         "label": "Fit a tiled screen to the device (experimental)",
         "defaultValue": false,
         "description": "When the screen opens as a window, beside another window its tile takes the device's width, and follows it as it turns. Hyprland has no such option; the plugin moves the tile's edge."
+      },
+      {
+        "key": "appSound",
+        "type": "string",
+        "label": "An app's sound",
+        "defaultValue": "here",
+        "enum": [
+          "here",
+          "phone"
+        ],
+        "description": "Where an app opened in a window plays its sound: here, or on the device. The device gives its sound to one window at a time."
       },
       {
         "key": "lowBatteryPercent",

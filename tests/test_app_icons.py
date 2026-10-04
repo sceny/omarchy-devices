@@ -305,6 +305,9 @@ class Cache(unittest.TestCase):
         self.assertEqual(len(reads), 2, "a day later: read again")
         away = bridge.apps_list("dev", refresh=True, status={"state": "off"}, read=read, clock=lambda: 1000 + 26 * 3600)
         self.assertEqual((away["state"], len(away["apps"])), ("ready", 3), "out of reach: still the list it had")
+        bridge.apps_opened("dev", "com.example.b", clock=lambda: 5000)
+        self.assertEqual([a["opened"] for a in bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"]],
+                         [0, 5000 * 1000, 0], "when it was opened here, in ms")
         open(bridge.app_icon_path("dev", apps[2], "none"), "w").close()
         self.assertEqual(bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"][0]["icon"], "none")
 
