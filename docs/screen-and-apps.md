@@ -28,6 +28,10 @@ It opens **docked**: the panel grows into the device's own shape under
 its chip and the screen appears there, on every workspace. Choose *Opens as a window* on its Screen and
 apps page for a window like any other (it moves at once).
 
+Full screen: docked, it is pinned to every workspace, which Hyprland keeps
+out of full screen. **Super+O** frees it (Omarchy's pop-out toggle), then
+**Super+F**; **Super+O** again docks it back under the bar.
+
 Android 10 and older have no Wireless debugging: turn on *USB debugging*
 and plug the phone in.
 

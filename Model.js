@@ -1189,7 +1189,7 @@ function screenSetup(status, device, pairing, docked) {
     actions.push({ key: "open", label: "Show the screen", hint: "Use it with your mouse: right-click is Back" })
     // Where it opens: one of two, like a choice in Settings.
     actions.push({ key: "dockOn", label: "Opens under the bar", on: docked !== false,
-                   hint: "Under its icon, on top, on every workspace" })
+                   hint: "On every workspace; Super+O frees it for full screen" })
     actions.push({ key: "dockOff", label: "Opens as a window", on: docked === false,
                    hint: "Tiles, moves and resizes like any other window" })
   }

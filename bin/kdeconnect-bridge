@@ -2207,6 +2207,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             return EXIT_OK
         looked = asked = clock()
         settled = resting(win, mons, border)
+        was_pinned = bool(win.get("pinned"))
         pending = None   # a turn under way: {to, since, picture}
 
         def carry(new, kind_angle, picture):
@@ -2309,6 +2310,20 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                 if not win:
                     return EXIT_OK
                 mons = hypr_json("monitors")
+                # Popped out again with Omarchy's own toggle (Super+O, after
+                # freeing it for full screen): back under the chip, in the
+                # device's shape, not Omarchy's generic pop-out size.
+                pinned_now = bool(win.get("pinned"))
+                if pinned_now and not was_pinned:
+                    fresh, fresh_rot = current_display(serial)
+                    if fresh[0]:
+                        shape, rot = fresh, fresh_rot
+                    home = dock_rect(ctx, shape)
+                    for lua in refit(win, home, mons, border):
+                        subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+                    settled = tuple(home)
+                    win = find_window(title) or win
+                was_pinned = pinned_now
                 # At rest in its shape: the user may have moved or resized it.
                 here = resting(win, mons, border)
                 if same_shape(here[2:], shape):
