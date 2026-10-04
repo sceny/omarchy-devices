@@ -2212,6 +2212,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             mon = next((m for m in mons if m.get("id") == win.get("monitor")), None) or {}
             to = placement(ctx, settled, shape, new, mon)
             kind, angle = kind_angle
+            settled_before = settled
             still = "" if picture else turn_still(win, title, "old")
             emit({"ev": "refit", "kind": kind, "angle": angle, "from": list(settled), "to": list(to),
                   "monitor": mon.get("name", ""), "device": device_id, "still": still})
@@ -2221,7 +2222,8 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             shape, settled = tuple(new[:2]), tuple(to)
             pending = {"to": to, "since": clock(), "picture": picture, "picture_at": clock() if picture else None,
-                       "still": still, "stills": [still] if still else []}
+                       "still": still, "stills": [still] if still else [],
+                       "resized": tuple(to[2:]) != tuple(settled_before[2:])}
             if picture:
                 new_picture()
 
@@ -2230,7 +2232,9 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             it goes to the card, which turns into it. A grab that is only the
             old picture stretched (drawn before the app redrew at its new
             size) is taken again, a few times."""
-            old = read_ppm(pending["still"]) if pending.get("still") else None
+            # Only a new size can leave a stretched picture behind: upside
+            # down keeps the size, and its new picture may well be the old one.
+            old = read_ppm(pending["still"]) if pending.get("still") and pending.get("resized") else None
             fresh = ""
             for _ in range(10):
                 sleep(0.03)
