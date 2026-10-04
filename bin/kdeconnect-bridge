@@ -1753,6 +1753,10 @@ def screen_status(device_id):
     status["sdk"] = int(sdk) if sdk.isdigit() else 0
     status["android"] = adb(["-s", serial, "shell", "getprop", "ro.build.version.release"])[1].strip()
     status["display"] = list(device_display(serial))
+    # Kept for the next opening: the panel's card takes the device's shape
+    # from the first frame, before this status is read.
+    if status["display"][0] and screen_record(device_id).get("display") != status["display"]:
+        screen_record(device_id, {"display": status["display"]})
     status["apps"] = tools["apps"] and status["sdk"] >= APPS_MIN_SDK
     status["wireless"] = status["sdk"] >= WIRELESS_MIN_SDK or status["sdk"] == 0
     status["state"] = "ready"
@@ -2221,6 +2225,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             for lua in refit(win, to, mons, border):
                 subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
             shape, settled = tuple(new[:2]), tuple(to)
+            screen_record(device_id, {"display": list(shape)})
             pending = {"to": to, "since": clock(), "picture": picture, "picture_at": clock() if picture else None,
                        "still": still, "stills": [still] if still else [],
                        "resized": tuple(to[2:]) != tuple(settled_before[2:])}

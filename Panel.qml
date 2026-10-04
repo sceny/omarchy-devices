@@ -480,8 +480,7 @@ Panel {
       anchorX: a.x, anchorY: a.y, anchorW: panel.anchorW, anchorH: panel.anchorH }
   }
   function dockRectFor(id) {
-    var st = phone ? phone.screenOf(String(id)) : null
-    return Model.dockRect(Object.assign({ display: st ? st.display : null }, dockCtx()))
+    return Model.dockRect(Object.assign({ display: phone ? phone.screenDisplay(String(id)) : null }, dockCtx()))
   }
   readonly property var screenOpeningRect: screenOpening ? dockRectFor(screenOpening.id) : null
   function startScreenOpening(d) {

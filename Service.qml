@@ -604,6 +604,22 @@ Item {
   signal screenOpenFailed(string id)
 
   function screenOf(id) { return screenStates[String(id)] || null }
+  // The device's display shape, for the card that becomes its window: the
+  // status read now, else the one the bridge kept (screen.json), so the card
+  // takes the right shape from the first frame of an opening.
+  function screenDisplay(id) {
+    var st = screenOf(id)
+    if (st && st.display && st.display[0] > 0) return st.display
+    var kept = screenKept[String(id)]
+    return kept && kept.display && kept.display[0] > 0 ? kept.display : null
+  }
+  property var screenKept: ({})
+  FileView {
+    path: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/sceny.devices/screen.json"
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: { try { root.screenKept = JSON.parse(text()) || {} } catch (e) {} }
+  }
   function setScreen(id, status) {
     var next = Object.assign({}, screenStates)
     next[String(id)] = status
