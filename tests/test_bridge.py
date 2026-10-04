@@ -1098,6 +1098,15 @@ class Screen(unittest.TestCase):
         self.assertEqual(state["w"], 1280, "landscape: back to half the monitor, never more")
         self.assertFalse(bridge.fit_tile(dict(alone, floating=True), (1080, 2316)), "docked: not a tile")
 
+    def test_the_keys_are_this_machines(self):
+        omarchy = [{"modmask": 64, "key": "F", "description": "Full screen", "dispatcher": "__lua", "arg": "27"},
+                   {"modmask": 64, "key": "O", "description": "Pop window out (float & pin)", "dispatcher": "__lua", "arg": "39"}]
+        self.assertEqual(bridge.bound_keys(omarchy), {"fullscreen": ["Super", "F"], "pop": ["Super", "O"]})
+        rebound = [{"modmask": 72, "key": "p", "description": "", "dispatcher": "exec", "arg": "omarchy-hyprland-window-pop"},
+                   {"modmask": 64, "key": "Return", "description": "", "dispatcher": "fullscreen", "arg": "0"}]
+        self.assertEqual(bridge.bound_keys(rebound), {"pop": ["Super", "Alt", "P"], "fullscreen": ["Super", "Return"]})
+        self.assertEqual(bridge.bound_keys([]), {}, "nothing bound: nothing told")
+
     def test_the_display_in_one_line(self):
         self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
 

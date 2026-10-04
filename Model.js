@@ -1192,16 +1192,9 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     // Three kinds of control, each drawn as what it is: the screen itself
     // (a tile, as its shortcut), where it opens (one of two), and a switch.
     actions.push({ key: "open", label: "Screen", hint: "Use it with your mouse: right-click is Back" })
-    // How to free it and dock it back, with Omarchy's own keys (Super+O is
-    // its pop-out toggle; a docked screen is one, which Hyprland keeps out
-    // of full screen until it is freed).
     actions.push({ key: "place", label: "Opens", docked: docked !== false,
                    hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window",
-                   keys: docked !== false
-                     ? [{ keys: ["Super", "O"], text: "Frees it from the bar" },
-                        { keys: ["Super", "F"], text: "Full screen, once freed" },
-                        { keys: ["Super", "O"], text: "Again: back under the bar" }]
-                     : [{ keys: ["Super", "F"], text: "Full screen" }] })
+                   keys: screenKeyLines(s.keys, docked !== false) })
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
@@ -1263,7 +1256,7 @@ function screenTitle(name) {
 // Hyprland) and of the docked window.
 var SCREEN_TIPS = [
   "Right-click is Back, middle-click is Home",
-  "Super+O frees it, then Super+F for full screen",
+  "Free it ({pop}), then full screen ({fullscreen})",
   "Turn your phone: the window turns with it",
   "Drop a file on it to copy it to the phone's Downloads",
   "Copy on the phone, paste here: the clipboard comes across",
@@ -1278,9 +1271,30 @@ var SCREEN_TIPS = [
 function tipReadMs(text) {
   return Math.min(2200, 1000 + 20 * String(text || "").length)
 }
-function screenTip(n) {
-  var k = ((Math.floor(n) % SCREEN_TIPS.length) + SCREEN_TIPS.length) % SCREEN_TIPS.length
-  return SCREEN_TIPS[k]
+// The n-th tip, with this machine's own keys ({pop}, {fullscreen}): an
+// action with no key here reads "no shortcut", as on the page.
+function screenTip(n, keys) {
+  var k = keys || {}
+  var i = ((Math.floor(n) % SCREEN_TIPS.length) + SCREEN_TIPS.length) % SCREEN_TIPS.length
+  return SCREEN_TIPS[i].replace("{pop}", keyText(k.pop)).replace("{fullscreen}", keyText(k.fullscreen))
+}
+
+// How to free the docked screen and dock it back, and full screen, with
+// this machine's own keys (the bridge reads them from Hyprland: Omarchy's
+// pop-out toggle, Super+O by default, and its full screen, Super+F). An
+// action with no key here says so (keys null: "no shortcut"), never a key
+// that does nothing.
+var NO_SHORTCUT = "no shortcut"
+function screenKeyLines(keys, docked) {
+  var k = keys || {}
+  if (!docked) return [{ keys: k.fullscreen || null, text: "Full screen" }]
+  return [{ keys: k.pop || null, text: "Frees it from the bar" },
+          { keys: k.fullscreen || null, text: "Full screen, once freed" },
+          { keys: k.pop || null, text: "Again: back under the bar" }]
+}
+// A key as a tip tells it: "Super+O", else "no shortcut".
+function keyText(keys) {
+  return keys && keys.length ? keys.join("+") : NO_SHORTCUT
 }
 
 // The page's keyboard rows: one per action, in order.
@@ -1299,7 +1313,12 @@ function screenRows(setup) {
 function demoScreen(kind) {
   var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
   if (kind === "tools") return { state: "tools", tools: { ok: false } }
-  if (kind === "ready" || kind === "opens") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400] }
+  // The demo's keys are Omarchy's defaults; a real device's come from this
+  // machine (the bridge).
+  if (kind === "ready" || kind === "opens") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400],
+                                                   keys: { pop: ["Super", "O"], fullscreen: ["Super", "F"] } }
+  // Ready on a machine with no key for Omarchy's pop-out or full screen.
+  if (kind === "nokeys") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400], keys: {} }
   // Wireless debugging just turned on, not paired yet.
   if (kind === "seen") return { state: "pair", seen: true, tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
   return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }

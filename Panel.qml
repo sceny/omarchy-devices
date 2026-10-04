@@ -508,7 +508,8 @@ Panel {
     }
     cardMorphing = true
     morphSettle.stop()
-    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext), since: Date.now() }
+    var known = phone.screenOf(String(d.id))
+    screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext, known ? known.keys : null), since: Date.now() }
     screenTipNext++
     phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
   }

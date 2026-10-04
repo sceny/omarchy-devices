@@ -1695,6 +1695,32 @@ def screen_device(device_id):
     return None
 
 
+MODS = [(64, "Super"), (4, "Ctrl"), (8, "Alt"), (1, "Shift")]
+
+
+def bound_keys(binds):
+    """This machine's own keys for what the screen's page and tips tell
+    (`hyprctl binds -j`), never assumed: {"pop": [...], "fullscreen": [...]}.
+    Omarchy binds them as Lua functions, so they are found by description
+    ("Pop window out", "Full screen"), or by command for a classic bind. An
+    action with no key here is left out, and so is its line."""
+    found = {}
+    for b in binds or []:
+        desc = str(b.get("description") or "")
+        what = "%s %s" % (b.get("dispatcher") or "", b.get("arg") or "")
+        if "pop" not in found and (desc.startswith("Pop window out") or "omarchy-hyprland-window-pop" in what):
+            kind = "pop"
+        elif "fullscreen" not in found and (desc == "Full screen" or (b.get("dispatcher") == "fullscreen" and str(b.get("arg") or "") in ("", "0"))):
+            kind = "fullscreen"
+        else:
+            continue
+        if b.get("submap") or b.get("mouse") or not b.get("key"):
+            continue
+        mask = int(b.get("modmask") or 0)
+        found[kind] = [name for bit, name in MODS if mask & bit] + [str(b["key"]).upper() if len(str(b["key"])) == 1 else str(b["key"])]
+    return found
+
+
 def screen_status(device_id):
     """Where a device stands for its screen and apps, as JSON:
 
@@ -1754,6 +1780,7 @@ def screen_status(device_id):
     status["sdk"] = int(sdk) if sdk.isdigit() else 0
     status["android"] = adb(["-s", serial, "shell", "getprop", "ro.build.version.release"])[1].strip()
     status["display"] = list(device_display(serial))
+    status["keys"] = bound_keys(hypr_json("binds"))
     # Kept for the next opening: the panel's card takes the device's shape
     # from the first frame, before this status is read.
     if status["display"][0] and screen_record(device_id).get("display") != status["display"]:

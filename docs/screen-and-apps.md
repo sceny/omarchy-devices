@@ -29,8 +29,9 @@ its chip and the screen appears there, on every workspace. Choose *Opens as a wi
 apps page for a window like any other (it moves at once).
 
 Full screen: docked, it is pinned to every workspace, which Hyprland keeps
-out of full screen. **Super+O** frees it (Omarchy's pop-out toggle), then
-**Super+F**; **Super+O** again docks it back under the bar.
+out of full screen. Omarchy's pop-out key frees it, then its full screen
+key; the pop-out key again docks it back. The Screen and apps page shows
+your machine's keys (**Super+O** and **Super+F** unless you changed them).
 
 Android 10 and older have no Wireless debugging: turn on *USB debugging*
 and plug the phone in.

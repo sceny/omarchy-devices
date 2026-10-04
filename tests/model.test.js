@@ -863,6 +863,10 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
   assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
   assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")
+  assert.deepEqual(M.screenKeyLines({ pop: ["Alt", "P"] }, true).map(k => M.keyText(k.keys) + " " + k.text),
+                   ["Alt+P Frees it from the bar", "no shortcut Full screen, once freed", "Alt+P Again: back under the bar"],
+                   "this machine's keys; none for full screen here: said")
+  assert.deepEqual(M.screenKeyLines({}, false).map(k => k.keys), [null], "no key: no shortcut, not a made-up one")
   assert.deepEqual(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].keys.map(k => k.keys.join("+")), ["Super+F"])
   assert.equal(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].docked, false)
   assert.equal(M.readSettings({}).defaults.screenDocked, true)
@@ -914,11 +918,16 @@ test("screen and apps: a row on the device's page, and a Screen shortcut", () =>
   assert.equal(M.shortcutByKey("screen").needs, "", "scrcpy, not KDE Connect: shown whatever the device offers")
 })
 
-test("screen tips: one each opening, all of them in turn", () => {
+test("screen tips: one each opening, all of them in turn, with this machine's keys", () => {
+  const keys = { pop: ["Super", "O"], fullscreen: ["Super", "F"] }
   const seen = new Set()
-  for (let n = 0; n < M.SCREEN_TIPS.length; n++) seen.add(M.screenTip(1000 + n))
+  for (let n = 0; n < M.SCREEN_TIPS.length; n++) seen.add(M.screenTip(1000 + n, keys))
   assert.equal(seen.size, M.SCREEN_TIPS.length)
-  assert.equal(M.screenTip(-1), M.SCREEN_TIPS[M.SCREEN_TIPS.length - 1])
+  assert.ok(seen.has("Free it (Super+O), then full screen (Super+F)"))
+  const rebound = new Set(M.SCREEN_TIPS.map((_, n) => M.screenTip(n, { pop: ["Alt", "P"], fullscreen: ["Super", "F"] })))
+  assert.ok(rebound.has("Free it (Alt+P), then full screen (Super+F)"), "the machine's own key")
+  const none = new Set(M.SCREEN_TIPS.map((_, n) => M.screenTip(n, {})))
+  assert.ok(none.has("Free it (no shortcut), then full screen (no shortcut)"), "no key here: said, as on the page")
   assert.ok(M.SCREEN_TIPS.every(t => t.length <= 60), "short enough for the card")
 })
 

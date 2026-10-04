@@ -352,6 +352,10 @@ Keep them; change one only with the owner.
   opens and as the device turns (`fit_tile`, `--fit`; the layout moves a
   shared edge from either side, so the change is measured and corrected).
   Alone on its workspace, a tile fills it.
+- **Keys the panel tells are this machine's,** read from Hyprland
+  (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
+  description or command; `bound_keys`), never assumed. An action with no
+  key here says *no shortcut*, on the page and in the tips alike.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and

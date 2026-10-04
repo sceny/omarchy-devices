@@ -1192,8 +1192,19 @@ Column {
             id: caps
             width: Style.space(96)
             spacing: Style.space(3)
+            // No key for it on this machine: said, as the tips say it.
+            Text {
+              visible: !modelData.keys || modelData.keys.length === 0
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: Model.NO_SHORTCUT
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.italic: true
+            }
             Repeater {
-              model: modelData.keys
+              model: modelData.keys || []
               Rectangle {
                 required property string modelData
                 width: capText.implicitWidth + Style.space(10)
