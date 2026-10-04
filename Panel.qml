@@ -3667,9 +3667,18 @@ Panel {
                     visible: !root.editing
                     width: parent.width
                     spacing: Style.space(4)
-                    // The folded icons' room: the header less its title (no
-                    // summary while they show) and a gap.
-                    Binding { target: root; property: "appsFoldedWidth"; value: appsHeaderRow.width - appsFold.implicitWidth - appsHeaderRow.spacing - Style.space(12) }
+                    // The folded icons' room: the header less its title (the
+                    // chevron, the title and FoldToggle's margins after each)
+                    // and a gap. Measured from the text: the toggle's own
+                    // width counts its summary's room too.
+                    TextMetrics { id: appsChevron; font.family: root.fontFamily; font.pixelSize: Style.font.caption; text: Model.GLYPH.chevronRight }
+                    TextMetrics { id: appsTitle; font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.bold: true; text: "APPS" }
+                    Binding {
+                      target: root
+                      property: "appsFoldedWidth"
+                      value: appsHeaderRow.width - (appsChevron.advanceWidth + Style.space(6) + appsTitle.advanceWidth + Style.space(10))
+                        - appsHeaderRow.spacing - Style.space(4)
+                    }
 
                     FoldToggle {
                       id: appsFold
