@@ -300,12 +300,17 @@ Keep them; change one only with the owner.
   device's screen in a check is the owner's go: it shows their data.
 - **The screen's window docks by the bar** unless the device's
   `screenDocked` is off: Omarchy's pop-out (floating, pinned, on top,
-  tagged `pop`), phone-shaped, at the right edge under the bar. Wayland
-  windows cannot place themselves, so a Hyprland rule (`hyprctl eval`, one
-  per device, replaced on each launch) places it as it opens, an open one
-  docks and undocks with Omarchy's pop toggle, and
-  `omarchy-launch-or-focus` brings an open one forward instead of a second. Opening it closes the panel (a place); the
-  Screen tile waits from the click until the window is there.
+  tagged `pop`) under the device's chip, where its panel card is, in the
+  device's own shape (its display now, rotation and a foldable's screen
+  included, fitted to 70% of the screen's height and 45% of its width:
+  `Model.dockRect`, `fit_display`). On Screen the card grows into that
+  rectangle at `Model.MOTION` and waits there (*Connecting…*); the window
+  opens at exactly that place under it (a Hyprland rule set with
+  `hyprctl eval` just before, `no_anim`), and the panel fades out over it.
+  A failure grows the card back. An open window docks and undocks with
+  Omarchy's pop toggle at the same rectangle; `omarchy-launch-or-focus`
+  brings an open one forward instead of a second. Tiled, the Screen tile
+  waits instead.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and

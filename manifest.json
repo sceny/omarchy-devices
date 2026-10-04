@@ -185,7 +185,7 @@
         "type": "boolean",
         "label": "Screen docked by the bar",
         "defaultValue": true,
-        "description": "The device's screen opens as a phone-shaped window at the right edge under the bar, on every workspace. Off, a window like any other."
+        "description": "The device's screen opens under its chip in the bar, in the device's own shape, on every workspace: the panel grows into it. Off, a window like any other."
       },
       {
         "key": "lowBatteryPercent",

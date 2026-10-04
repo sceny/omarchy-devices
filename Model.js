@@ -1188,7 +1188,7 @@ function screenSetup(status, device, pairing, docked) {
   if (ready) {
     actions.push({ key: "open", label: "Open its screen", hint: "A window here; right-click is Back" })
     actions.push({ key: "dock", label: "Docked by the bar", on: docked !== false,
-                   hint: docked !== false ? "Phone-shaped, at the right edge, on every workspace" : "Off: a window like any other" })
+                   hint: docked !== false ? "Its own shape, under its chip, on every workspace" : "Off: a window like any other" })
   }
   return {
     state: state, line: line, steps: steps, pairingNote: pairingNote,

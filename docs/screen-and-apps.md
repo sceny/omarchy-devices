@@ -24,8 +24,8 @@ Open **Settings › Screen and apps** on the device's page, or
 That is once. The **Screen** shortcut then joins the device's shortcuts
 (take it away with ✎ if you like) and opens the window.
 
-It opens **docked**: phone-shaped, at the right edge under the bar, on
-every workspace. Turn off *Docked by the bar* on its Screen and apps page
+It opens **docked**: the panel grows into the device's own shape under
+its chip and the screen appears there, on every workspace. Turn off *Docked by the bar* on its Screen and apps page
 for a window like any other (it moves at once).
 
 Android 10 and older have no Wireless debugging: turn on *USB debugging*
