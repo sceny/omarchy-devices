@@ -817,8 +817,10 @@ Panel {
       var p = root.justPaired
       root.justPaired = null
       if (!p || !root.opened || !root.showSettings || root.settingsScope !== "addDevice") return
+      // Paired: on to what it can do (its page), each feature one click away.
       if (root.phone) root.phone.view(p.id)
-      root.closeSettings()
+      root.openScope(root.singleDevice ? "root" : p.id)
+      if (root.phone) root.phone.readFeatures(p.id)
     }
   }
   // While Add a device shows, it looks for new devices.
