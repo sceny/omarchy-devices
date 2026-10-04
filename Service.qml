@@ -777,13 +777,16 @@ Item {
         root.screenPairing = Object.assign({}, root.screenPairing, { phase: "error", message: "Pairing stopped" })
     }
   }
-  // A demo's Screen: it waits like a connection, then opens nothing.
+  // A demo's Screen: it waits like a connection, then opens nothing (the
+  // card grows back), or with demoScreen "opens" acts as if a window opened
+  // (the panel fades as the card, to see the hand-off).
   Timer {
     id: demoOpening
     property string device: ""
     interval: 2000
     onTriggered: {
       root.setBusy("screen", false)
+      if (root.demoScreenKind === "opens") { root.screenOpened(device); return }
       root.report("Demo: no window opens", false)
       root.screenOpenFailed(device)
     }

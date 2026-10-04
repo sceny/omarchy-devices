@@ -1252,7 +1252,7 @@ function screenRows(setup) {
 function demoScreen(kind) {
   var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
   if (kind === "tools") return { state: "tools", tools: { ok: false } }
-  if (kind === "ready") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400] }
+  if (kind === "ready" || kind === "opens") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400] }
   // Wireless debugging just turned on, not paired yet.
   if (kind === "seen") return { state: "pair", seen: true, tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
   return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }

@@ -27,7 +27,7 @@ PanelWindow {
   // demo screen is ready): a layer mapped on demand misses the first frames
   // and fades in itself, so the card would arrive late and see-through.
   readonly property bool armed: !!phone && (Object.keys(phone.screenWatchers).length > 0
-    || (phone.demo && phone.demoScreenKind === "ready"))
+    || (phone.demo && (phone.demoScreenKind === "ready" || phone.demoScreenKind === "opens")))
   screen: barWindow ? barWindow.screen : null
   visible: armed || journey.running || fade.running || card.opacity > 0.01
   anchors { top: true; bottom: true; left: true; right: true }
