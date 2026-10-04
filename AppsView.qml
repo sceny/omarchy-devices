@@ -16,6 +16,7 @@ Item {
   property var pinned: []            // packages kept in the Apps section
   property string listState: ""      // the list's: "" (reading), "ready", or the screen's state
   property string deviceName: ""
+  property bool reading: false        // the list or its icons are being read
   property var isWorking: function(app) { return false }
   property Item glide: null
   property bool cursorActive: false
@@ -110,12 +111,15 @@ Item {
         onTextChanged: view.cursor = 0
         Keys.onDownPressed: { focus = false; view.cursor = 0 }
       }
-      PanelActionButton {
-        iconText: Model.GLYPH.refresh
-        tooltipText: "Read the apps of " + view.deviceName + " again"
+      // The ring while the list or its icons are read; no second read meanwhile.
+      WaitButton {
+        glyph: Model.GLYPH.refresh
+        waiting: view.reading
+        motion: view.motion
+        tooltipText: view.reading ? "Reading the apps of " + view.deviceName + "…" : "Read the apps of " + view.deviceName + " again"
         foreground: view.foreground
         fontFamily: view.fontFamily
-        onClicked: view.refreshRequested()
+        onClicked: if (!view.reading) view.refreshRequested()
       }
     }
 

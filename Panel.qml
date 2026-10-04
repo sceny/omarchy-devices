@@ -4595,6 +4595,7 @@ Panel {
                 apps: root.allApps
                 pinned: root.pinnedApps
                 listState: root.appList ? root.appList.state : ""
+                reading: !!root.phone && !!root.device && root.phone.appsReading(String(root.device.id))
                 deviceName: root.device ? Model.deviceLabel(root.device) : ""
                 isWorking: function(app) { return root.appWorking(app) }
                 glide: root.cursorGlide
