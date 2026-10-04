@@ -1565,14 +1565,14 @@ def mdns_services():
     """What devices announce for adb now: Avahi first, adb's own mDNS if
     Avahi is not here."""
     if shutil.which("avahi-browse"):
-        found = []
-        for kind in ("_adb-tls-pairing._tcp", "_adb-tls-connect._tcp"):
+        def browse(kind):
             try:
-                found += parse_avahi(subprocess.run(["avahi-browse", "-rpt", kind], capture_output=True,
-                                                    text=True, timeout=8).stdout)
+                return parse_avahi(subprocess.run(["avahi-browse", "-rpt", kind], capture_output=True,
+                                                  text=True, timeout=8).stdout)
             except (OSError, subprocess.TimeoutExpired):
-                pass
-        return found
+                return []
+        with concurrent.futures.ThreadPoolExecutor(2) as pool:
+            return [s for found in pool.map(browse, ("_adb-tls-pairing._tcp", "_adb-tls-connect._tcp")) for s in found]
     return parse_mdns(adb(["mdns", "services"])[1])
 
 

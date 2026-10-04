@@ -31,7 +31,7 @@ Column {
   }
 
   Repeater {
-    model: root.setup && root.setup.state !== "ready" ? root.setup.steps : []
+    model: root.setup && root.setup.state !== "ready" && root.setup.state !== "checking" ? root.setup.steps : []
 
     RowLayout {
       id: step
