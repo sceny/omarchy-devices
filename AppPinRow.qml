@@ -18,8 +18,8 @@ Item {
   property int columns: 5
   property real gap: 0
   property bool showEmpty: false
-  property string emptyText: "Drag an app here to pin it"
-  // The All apps tile after the pinned ones (the section, without a recent row).
+  property string emptyText: "Drag apps here to pin them"
+  // The All apps tile at the row's right end (the section).
   property bool allTile: false
   property int cursorAt: -1           // the keyboard cursor's tile (`count`: the All apps tile)
   property Item glide: null
@@ -43,7 +43,8 @@ Item {
   property bool incoming: false
   // A pinned tile dragged out of the row: let go, it is unpinned.
   property bool outside: false
-  readonly property int cells: count + (allTile ? 1 : 0)
+  readonly property int allSlot: Model.allAppsSlot(count, columns, false)
+  readonly property int cells: allTile ? allSlot + 1 : count
 
   implicitHeight: cells > 0 ? Math.ceil(cells / columns) * (cellHeight + gap) - gap
     : (showEmpty ? emptyBox.height : 0)
@@ -173,8 +174,9 @@ Item {
   // The rest of the apps, after the pinned ones (no recent row).
   AppTile {
     visible: row.allTile
-    // One place on while an app comes in, as the pinned ones slide.
-    readonly property var slot: Model.gridSlot(row.count + (row.incoming ? 1 : 0), row.columns, row.cellWidth, row.cellHeight, row.gap)
+    // At the row's right end; one place on when the pins reach it (an app
+    // coming in included), as the pinned ones slide.
+    readonly property var slot: Model.gridSlot(Model.allAppsSlot(row.count, row.columns, row.incoming), row.columns, row.cellWidth, row.cellHeight, row.gap)
     x: slot.x
     y: slot.y
     Behavior on x { NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }

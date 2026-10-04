@@ -1317,10 +1317,17 @@ Panel {
   // All apps last); `sectionApps` is the two in the keys' order, then All apps.
   readonly property var sectionRows: Model.appSectionRows(allApps, pinnedApps, appColumns)
   readonly property var sectionApps: sectionRows.pinned.concat(sectionRows.recent)
-  // The rows the keys move through: All apps ends RECENT, else PINNED.
-  readonly property var appCursorRows: sectionRows.recent.length > 0
-    ? Model.cursorRows([sectionRows.pinned.length, sectionRows.recent.length + 1], appColumns)
-    : Model.cursorRows([sectionRows.pinned.length + 1], appColumns)
+  // The rows the keys move through. All apps (index sectionApps.length)
+  // ends PINNED's first row while there are pins, else RECENT.
+  readonly property var appCursorRows: {
+    var p = sectionRows.pinned.length, r = sectionRows.recent.length, all = p + r
+    if (p === 0) return [Model.cursorRows([r], appColumns)[0] ? Model.cursorRows([r], appColumns)[0].concat([all]) : [all]]
+    var rows = Model.cursorRows([p], appColumns)
+    rows[Model.allAppsSlot(p, appColumns, false) < appColumns ? 0 : rows.length - 1].push(all)
+    var recent = Model.cursorRows([r], appColumns)
+    for (var i = 0; i < recent.length; i++) rows.push(recent[i].map(function(k) { return k + p }))
+    return rows
+  }
   property int appIndex: 0
   function appsSetUp(id) {
     if (!phone) return false
@@ -3719,15 +3726,17 @@ Panel {
                       z: moving ? 2 : 0
                       apps: root.sectionRows.pinned
                       columns: root.appColumns
-                      allTile: root.sectionRows.recent.length === 0
-                      cursorAt: root.cursorActive && root.focusSection === "apps" ? root.appIndex : -1
+                      allTile: true
+                      // The All apps tile is the section's last stop.
+                      cursorAt: !(root.cursorActive && root.focusSection === "apps") ? -1
+                        : (root.appIndex === root.sectionApps.length ? root.sectionRows.pinned.length : (root.appIndex < root.sectionRows.pinned.length ? root.appIndex : -1))
                       glide: root.cursorGlide
                       motion: root.motion
                       isWorking: function(app) { return root.appWorking(app) }
                       foreground: root.foreground
                       fontFamily: root.fontFamily
                       onActivated: function(app) { root.openApp(app) }
-                      onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i }
+                      onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
                       onUnpinRequested: function(app) { root.pinApp(app, false) }
@@ -3780,7 +3789,9 @@ Panel {
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index }
                         }
                       }
+                      // All apps ends this row only while nothing is pinned (else PINNED's).
                       AppTile {
+                        visible: root.sectionRows.pinned.length === 0
                         width: recentRow.cell
                         canPin: false
                         app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })

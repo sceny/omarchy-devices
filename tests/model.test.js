@@ -974,7 +974,9 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   const rows = M.appSectionRows(apps, ["com.example.bank", "com.example.gone", "com.example.clock"], 5)
   assert.deepEqual([names(rows.pinned), names(rows.recent)], [["Bank", "Clock"], ["maps", "Settings"]],
                    "pinned in their order (an uninstalled one skipped); the recent ones not pinned")
-  assert.deepEqual(names(M.appSectionRows(apps, [], 2).recent), ["maps"], "one row, All apps last")
+  assert.deepEqual(names(M.appSectionRows(apps, [], 2).recent), ["maps"], "nothing pinned: All apps ends the recent row")
+  assert.deepEqual(names(M.appSectionRows(apps, ["com.example.bank"], 2).recent), ["maps", "Clock"], "All apps in PINNED: RECENT has the whole row")
+  assert.deepEqual([M.allAppsSlot(2, 5, false), M.allAppsSlot(5, 5, false), M.allAppsSlot(4, 5, true)], [4, 5, 5], "the row's right end, or after the pins")
   assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.c", 1), ["com.example.a", "com.example.c", "com.example.b"], "dropped between")
   assert.deepEqual(M.pinAppAt(["com.example.a", "com.example.b"], "com.example.a", 5), ["com.example.b", "com.example.a"], "already pinned: moved")
   const mixed = ["com.example.other1", "com.example.a", "com.example.other2", "com.example.b"]

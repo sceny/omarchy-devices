@@ -2018,14 +2018,22 @@ function pinnedAppsOf(apps, pinned) {
 }
 
 // The section's two rows: { pinned, recent }. Every pinned app (the row
-// wraps); the recently opened ones that are not pinned, one row with All
-// apps last (`columns` - 1 of them).
+// wraps), All apps at its right end; the recently opened ones that are not
+// pinned, one row (All apps last when nothing is pinned).
 function appSectionRows(apps, pinned, columns) {
   var keep = normalizePinned(pinned)
+  var shown = pinnedAppsOf(apps, keep)
   return {
-    pinned: pinnedAppsOf(apps, keep),
-    recent: recentApps(apps, true).filter(function(a) { return keep.indexOf(a.package) < 0 }).slice(0, Math.max(0, columns - 1))
+    pinned: shown,
+    recent: recentApps(apps, true).filter(function(a) { return keep.indexOf(a.package) < 0 })
+      .slice(0, Math.max(0, shown.length > 0 ? columns : columns - 1))
   }
+}
+
+// The All apps tile's slot in the pinned row: the row's last column, or
+// after the pins once they fill it (`extra`: an app coming in).
+function allAppsSlot(count, columns, extra) {
+  return Math.max(columns - 1, count + (extra ? 1 : 0))
 }
 
 // Pinned at a place among the ones shown (a drop, a move), or moved there
