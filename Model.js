@@ -74,7 +74,7 @@ var GLYPH = {
   // Demo apps (no real icons in demo mode)
   clock: "\u{F0150}", calendar: "\u{F00ED}", camera: "\u{F0100}", map: "\u{F034D}", music: "\u{F075A}",
   notes: "\u{F082E}", weather: "\u{F0599}", chat: "\u{F0B79}", mail: "\u{F01EE}", image: "\u{F02E9}",
-  calculator: "\u{F00A3}", cog: "\u{F0493}", cart: "\u{F0110}", bank: "\u{F0070}", fitness: "\u{F0E8E}"
+  calculator: "\u{F00EC}", cog: "\u{F0493}", cart: "\u{F0110}", bank: "\u{F0070}", fitness: "\u{F0E8E}"
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
