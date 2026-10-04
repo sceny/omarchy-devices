@@ -254,7 +254,8 @@ Keep them; change one only with the owner.
   typing is this computer's keyboard. All apps shows every app, the
   system's own too (no switch). The section shows the pinned apps
   (`pinnedApps`, a setting) then the recently opened (`opened.json`, in
-  the cache: usage, never `shell.json`). The list is read only for a
+  the cache: usage, never `shell.json`; ✕ or `x` takes one out,
+  `app-forget`, until it opens again). The list is read only for a
   device whose screen is set up, from the cache, and from the device at
   most once a day; icons once per app version. A notification opens its
   app (the package is in KDE Connect's id, Android's key), never the

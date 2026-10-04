@@ -53,6 +53,7 @@ not re-printed, so the shell only wakes when something moved.
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
+  kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
   kdeconnect-bridge app-icons <device> [package...]   read the icons not read yet
                                               (those first): JSON lines {package, icon}
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
@@ -2586,9 +2587,10 @@ def read_apps(serial, run=subprocess.run):
     return [dict(a, version=versions.get(a["package"], ""), activity=launchers.get(a["package"], "")) for a in apps]
 
 
-def apps_opened(device_id, package=None, clock=time.time):
+def apps_opened(device_id, package=None, clock=time.time, forget=False):
     """When each app was last opened here ({package: seconds}); with a
-    package, records it now. In the cache: usage, not a setting."""
+    package, records it now (or, `forget`, takes it out of the recent
+    ones until it opens again). In the cache: usage, not a setting."""
     path = os.path.join(apps_dir(device_id), "opened.json")
     try:
         with open(path) as f:
@@ -2596,7 +2598,10 @@ def apps_opened(device_id, package=None, clock=time.time):
     except (OSError, ValueError):
         opened = {}
     if package:
-        opened[package] = clock()
+        if forget:
+            opened.pop(package, None)
+        else:
+            opened[package] = clock()
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
             json.dump(opened, f)
@@ -3908,6 +3913,11 @@ def main(argv):
         if len(argv) < 2:
             return say("apps needs a device id", EXIT_FAILED)
         print(json.dumps(apps_list(argv[1], refresh="--refresh" in argv), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "app-forget":
+        if len(argv) < 3:
+            return say("app-forget needs a device id and a package", EXIT_FAILED)
+        apps_opened(argv[1], argv[2], forget=True)
         return EXIT_OK
     if argv[0] == "app-icons":
         if len(argv) < 2:

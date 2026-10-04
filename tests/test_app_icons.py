@@ -308,6 +308,9 @@ class Cache(unittest.TestCase):
         bridge.apps_opened("dev", "com.example.b", clock=lambda: 5000)
         self.assertEqual([a["opened"] for a in bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"]],
                          [0, 5000 * 1000, 0], "when it was opened here, in ms")
+        bridge.apps_opened("dev", "com.example.b", forget=True)
+        self.assertEqual([a["opened"] for a in bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"]],
+                         [0, 0, 0], "taken out of the recent ones")
         open(bridge.app_icon_path("dev", apps[2], "none"), "w").close()
         self.assertEqual(bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"][0]["icon"], "none")
 

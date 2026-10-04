@@ -9,7 +9,8 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
 
 - **Apps** on the main page: the apps you pin, then the ones you opened
   last. **All apps** (`a`) has every app; type to search (`/`).
-- **Pin** an app (hover it, or `p`) to keep it in the Apps section.
+- **Pin** an app (hover it, or `p`) to keep it in the Apps section; ✕
+  (or `x`) takes a recent one out until you open it again.
 - **A notification** opens its app in a window (its window button, or
   `o`). It opens the app, not that message: KDE Connect cannot open a
   notification yet.

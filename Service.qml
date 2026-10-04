@@ -745,7 +745,7 @@ Item {
   // ---- Apps (#116): each device's apps (kdeconnect-bridge apps, kept a day
   //      in the cache), and their icons as they are read (app-icons) ----
   property var appLists: ({})              // device id -> { state, at, apps: [{ package, name, system, icon, opened }] }
-  readonly property var demoAppList: ({ state: "ready", at: 0, apps: Model.demoApps(Date.now()) })
+  property var demoAppList: ({ state: "ready", at: 0, apps: Model.demoApps(Date.now()) })
   function appsOf(id) {
     if (demo) return demoAppList
     return id ? (appLists[String(id)] || null) : null
@@ -787,6 +787,20 @@ Item {
     }) }))
   }
   Timer { id: iconsBatch; interval: 400; onTriggered: root.applyIcons() }
+  // Out of the recent ones (the ✕ on a recent app, or x): at once here, and
+  // in the cache's list of when each was opened, until it opens again.
+  function forgetApp(id, pkg) {
+    var list = appLists[String(id)]
+    if (demo) list = demoAppList
+    if (!list || !pkg) return
+    var next = Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return a.package === pkg ? Object.assign({}, a, { opened: 0 }) : a
+    }) })
+    if (demo) { demoAppList = next; return }
+    setApps(id, next)
+    var proc = actionComponent.createObject(root, { key: "forget:" + pkg, command: [bridge, "app-forget", String(id), pkg], quietSuccess: true })
+    proc.running = true
+  }
   signal appOpened(string id, string pkg)
   onAppOpened: function(id, pkg) {
     var list = appLists[id]

@@ -18,6 +18,7 @@ Item {
   property bool working: false
   property bool pinned: false
   property bool canPin: true
+  property bool canForget: false      // a recent app: its ✕ takes it out of the recent ones
   property bool here: false           // the keyboard cursor is on it
   property Item glide: null
   property real motion: 1
@@ -27,6 +28,7 @@ Item {
 
   signal activated()
   signal pinToggled()
+  signal forgetRequested()
   signal hovered()
 
   readonly property bool hasIcon: !!app.icon && app.icon !== "none"
@@ -127,6 +129,19 @@ Item {
     onClicked: { tile.pinToggled(); pinFlash.restart() }
   }
   Timer { id: pinFlash; interval: 900 }
+
+  // Out of the recent ones (x), shown while hovered.
+  PanelActionButton {
+    visible: tile.canForget && tile.hot
+    anchors.top: parent.top
+    anchors.left: parent.left
+    size: Style.space(18)
+    iconText: Model.GLYPH.close
+    tooltipText: "Remove from recent apps (x)"
+    foreground: tile.foreground
+    fontFamily: tile.fontFamily
+    onClicked: tile.forgetRequested()
+  }
 
   PanelToolTip {
     visible: mouse.containsMouse

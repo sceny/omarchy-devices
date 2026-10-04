@@ -24,6 +24,7 @@ Item {
 
   signal openRequested(var app)
   signal pinRequested(var app, bool on)
+  signal forgetRequested(var app)
   signal refreshRequested()
   signal hovered()
 
@@ -66,6 +67,11 @@ Item {
   function activate() {
     var app = stops[cursor]
     if (app) openRequested(app)
+  }
+  // x: a recent app under the cursor leaves the recent ones.
+  function forget() {
+    var app = stops[cursor]
+    if (app && cursor < page.recent.length) forgetRequested(app)
   }
   function togglePin() {
     var app = stops[cursor]
@@ -170,6 +176,8 @@ Item {
           fontFamily: view.fontFamily
           onActivated: view.openRequested(modelData)
           onPinToggled: view.pinRequested(modelData, !pinned)
+          canForget: true
+          onForgetRequested: view.forgetRequested(modelData)
           onHovered: { view.cursor = index; view.hovered() }
         }
       }

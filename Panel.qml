@@ -1334,6 +1334,9 @@ Panel {
     phone.pressApp(String(device.id), app, appSoundFor(String(device.id)))
   }
   function appWorking(app) { return !!phone && !!device && !!app && phone.isBusy("screen:" + device.id + ":" + app.package) }
+  function forgetApp(app) {
+    if (phone && device && app) phone.forgetApp(String(device.id), app.package)
+  }
   function pinApp(app, on) {
     if (!app) return
     persistProfile({ pinnedApps: Model.pinApp(pinnedApps, app.package, on) })
@@ -2071,6 +2074,7 @@ Panel {
     function appsInfo(): string { return root.appsInfo() }
     function pressHeaderButton(): string { root.headerButton(); return root.targetPage }
     function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
+    function pressDelete(): string { keyCatcher.deleteRequested(); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
     // Checks while editing, as a click or a drag would: a section's switch, a
@@ -2300,6 +2304,12 @@ Panel {
         else root.activateCursor()
       }
       onDeleteRequested: {
+        if (root.appsOpen && root.cursorActive) { appsView.forget(); return }
+        if (root.mainView && root.cursorActive && root.focusSection === "apps") {
+          var app = root.sectionApps[root.appIndex]
+          if (app && root.pinnedApps.indexOf(app.package) < 0) root.forgetApp(app)
+          return
+        }
         if (root.mainView && root.cursorActive && root.focusSection === "received") {
           if (root.phone) root.phone.dismissReceived(root.received[root.receivedIndex])
           return
@@ -3654,6 +3664,9 @@ Panel {
                           fontFamily: root.fontFamily
                           onActivated: root.openApp(modelData)
                           onPinToggled: root.pinApp(modelData, !pinned)
+                          // Shown because it was opened, not pinned: it can leave.
+                          canForget: !pinned
+                          onForgetRequested: root.forgetApp(modelData)
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
                         }
                       }
@@ -4370,6 +4383,7 @@ Panel {
                 fontFamily: root.fontFamily
                 onOpenRequested: function(app) { root.openApp(app) }
                 onPinRequested: function(app, on) { root.pinApp(app, on) }
+                onForgetRequested: function(app) { root.forgetApp(app) }
                 onRefreshRequested: if (root.device) root.readAppsFor(String(root.device.id), true)
                 onHovered: root.cursorActive = true
                 onSearchFocusedChanged: {
