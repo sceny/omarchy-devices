@@ -2,38 +2,30 @@
 
 # Screen and apps
 
-The phone's screen in a window here, used with your mouse and keyboard:
-the **Screen** shortcut, and its [apps](apps.md) each in a window. It
-comes from [scrcpy](https://github.com/Genymobile/scrcpy), not KDE
-Connect, and is set up once per device.
+The phone's screen in a window here, with your mouse and keyboard (the
+**Screen** shortcut), and its [apps](apps.md) each in a window. It comes
+from [scrcpy](https://github.com/Genymobile/scrcpy), not KDE Connect, and
+is set up once per device.
 
 ![Screen and apps: the steps on the phone and the pairing QR code (demo data)](images/screen-setup.png)
 
 ## Set it up
 
-Open **Settings › Screen and apps** on the device's page, or
-*Connection › Set up a device*.
+**Settings › Screen and apps** on the device's page walks you through it:
 
-1. **Install** scrcpy and adb. *Connection* offers it too; it asks for
-   your password.
-2. On the phone, turn on **Developer options**: *Settings › About phone*
-   (Samsung: *› Software information*) › tap *Build number* seven times.
+1. **Install** scrcpy and adb (it asks for your password).
+2. On the phone, turn on **Developer options**: tap *Build number* seven
+   times (*Settings › About phone*).
 3. Turn on **Wireless debugging** in *Developer options*, on this Wi-Fi.
-4. **Show the code** here, then on the phone *Wireless debugging › Pair
-   device with QR code* and scan it.
+4. **Show the code** here; on the phone, *Wireless debugging › Pair device
+   with QR code*, and scan it.
 
-That is once. The **Screen** shortcut then joins the device's shortcuts
-(take it away with ✎ if you like) and opens the window.
+The **Screen** shortcut then joins the device's shortcuts. It opens
+**docked**, in the phone's shape under its chip, on every workspace, or
+*as a window* (its Screen and apps page). Full screen: Omarchy's pop-out
+key, then its full screen key; the page shows your keys.
 
-It opens **docked**: the panel grows into the device's own shape under
-its chip and the screen appears there, on every workspace. Choose *Opens as a window* on its Screen and
-apps page for a window like any other (it moves at once).
-
-Full screen: Omarchy's pop-out key frees it, then its full screen key; the
-pop-out key docks it back. The Screen and apps page shows your keys.
-
-Android 10 and older have no Wireless debugging: turn on *USB debugging*
-and plug the phone in.
+Android 10 and older: *USB debugging* and a cable instead.
 
 ## When it stops working
 
@@ -45,6 +37,6 @@ and plug the phone in.
 
 ## Privacy
 
-Wireless debugging lets this computer control the phone. Only a computer
-that scanned your code can, and you can take that back on the phone:
-*Developer options › Revoke USB debugging authorizations*.
+Only a computer that scanned your code can control the phone; take that
+back on the phone: *Developer options › Revoke USB debugging
+authorizations*.
