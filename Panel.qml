@@ -1335,7 +1335,7 @@ Panel {
   // Folded: as many icons as fit beside the title, pinned first, then
   // recent; All apps always last. `appsFoldedWidth` is the room the row has.
   property real appsFoldedWidth: 0
-  readonly property real foldedTile: Style.space(22) + Style.space(6) + Style.space(4)
+  readonly property real foldedTile: Style.space(18) + Style.space(4) + Style.space(4)
   readonly property real foldedDivider: 1 + Style.space(4)
   // Room for icons once All apps has its place.
   readonly property real foldedSpace: Math.max(0, appsFoldedWidth - foldedTile)
@@ -3707,7 +3707,7 @@ Panel {
                           compact: true
                           width: implicitWidth
                           height: implicitHeight
-                          iconSize: Style.space(22)
+                          iconSize: Style.space(18)
                           canPin: false
                           app: modelData
                           working: root.appWorking(modelData)
@@ -3737,7 +3737,7 @@ Panel {
                           compact: true
                           width: implicitWidth
                           height: implicitHeight
-                          iconSize: Style.space(22)
+                          iconSize: Style.space(18)
                           canPin: false
                           app: modelData
                           working: root.appWorking(modelData)
@@ -3756,7 +3756,7 @@ Panel {
                         compact: true
                         width: implicitWidth
                         height: implicitHeight
-                        iconSize: Style.space(22)
+                        iconSize: Style.space(18)
                         canPin: false
                         app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
                         here: root.isCollapsed("apps") && root.cursorActive && root.focusSection === "apps" && root.appIndex === root.sectionApps.length
@@ -3970,7 +3970,7 @@ Panel {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.left
                         tooltipText: "Previous player"
-                        size: Style.space(20)
+                        size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
                         fontFamily: root.fontFamily
@@ -4007,7 +4007,7 @@ Panel {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.right
                         tooltipText: "Next player"
-                        size: Style.space(20)
+                        size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
                         fontFamily: root.fontFamily

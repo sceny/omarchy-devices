@@ -32,10 +32,11 @@ Item {
   signal refreshRequested()
 
   // One height for every section header, folded or open, text alone or with
-  // icons beside it (folded Shortcuts and Apps, a cover, a play button, the
-  // ring): the tallest of them, so the title never moves as a section folds.
-  // What sits in a header is at most this tall.
-  readonly property real headerHeight: Style.space(28)
+  // icons beside it, so the title never moves as a section folds: the size
+  // of a header's buttons (folded Shortcuts), which everything beside a
+  // title takes (folded Apps' icons, the play button, the arrows, the ring);
+  // the cover is smaller.
+  readonly property real headerHeight: Style.space(22)
   implicitHeight: Math.max(foldRow.implicitHeight, headerHeight)
   implicitWidth: foldRow.implicitWidth
 
@@ -106,8 +107,8 @@ Item {
     }
     Item {
       visible: fold.canBusy
-      Layout.preferredWidth: Style.space(20)
-      Layout.preferredHeight: Style.space(20)
+      Layout.preferredWidth: fold.headerHeight
+      Layout.preferredHeight: fold.headerHeight
       Layout.leftMargin: Style.space(6)
       Layout.alignment: Qt.AlignVCenter
       // One at a time, at the panel's pace: the one leaving fades out, and
@@ -123,7 +124,7 @@ Item {
       PanelActionButton {
         id: foldRefresh
         anchors.centerIn: parent
-        size: Style.space(20)
+        size: fold.headerHeight
         fontSize: Style.font.caption
         iconText: Model.GLYPH.refresh
         tooltipText: fold.refreshTip
