@@ -424,12 +424,7 @@ Column {
   // ---- Connection: this computer (checking what exists). Add a device:
   //      requests to pair, the steps on it, devices in reach (making a new
   //      pairing) ----
-  PanelSectionHeader {
-    visible: root.scopeKind === "connection"
-    text: "THIS COMPUTER"
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-  }
+  // The page is named This computer: its checks need no header of their own.
   Text {
     visible: root.scopeKind === "connection" && root.firstIndex("check") < 0
     textFormat: Text.PlainText
