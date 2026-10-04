@@ -2115,14 +2115,19 @@ def placement(ctx, settled, old, new, mon):
     sx, sy, sw, sh = settled
     _, _, nw, nh = dock_rect(ctx, new)
     k = max(sw / home[2], sh / home[3]) if home[2] and home[3] else 1
-    w, h = round(nw * k), round(nh * k)
     scale = mon.get("scale") or 1
     mw, mh = mon.get("width", 1920) / scale, mon.get("height", 1080) / scale
     top = (mon.get("reserved") or [0, 0])[1]
-    w, h = min(w, round(mw)), min(h, round(mh - top))
-    x = max(0, min(round(sx + sw / 2 - w / 2), round(mw - w)))
-    y = max(top, min(round(sy + sh / 2 - h / 2), round(mh - h)))
-    return x, y, w, h
+    margin = float(ctx.get("margin") or 0)
+    # Too big for the screen in the new shape (a landscape window made large,
+    # turned upright): smaller, both sides by one factor, so the window keeps
+    # the device's shape; capping one side alone left it wider than the
+    # picture inside.
+    k = min(k, (mw - 2 * margin) / nw, (mh - top - 2 * margin) / nh) if nw and nh else k
+    w, h = round(nw * k), round(nh * k)
+    x = max(margin, min(round(sx + sw / 2 - w / 2), round(mw - w - margin)))
+    y = max(top + margin, min(round(sy + sh / 2 - h / 2), round(mh - h - margin)))
+    return round(x), round(y), w, h
 
 
 def refit(win, rect, mons, border=0):

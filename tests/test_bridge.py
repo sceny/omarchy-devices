@@ -1035,6 +1035,24 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[0], 2560 - 1152 - 5)
         self.assertEqual(bridge.dock_rect(dict(self.TOP, barPos="bottom"), (1080, 2316))[1], 1440 - 35 - 1008 - 5)
 
+    def test_a_moved_window_turns_in_place_in_the_devices_shape(self):
+        mon = {"width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
+        portrait, landscape = (1080, 2316), (2316, 1080)
+        home = bridge.dock_rect(self.TOP, landscape)
+        self.assertEqual(bridge.placement(self.TOP, home, landscape, portrait, mon), bridge.dock_rect(self.TOP, portrait),
+                         "docked under the chip: docked again")
+        # Made large in landscape, then turned upright: too tall for the
+        # screen, so smaller, still the device's shape, and on the screen.
+        big = (-171, 37, 2728, 1269)
+        x, y, w, h = bridge.placement(self.TOP, big, landscape, portrait, mon)
+        self.assertAlmostEqual(w / h, 1080 / 2316, delta=0.005)
+        self.assertTrue(x >= 5 and y >= 35 + 5 and x + w <= 2560 - 5 and y + h <= 1440 - 5, (x, y, w, h))
+        # Moved, not resized: the same size against the docked one, kept centred.
+        moved = (800, 300) + home[2:]
+        x, y, w, h = bridge.placement(self.TOP, moved, landscape, portrait, mon)
+        self.assertEqual((w, h), bridge.dock_rect(self.TOP, portrait)[2:])
+        self.assertEqual((x + w // 2, y + h // 2), (800 + home[2] // 2, min(300 + home[3] // 2, 1440 - 5 - h // 2)))
+
     def test_refit_puts_the_window_inside_the_cards_border(self):
         mons = [{"id": 1, "x": 2560, "y": 0}]
         card = bridge.dock_rect(self.TOP, (1080, 2316))
