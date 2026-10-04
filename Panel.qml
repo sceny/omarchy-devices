@@ -733,9 +733,12 @@ Panel {
   readonly property int settingsIssues: allProblems.length
   // Every connected device's features, read when the panel opens (the
   // status counts them all, not only the viewed one's).
+  // The viewed device's screen too, once it was set up here (adb pairs
+  // kept): Wireless debugging off after a restart is a problem to say.
   function readAllFeatures() {
     if (!phone) return
     pairedDevices.forEach(function(d) { if (d.reachable === true) phone.readFeatures(String(d.id)) })
+    if (device && device.reachable === true && screenInstalled && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
   }
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
