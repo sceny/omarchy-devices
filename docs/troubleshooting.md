@@ -5,14 +5,13 @@
 | Symptom | Check |
 |---|---|
 | The pill is missing | `omarchy restart shell`; errors are in `journalctl --user -t omarchy-shell`. |
-| The device shows away | *Reconnect* on its page; Settings → Connection for this computer; on Samsung, battery use *Unrestricted*. |
-| No notifications | Notification access for KDE Connect on the phone. |
-| Numbers instead of names | The contacts permission on the phone. |
-| No calls | The phone and call log permissions for KDE Connect on the phone. |
-| No gallery | *Install* sshfs from the Gallery section; allow storage access in the app. If KDE Connect keeps saying *sshfs finished with exit code 1*, restart it: `systemctl --user restart app-org.kde.kdeconnect.daemon@autostart.service`. |
+| The device shows away | *Reconnect* on its page; Settings → This computer; on Samsung, battery use *Unrestricted*. |
+| A feature is missing | Settings → its row under *What it can do*: *Turn on* or *Fix* does what it can and says what is left (a permission on the phone). |
+| No gallery | Its row, or the Gallery's *Try again*; a storage that stopped answering is mounted again, else *Restart KDE Connect*. |
 | A photo is missing | Gallery shows what the phone's gallery does; a folder marked hidden or `.nomedia` is left out. The first look takes up to a minute. |
-| A notification you never see on the phone | KDE Connect forwarded a hidden one (below). |
-| No notifications after pairing again | Restart the phone: KDE Connect's app stops sending them after a re-pair ([#95](https://github.com/sceny/omarchy-devices/issues/95)). |
+| No notifications after pairing again | Notifications' *Fix* (with the screen set up), else restart the phone ([#95](https://github.com/sceny/omarchy-devices/issues/95)). |
+| *Call* on a notification does nothing | Android blocks it from the background ([#30](https://github.com/sceny/omarchy-devices/issues/30)): open the app in a window from the notification. |
+| Anything else | **Diagnose** (the lightbulb beside an error): your coding agent looks into it with you, asking before it changes anything. |
 
 ## What KDE Connect cannot do
 

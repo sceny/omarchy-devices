@@ -19,15 +19,16 @@ this computer in the app and accept here.
 
 ![Add a device: the steps on the phone and a QR code for the app (demo data)](images/add-device.png)
 
-On the phone, allow notification access, SMS, contacts and media control.
-An iPhone shares files and the clipboard only.
+Once paired, its page shows what it can do; turn on what you want, one
+click each. An iPhone shares files and the clipboard only.
 
 ## Check this computer
 
-**Connection** checks KDE Connect, the firewall and the network, with a
-fix for each; a fix asks for your password.
+**This computer** checks KDE Connect, the firewall and the network, with a
+fix for each, or *Fix what I can*. Before a password, a card says exactly
+what it is for.
 
-![Connection: KDE Connect, the firewall and the network, all good (demo data)](images/connection.png)
+![This computer: KDE Connect, the firewall and the network, all good (demo data)](images/connection.png)
 
 ## Look around first
 
