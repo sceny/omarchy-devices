@@ -546,10 +546,16 @@ Panel {
     else if (key === "pair") phone.startScreenPair(screenId)
     else if (key === "stopPair") phone.stopScreenPair()
     else if (key === "check") phone.readScreen(screenId)
+    else if (key === "open" && phone.screenIsOpen(screenId)) {
+      // Open: brought forward with the keyboard, as the shortcut does.
+      close()
+      Qt.callLater(function() { root.phone.focusScreen(root.screenId) })
+    }
     else if (key === "open") {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
       else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
     }
+    else if (key === "place") toggleScreenDocked(screenId)
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "fitTile") toggleScreenFit(screenId)
@@ -4088,6 +4094,9 @@ Panel {
                 scopeKind: root.screenId !== "" ? "screen" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 screenSetup: root.screenSetup
                 screenQr: root.screenPairing ? root.screenPairing.qr : null
+                screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)
+                onScreenPlaceChosen: function(docked) { if (root.screenDockedFor(root.screenId) !== docked) root.toggleScreenDocked(root.screenId) }
+                onScreenCloseRequested: if (root.phone) root.phone.closeScreen(root.screenId)
                 custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)

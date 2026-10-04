@@ -65,7 +65,9 @@ var GLYPH = {
   screen: "\u{F0989}",       // monitor-cellphone: the device's screen in a window here
   apps: "\u{F003B}",         // apps: its apps, each in a window
   optional: "\u{F0766}",     // circle-outline: a check only one feature needs
-  tip: "\u{F0336}"           // lightbulb-outline: a tip while the screen connects
+  tip: "\u{F0336}",          // lightbulb-outline: a tip while the screen connects
+  dockTop: "\u{F1513}",      // dock-top: the screen opens under the bar
+  window: "\u{F05B2}"        // window-restore: the screen opens as a window
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -1187,12 +1189,11 @@ function screenSetup(status, device, pairing, docked, fitTile) {
   }
   if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
   if (ready) {
-    actions.push({ key: "open", label: "Show the screen", hint: "Use it with your mouse: right-click is Back" })
-    // Where it opens: one of two, like a choice in Settings.
-    actions.push({ key: "dockOn", label: "Opens under the bar", on: docked !== false,
-                   hint: "Under its icon, on top, on every workspace" })
-    actions.push({ key: "dockOff", label: "Opens as a window", on: docked === false,
-                   hint: "Tiles, moves and resizes like any other window" })
+    // Three kinds of control, each drawn as what it is: the screen itself
+    // (a tile, as its shortcut), where it opens (one of two), and a switch.
+    actions.push({ key: "open", label: "Screen", hint: "Use it with your mouse: right-click is Back" })
+    actions.push({ key: "place", label: "Opens", docked: docked !== false,
+                   hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window" })
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
@@ -1279,6 +1280,7 @@ function screenRows(setup) {
   return (setup ? setup.actions : []).map(function(a) {
     var row = { kind: "screenAction", key: a.key, label: a.label, hint: a.hint }
     if (a.on !== undefined) row.on = a.on
+    if (a.docked !== undefined) row.docked = a.docked
     return row
   })
 }

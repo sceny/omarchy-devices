@@ -27,6 +27,10 @@ Column {
   // and the pairing code it shows.
   property var screenSetup: null
   property var screenQr: null
+  // Its screen's window is open: the tile is on, with its ✕.
+  property bool screenOpen: false
+  signal screenPlaceChosen(bool docked)
+  signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
   // Pairings asked here: when each started (the card's countdown), and a
@@ -495,15 +499,38 @@ Column {
     width: root.width
     setup: root.screenSetup
     qr: root.screenQr
+    showLine: !root.screenSetup || root.screenSetup.state !== "ready"
     foreground: root.foreground
     fontFamily: root.fontFamily
+  }
+  // Each control drawn as what it is: the screen (a tile, as its shortcut),
+  // where it opens (one of two), a switch, and the setup's own actions.
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ScreenTileRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "open"
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ScreenPlaceRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "place"
+      row: modelData
+      rowIndex: index
+    }
   }
   Repeater {
     model: root.scopeKind === "screen" ? root.rows : []
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "screenAction"
+      visible: modelData.kind === "screenAction" && modelData.key !== "open" && modelData.key !== "place"
       width: root.width
       row: modelData
       rowIndex: index
@@ -976,6 +1003,163 @@ Column {
         font.family: root.fontFamily
         font.pixelSize: Style.font.caption
       }
+    }
+  }
+
+  // The device's screen as a tile, drawn as its Screen shortcut is: on (the
+  // accent, a ✕ to close it) while its window is open, where a click brings
+  // it forward. Its status and a line of help beside it.
+  component ScreenTileRow: Row {
+    id: str
+    property var row: ({})
+    property int rowIndex: -1
+    width: root.width
+    spacing: Style.space(14)
+
+    CursorSurface {
+      id: tileBox
+      width: Math.round((root.width - 3 * Style.space(8)) / 4)
+      height: tileCol.implicitHeight + Style.space(18)
+      hasCursor: false
+      bordered: true
+      foreground: root.foreground
+      CursorStop { here: root.cursorIndex === str.rowIndex; glide: root.cursorGlide }
+
+      Rectangle {
+        anchors.fill: parent
+        radius: tileBox.radius
+        color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+        border.width: 1
+        border.color: Color.accent
+        opacity: root.screenOpen ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpen ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+      }
+      Column {
+        id: tileCol
+        anchors.centerIn: parent
+        spacing: Style.space(4)
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          text: Model.GLYPH.screen
+          color: root.screenOpen ? Color.accent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.heading + 2
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          textFormat: Text.PlainText
+          text: str.row.label || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onEntered: root.hovered(str.rowIndex)
+        onClicked: root.activated(str.rowIndex)
+      }
+      PanelActionButton {
+        visible: root.screenOpen
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: Style.space(2)
+        size: Style.space(18)
+        iconText: Model.GLYPH.close
+        tooltipText: "Close its screen"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.screenCloseRequested()
+      }
+    }
+    Column {
+      anchors.verticalCenter: tileBox.verticalCenter
+      width: str.width - tileBox.width - str.spacing
+      spacing: Style.space(2)
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        text: root.screenSetup ? root.screenSetup.line : ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        text: root.screenOpen ? "Open: click to bring it forward" : (str.row.hint || "")
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  // Where the screen opens: one of two, as a choice is drawn in Settings
+  // (the chosen one filled), with a line on the chosen one.
+  component ScreenPlaceRow: Column {
+    id: spr
+    property var row: ({})
+    property int rowIndex: -1
+    width: root.width
+    spacing: Style.space(6)
+    topPadding: Style.space(6)
+
+    PanelSectionHeader {
+      text: "OPENS"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    Item {
+      width: parent.width
+      height: segRow.implicitHeight + Style.space(8)
+      CursorStop { here: root.cursorIndex === spr.rowIndex; glide: root.cursorGlide }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        onEntered: root.hovered(spr.rowIndex)
+      }
+      Row {
+        id: segRow
+        anchors.verticalCenter: parent.verticalCenter
+        x: Style.space(4)
+        spacing: Style.space(4)
+        Button {
+          text: "Under the bar"
+          iconText: Model.GLYPH.dockTop
+          selected: spr.row.docked === true
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.screenPlaceChosen(true)
+        }
+        Button {
+          text: "As a window"
+          iconText: Model.GLYPH.window
+          selected: spr.row.docked === false
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.screenPlaceChosen(false)
+        }
+      }
+    }
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: spr.row.hint || ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
     }
   }
 

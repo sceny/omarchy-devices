@@ -13,6 +13,8 @@ Column {
   property var setup: null
   // The pairing code to show (Model.qrGrid), while pairing on this page.
   property var qr: null
+  // Ready, the status sits by the screen's tile (SettingsView) instead.
+  property bool showLine: true
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
@@ -21,6 +23,7 @@ Column {
   spacing: Style.space(6)
 
   Text {
+    visible: root.showLine
     width: root.width
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
