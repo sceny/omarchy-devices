@@ -149,5 +149,23 @@ class Mounts(unittest.TestCase):
         self.assertFalse(bridge.mount_alive(""), "no mount point")
 
 
+class Renotify(unittest.TestCase):
+    def test_a_plugin_turned_off_stays_off(self):
+        set_calls = []
+        saved = (bridge.plugin_on, bridge.set_plugin, bridge.say, bridge.time.sleep)
+        try:
+            bridge.plugin_on = lambda device, plugin, conn=None: False
+            bridge.set_plugin = lambda *a, **kw: set_calls.append(a)
+            bridge.say = lambda message, code=0: code
+            self.assertEqual(bridge.device_fix("renotify", "dev"), 0)
+            self.assertEqual(set_calls, [], "turned off for this device: never turned on by a fix nobody clicked")
+            bridge.plugin_on = lambda device, plugin, conn=None: True
+            bridge.time.sleep = lambda s: None
+            bridge.device_fix("renotify", "dev")
+            self.assertEqual([c[2] for c in set_calls], [False, True], "on: off, then on again")
+        finally:
+            bridge.plugin_on, bridge.set_plugin, bridge.say, bridge.time.sleep = saved
+
+
 if __name__ == "__main__":
     unittest.main()

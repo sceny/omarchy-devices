@@ -56,29 +56,29 @@ bridge's report (`doctor`, now per device), never set by hand:
 | Feature | KDE Connect plugins | Permissions (Android) | Other sources |
 |---|---|---|---|
 | Notifications | notifications | notification access | |
-| Messages | sms, telephony | SMS, contacts | |
+| Messages | sms | SMS | |
 | Names | contacts | contacts | |
-| Now playing | mpriscontrol | notification access | |
+| Now playing | mprisremote | notification access | |
 | Calls | telephony | phone, call log | *planned:* Bluetooth (#59) |
 | Gallery | sftp | all files access | sshfs here |
 | Files it sends | share | | |
 | Clipboard | clipboard | | |
 | Ring | findmyphone | | |
 | Battery | battery | | |
-| Screen | | | scrcpy and adb here; Wireless debugging; adb pairing |
-| Apps | | | the screen; Android 10 |
+| Screen and apps | | | scrcpy and adb here; Wireless debugging; adb pairing |
 
-Everything reads the same states: the gear dot, Connection's pills, the
-device page's rows, the hints in sections, *Fix all*, *Fix with AI*.
+Everything reads the same states: the device page's rows, Settings'
+status, the gear dot, the main page's line, *Fix all*, *Fix with AI*.
 
 ## 5. Just works
 
 A feature's one action (*Turn on*, *Fix*) runs every step the plugin can do,
 in order, and stops at the first one only the user can do:
 
-1. this computer's packages, all in one password prompt (`fix install`,
-   `fix sshfs`, `fix screen`);
-2. KDE Connect running, its plugins on for this device (`setPluginEnabled`);
+1. KDE Connect's plugins on for this device (`setPluginEnabled`);
+2. a package this computer needs (sshfs, scrcpy) is This computer's: the
+   row says so and its button goes there, where its fix asks for the
+   password once, after a card says what for;
 3. the phone's permissions, granted over adb when the screen is set up
    (`pm grant`, the notification listener, all files access), else the one
    tap to do on the phone;
@@ -155,7 +155,7 @@ Not built in 0.8; their places are set so they do not drift:
 
 - The boundary: each source is the truth for its feature; KDE Connect is
   one of them; KDE Connect's faults are handled here when met.
-- Connection and Add a device: Connection is *This computer*; the device's
-  features live on its page.
+- This computer and Add a device are Settings pages; the device's
+  features live on its page; Settings has one shape (section 6).
 - Fixes still change the system only on a click (one password prompt), and
   a change on the phone (a permission) only on a click too.

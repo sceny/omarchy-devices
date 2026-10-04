@@ -28,7 +28,7 @@ bin/kdeconnect-bridge photos-cached <device>   # the last photo list, at once (t
 "${IPC[@]}" settingsScope "Galaxy Tab S9"   # a device's settings page; also root, defaults
 "${IPC[@]}" live                   # back to the phone
 "${IPC[@]}" page settings          # also main, messages, connection
-"${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # Connection's checks; the phone away; Reconnect
+"${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # This computer's checks; the phone away; Reconnect
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none

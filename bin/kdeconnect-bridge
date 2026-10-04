@@ -1445,11 +1445,12 @@ def doctor():
     # Optional: only the screen and apps need it, so it never lights the
     # gear's dot.
     tools = screen_tools()
-    checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen and apps",
+    checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen tools",
                    "status": ("scrcpy " + tools["version"]) if tools["ok"] else "Not installed",
                    "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
-                   # Installed: the next step is on a device, so it leads there.
-                   "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else "Install"})
+                   # Installed is all this computer does: the rest is each
+                   # device's, on its page.
+                   "fix": "" if tools["ok"] else "screen", "fixLabel": "" if tools["ok"] else "Install"})
     # Optional too: only the gallery needs it (KDE Connect's sftp mounts
     # through sshfs).
     sshfs = shutil.which("sshfs") is not None
@@ -1569,7 +1570,7 @@ def run_root(what, confirm):
 
 
 # What each install fix puts on this computer, so several go in one prompt
-# (`fix packages sshfs,screen`: Fix what I can).
+# (`fix packages sshfs,screen`: Fix all).
 def fix_packages(key):
     return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
 
@@ -1735,6 +1736,13 @@ def device_notification_count(serial, run=None):
     return len([p for p in pkgs if p not in (KDECONNECT_ANDROID, "com.android.systemui", "android")])
 
 
+def plugin_on(device_id, plugin, conn=None):
+    """Whether one of KDE Connect's plugins is on for a device."""
+    conn = conn or bus()
+    name = plugin if plugin.startswith("kdeconnect_") else "kdeconnect_" + plugin
+    return bool(call(conn, device_path(device_id), IFACE + ".device", "isPluginEnabled", (name,), "(s)")[0])
+
+
 def set_plugin(device_id, plugin, on, conn=None):
     """Turns one of KDE Connect's plugins on or off for a device (what its
     own app does): the device stops or starts sending it."""
@@ -1798,8 +1806,11 @@ def device_fix(what, device_id, arg=""):
     if what == "renotify":
         # The notifications plugin off and on: made again, it asks the
         # device for every notification it holds, so one dismissed there
-        # while its cancel was lost goes here too (#4).
+        # while its cancel was lost goes here too (#4). Turned off for this
+        # device, it stays off: nothing to read again.
         try:
+            if not plugin_on(device_id, "notifications"):
+                return say("Its notifications are turned off for this device")
             set_plugin(device_id, "notifications", False)
             time.sleep(0.5)
             set_plugin(device_id, "notifications", True)

@@ -66,7 +66,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
-| `SetupChecks.qml` | the steps on a new device, for the Connection page (its checks are Connection's rows, from `kdeconnect-bridge doctor`) |
+| `SetupChecks.qml` | the steps on a new device, for Add a device (This computer's rows are its checks, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
 | `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
@@ -218,7 +218,7 @@ Keep them; change one only with the owner.
 - **Each device's settings are its own** (`docs/design/multi-device.md`):
   a device's page (tabs to the others' pages) edits its nickname, icon,
   and with two or more devices its place in the bar, tab, and any group
-  it changes (marked CUSTOM, with *use the defaults*); *For all devices*
+  it changes (its row says *Its own*, with *use the defaults*); *For all devices*
   edits the flat keys. Identity (nickname, icon, bar, tab) is never
   inherited. Moving a device writes down how each one shows in the bar,
   so moving never changes it.
@@ -341,8 +341,8 @@ Keep them; change one only with the owner.
   is downgraded. A change on the phone (a permission) is a click's too.
 - **This computer and Add a device are two Settings pages:** one checks what
   exists, the other makes a new pairing (then goes on to the new device's
-  page, what it can do). This computer (`settingsScope` `connection`, once
-  Connection): this computer's checks, *Fix all* (status icon, name, short status,
+  page, what it can do). This computer (`settingsScope` `connection`):
+  this computer's checks, *Fix all* (status icon, name, short status,
   one action; *Ignore* stops a check lighting the gear's dot, kept in
   `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
   device (`addDevice`): requests to pair, the steps on the device, devices
@@ -369,8 +369,8 @@ Keep them; change one only with the owner.
   never opened to everyone.
 - **A feature that needs more than KDE Connect ships its own setup.** A
   package, a setting on the device or a pairing is a step the panel walks
-  the user through: a check (Connection's row from `doctor`; optional when
-  only that feature needs it, so it never lights the gear's dot), a fix on
+  the user through: a check (This computer's row from `doctor`; optional
+  when only that feature needs it, so missing it is never a problem), a fix on
   a click, and the steps on the device, each ticked when it is done. Never
   a manual install in the docs instead. Test the setup on a machine
   without the dependency before installing it, and install it through the

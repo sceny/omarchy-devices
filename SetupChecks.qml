@@ -6,8 +6,8 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// Adding a device: the steps on it (pairing starts there), for the
-// Connection page. This computer's checks are the page's own rows.
+// Adding a device: the steps on it (pairing starts there), for the Add a
+// device page.
 Column {
   id: root
 

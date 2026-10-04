@@ -45,13 +45,8 @@ Column {
   // What it can do's problems: a marker and the section's own Fix all and
   // Fix with AI in its title.
   readonly property int featureProblems: rows.filter(function(r) { return r.kind === "feature" && r.problem }).length
-  readonly property string featuresLine: {
-    var f = rows.filter(function(r) { return r.kind === "feature" })
-    if (featureProblems > 0) return featureProblems + (featureProblems === 1 ? " needs attention" : " need attention")
-    var on = f.filter(function(r) { return r.state === "on" }).length
-    var setup = f.filter(function(r) { return r.state === "setup" }).length
-    return on + " on" + (setup > 0 ? " · " + setup + " to set up" : "")
-  }
+  readonly property string featuresLine: featureProblems > 0 ? featureProblems + (featureProblems === 1 ? " needs attention" : " need attention")
+    : Model.featuresSummary(rows.filter(function(r) { return r.kind === "feature" }))
   property int fixAllCount: 0
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
@@ -68,10 +63,9 @@ Column {
   property var sectionOrder: []
   property var barIndicators: []
   property bool batteryLowOnly: true
-  // Many devices: what the page edits ("root", "device", "defaults"), which
-  // of its settings the device changed, the icon picker, Unpair armed.
+  // What the page is ("root", "device", "defaults", "connection",
+  // "addDevice", "screen"), the icon picker, Unpair armed.
   property string scopeKind: "root"
-  property var custom: ({})
   property bool iconPicking: false
   property bool unpairArmed: false
   property string deviceName: ""
@@ -118,9 +112,6 @@ Column {
   readonly property int problemCount: rows.filter(function(r) { return r.kind === "problem" }).length
   readonly property int devicesIssues: rows.filter(function(r) { return r.kind === "problem" && r.where !== "computer" }).length
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
-  function groupTitle(title, group) {
-    return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
-  }
   function devicesSummary() {
     var n = 0, asking = 0
     for (var i = 0; i < rows.length; i++) {
@@ -171,7 +162,7 @@ Column {
         Text {
           Layout.fillWidth: true
           textFormat: Text.PlainText
-          text: root.problemCount === 0 ? "Everything works" : root.problemCount === 1 ? "1 thing needs you" : root.problemCount + " things need you"
+          text: Model.problemsLine(root.rows.filter(function(r) { return r.kind === "problem" }))
           color: root.problemCount > 0 ? Color.urgent : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
@@ -371,25 +362,21 @@ Column {
     }
   }
 
-  // ---- Its sections, shortcuts and bar (edited on its page), each group
-  //      it changed back to the defaults; Screen and apps when its
-  //      features are still being read ----
-  Item { visible: root.hasKind(["editPage", "screen"]); width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.hasKind(["editPage", "screen"]); foreground: root.foreground }
+  // ---- Its sections, shortcuts and bar (edited on its page), and each
+  //      group it changed back to the defaults ----
+  Item { visible: root.firstIndex("editPage") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("editPage") >= 0; foreground: root.foreground }
   Repeater {
     model: root.rows
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "editPage" || modelData.kind === "screen" || modelData.kind === "resetGroup"
+      visible: modelData.kind === "editPage" || modelData.kind === "resetGroup"
       width: root.width
       row: modelData
       rowIndex: index
     }
   }
-
-  Item { visible: root.hasGroups && (root.hasIdentity || root.hasList); width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.hasGroups && (root.hasIdentity || root.hasList); foreground: root.foreground }
 
   Column {
     id: groupsBox
@@ -400,7 +387,7 @@ Column {
     // ---- Layout ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("LAYOUT", "layout")
+      title: "LAYOUT"
       summary: Model.layoutSummary(root.flags, root.sectionOrder)
       folded: root.isFolded("layout")
       foreground: root.foreground
@@ -446,7 +433,7 @@ Column {
     // ---- Bar: what the pill shows beside the device glyph ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("BAR", "bar")
+      title: "BAR"
       summary: Model.barSummary(root.barIndicators, root.batteryLowOnly)
       folded: root.isFolded("bar")
       foreground: root.foreground
@@ -503,7 +490,7 @@ Column {
     // ---- Shortcuts ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("SHORTCUTS", "shortcuts")
+      title: "SHORTCUTS"
       summary: Model.shortcutsSummary(root.order)
       folded: root.isFolded("shortcuts")
       foreground: root.foreground
@@ -546,9 +533,8 @@ Column {
     }
   }
 
-  // ---- Connection: this computer (checking what exists). Add a device:
-  //      requests to pair, the steps on it, devices in reach (making a new
-  //      pairing) ----
+  // ---- This computer (checking what exists). Add a device: requests to
+  //      pair, the steps on it, devices in reach (making a new pairing) ----
   // The page is named This computer: its checks need no header of their own.
   Text {
     visible: root.scopeKind === "connection" && root.firstIndex("check") < 0
@@ -576,7 +562,7 @@ Column {
     text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all (" + root.fixAllCount + ")"
     iconText: Model.GLYPH.check
     enabled: !(root.phone && root.phone.isBusy("fixAll"))
-    tooltipText: "Runs every fix the plugin can do here and on the device; anything that needs your password is shown first"
+    tooltipText: "Every fix the plugin can do on this computer; anything that needs your password is shown first"
     bordered: true
     foreground: root.foreground
     fontFamily: root.fontFamily
@@ -723,10 +709,10 @@ Column {
     onClicked: root.previewRequested()
   }
 
-  // The page's buttons (Unpair, Reset shortcuts, KDE Connect settings):
-  // their row takes room only when one of them shows (hidden buttons still
-  // left it 44 px tall, an empty band at the bottom of Add a device).
-  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0 || firstIndex("kdeconnect") >= 0
+  // The page's buttons (Unpair, Reset shortcuts): their row takes room only
+  // when one of them shows (hidden buttons still left it 44 px tall, an
+  // empty band at the bottom of Add a device).
+  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0
   Item { visible: root.hasButtons; width: 1; height: Style.space(2) }
 
   Row {
@@ -753,20 +739,6 @@ Column {
       text: "Reset shortcuts"
       iconText: Model.GLYPH.reset
       tooltipText: "Back to Ring, Send files, Clipboard and Messages"
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      bordered: true
-      hasCursor: root.cursorIndex === rowIndex
-      onHovered: function(on) { if (on) root.hovered(rowIndex) }
-      onClicked: root.activated(rowIndex)
-    }
-
-    Button {
-      readonly property int rowIndex: root.firstIndex("kdeconnect")
-      visible: rowIndex >= 0
-      text: "KDE Connect settings"
-      iconText: Model.GLYPH.phoneCog
-      tooltipText: "Pairing, device permissions and KDE Connect's own plugins"
       foreground: root.foreground
       fontFamily: root.fontFamily
       bordered: true
@@ -916,8 +888,8 @@ Column {
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
         }
-        // Connection: a pill per capability, on, off (more can be set up)
-        // or failing, in place of a one-word summary.
+        // This computer: a pill per thing it has, on, off (more can be set
+        // up) or failing, in place of a one-word summary.
         Flow {
           visible: listRow.hasPills
           Layout.fillWidth: true
@@ -964,7 +936,7 @@ Column {
       }
 
       Text {
-        visible: ["device", "defaults", "editPage", "screen", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
+        visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
@@ -1143,8 +1115,8 @@ Column {
     }
   }
 
-  // A capability on the Connection row: on (✓), off (○: an optional
-  // feature not set up; neutral, nothing is wrong) or failing (!).
+  // A thing on the This computer row: on (✓), off (○: an optional package
+  // not installed; neutral, nothing is wrong) or failing (!).
   component CapabilityPill: Rectangle {
     id: pillBox
     property var pill: ({})
@@ -1666,10 +1638,12 @@ Column {
             // Not while it waits for the user's step: nothing to press again.
             visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
                                          || featureRow.row.problem === true)
-            text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
+            // Blocked by this computer: its fix is there (This computer).
+            readonly property bool here: ((featureRow.row.steps || [])[0] || {}).kind === "computer"
+            text: featureRow.working ? "Working…" : here ? "This computer" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
+            iconText: here && !featureRow.working ? Model.GLYPH.chevronRight : ""
             enabled: !featureRow.working
-            tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
-              ? "Shows what your password is for before asking for it" : "Does what it can, then says what is left"
+            tooltipText: here ? "Its fix is on This computer" : "Does what it can, then says what is left"
             bordered: true
             foreground: root.foreground
             fontFamily: root.fontFamily
@@ -1703,13 +1677,11 @@ Column {
     id: checkRow
     property var row: ({})
     property int rowIndex: -1
-    // Optional (Screen and apps): missing is a choice, not a fault; it
-    // offers its install, never alerts and has nothing to ignore.
+    // Optional (Screen tools, Gallery tools): missing is a choice, not a
+    // fault; it offers its install, never alerts and has nothing to ignore.
     readonly property bool optional: row.optional === true
     readonly property bool failing: row.ok !== true && row.ignored !== true && !optional
     readonly property bool offering: row.ok !== true && (failing || optional)
-    // Optional and installed: its button leads to the next step (Set up a device).
-    readonly property bool leading: row.ok === true && optional && (row.fix || "") !== ""
     readonly property bool fixing: root.setupFixing[row.fix] === true
     hasCursor: false
     CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
@@ -1775,13 +1747,13 @@ Column {
         }
       }
       Button {
-        visible: (checkRow.offering || checkRow.leading) && (checkRow.row.fix || "") !== ""
+        visible: checkRow.offering && (checkRow.row.fix || "") !== ""
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
         iconText: checkRow.fixing ? "\u{F0996}" : ""
         iconSpinning: checkRow.fixing
         enabled: !checkRow.fixing
-        tooltipText: ["install", "firewall", "screen"].indexOf(checkRow.row.fix) >= 0 ? "Asks for your password" : ""
+        tooltipText: ["install", "firewall", "screen", "sshfs"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily

@@ -477,16 +477,36 @@ Item {
   // Omarchy launches it (`omarchy agent prompt`, its own mode), with the
   // facts and the plugin's skill by path, as `omarchy agent crash` does.
   readonly property string pluginFolder: bridge.replace(/\/bin\/kdeconnect-bridge$/, "")
+  // Read again on each panel opening and before each launch: one picked
+  // meanwhile (`omarchy agent --pick`) is the one used.
   property string agentName: ""
   Process {
+    id: agentRead
     running: true
     command: ["omarchy-default-agent"]
-    stdout: StdioCollector { onStreamFinished: root.agentName = text.trim() }
+    property var then: null
+    stdout: StdioCollector {
+      onStreamFinished: {
+        root.agentName = text.trim()
+        var t = agentRead.then
+        agentRead.then = null
+        if (t) t()
+      }
+    }
   }
+  function readAgent(then) {
+    if (agentRead.running) { if (then) agentRead.then = then; return }
+    agentRead.then = then || null
+    agentRead.running = true
+  }
+  onOpenPanelsChanged: if (openPanels > 0) readAgent()
   // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
   // did, "" when none ran).
   function fixWithAi(problems) {
     if (demo) { report("Demo: your coding agent would open on it", false); return }
+    readAgent(function() { launchAgent(problems) })
+  }
+  function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
     var lines = (problems || []).map(function(p) {
@@ -525,7 +545,7 @@ Item {
         if (now - p.at > 120000) { var n = Object.assign({}, p, { wait: false }); var all = Object.assign({}, root.featurePending); all[k] = n; root.featurePending = all; return }
         ids[k.split(":")[0]] = true
       })
-      Object.keys(ids).forEach(function(id) { root.readFeatures(id) })
+      Object.keys(ids).forEach(function(id) { root.readFeatures(id, true) })
     }
   }
 
@@ -613,7 +633,7 @@ Item {
 
   // ---- Reconnect: look for devices again (Model.awayState) ----
   // When the last search started (Reconnect, the panel opening on an away
-  // device, the Connection page), and a clock for "12 min ago" and for
+  // device, Add a device), and a clock for "12 min ago" and for
   // when the search has run out.
   property real searchedAt: 0
   property real awayClock: Date.now()
@@ -660,8 +680,17 @@ Item {
   // ---- What a device can do (docs/design/setup.md): its report
   //      (kdeconnect-bridge features), and the steps one click runs ----
   property var featureReports: ({})        // device id -> the bridge's features report
-  function readFeatures(id) {
+  // Read at most once in 3 s per device (an opening, Settings, a device's
+  // page all ask), unless `force` (after a fix, a check again, the screen
+  // turning ready, a wait).
+  property var featuresReadAt: ({})
+  function readFeatures(id, force) {
     if (!id) return
+    var now = Date.now()
+    if (force !== true && now - (featuresReadAt[String(id)] || 0) < 3000) return
+    var at = Object.assign({}, featuresReadAt)
+    at[String(id)] = now
+    featuresReadAt = at
     if (demo) { var d = Object.assign({}, featureReports); d[String(id)] = Model.demoFeatures(); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
@@ -711,7 +740,15 @@ Item {
           if (!plan || !plan.hash) { root.report(plan && plan.error ? plan.error : "Could not tell what it would do", true); if (then) then(2) }
           // Nothing that needs root (all installed): no password, no card.
           else if ((plan.commands || []).length === 0) root.runRoot(plan, then)
-          else { root.rootThen = then; root.rootAsk = plan }
+          // Every panel closed while it was described: nothing asked later.
+          else if (root.openPanels === 0) { if (then) then(1) }
+          else {
+            // One card at a time: one still up is answered as cancelled.
+            var before = root.rootThen
+            root.rootThen = then
+            root.rootAsk = plan
+            if (before) before(1)
+          }
           describeProc.destroy()
         }
       }
@@ -752,8 +789,10 @@ Item {
   // here says the switch to turn on, on the device. `key`: busy meanwhile.
   // `left`: the step after them only the user can do ({ text, wait }), shown
   // as pending once they are done.
-  function runSteps(id, steps, key, left) {
-    if (!id || !steps || steps.length === 0 || isBusy(key)) return
+  // `then`: called when it is done (Fix all chains its devices so).
+  // A step marked `fallback` runs only when the one before it failed.
+  function runSteps(id, steps, key, left, then) {
+    if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
     var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
     if (feature) setPending(id, feature, null)
     setBusy(key, true)
@@ -772,8 +811,9 @@ Item {
         if (stoppedAt) setPending(id, feature, stoppedAt)
         else if (left) setPending(id, feature, Object.assign({ at: Date.now(), failed: false, tried: "it did what it could; one step is left" }, left))
       }
-      readFeatures(id)
+      if (findDevice(id)) readFeatures(id, true)
       runDoctor()
+      if (then) then()
     }
     function next(i) {
       if (i >= queue.length) { finish(); return }
@@ -790,11 +830,15 @@ Item {
                                         : [bridge, "fix", s.fix.what]
       var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: i < queue.length - 1 })
       proc.exited.connect(function(code) {
+        var after = i + 1
+        // Failed with a fallback after it: that one next. Done: past them.
+        if (code !== 0 && after < queue.length && queue[after].step && queue[after].step.fallback) { next(after); return }
+        if (code === 0) while (after < queue.length && queue[after].step && queue[after].step.fallback) after++
         // A step for the user (a permission adb could not grant): said in
         // the row, and seen when done where it can be.
         if (code !== 0 && s.orAsk) { stoppedAt = { text: s.orAsk, wait: s.fix.what === "grant", failed: false, at: Date.now(), tried: "it could not " + s.label.toLowerCase() }; finish(); return }
         if (code !== 0) { stoppedAt = { text: "Did not work: " + s.label, wait: false, failed: true, at: Date.now(), tried: "it did not work at: " + s.label }; finish(); return }
-        next(i + 1)
+        next(after)
       })
       proc.running = true
     }
@@ -903,6 +947,9 @@ Item {
     onLoaded: { try { root.screenKept = JSON.parse(text()) || {} } catch (e) {} }
   }
   function setScreen(id, status) {
+    // Ready now: its features again, with adb (permissions, notifications).
+    var was = screenStates[String(id)]
+    if (status && status.state === "ready" && !(was && was.state === "ready") && openPanels > 0 && !demo) Qt.callLater(function() { root.readFeatures(String(id), true) })
     var next = Object.assign({}, screenStates)
     next[String(id)] = status
     screenStates = next

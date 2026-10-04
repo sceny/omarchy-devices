@@ -26,7 +26,7 @@ GitHub release with these notes.
   [#63](https://github.com/sceny/omarchy-devices/issues/63)): a device's
   page says what it can do, a row per feature, and one click does every
   step the plugin can (KDE Connect's part, a permission on the phone over
-  adb, a package), then says the one left to you. Features can be turned
+  adb), then says the one left to you. Features can be turned
   off per device. Connection is now *This computer*, with *Fix all*.
   KDE Connect's own settings window is no longer needed.
 - **Settings, organized:** the same shape with one device or many. It starts

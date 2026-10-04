@@ -44,6 +44,8 @@ kdeconnect-cli -a --id-only    # the connected devices' ids
 $B features <id>               # one device: KDE Connect's plugins, its link, files
 $B features <id> --adb         # ...and KDE Connect's permissions on the phone (needs the screen set up)
 $B screen <id>                 # the screen link: tools, pair, off, away, unauthorized, ready
+$B device-fix reload <id>      # KDE Connect's plugins for it loaded again
+$B device-fix open-permission <id> <permission>   # that permission's screen opened on the phone (adb), for the person to switch
 $B snapshot                    # everything the panel draws (contains personal data: do not paste it)
 ```
 

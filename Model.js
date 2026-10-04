@@ -273,7 +273,7 @@ function moveShortcut(order, key, delta) {
 // The settings page as one flat list, so keyboard and mouse share a cursor:
 // the layout switches in the sections' order, the bar indicators (chosen ones
 // in their order, then the rest) and the only-when-low option, the shortcuts
-// (the same way), then reset and the KDE Connect link.
+// (the same way), then Reset shortcuts.
 // Each row of an order carries `pos` (its place) and `count` (how many share
 // the order), for its arrows and for dragging it.
 function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
@@ -311,7 +311,6 @@ function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
                 available: !can || s.needs === "" || can[s.needs] === true })
   }
   rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
-  rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
   return rows
 }
 
@@ -1071,7 +1070,7 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
-// ---- Connection: this computer, pairing, adding a device ----
+// ---- This computer: its checks (the page of that name, scope "connection") ----
 
 // The doctor's checks that are about this computer (the This computer
 // page); its paired and connected checks are the devices' own pages'
@@ -1112,12 +1111,11 @@ function connectionIssues(checks, ignored) {
 // done, nothing is wrong); "fail" is a required check failing, the only
 // state that lights the gear's dot (an ignored one reads "off"). Whether
 // a device's screen is set up is that device's business, not a pill here.
-var PILL_LABELS = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
 function connectionPills(checks, ignored) {
   var skip = ignored || []
   return computerChecks(checks).map(function(c) {
     var state = c.ok ? "on" : (c.optional || skip.indexOf(c.key) >= 0 ? "off" : "fail")
-    return { key: c.key, label: PILL_LABELS[c.key] || CHECK_NAMES[c.key] || c.label, state: state }
+    return { key: c.key, label: CHECK_NAMES[c.key] || c.label, state: state }
   })
 }
 
@@ -1132,7 +1130,7 @@ function connectionSummary(checks, ignored) {
   return off === 0 ? "Everything on" : (off === 1 ? "1 more to set up" : off + " more to set up")
 }
 
-// The Connection page's rows, in one list for the keyboard: this computer's
+// The This computer page's rows, in one list for the keyboard: this computer's
 // checks (status icon, name, short status, one action; a failing one can be
 // ignored). It checks what exists; Add a device (addDeviceRows) makes a new
 // pairing.
@@ -1160,13 +1158,13 @@ function addDeviceRows(devices) {
 
 // ---- What a device can do: features from sources (docs/design/setup.md) ----
 // One table says what each feature needs; its state is worked out from the
-// bridge's report (`features <device>`), the screen's state and this
-// computer's checks, never set by hand. Everything reads these states: the
-// device page's rows, the status, the gear dot, the pills, Fix all.
+// bridge's report (`features <device>`) and the screen's state, never set
+// by hand. Everything reads these states: the device page's rows, the
+// status, the gear dot, the main page's line, Fix all.
 
 // plugins: KDE Connect's, for this device (short names); permissions: KDE
-// Connect's on the device (read over adb); computer: a check that must be ok
-// here. optional: never lights the gear dot.
+// Connect's on the device (read over adb); computer: a package this
+// computer needs for it (its step points to This computer).
 var FEATURES = [
   { key: "notifications", label: "Notifications", glyph: GLYPH.bell, plugins: ["notifications"], permissions: ["notifications"],
     hint: "Its notifications here, with reply" },
@@ -1174,13 +1172,13 @@ var FEATURES = [
   { key: "names", label: "Names", glyph: GLYPH.group, plugins: ["contacts"], permissions: ["contacts"], hint: "Its contacts' names for numbers" },
   { key: "media", label: "Now playing", glyph: GLYPH.music, plugins: ["mprisremote"], permissions: ["notifications"], hint: "What it plays, with controls" },
   { key: "calls", label: "Calls", glyph: GLYPH.callRing, plugins: ["telephony"], permissions: ["phone"], hint: "Who is calling, and missed calls" },
-  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, plugins: ["sftp"], permissions: ["storage"], computer: "sshfs", optional: true,
+  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, plugins: ["sftp"], permissions: ["storage"], computer: "sshfs",
     hint: "Its newest photos and videos" },
   { key: "share", label: "Files", glyph: GLYPH.sendFile, plugins: ["share"], hint: "Send files both ways" },
   { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, plugins: ["clipboard"], hint: "Shared clipboard" },
   { key: "ring", label: "Ring", glyph: GLYPH.ring, plugins: ["findmyphone"], hint: "Ring it, even on silent" },
   { key: "battery", label: "Battery", glyph: GLYPH.bolt, plugins: ["battery"], hint: "Its battery in the bar" },
-  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, screen: true, optional: true, hint: "Its screen and apps in windows here" }
+  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, screen: true, hint: "Its screen and apps in windows here" }
 ]
 
 var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
@@ -1189,13 +1187,15 @@ var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", conta
 var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", off: "Turned off", unavailable: "Not on this device", away: "Away" }
 
 // A feature's state and the steps to it: { key, label, glyph, hint, state,
-// stateLabel, detail, steps: [{ kind: "auto" | "ask", label, fix }],
-// switchable, on }. `report`: the bridge's features for the device (null
-// while read); `screen`: Model.screenSetup's (null while read); `checks`:
-// this computer's (doctor). A step's fix: { verb, what, arg } for the
-// service (`fix <what>` or `device-fix <what> <device> <arg>`).
-function featureState(f, report, screen, checks, deviceName) {
-  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, optional: !!f.optional, steps: [], detail: "",
+// stateLabel, detail, steps: [{ kind, label, fix, orAsk, fallback }],
+// switchable, on }. A step's kind: "auto" (the plugin does it: fix is
+// { verb, what, arg } for the service, `fix <what>` or `device-fix <what>
+// <device> <arg>`), "ask" (only the user can) or "computer" (a package
+// here: This computer fixes it). `fallback`: runs only when the step before
+// it failed. `report`: the bridge's features for the device (null while
+// read); `screen`: Model.screenSetup's (null while read).
+function featureState(f, report, screen, deviceName) {
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "",
               switchable: !!(f.plugins && f.plugins.length), on: true }
   var name = deviceName || "the device"
   function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
@@ -1205,10 +1205,10 @@ function featureState(f, report, screen, checks, deviceName) {
     if (st === "ready") return done("on", screen.line || "")
     if (st === "checking") return done("setup", "Looking…")
     if (st === "tools") {
-      row.steps.push({ kind: "computer", label: "Install scrcpy and adb on this computer", page: "connection" })
+      row.steps.push({ kind: "computer", label: "Install scrcpy and adb on this computer" })
       return done("setup", "Needs scrcpy and adb on this computer")
     }
-    row.steps.push({ kind: "ask", label: screen ? screen.line : "Set up on its page", page: "screen" })
+    row.steps.push({ kind: "ask", label: screen ? screen.line : "Set up on its page" })
     return done(st === "off" || st === "away" ? "attention" : "setup", screen ? screen.line : "")
   }
   if (!report) return done("setup", "Looking…")
@@ -1224,12 +1224,10 @@ function featureState(f, report, screen, checks, deviceName) {
     row.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: off.map(function(k) { return k + "=on" }).join(",") } })
     return done("off", "")
   }
-  if (f.computer) {
-    var c = (checks || []).filter(function(x) { return x.key === f.computer })[0]
-    var has = f.computer === "sshfs" ? !!(report.files && report.files.sshfs) : !!(c && c.ok)
-    // This computer's: it shows there, with its fix; here, where it is.
-    if (!has) {
-      row.steps.push({ kind: "computer", label: "Install " + f.computer + " on this computer", page: "connection" })
+  // This computer's: it shows there, with its fix; here, where it is.
+  if (f.computer === "sshfs") {
+    if (!(report.files && report.files.sshfs)) {
+      row.steps.push({ kind: "computer", label: "Install " + f.computer + " on this computer" })
       return done("setup", "Needs " + f.computer + " on this computer")
     }
   }
@@ -1252,7 +1250,7 @@ function featureState(f, report, screen, checks, deviceName) {
   }
   if (f.key === "gallery" && report.files && report.files.mounted === false && report.files.error) {
     row.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
-    row.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" } })
+    row.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" }, fallback: true })
     return done("attention", "Its storage did not mount: " + report.files.error)
   }
   if (row.steps.length > 0) {
@@ -1261,8 +1259,8 @@ function featureState(f, report, screen, checks, deviceName) {
   return done("on", "")
 }
 
-function featureRows(report, screen, checks, deviceName) {
-  return FEATURES.map(function(f) { return featureState(f, report, screen, checks, deviceName) })
+function featureRows(report, screen, deviceName) {
+  return FEATURES.map(function(f) { return featureState(f, report, screen, deviceName) })
 }
 
 // The steps one click runs for a feature (Turn on, Fix): every one the
@@ -1277,25 +1275,20 @@ function featurePlan(row) {
   return out
 }
 
-// Fix all: every feature's automatic steps, this computer's package
-// installs first and once each, each other step once.
+// Fix all on a device: every feature's automatic steps, each once (a
+// feature turned off stays off: its own switch turns it on).
 function fixAllPlan(rows) {
-  var seen = {}, installs = [], rest = []
+  var seen = {}, out = []
   ;(rows || []).forEach(function(r) {
     if (r.state === "on" || r.state === "unavailable" || r.state === "away" || r.state === "off") return
     featurePlan(r).forEach(function(s) {
       var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
       if (seen[id]) return
       seen[id] = true
-      ;(s.fix.verb === "fix" && s.fix.what !== "restart" ? installs : rest).push(s)
+      out.push(s)
     })
   })
-  return installs.concat(rest)
-}
-
-// The gear dot: a feature that needs attention and is not optional.
-function featuresNeedAttention(rows) {
-  return (rows || []).filter(function(r) { return r.state === "attention" && !r.optional }).length
+  return out
 }
 
 // One line for a device's features: what is on, and what is left.
@@ -1969,9 +1962,12 @@ function devicesListRows(snapshot, settings, lowPercent) {
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
 //   scope: "root" | "defaults" | "device"
-//   single: one paired device or none (Settings is one flat page)
+//   single: one paired device or none (no For all devices, no bar place or tab)
+//   problems: settingsProblems(...)          (root: the status)
 //   devices: devicesListRows(...)            (root)
-//   identity: { nickname, icon, glyph, bar, showInPanel } (single root, device)
+//   connection, connectionPills: This computer's line and pills (root)
+//   identity: { nickname, icon, glyph, bar, showInPanel } (device)
+//   features: the device's feature rows      (device)
 //   edit: the profile being edited (defaults, or the device's), with custom
 //   can: the device's capabilities, for shortcuts it cannot do
 function settingsPageRows(ctx) {
@@ -1994,8 +1990,7 @@ function settingsPageRows(ctx) {
     if (!ctx.single)
       rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
     rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
-                pills: ctx.connectionPills || [],
-                issues: problems.filter(function(p) { return p.where === "computer" }).length })
+                pills: ctx.connectionPills || [] })
     return rows
   }
   // A panel torn down mid-reload can ask with nothing to edit.
@@ -2012,8 +2007,7 @@ function settingsPageRows(ctx) {
     }
     // What it can do (docs/design/setup.md): a row per feature, its state
     // and its one action; Screen and apps' row opens its page.
-    if (ctx.features) ctx.features.forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
-    else rows.push({ kind: "screen", key: "screen", label: "Screen and apps", hint: "Its screen, and its apps each in a window, here (scrcpy)" })
+    ;(ctx.features || []).forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
     // Its sections, shortcuts and bar are edited on the page itself (edit
     // in place); here, whether they are the defaults, and the way there.
     var own = !ctx.single && ["layout", "bar", "shortcuts"].some(function(g) { return groupCustom(e.custom, g) })
@@ -2033,7 +2027,6 @@ function settingsPageRows(ctx) {
                           e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
   base.forEach(function(r) {
     if (r.kind === "layout" && r.section === "devices") return
-    if (r.kind === "kdeconnect") return
     rows.push(r)
   })
   return rows
