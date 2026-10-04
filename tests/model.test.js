@@ -862,6 +862,8 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place"]])
   assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
   assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
+  assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")
+  assert.deepEqual(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].keys.map(k => k.keys.join("+")), ["Super+F"])
   assert.equal(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].docked, false)
   assert.equal(M.readSettings({}).defaults.screenDocked, true)
   assert.equal(M.readSettings({}).defaults.screenFitTile, false, "experimental: off unless chosen")

@@ -1179,6 +1179,52 @@ Column {
       font.family: root.fontFamily
       font.pixelSize: Style.font.caption
     }
+    // How to free it and dock it back: Omarchy's keys, as key caps.
+    Column {
+      topPadding: Style.space(4)
+      spacing: Style.space(5)
+      Repeater {
+        model: spr.row.keys || []
+        Row {
+          required property var modelData
+          spacing: Style.space(10)
+          Row {
+            id: caps
+            width: Style.space(96)
+            spacing: Style.space(3)
+            Repeater {
+              model: modelData.keys
+              Rectangle {
+                required property string modelData
+                width: capText.implicitWidth + Style.space(10)
+                height: capText.implicitHeight + Style.space(4)
+                radius: Style.space(3)
+                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                border.width: 1
+                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.22)
+                Text {
+                  id: capText
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: modelData
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+          }
+          Text {
+            anchors.verticalCenter: caps.verticalCenter
+            textFormat: Text.PlainText
+            text: modelData.text
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+    }
   }
 
   // A check on this computer: its status icon, name, short status and one

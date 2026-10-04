@@ -1192,8 +1192,16 @@ function screenSetup(status, device, pairing, docked, fitTile) {
     // Three kinds of control, each drawn as what it is: the screen itself
     // (a tile, as its shortcut), where it opens (one of two), and a switch.
     actions.push({ key: "open", label: "Screen", hint: "Use it with your mouse: right-click is Back" })
+    // How to free it and dock it back, with Omarchy's own keys (Super+O is
+    // its pop-out toggle; a docked screen is one, which Hyprland keeps out
+    // of full screen until it is freed).
     actions.push({ key: "place", label: "Opens", docked: docked !== false,
-                   hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window" })
+                   hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window",
+                   keys: docked !== false
+                     ? [{ keys: ["Super", "O"], text: "Frees it from the bar" },
+                        { keys: ["Super", "F"], text: "Full screen, once freed" },
+                        { keys: ["Super", "O"], text: "Again: back under the bar" }]
+                     : [{ keys: ["Super", "F"], text: "Full screen" }] })
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
@@ -1281,6 +1289,7 @@ function screenRows(setup) {
     var row = { kind: "screenAction", key: a.key, label: a.label, hint: a.hint }
     if (a.on !== undefined) row.on = a.on
     if (a.docked !== undefined) row.docked = a.docked
+    if (a.keys !== undefined) row.keys = a.keys
     return row
   })
 }
