@@ -6,17 +6,18 @@ import qs.Commons
 import qs.Ui
 import "Model.js" as Model
 
-// A docked screen turning or folding (the bridge's screen-watch), as Android
-// turns its own screen. The card starts with a still of the window's last
-// picture and turns with the device (a quarter or half turn) or morphs into
-// the new shape (a fold), softening as it moves, while the window, hidden,
-// moves under it. When the device's new picture comes (a still of it, grabbed
-// from the hidden window), it fades in on the card already laid out for the
-// new shape, turned back by the turn still to come, so the two pictures turn
-// into each other. The card arrives showing exactly the new picture; the
-// window then shows under it and the card goes. Without stills, a plain card
-// in the panel's look does the same. One per bar, on that bar's screen; it
-// never takes input.
+// A docked screen turning or folding (the bridge's screen-watch): one
+// transition from the old picture to the new, blur to reveal. The card
+// starts with a still of the window's last picture, blurs it at once and
+// turns with the device (a quarter or half turn) or morphs into the new
+// shape (a fold), while the window, hidden, moves under it. It stays blurred
+// while the device's new picture is on its way (a few hundred ms on a real
+// phone), so the old layout, sideways or the wrong shape, is never read.
+// When the new picture comes (a still of it, grabbed from the hidden
+// window), it fades in under the blur, laid out for the new shape, then
+// sharpens: the reveal. The window then shows under it, the same picture,
+// and the card goes. Without stills, a plain card in the panel's look turns
+// and fades. One per bar, on that bar's screen; it never takes input.
 PanelWindow {
   id: turn
 
@@ -77,7 +78,8 @@ PanelWindow {
 
   function start() {
     if (!ev || !ev.from || !ev.to) return
-    journey.stop(); fade.stop(); blendIn.stop()
+    journey.stop(); fade.stop(); blendIn.stop(); unblur.stop()
+    sharp = false
     turning = ev.kind === "turn"
     oldStill = ev.still ? "file://" + ev.still : ""
     newStill = ""
@@ -99,14 +101,20 @@ PanelWindow {
     journey.start()
   }
 
-  // The new picture: it fades in over what is left of the journey (at
-  // least a beat), so the card arrives showing it alone.
+  // The new picture fades in under the blur; once it is in and the card has
+  // arrived, the blur lifts (the reveal), and only then does the card go.
   function picture(path) {
     newStill = "file://" + path
-    blendIn.duration = Math.max(Model.MOTION.outMs * motion, journeyMs - journey.elapsed())
     blendIn.restart()
   }
-  NumberAnimation { id: blendIn; target: turn; property: "blend"; to: 1; easing.type: Easing.InOutQuad }
+  NumberAnimation { id: blendIn; target: turn; property: "blend"; to: 1; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.InOutQuad
+    onFinished: turn.revealWhenReady() }
+  property bool sharp: false
+  function revealWhenReady() {
+    if (arrived && blend >= 1 && !unblur.running && !sharp) unblur.start()
+  }
+  NumberAnimation { id: unblur; target: turn; property: "soft"; to: 0; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.OutCubic
+    onFinished: { turn.sharp = true; turn.fadeWhenBoth() } }
 
   // The card goes once it has arrived and the window shows under it (the
   // watcher, when the new picture is there). Showing the same picture as the
@@ -114,7 +122,9 @@ PanelWindow {
   property bool arrived: false
   property bool revealed: false
   function fadeWhenBoth() {
-    if (!revealed || !arrived || fade.running || card.opacity <= 0) return
+    // With the new picture, only once it is revealed sharp: it then matches
+    // the window under it exactly.
+    if (!revealed || !arrived || (newStill !== "" && !sharp) || fade.running || card.opacity <= 0) return
     fade.duration = (newStill !== "" ? Model.MOTION.outMs : Model.MOTION.inMs) * motion
     fade.start()
   }
@@ -131,7 +141,7 @@ PanelWindow {
     }
   }
   // The window shows at most this late (the watcher's own limit, and a beat).
-  Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.arrived = true; turn.fadeWhenBoth() } }
+  Timer { id: holdLimit; interval: 1700; onTriggered: { turn.revealed = true; turn.arrived = true; turn.sharp = true; turn.fadeWhenBoth() } }
   // Gone: the stills are let go of (the bridge removes their files).
   NumberAnimation { id: fade; target: card; property: "opacity"; to: 0; easing.type: Easing.InOutQuad
     onFinished: { turn.oldStill = ""; turn.newStill = "" } }
@@ -149,14 +159,10 @@ PanelWindow {
       NumberAnimation { target: turn; property: "ch"; to: turn.toH; duration: turn.journeyMs; easing.type: Easing.OutCubic }
       NumberAnimation { target: turn; property: "rot"; to: turn.toRot; duration: turn.journeyMs; easing.type: Easing.InOutCubic }
       NumberAnimation { target: turn; property: "sc"; to: turn.toSc; duration: turn.journeyMs; easing.type: Easing.OutCubic }
-      // Softer while it moves, as a picture in motion is, and sharp again
-      // as it lands: it then matches the window exactly.
-      SequentialAnimation {
-        NumberAnimation { target: turn; property: "soft"; to: 1; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.OutQuad }
-        NumberAnimation { target: turn; property: "soft"; to: 0; duration: Model.MOTION.inMs * turn.motion; easing.type: Easing.InQuad }
-      }
+      // Blurred at once, and it stays so until the new picture is in.
+      NumberAnimation { target: turn; property: "soft"; to: 1; duration: Model.MOTION.outMs * turn.motion; easing.type: Easing.OutQuad }
     }
-    ScriptAction { script: { turn.arrived = true; turn.fadeWhenBoth() } }
+    ScriptAction { script: { turn.arrived = true; turn.revealWhenReady(); turn.fadeWhenBoth() } }
   }
 
   BorderSurface {
@@ -220,11 +226,13 @@ PanelWindow {
       anchors.fill: pictures
       source: pictures
       visible: (turn.oldStill !== "" && oldImage.status === Image.Ready) || (turn.newStill !== "" && newImage.status === Image.Ready)
+      // Strong enough that a layout in the wrong place or on its side is a
+      // play of colours, not something to read.
       blurEnabled: true
-      blurMax: 32
-      blur: 0.5 * turn.soft
-      brightness: -0.1 * turn.soft
-      saturation: -0.12 * turn.soft
+      blurMax: 64
+      blur: turn.soft
+      brightness: -0.06 * turn.soft
+      saturation: 0.1 * turn.soft
     }
 
     // No old still: the device's glyph, upright and its own size while the
