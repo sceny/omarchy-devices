@@ -168,7 +168,7 @@ Item {
   }
 
   PanelToolTip {
-    visible: mouse.containsMouse
+    visible: mouse.containsMouse && !mouse.dragging
     text: tile.working ? "Opening " + (tile.app.name || "") + "…" : "Open " + (tile.app.name || "") + " in a window"
     fontFamily: tile.fontFamily
   }
