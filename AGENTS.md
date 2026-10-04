@@ -14,24 +14,31 @@ widget and a panel over the phones and tablets paired with
 shortcuts, the device's media players, its notifications, and a full
 text-message view. The README and `docs/` are the user-facing description.
 
-## The boundary: KDE Connect is the source of truth
+## The boundary: each source is the truth for its feature
 
-The plugin holds no device state of its own. Everything comes from the KDE
-Connect daemon over D-Bus, through `bin/kdeconnect-bridge`, or from the MPRIS
-players KDE Connect exports (media). The only files the plugin writes outside
+The plugin holds no device state of its own. Each feature comes from its
+source: KDE Connect's daemon over D-Bus (through `bin/kdeconnect-bridge`) or
+the MPRIS players it exports (media); the screen and apps from scrcpy over
+adb; the gallery from KDE Connect's storage over sshfs; KDE Connect's
+permissions on the phone from adb. KDE Connect is one source among them, not
+the centre (`docs/design/setup.md`). The only files the plugin writes outside
 its folder are caches under `~/.cache/sceny.devices/`.
 
-- **A feature KDE Connect does not offer is not faked.** Ongoing notifications
-  never leave the phone; messages cannot be marked read on the phone; RCS is
-  not in the SMS store. Say so in the UI or the docs
-  (`docs/troubleshooting.md`) instead.
-- **A KDE Connect fault is fixed at its source, not worked around.** When
-  the panel shows what KDE Connect reports and KDE Connect is suspected,
-  file two issues here (`diagnose-panel`, step 5): a KDE Connect issue
-  (`external:kde-connect`) for the owner's KDE Connect specialist, which
-  links every KDE bug report, merge request, branch and fork we create or
-  follow; and a plugin issue (`bug`), blocked by it. The plugin changes only
-  when the owner asks for a workaround.
+- **The plugin takes control of what it needs** (the owner's premise): it
+  does every setup step it can itself (its packages, KDE Connect's plugins
+  per device, the phone's permissions over adb, the mount) and asks only for
+  what it cannot, one step at a time, then carries on by itself. KDE
+  Connect's daemon and command line are enough: its own app is never needed.
+- **A feature no source offers is not faked.** Ongoing notifications never
+  leave the phone; messages cannot be marked read on the phone; RCS is not
+  in the SMS store. Say so in the UI or the docs (`docs/troubleshooting.md`).
+- **A KDE Connect fault is handled here when a user meets it:** fixed or
+  filtered in the plugin (a dead mount mounted again, a hidden notification
+  or player not shown, notifications read again), and still tracked
+  upstream: a KDE Connect issue (`external:kde-connect`, for the owner's
+  KDE Connect specialist, linking every KDE report, merge request, branch
+  and fork) and a plugin issue (`bug`) (`diagnose-panel`, step 5). The
+  plugin's handling goes when KDE Connect has its own fix.
 - **Second sources, one feature each, by the owner's decision.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
   screen*`), which KDE Connect does not offer. Each second source serves
@@ -276,6 +283,16 @@ Keep them; change one only with the owner.
 - **Playback notifications are not notifications here**: from an app with a
   media player now, naming its track or not dismissable. The media card
   already shows them; the phone keeps them out of its list too.
+- **What the phone hides is hidden here** (KDE Connect forwards it): One
+  UI's own "1 more notification" (`isHiddenSummary`), and a player paused
+  as long as Android takes to hide it (`PLAYER_HIDE_MS`, 10 minutes; the
+  player list still changes only when that is crossed, never on a seek).
+  A device that comes back gets its notifications read again while no
+  panel is open (`device-fix renotify`), so one dismissed there while its
+  cancel was lost goes.
+- **Diagnose hands an error to the person's coding agent** (`omarchy agent
+  prompt`) with `docs/internals/help-for-agents.md`: the agent asks before
+  any change and never opens the phone's data.
 - **Look at the render before saying done.** A measurement is not the layout
   fitting. Use `slowMotion 10` to catch a transition mid-way.
 - **After every shell restart, confirm the panel answers over IPC.** A QML
@@ -283,9 +300,25 @@ Keep them; change one only with the owner.
   quick log check has already passed (an attached handler that does not
   exist, such as `Keys.onPageUpPressed`, does exactly that).
 
-- **Connection and Add a device are two Settings pages:** one checks what
-  exists, the other makes a new pairing. Connection (`settingsScope`
-  `connection`): this computer's checks (status icon, name, short status,
+- **What a device can do is on its page** (`Model.FEATURES`,
+  `featureRows`, from `kdeconnect-bridge features`): a row per feature, its
+  state in one word (On, Set up, Needs attention, Turned off, Not on this
+  device, Away), what is missing, one action that runs every step the
+  plugin can do (`featurePlan`) and stops at the first only the user can
+  do, and a switch where its KDE Connect plugins can be turned off for that
+  device. The gear's dot lights for a feature that needs attention and is
+  not optional. Screen and apps keeps its own page.
+- **A password only for what was shown.** A fix that needs root (packages,
+  the firewall) is described first (`fix <what> --describe`: why, every
+  package pacman would install, the firewall's rules as written) on a card
+  over the panel; only Continue brings the password prompt, and the bridge
+  runs only that plan (`--confirm <hash>`, built again and compared). Only
+  packages not installed at any version go to pacman, so nothing installed
+  is downgraded. A change on the phone (a permission) is a click's too.
+- **This computer and Add a device are two Settings pages:** one checks what
+  exists, the other makes a new pairing (then goes on to the new device's
+  page, what it can do). This computer (`settingsScope` `connection`, once
+  Connection): this computer's checks, *Fix what I can* (status icon, name, short status,
   one action; *Ignore* stops a check lighting the gear's dot, kept in
   `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
   device (`addDevice`): requests to pair, the steps on the device, devices
