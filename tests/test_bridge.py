@@ -1166,15 +1166,24 @@ class Screen(unittest.TestCase):
     def test_install_asks_for_the_packages_through_pkexec(self):
         ran = []
         saved = bridge.subprocess.run
-        bridge.subprocess.run = lambda cmd, **kw: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        def fake(cmd, **kw):
+            # Nothing installed yet; pacman would install the three.
+            if cmd[:2] == ["pacman", "-Q"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            if cmd[:2] == ["pacman", "-Sp"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(p + " 1.0" for p in cmd[5:]), "")
+            ran.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        bridge.subprocess.run = fake
         try:
             with contextlib.redirect_stdout(open(os.devnull, "w")):
-                self.assertEqual(bridge.fix("screen"), bridge.EXIT_OK)
+                shown = bridge.root_plan("screen")
+                self.assertEqual(bridge.fix("screen", shown["hash"]), bridge.EXIT_OK)
         finally:
             bridge.subprocess.run = saved
         self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
                                 os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
-                         "Omarchy's pkg add, as root; Avahi is Omarchy's already")
+                         "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
 
     def test_avahi_finds_the_device(self):
         text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"
