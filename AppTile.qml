@@ -152,7 +152,8 @@ Item {
       if (!dragging && Math.abs(dx) + Math.abs(dy) > Style.space(8)) { dragging = true; dragged = true; tile.dragStarted() }
       if (dragging) tile.dragMoved(dx, dy, p)
     }
-    onReleased: function(m) { if (dragging) { dragging = false; tile.dragEnded(mapToItem(null, m.x, m.y)) } }
+    // Where it was let go, read before the tile goes back to its place.
+    onReleased: function(m) { if (dragging) { var at = mapToItem(null, m.x, m.y); dragging = false; tile.dragEnded(at) } }
     onCanceled: if (dragging) { dragging = false; tile.dragEnded(Qt.point(-1e6, -1e6)) }
     onClicked: if (!dragged) tile.activated()
   }
