@@ -100,16 +100,18 @@ Item {
     var out = {}
     for (var i = 0; i < ordered.length; i++) {
       var d = ordered[i]
-      if (!Model.resolveProfile(profiles, d, i === 0).showCalls) continue
-      var c = Model.callState(d, clock, callClosed[d.id] || 0)
+      var p = Model.resolveProfile(profiles, d, i === 0)
+      if (!p.showCalls) continue
+      var c = Model.callState(d, clock, callClosed[d.id] || 0, p.callsHere !== false)
       if (c) out[d.id] = c
     }
     return out
   }
-  // The call the card shows: a ringing one first, else the latest missed.
+  // The call the card shows: a ringing one first, then one going on, one
+  // that just ended, else the latest missed.
   readonly property var call: Model.shownCall(calls, ordered.map(function(d) { return String(d.id) }))
   // A new call event from any device re-reads the clock.
-  readonly property string callEvents: JSON.stringify(ordered.map(function(d) { return d.call || null }))
+  readonly property string callEvents: JSON.stringify(ordered.map(function(d) { return [d.call || null, d.handsfree ? d.handsfree.calls : null, d.handsfree ? d.handsfree.ended : null] }))
   onCallEventsChanged: clock = Date.now()
 
   function closeCall() {
@@ -149,6 +151,141 @@ Item {
     onTriggered: root.clock = Date.now()
   }
 
+  // ---- Calls through Bluetooth (#59): PipeWire's hands-free service ----
+  // A device can answer and call here while it is connected for calls and
+  // its Calls here is on (its profile).
+  function callsHereOn(id) {
+    for (var i = 0; i < ordered.length; i++)
+      if (String(ordered[i].id) === String(id)) return Model.resolveProfile(profiles, ordered[i], i === 0).callsHere !== false
+    return false
+  }
+  function callsReady(id) {
+    var d = findDevice(id)
+    return !!d && !!d.handsfree && d.handsfree.connected === true && callsHereOn(id)
+  }
+  // The microphone off for the call, per device; back on once its calls end.
+  property var callMuted: ({})
+  function isCallMuted(id) { return callMuted[String(id)] === true }
+  // A click on the call card (Model.callActions' keys). Each reaches a real
+  // call, so demo mode moves its own made-up calls instead.
+  function callAction(key, c, arg) {
+    if (!c || !c.device) return
+    var id = String(c.device)
+    var verbs = { answer: ["answer"], answerPhone: ["answer-phone"], decline: ["decline", c.id], hangup: ["hangup", c.id],
+                  holdAnswer: ["answer", c.other ? c.other.id : ""], endAnswer: ["end-answer"],
+                  declineOther: ["decline", c.other ? c.other.id : ""], swap: ["swap"], merge: ["merge"],
+                  audioHere: ["audio-here"], tones: ["tones", String(arg || "")], volume: ["volume", String(arg)],
+                  mute: ["mute", isCallMuted(id) ? "off" : "on"] }
+    var v = verbs[key]
+    if (!v) return
+    if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }
+    if (demo) { demoCallClick(id, key); return }
+    var proc = actionComponent.createObject(root, { key: "call:" + key, quietSuccess: true,
+      command: [bridge, "call", v[0], id].concat(v.length > 1 && v[1] ? [v[1]] : []) })
+    proc.running = true
+  }
+  function demoCallClick(id, key) {
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    ;(copy.devices || []).forEach(function(d) {
+      if (String(d.id) !== id || !d.handsfree) return
+      d.handsfree = Model.demoCallAfter(d.handsfree, key, Date.now())
+      if (key === "answer" || key === "answerPhone" || key === "decline") delete d.call
+    })
+    snapshot = copy
+  }
+  // A call placed here (a missed call, a conversation): through Bluetooth
+  // when the device is connected for calls, its audio here; else on the
+  // device's own dialer.
+  function placeCall(id, number) {
+    var n = String(number || "").trim()
+    if (!id || n === "") return
+    if (!callsReady(id)) { callBack({ device: String(id), number: n }); return }
+    if (demo) { demoCallClick(String(id), "dial"); return }
+    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true, command: [bridge, "call", "dial", String(id), n] })
+    proc.running = true
+  }
+  // Between calls the audio stays on the device: a call answered there is
+  // not taken over by this computer (Answer here and calls placed here bring
+  // it). Set again whenever a device's calls are over.
+  readonly property var callsToKeep: {
+    var out = []
+    for (var i = 0; i < ordered.length; i++) {
+      var hf = ordered[i].handsfree
+      if (hf && hf.connected && hf.keepOnPhone === false && (hf.calls || []).length === 0 && callsHereOn(ordered[i].id)) out.push(String(ordered[i].id))
+    }
+    return out
+  }
+  onCallsToKeepChanged: if (!demo) callsToKeep.forEach(function(id) { Quickshell.execDetached([root.bridge, "call", "keep-on-phone", id]) })
+  // The device whose call's audio is here now: its voice to this computer's
+  // output, the microphone to it (kdeconnect-bridge call-audio).
+  readonly property string callAudioDevice: {
+    if (demo) return ""
+    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && calls[id].state !== "ended") return id
+    return ""
+  }
+  onCallAudioDeviceChanged: {
+    if (callAudioProc.running) callAudioProc.running = false
+    if (callAudioDevice !== "") callAudioStart.restart()
+  }
+  // Its microphone back on once the call is over.
+  onCallsChanged: {
+    var m = Object.assign({}, callMuted), changed = false
+    for (var id in m) if (!calls[id] || calls[id].state === "ended" || calls[id].state === "missed") { delete m[id]; changed = true }
+    if (changed) callMuted = m
+    pauseForCalls()
+  }
+  Timer {
+    id: callAudioStart
+    interval: 300
+    onTriggered: if (root.callAudioDevice !== "" && !callAudioProc.running) {
+      callAudioProc.command = [root.bridge, "call-audio", root.callAudioDevice]
+      callAudioProc.running = true
+    }
+  }
+  Process {
+    id: callAudioProc
+    // Ended while the audio is still here (the device's nodes came late):
+    // once more, a moment later.
+    onExited: if (root.callAudioDevice !== "") callAudioStart.restart()
+  }
+  // This computer's own players pause while a call is up here, and play
+  // again after it, unless KDE Connect's own Pause media does it for the
+  // device. The device's players are its own to pause.
+  property var pausedForCall: []
+  function pauseForCalls() {
+    var up = false
+    for (var id in calls) {
+      var c = calls[id]
+      var d = findDevice(id)
+      if (c.here && (c.state === "active" || c.state === "dialing" || c.state === "held") && !(d && d.can && d.can.pausemusic)) up = true
+    }
+    var all = Mpris.players ? Mpris.players.values : []
+    if (up && pausedForCall.length === 0) {
+      var paused = []
+      all.forEach(function(p) {
+        if (!p || !p.isPlaying || !p.canPause || String(p.dbusName).indexOf("kdeconnect") >= 0) return
+        p.pause()
+        paused.push(String(p.dbusName))
+      })
+      if (paused.length > 0) pausedForCall = paused
+    } else if (!up && pausedForCall.length > 0) {
+      var was = pausedForCall
+      pausedForCall = []
+      all.forEach(function(p) { if (p && was.indexOf(String(p.dbusName)) >= 0 && p.canPlay) p.play() })
+    }
+  }
+
+  // Omarchy's own places a step sends the user to: its Bluetooth menu (to
+  // pair a device for calls), as its key opens it. The panel closes, since
+  // the menu takes the keyboard.
+  signal placeOpened()
+  function openPlace(place) {
+    if (place !== "bluetooth") return
+    if (demo) { report("Demo: Omarchy's Bluetooth would open", false); return }
+    Quickshell.execDetached(["omarchy-shell", "shell", "toggle", "omarchy.bluetooth"])
+    placeOpened()
+  }
+
   // The phone's dialer on the number (a tel: link through KDE Connect's
   // share), on the device the call came to: the call itself is the user's
   // tap on the phone.
@@ -164,6 +301,8 @@ Item {
 
   // Demo mode rings (or misses) a made-up caller on the viewed device (or
   // the first), over the demo snapshot. It replaces any other demo call.
+  // Through Bluetooth too (Model.demoCallSet): ringing, active, dialing,
+  // waiting, held, ended, missed, none; the card's clicks move it along.
   function showDemoCall(kind) {
     if (!demo) return
     var copy = JSON.parse(JSON.stringify(snapshot || {}))
@@ -172,12 +311,16 @@ Item {
     var d = null
     for (var i = 0; i < list.length; i++) {
       delete list[i].call
+      if (list[i].handsfree) list[i].handsfree = Model.demoHandsfree(list[i].name)
       if (String(list[i].id) === id) d = list[i]
     }
     if (!d) d = Model.pickDevice(copy, "")
     if (!d) return
-    d.call = Model.demoCall(kind, Date.now())
+    var set = Model.demoCallSet(kind, Date.now(), d.name)
+    d.call = set.call
+    d.handsfree = set.handsfree
     callClosed = ({})
+    callMuted = ({})
     snapshot = copy
   }
   readonly property int deviceIndex: {
@@ -720,7 +863,7 @@ Item {
   // runs only on Continue, only that plan (its hash).
   property var rootAsk: null               // { what, why, actions, hash }
   property var rootThen: null
-  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall"]
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "bluetooth"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
   function askRoot(what, then) {
     if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }

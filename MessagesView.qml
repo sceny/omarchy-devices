@@ -28,6 +28,11 @@ Item {
   signal threadOpened(var tid)
   // The unread chip was clicked; the panel keeps the choice.
   signal unreadToggled()
+  // A call to the open conversation's number: here through Bluetooth (#59),
+  // else on the device's dialer. The panel says which (`callTip`).
+  property bool canCall: false
+  property string callTip: ""
+  signal callRequested(string number)
 
   // Unsent text per conversation, kept while switching threads. Memory only:
   // it is message text, so it never goes to disk.
@@ -816,7 +821,7 @@ Item {
             implicitHeight: headerTitle.implicitHeight
             Text {
               id: headerTitle
-              width: parent.width
+              width: parent.width - (headerCall.visible ? headerCall.width + Style.space(8) : 0)
               textFormat: Text.PlainText
               text: view.shownRow ? view.shownRow.title : " "
               color: view.foreground
@@ -826,6 +831,19 @@ Item {
               font.bold: true
               elide: Text.ElideRight
               Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
+            }
+            // Call them: one person's conversation only.
+            PanelActionButton {
+              id: headerCall
+              visible: view.canCall && !view.headerLoading && !!view.shownRow && !view.shownRow.group && String(view.shownRow.addresses || "") !== ""
+                && String(view.shownRow.addresses).indexOf(",") < 0
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: Model.GLYPH.callBack
+              tooltipText: view.callTip
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+              onClicked: if (view.shownRow) view.callRequested(String(view.shownRow.addresses))
             }
             Skeleton {
               visible: view.headerLoading

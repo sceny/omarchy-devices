@@ -1036,9 +1036,11 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
 
 test("features: each state from the report, the steps one click runs, Fix all", () => {
   const report = M.demoFeatures()
-  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8")
+  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8", [], {},
+                             { bluetooth: M.demoBluetooth("Pixel 8"), handsfree: M.demoHandsfree("Pixel 8") })
   const by = k => rows.find(r => r.key === k)
   assert.equal(by("notifications").state, "on")
+  assert.equal(by("callsHere").state, "on")
   assert.deepEqual([by("clipboard").state, by("clipboard").on, by("clipboard").steps[0].fix], ["off", false, { verb: "device", what: "plugin", arg: "clipboard=on" }],
                    "turned off here: one click turns it on")
   assert.equal(by("names").state, "setup", "contacts not allowed on the device")
@@ -1062,7 +1064,7 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
-  assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
+  assert.equal(M.featuresSummary(rows), "10 on · 1 to set up")
 })
 
 test("settings: a device's page lists what it can do; This computer", () => {
@@ -1101,7 +1103,7 @@ test("setup items: one item serves several features and shows once; gateways say
   assert.deepEqual(android.usedBy, ["notifications", "messages", "names", "media", "calls", "gallery"])
   assert.deepEqual(by("gallery").gateways, ["kdeconnect", "storage", "android"], "a feature names the gateways it goes through")
   assert.deepEqual(by("screen").gateways, ["screen"])
-  assert.ok(setup.gateways.find(g => g.key === "bluetooth").planned)
+  assert.deepEqual(setup.gateways.find(g => g.key === "bluetooth").usedBy, ["callsHere"], "Bluetooth serves calls here only")
   // A broken shared item: once, with every feature it affects.
   const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
   const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: quiet, rows: quiet.features }])
@@ -1158,4 +1160,96 @@ test("features: notifications gone quiet (#95) need attention, with the remedies
   assert.match(row.steps[1].orAsk, /^Restart Pixel 8/)
   const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
   assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
+})
+
+// ---- Calls through Bluetooth (#59) ----
+
+const btDevice = (handsfree, call, over = {}) => device({ id: "d1", handsfree, call, ...over })
+
+test("calls here: PipeWire's call in front, KDE Connect names it; a second call beside it", () => {
+  const now = 1_000_000
+  const ringing = M.demoCallSet("ringing", now, "Pixel 8")
+  const c = M.callState(btDevice(ringing.handsfree, ringing.call), now, 0, true)
+  assert.deepEqual([c.state, c.here, c.who, c.detail, c.audio], ["ringing", true, "Alex Rivera", "+1 514-555-0123", "phone"])
+  assert.deepEqual(M.callActions(c, true, { sms: true }).map(a => a.key), ["answer", "answerPhone", "text", "decline"])
+  // Named by KDE Connect when PipeWire has the number only.
+  const bare = M.demoHandsfree("Pixel 8", [{ id: "call1", state: "incoming", number: "5145550123", name: "", seen: now }])
+  assert.equal(M.callState(btDevice(bare, { event: "ringing", number: "+15145550123", name: "Alex Rivera", at: now }), now, 0, true).who, "Alex Rivera")
+  const waiting = M.demoCallSet("waiting", now, "Pixel 8")
+  const w = M.callState(btDevice(waiting.handsfree, null), now, 0, true)
+  assert.deepEqual([w.state, w.audio, w.other.state, w.other.who], ["active", "here", "waiting", "Sam Chen"])
+  assert.equal(M.callHeading(w, now), "ON CALL · 1:15")
+  assert.equal(M.otherCallLine(w), "Also calling: Sam Chen")
+  assert.deepEqual(M.otherCallActions(w).map(a => a.key), ["holdAnswer", "endAnswer", "declineOther"])
+  const held = M.callState(btDevice(M.demoCallSet("held", now, "Pixel 8").handsfree, null), now, 0, true)
+  assert.deepEqual([held.who, M.otherCallLine(held)], ["Sam Chen", "On hold: Alex Rivera"])
+  assert.deepEqual(M.otherCallActions(held).map(a => a.key), ["swap", "merge"])
+  assert.equal(M.callDuration(3_729_000), "1:02:09")
+})
+
+test("calls here: followed to the end; KDE Connect's ringing goes once PipeWire has no call; turned off, KDE Connect alone", () => {
+  const now = 1_000_000
+  const ended = M.demoCallSet("ended", now, "Pixel 8")
+  const e = M.callState(btDevice(ended.handsfree, null), now + 1000, 0, true)
+  assert.deepEqual([e.state, M.callHeading(e, now)], ["ended", "CALL ENDED · 2:31"])
+  assert.equal(M.callExpiresIn(e, now + 1000), M.ENDED_MS - 1000)
+  assert.equal(M.callState(btDevice(ended.handsfree, null), now + M.ENDED_MS + 1, 0, true), null, "it goes after a moment")
+  // Answered on the device and ended: KDE Connect never says so, PipeWire does.
+  const quiet = M.demoHandsfree("Pixel 8")
+  const kdeRing = { event: "ringing", number: "+15145550123", name: "Alex Rivera", at: now }
+  assert.equal(M.callState(btDevice(quiet, kdeRing), now + 1000, 0, true).state, "ringing", "within the grace: PipeWire may be late")
+  assert.equal(M.callState(btDevice(quiet, kdeRing), now + M.RING_GRACE_MS + 1, 0, true), null)
+  // Calls here off: KDE Connect's call as before, with its own timing.
+  const off = M.callState(btDevice(M.demoCallSet("ringing", now, "Pixel 8").handsfree, kdeRing), now + 10_000, 0, false)
+  assert.deepEqual([off.state, off.here], ["ringing", false])
+  assert.deepEqual(M.callActions(off, false, { sms: true, share: true }).map(a => a.key), ["text", "close"])
+  const missed = M.callState(btDevice(quiet, { event: "missed", number: "+15145550123", name: "Alex Rivera", at: now }), now, 0, true)
+  assert.deepEqual(M.callActions(missed, true, { sms: true }).map(a => a.label), ["Call back from here", "Text back", "Close"])
+  // A call going on outranks a missed one.
+  assert.equal(M.shownCall({ a: { state: "missed", at: 5 }, b: { state: "active", at: 1 } }, ["a", "b"]).state, "active")
+})
+
+test("demo calls: the card's clicks move the flow along", () => {
+  const now = 1_000_000
+  let hf = M.demoCallSet("ringing", now, "Pixel 8").handsfree
+  hf = M.demoCallAfter(hf, "answer", now)
+  assert.deepEqual([hf.calls[0].state, hf.audio], ["active", "active"])
+  hf = M.demoCallAfter(hf, "hangup", now + 60_000)
+  assert.deepEqual([hf.calls.length, hf.ended.answered, hf.ended.duration, hf.audio], [0, true, 60_000, "idle"])
+  let w = M.demoCallSet("waiting", now, "Pixel 8").handsfree
+  w = M.demoCallAfter(w, "holdAnswer", now)
+  assert.deepEqual(w.calls.map(c => c.state).sort(), ["active", "held"])
+  w = M.demoCallAfter(w, "merge", now)
+  assert.ok(M.callState(btDevice(w, null), now, 0, true).conference)
+})
+
+test("calls here as a feature: Bluetooth here, then the device paired, confirmed by the click, connected", () => {
+  const report = M.demoFeatures()
+  const row = (bluetooth, handsfree, more = {}) => M.featureRows(report, null, "Pixel 8", [], more.own || {},
+    Object.assign({ bluetooth, handsfree, reachable: true, deviceName: "Pixel 8" }, more)).find(r => r.key === "callsHere")
+  const bt = M.demoBluetooth("Pixel 8")
+  assert.equal(row(bt, M.demoHandsfree("Pixel 8")).state, "on")
+  // Bluetooth off here: one click turns it on, no password.
+  const off = row(Object.assign({}, bt, { powered: false }), M.demoHandsfree("Pixel 8"))
+  assert.deepEqual(off.steps.map(s => s.fix.what), ["bluetooth-on"])
+  // Paired under its name and not kept yet: the click keeps it and connects it.
+  const unmatched = row(bt, null)
+  assert.deepEqual([unmatched.state, unmatched.steps[0].fix], ["setup", { verb: "device", what: "bluetooth", arg: "use=" + M.DEMO_BT_ADDRESS }])
+  // Not paired: the step is the user's, in Omarchy's Bluetooth, waited for.
+  const none = row(Object.assign({}, bt, { phones: [] }), null)
+  assert.deepEqual([none.state, none.steps[0].kind, none.steps[0].open, none.steps[0].wait, none.steps[0].item], ["setup", "ask", "bluetooth", true, "bt:pair"])
+  assert.equal(M.featurePlan(none).length, 0)
+  // Kept and paired, not connected: a problem while the device is here; away with it.
+  const dropped = Object.assign({}, M.demoHandsfree("Pixel 8"), { connected: false })
+  const broken = row(bt, dropped)
+  assert.deepEqual([broken.state, broken.steps[0].fix.arg], ["attention", "connect"])
+  assert.equal(row(bt, dropped, { reachable: false }).state, "away")
+  // PipeWire's hands-free service missing: restart the audio.
+  assert.deepEqual(row(Object.assign({}, bt, { service: false }), M.demoHandsfree("Pixel 8")).steps.map(s => s.fix.what), ["audio"])
+  // Turned off: off, whatever Bluetooth says.
+  assert.equal(row(bt, null, { own: { callsHere: false } }).state, "off")
+  // Two phones, none by its name: it cannot tell; another device's phone is never offered.
+  const two = [{ address: "A", name: "Work", paired: true, gateway: true }, { address: "B", name: "Old", paired: true, gateway: true }]
+  assert.equal(M.bluetoothCandidate("Pixel 8", two, []), null)
+  assert.equal(M.bluetoothCandidate("Pixel 8", two, ["A"]).address, "B")
 })

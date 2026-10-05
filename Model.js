@@ -62,6 +62,17 @@ var GLYPH = {
   callMissed: "\u{F03FA}",   // phone-missed
   callBack: "\u{F03F2}",     // phone
   callText: "\u{F0369}",     // message-text
+  // Calls through Bluetooth (#59): answered and made here.
+  callsHere: "\u{F02CE}",    // headset: calls with their audio here
+  callAnswer: "\u{F03F2}",   // phone
+  callEnd: "\u{F03F5}",      // phone-hangup
+  callHold: "\u{F03FC}",     // phone-paused
+  callSwap: "\u{F04E1}",     // swap-horizontal
+  callMerge: "\u{F0099}",    // call-merge
+  mic: "\u{F036C}",          // microphone
+  micOff: "\u{F036D}",       // microphone-off
+  keypad: "\u{F061C}",       // dialpad
+  speaker: "\u{F04C3}",      // speaker: the call's audio here
   screen: "\u{F0989}",       // monitor-cellphone: the device's screen in a window here
   apps: "\u{F003B}",         // apps: its apps, each in a window
   optional: "\u{F0766}",     // circle-outline: a check only one feature needs
@@ -614,8 +625,54 @@ function ringPhases() {
   return out
 }
 
-function callState(device, nowMs, closedAt) {
-  var c = device && device.reachable === true ? device.call : null
+// Calls through Bluetooth (#59): PipeWire's hands-free service says every
+// call's state, so a call answered here or on the device, ended or held, is
+// followed to its end. KDE Connect still names the caller (and reports a
+// missed call); while the device is connected for calls its "ringing" counts
+// only for RING_GRACE_MS, in case it lands before PipeWire's. An answered
+// call says it ended for ENDED_MS.
+var RING_GRACE_MS = 3000
+var ENDED_MS = 5000
+
+// The last ten digits of a number, to match it across its spellings.
+function numberTail(number) {
+  var d = String(number || "").replace(/\D/g, "")
+  return d.length > 10 ? d.slice(-10) : d
+}
+
+// Who a Bluetooth call is: its name, else KDE Connect's for that number (it
+// knows the device's contacts), else the number.
+function callWho(c, kde) {
+  var number = String(c.number || "").trim()
+  var name = String(c.name || "").trim()
+  if (!name && kde && kde.name && number && numberTail(kde.number) === numberTail(number)) name = String(kde.name)
+  if (name === number) name = ""
+  return { who: name || (number ? formatNumber(number) : "Unknown number"), detail: name && number ? formatNumber(number) : "", name: name }
+}
+
+// `here`: calls here turned on for the device (its Calls here switch).
+function callState(device, nowMs, closedAt, here) {
+  if (!device) return null
+  var hf = here !== false && device.handsfree && device.handsfree.connected ? device.handsfree : null
+  var kde = device.reachable === true ? device.call : null
+  var until = 0
+  if (hf) {
+    var calls = hf.calls || []
+    if (calls.length > 0) return handsfreeCall(device, hf, kde)
+    var e = hf.ended
+    if (e && e.answered && nowMs - e.at < ENDED_MS && !(closedAt && e.at <= closedAt)) {
+      var w = callWho(e, kde)
+      return { state: "ended", at: e.at, number: String(e.number || ""), hold: false, device: String(device.id), here: true,
+               who: w.who, detail: w.detail, duration: e.duration || 0, until: e.at + ENDED_MS }
+    }
+    // PipeWire says no call: KDE Connect's ringing is over (answered on the
+    // device, declined, or ended), once its grace is past.
+    if (kde && kde.event === "ringing" && kde.hold !== true) {
+      if (nowMs - (Number(kde.at) || 0) > RING_GRACE_MS) kde = null
+      else until = (Number(kde.at) || 0) + RING_GRACE_MS
+    }
+  }
+  var c = kde
   if (!c || (c.event !== "ringing" && c.event !== "missed")) return null
   var at = Number(c.at) || 0
   if (closedAt && at <= closedAt) return null
@@ -627,36 +684,140 @@ function callState(device, nowMs, closedAt) {
   var number = String(c.number || "").trim()
   var name = String(c.name || "").trim()
   return {
-    state: c.event, at: at, number: number, hold: hold, device: device ? String(device.id) : "",
+    state: c.event, at: at, number: number, hold: hold, device: String(device.id), here: false,
     who: name || (number ? formatNumber(number) : "Unknown number"),
     // The number under the name, when there is a name to put it under.
-    detail: name && number ? formatNumber(number) : ""
+    detail: name && number ? formatNumber(number) : "",
+    until: until
+  }
+}
+
+// The call the card shows for a device connected for calls: the one in
+// front (on a call, else calling, else ringing, else on hold), and the
+// other one beside it (a second call waiting, or one on hold).
+function handsfreeCall(device, hf, kde) {
+  var calls = hf.calls || []
+  function first(states) { return calls.filter(function(c) { return states.indexOf(c.state) >= 0 }) }
+  var active = first(["active"]), outgoing = first(["dialing", "alerting"]), incoming = first(["incoming"])
+  var held = first(["held"]), waiting = first(["waiting"])
+  var main = active[0] || outgoing[0] || incoming[0] || held[0] || waiting[0]
+  var state = main.state === "incoming" || main.state === "waiting" ? "ringing"
+    : main.state === "dialing" || main.state === "alerting" ? "dialing"
+    : main.state === "held" ? "held" : "active"
+  var w = callWho(main, kde)
+  var other = null
+  var second = waiting.filter(function(c) { return c !== main })[0] || held.filter(function(c) { return c !== main })[0] || null
+  if (second) {
+    var sw = callWho(second, kde)
+    other = { id: second.id, state: second.state, who: sw.who, number: String(second.number || "") }
+  }
+  var conference = active.length > 1 || (main.multiparty === true && active.length > 0)
+  return {
+    state: state, id: String(main.id || ""), at: Number(main.seen || main.since || (kde && kde.at) || 0),
+    number: String(main.number || ""), hold: false, device: String(device.id), here: true,
+    who: conference ? "Conference · " + active.length + " people" : w.who, detail: conference ? "" : w.detail,
+    since: main.since || 0, other: other, conference: conference,
+    // Where the call's audio is: here (Bluetooth), on its way, or on the device.
+    audio: hf.audio === "active" ? "here" : hf.audio === "pending" ? "pending" : "phone",
+    speaker: Number(hf.speaker) || 0, until: 0
   }
 }
 
 // The call the card shows, from every device's (`calls`, by id; `order`,
-// the devices' ids in order): a ringing one first, else the latest missed.
+// the devices' ids in order): ringing first, then a call going on, then
+// one that just ended, else the latest missed.
 function shownCall(calls, order) {
+  var rank = { ringing: 0, active: 1, dialing: 1, held: 1, ended: 2, missed: 3 }
   var best = null
   for (var i = 0; i < order.length; i++) {
     var c = calls[order[i]]
     if (!c) continue
-    if (c.state === "ringing") return c
-    if (!best || c.at > best.at) best = c
+    var r = rank[c.state] === undefined ? 3 : rank[c.state]
+    var b = best ? (rank[best.state] === undefined ? 3 : rank[best.state]) : 99
+    if (r < b || (r === b && r === 3 && c.at > best.at)) best = c
   }
   return best
 }
 
-// The card's small caps line: "INCOMING CALL", "MISSED CALL · 14:05".
-function callHeading(call) {
+// How long a call has lasted: "0:42", "12:05", "1:02:09".
+function callDuration(ms) {
+  var t = Math.max(0, Math.floor((Number(ms) || 0) / 1000))
+  var h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), sec = t % 60
+  return (h > 0 ? h + ":" + pad2(m) : String(m)) + ":" + pad2(sec)
+}
+
+// The card's small caps line: "INCOMING CALL", "ON CALL · 2:31",
+// "MISSED CALL · 14:05". `nowMs`: for the time on a call.
+function callHeading(call, nowMs) {
   if (!call) return ""
-  return call.state === "ringing" ? "INCOMING CALL" : "MISSED CALL · " + clockTime(call.at)
+  var now = nowMs || Date.now()
+  if (call.state === "ringing") return "INCOMING CALL"
+  if (call.state === "dialing") return "CALLING…"
+  if (call.state === "held") return "ON HOLD"
+  if (call.state === "active") return "ON CALL" + (call.since ? " · " + callDuration(now - call.since) : "")
+  if (call.state === "ended") return "CALL ENDED" + (call.duration ? " · " + callDuration(call.duration) : "")
+  return "MISSED CALL · " + clockTime(call.at)
+}
+
+// The card's buttons for a call, in order: { key, glyph, label, kind }.
+// kind: "answer" (the accent), "end" (the urgent colour), "" plain.
+// `ready`: calls here can act (connected for calls); `can`: the device's
+// KDE Connect parts (share: its dialer; sms: text instead).
+function callActions(call, ready, can, muted) {
+  if (!call) return []
+  var out = []
+  var c = can || {}
+  function add(key, glyph, label, kind) { out.push({ key: key, glyph: glyph, label: label, kind: kind || "" }) }
+  if (call.here && ready) {
+    if (call.state === "ringing") {
+      add("answer", GLYPH.callAnswer, "Answer here", "answer")
+      add("answerPhone", GLYPH.phone, "Answer on the device")
+      if (call.number && c.sms) add("text", GLYPH.callText, "Text instead")
+      add("decline", GLYPH.callEnd, "Decline", "end")
+      return out
+    }
+    if (call.state === "ended") { add("close", GLYPH.close, "Close"); return out }
+    add("mute", muted ? GLYPH.micOff : GLYPH.mic, muted ? "Microphone on" : "Microphone off", muted ? "on" : "")
+    if (call.audio === "phone") add("audioHere", GLYPH.speaker, "Audio here")
+    if (call.state === "active" || call.state === "held") add("keypad", GLYPH.keypad, "Keypad")
+    add("hangup", GLYPH.callEnd, "Hang up", "end")
+    return out
+  }
+  // KDE Connect alone: answering is the device's; a missed call is called
+  // back here (Bluetooth) or from the device's dialer.
+  if (call.state === "missed" && call.number && (ready || c.share))
+    add("callBack", GLYPH.callBack, ready ? "Call back from here" : "Call back from the device")
+  if (call.number && c.sms) add("text", GLYPH.callText, call.state === "ringing" ? "Text instead" : "Text back")
+  add("close", GLYPH.close, "Close")
+  return out
+}
+
+// The second call's line and its buttons: a call waiting while one goes on
+// (answer it and hold this one, end this one and answer, decline), or one
+// on hold (swap, join them).
+function otherCallActions(call) {
+  if (!call || !call.other || !call.here) return []
+  if (call.other.state === "waiting") return [
+    { key: "holdAnswer", glyph: GLYPH.callHold, label: "Hold this call and answer", kind: "answer" },
+    { key: "endAnswer", glyph: GLYPH.callAnswer, label: "End this call and answer" },
+    { key: "declineOther", glyph: GLYPH.callEnd, label: "Decline", kind: "end" }]
+  return [
+    { key: "swap", glyph: GLYPH.callSwap, label: "Swap" },
+    { key: "merge", glyph: GLYPH.callMerge, label: "Join the calls" }]
+}
+
+function otherCallLine(call) {
+  if (!call || !call.other) return ""
+  return (call.other.state === "waiting" ? "Also calling: " : "On hold: ") + call.other.who
 }
 
 // How long until the call's state can change on its own (ringing runs out,
-// missed expires), for the timer that re-reads it; -1 when nothing will.
+// missed expires, an ended call goes), for the timer that re-reads it; -1
+// when nothing will (a demo call, a call PipeWire follows).
 function callExpiresIn(call, nowMs) {
-  if (!call || (call.hold && call.state === "ringing")) return -1
+  if (!call) return -1
+  if (call.until) return Math.max(0, call.until - nowMs)
+  if (call.here || (call.hold && call.state === "ringing")) return -1
   return Math.max(0, call.at + (call.state === "ringing" ? RING_MS : MISSED_MS) - nowMs)
 }
 
@@ -665,6 +826,60 @@ function callExpiresIn(call, nowMs) {
 function demoCall(kind, nowMs) {
   if (kind !== "ringing" && kind !== "missed") return null
   return { event: kind, number: "+15145550123", name: "Alex Rivera", at: nowMs - (kind === "missed" ? 4 * 60000 : 0), hold: true }
+}
+
+// Demo mode's calls through Bluetooth, so the whole flow can be watched
+// without a device: the KDE Connect event and the device's hands-free state
+// for `kind` (ringing, active, dialing, waiting, held, ended, missed, none).
+var DEMO_CALLERS = [{ number: "+15145550123", name: "Alex Rivera" }, { number: "+15145550142", name: "Sam Chen" }]
+function demoCallSet(kind, nowMs, deviceName) {
+  var a = DEMO_CALLERS[0], b = DEMO_CALLERS[1]
+  function call(id, who, state, since) {
+    return { id: id, path: "/demo/" + id, state: state, number: who.number, name: who.name, multiparty: false,
+             seen: nowMs - (since || 0) - 2000, since: since === undefined ? null : nowMs - since }
+  }
+  var calls = [], ended = null, audio = "idle", kde = null
+  if (kind === "ringing") { calls = [call("call1", a, "incoming")]; kde = demoCall("ringing", nowMs) }
+  else if (kind === "active") { calls = [call("call1", a, "active", 75000)]; audio = "active" }
+  else if (kind === "dialing") { calls = [call("call1", b, "alerting")]; audio = "active" }
+  else if (kind === "waiting") { calls = [call("call1", a, "active", 75000), call("call2", b, "waiting")]; audio = "active" }
+  else if (kind === "held") { calls = [call("call2", b, "active", 20000), call("call1", a, "held", 95000)]; audio = "active" }
+  else if (kind === "ended") ended = { at: nowMs, number: a.number, name: a.name, answered: true, duration: 151000 }
+  else if (kind === "missed") kde = demoCall("missed", nowMs)
+  return { call: kde, handsfree: demoHandsfree(deviceName, calls, ended, audio) }
+}
+
+// Demo: what a click on the card does to the demo's calls (no device).
+function demoCallAfter(hf, verb, nowMs) {
+  var h = JSON.parse(JSON.stringify(hf))
+  var calls = h.calls
+  function find(states) { return calls.filter(function(c) { return states.indexOf(c.state) >= 0 })[0] || null }
+  function end(c) {
+    calls.splice(calls.indexOf(c), 1)
+    h.ended = { at: nowMs, number: c.number, name: c.name, answered: c.since !== null, duration: c.since !== null ? nowMs - c.since : 0 }
+  }
+  var c
+  if (verb === "answer" || verb === "answerPhone") {
+    c = find(["incoming"])
+    if (c) { c.state = "active"; c.since = nowMs }
+    h.audio = verb === "answer" ? "active" : "idle"
+  } else if (verb === "decline") { c = find(["incoming"]); if (c) { calls.splice(calls.indexOf(c), 1); h.ended = null } }
+  else if (verb === "hangup") { c = find(["active", "dialing", "alerting", "held"]); if (c) end(c) }
+  else if (verb === "holdAnswer") {
+    c = find(["waiting"])
+    calls.forEach(function(x) { if (x.state === "active") x.state = "held" })
+    if (c) { c.state = "active"; c.since = nowMs }
+  } else if (verb === "endAnswer") {
+    var a = find(["active"]); if (a) end(a)
+    c = find(["waiting"]); if (c) { c.state = "active"; c.since = nowMs }
+  } else if (verb === "declineOther") { c = find(["waiting"]); if (c) calls.splice(calls.indexOf(c), 1) }
+  else if (verb === "swap") calls.forEach(function(x) { x.state = x.state === "active" ? "held" : x.state === "held" ? "active" : x.state })
+  else if (verb === "merge") calls.forEach(function(x) { if (x.state === "held") x.state = "active"; x.multiparty = true })
+  else if (verb === "audioHere") h.audio = "active"
+  else if (verb === "dial") { calls.push({ id: "call9", path: "/demo/call9", state: "alerting", number: DEMO_CALLERS[1].number, name: DEMO_CALLERS[1].name, multiparty: false, seen: nowMs, since: null }); h.audio = "active" }
+  if (calls.length === 0) h.audio = "idle"
+  h.keepOnPhone = h.audio === "idle"
+  return h
 }
 
 // Hero meta line: "󰁹 91% · WI-FI · 󰣸 LTE". The battery leads, as a glyph the
@@ -692,7 +907,8 @@ function batteryText(device) {
 function tooltip(snapshot, device, nowPlaying, unreadMessages, call) {
   if (!device) return statusWord(snapshot, device)
   var lines = [device.name + " — " + statusWord(snapshot, device)]
-  if (call) lines.push((call.state === "ringing" ? "Call from " : "Missed call from ") + call.who)
+  if (call) lines.push((call.state === "ringing" ? "Call from " : call.state === "missed" ? "Missed call from "
+    : call.state === "ended" ? "Call ended with " : "On a call with ") + call.who)
   var c = batteryCharge(device)
   if (c >= 0) lines.push("Battery " + c + "%" + (charging(device) ? ", charging" : ""))
   var n = device.notifications ? device.notifications.length : 0
@@ -882,7 +1098,9 @@ function demoSnapshot(live, kind) {
     { id: "demo-5", key: "0|com.example.whatsapp|5|null|10005", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
   ]
-  return { daemon: true, demo: true, devices: [dev] }
+  // Bluetooth calls set up: paired and connected for calls (demoCall rings).
+  dev.handsfree = Object.assign(demoHandsfree(dev.name), { connected: kind !== "away" })
+  return { daemon: true, demo: true, devices: [dev], bluetooth: demoBluetooth(dev.name) }
 }
 
 // Hide what only adds noise: silent entries with no text ("USB debugging
@@ -1189,7 +1407,7 @@ var GATEWAYS = [
   { key: "android", label: "Android permissions", hint: "What KDE Connect may do on the device" },
   { key: "storage", label: "Storage link", hint: "Its storage, mounted here (KDE Connect's sftp, sshfs)" },
   { key: "screen", label: "Screen link", hint: "adb to the device, and scrcpy here" },
-  { key: "bluetooth", label: "Bluetooth", planned: true, hint: "For calls with their audio here (#59)" }
+  { key: "bluetooth", label: "Bluetooth", hint: "Calls with their audio here: Bluetooth hands-free, through PipeWire" }
 ]
 
 var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
@@ -1207,6 +1425,10 @@ var FEATURES = [
     needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"] },
   { key: "calls", label: "Calls", glyph: GLYPH.callRing, hint: "Who is calling, and missed calls",
     needs: ["link", "plugin:telephony", "permission:phone"], switch: ["plugin:telephony"] },
+  // Its own row: who is calling comes from KDE Connect and needs no
+  // Bluetooth; answering here needs Bluetooth and no KDE Connect.
+  { key: "callsHere", label: "Calls here", glyph: GLYPH.callsHere, hint: "Answer and make calls with the audio on this computer",
+    needs: ["own:callsHere", "bt:adapter", "bt:handsfree", "bt:phone"], switch: ["own:callsHere"] },
   { key: "gallery", label: "Gallery", glyph: GLYPH.picture, hint: "Its newest photos and videos",
     needs: ["link", "plugin:sftp", "package:sshfs", "permission:storage", "health:mount"], switch: ["plugin:sftp"] },
   { key: "share", label: "Files", glyph: GLYPH.sendFile, hint: "Send files both ways", needs: ["link", "plugin:share"], switch: ["plugin:share"] },
@@ -1233,7 +1455,11 @@ var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", 
 //
 // `ctx`: { report: the bridge's `features <device>` (null while read),
 // screen: { state, line } from `screen <device>` (null while read), checks:
-// this computer's (`doctor`), name: the device's, own: { screenFeature } }.
+// this computer's (`doctor`), name: the device's, own: { screenFeature,
+// callsHere }, bluetooth: the snapshot's (this computer's Bluetooth and the
+// phones it knows), handsfree: the device's (its Bluetooth match), matched:
+// the Bluetooth addresses other devices have, reachable: KDE Connect or the
+// screen link reaches it, deviceName: its own name (not its nickname) }.
 function setupItem(key, ctx) {
   var report = ctx.report, name = ctx.name || "the device"
   var parts = key.split(":"), kind = parts[0], what = parts[1] || ""
@@ -1331,7 +1557,80 @@ function setupItem(key, ctx) {
     // reaching it): a problem. Never set up: to set up.
     return is(st === "off" || st === "away" ? "broken" : "missing", line)
   }
+  if (key === "own:callsHere") {
+    item.gateway = "bluetooth"; item.label = "Calls here turned on"
+    return ctx.own && ctx.own.callsHere === false ? is("off", "") : is("ok")
+  }
+  // Bluetooth calls (#59): this computer's Bluetooth and PipeWire's
+  // hands-free service, then the device paired for calls and connected.
+  // `ctx.bluetooth`: the snapshot's (this computer, the phones it knows);
+  // `ctx.handsfree`: the device's (its match, connected or not).
+  var bt = ctx.bluetooth || null
+  if (key === "bt:adapter") {
+    item.scope = "computer"; item.gateway = "bluetooth"; item.label = "Bluetooth on this computer"
+    if (!bt) return is("unknown", "Looking…")
+    if (!bt.bluez) {
+      item.steps.push({ kind: "auto", label: "Install and start Bluetooth here (asks for your password)", fix: { verb: "fix", what: "bluetooth" } })
+      return is("missing", "Bluetooth is not running on this computer")
+    }
+    if (!bt.present) return is("unavailable", "This computer has no Bluetooth")
+    if (!bt.powered) {
+      item.steps.push({ kind: "auto", label: "Turn Bluetooth on here", fix: { verb: "fix", what: "bluetooth-on" } })
+      return is("missing", "Bluetooth is off on this computer")
+    }
+    return is("ok")
+  }
+  if (key === "bt:handsfree") {
+    item.scope = "computer"; item.gateway = "bluetooth"; item.label = "calls in this computer's audio"
+    // Bluetooth off says it first: then nothing offers hands-free.
+    if (!bt || !bt.bluez || !bt.present || !bt.powered) return is("ok")
+    if (bt.service && bt.handsfree) return is("ok")
+    item.steps.push({ kind: "auto", label: "Restart this computer's audio", fix: { verb: "fix", what: "audio" },
+                      orAsk: "Update this computer (Omarchy's Update): calls need PipeWire's hands-free service" })
+    return is("missing", "PipeWire's hands-free service is not running")
+  }
+  if (key === "bt:phone") {
+    item.gateway = "bluetooth"; item.label = name + " paired for calls"
+    if (!bt) return ctx.report && !ctx.report.reachable && !adbHere ? is("away", "When " + name + " connects") : is("unknown", "Looking…")
+    var hf = ctx.handsfree || null
+    if (hf && hf.connected) return is("ok", "Over Bluetooth" + (hf.codec ? " · " + hf.codec : ""))
+    var pair = { kind: "ask", label: "Pair " + name + " with this computer over Bluetooth", open: "bluetooth", wait: true, item: "bt:pair",
+                 orAsk: "On " + name + ": Settings › Connected devices › Pair new device; here, pick it in Bluetooth" }
+    if (hf && hf.paired) {
+      // Set up once and not connected now: away with the device, else a
+      // problem (Bluetooth off on it, or out of reach).
+      if (ctx.reachable === false) return is("away", "When " + name + " connects")
+      item.steps.push({ kind: "auto", label: "Connect " + name + " over Bluetooth", fix: { verb: "device", what: "bluetooth", arg: "connect" },
+                        orAsk: "Turn Bluetooth on, on " + name })
+      return is("broken", "Not connected over Bluetooth")
+    }
+    if (hf) {
+      // Its pairing went (forgotten on either side): pair it again.
+      item.steps.push(pair)
+      return is("missing", "Not paired over Bluetooth any more")
+    }
+    var phone = bluetoothCandidate(ctx.deviceName || name, bt.phones || [], ctx.matched || [])
+    if (phone) {
+      // The click that turns it on is the confirmation: kept, then connected.
+      item.steps.push({ kind: "auto", label: "Use " + phone.name + " for calls", fix: { verb: "device", what: "bluetooth", arg: "use=" + phone.address } })
+      return is("missing", "Paired over Bluetooth as " + phone.name)
+    }
+    item.steps.push(pair)
+    return is("missing", "Not paired over Bluetooth")
+  }
   return is("unknown", "")
+}
+
+// The Bluetooth phone a device is, when it is not matched yet: the one
+// paired under its name (Android names both alike), else the only paired
+// phone no other device has. `matched`: addresses other devices have.
+function bluetoothCandidate(deviceName, phones, matched) {
+  var paired = (phones || []).filter(function(p) { return p.paired && p.gateway && (matched || []).indexOf(p.address) < 0 })
+  var want = String(deviceName || "").trim().toLowerCase()
+  var named = paired.filter(function(p) { return String(p.name || "").trim().toLowerCase() === want })
+  if (named.length === 1) return named[0]
+  if (named.length === 0 && paired.length === 1) return paired[0]
+  return null
 }
 
 // Every item a device's features need, once each.
@@ -1342,7 +1641,9 @@ function setupItems(ctx) {
   // is done, and the rest then runs by itself.
   return keys.map(function(k) {
     var it = setupItem(k, ctx)
-    it.steps.forEach(function(st) { st.item = k })
+    // A step can name what it waits for (pairing over Bluetooth: done once
+    // the device shows paired, while the item still has its next step).
+    it.steps.forEach(function(st) { st.item = st.item || k })
     return it
   })
 }
@@ -1364,7 +1665,7 @@ function featureState(f, items, ctx) {
   if (away.length > 0) return done("away", away[0].detail)
   // Being read: the link (or the screen's) only; an item not read yet
   // elsewhere says nothing.
-  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" })
+  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" || it.key === "bt:phone" })
   var off = mine.filter(function(it) { return it.state === "off" && f.switch.indexOf(it.key) >= 0 })
   if (off.length > 0) {
     row.on = false
@@ -1404,8 +1705,8 @@ function deviceSetup(ctx) {
   return { items: items, features: features, gateways: gateways }
 }
 
-function featureRows(report, screen, deviceName, checks, own) {
-  return deviceSetup({ report: report, screen: screen, name: deviceName, checks: checks || [], own: own || {} }).features
+function featureRows(report, screen, deviceName, checks, own, more) {
+  return deviceSetup(Object.assign({ report: report, screen: screen, name: deviceName, checks: checks || [], own: own || {} }, more || {})).features
 }
 
 // The steps one click runs for a feature (Turn on, Fix): every one the
@@ -1457,6 +1758,18 @@ function demoFeatures() {
   return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
            permissions: { notifications: true, sms: true, contacts: false, phone: true, storage: true },
            files: { sshfs: true, mounted: true, error: "" } }
+}
+
+// Demo: this computer's Bluetooth, with the demo device paired and
+// connected for calls (a made-up address).
+var DEMO_BT_ADDRESS = "00:11:22:33:44:55"
+function demoBluetooth(deviceName) {
+  return { bluez: true, present: true, powered: true, handsfree: true, service: true,
+           phones: [{ address: DEMO_BT_ADDRESS, name: deviceName || "Pixel 8", paired: true, connected: true, gateway: true }] }
+}
+function demoHandsfree(deviceName, calls, ended, audio) {
+  return { address: DEMO_BT_ADDRESS, name: deviceName || "Pixel 8", paired: true, connected: true, audio: audio || "idle",
+           codec: "mSBC", keepOnPhone: !audio || audio === "idle", speaker: 10, calls: calls || [], ended: ended || null }
 }
 
 // ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
@@ -1834,6 +2147,9 @@ var PROFILE_SETTINGS = {
   // Screen and apps as a feature: off, no screen, no apps, nothing read
   // over adb, and nothing about it to fix.
   screenFeature: function(v) { return layoutFlag(v) },
+  // Calls here (Bluetooth, #59) as a feature: off, its calls are not
+  // followed or answered here, and nothing about it is a problem.
+  callsHere: function(v) { return layoutFlag(v) },
   // Experimental, off unless chosen: a tiled screen's tile takes the
   // device's width (Hyprland has no such thing; the plugin moves the edge).
   screenFitTile: function(v) { return v === true || v === "true" },

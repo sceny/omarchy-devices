@@ -31,9 +31,10 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall|sshfs|screen|search   fix one
-                                              (install, firewall, sshfs and screen ask
-                                              for a password; search looks for devices again)
+  kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|search
+                                              fix one (install, firewall, sshfs, screen and
+                                              bluetooth ask for a password; search looks
+                                              for devices again)
   kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
   kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
                                               JSON lines (qr, found, paired, connected, error)
@@ -62,7 +63,9 @@ not re-printed, so the shell only wakes when something moved.
                                               renotify, relisten, reconnect (KDE
                                               Connect pointed at the address adb
                                               knows), wake (KDE Connect on it let
-                                              run in the background, and opened)
+                                              run in the background, and opened),
+                                              bluetooth use=<address>|connect (calls
+                                              through Bluetooth: kept, connected)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
   kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
@@ -70,6 +73,15 @@ not re-printed, so the shell only wakes when something moved.
                                               (those first): JSON lines {package, icon}
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
+  kdeconnect-bridge call <what> <device> [arg]     a call through Bluetooth (PipeWire's
+                                              hands-free service): answer, answer-phone,
+                                              decline, hangup, hangup-all, end-answer,
+                                              dial <number>, tones <digits>, swap, merge,
+                                              audio-here, keep-on-phone, volume <0-15>,
+                                              mute on|off
+  kdeconnect-bridge call-audio <device>            while a call's audio is here: its
+                                              voice to this computer's output, the
+                                              microphone to the device, until killed
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -86,6 +98,7 @@ import os
 import quopri
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -256,6 +269,8 @@ def read_device(conn, device_id, calls=None):
             "ping": has("ping"),
             "calls": has("telephony"),
             "files": has("sftp"),
+            # KDE Connect's own Pause media here while a call is up.
+            "pausemusic": has("pausemusic"),
         },
         "battery": None,
         "network": None,
@@ -1116,10 +1131,24 @@ def watch():
     # it left, not "now".
     for entry in seen.values():
         entry["here"] = False
+    # Calls through Bluetooth: BlueZ on the system bus, PipeWire's
+    # hands-free service on this one (#59).
+    times = CallTimes()
+    try:
+        sysconn = system_bus()
+    except GLib.Error:
+        sysconn = None
 
     def emit():
         state["pending"] = 0
         snap = snapshot(conn, calls)
+        try:
+            bt = bluetooth_state(sysconn, conn) if sysconn else None
+        except GLib.Error:
+            bt = None
+        if bt is not None:
+            times.note(bt["gateways"], GLib.get_real_time() // 1000)
+            with_bluetooth(snap, bt, bluetooth_record(), times)
         # Received files, re-read each time (a dismiss writes the file from
         # another process), without the ones that are gone; their folders
         # are watched, so a change there comes at once (FolderWatch).
@@ -1214,6 +1243,20 @@ def watch():
     conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus",
                           "NameOwnerChanged", "/org/freedesktop/DBus",
                           BUS_NAME, Gio.DBusSignalFlags.NONE, schedule)
+    # PipeWire's hands-free service: a device connecting for calls, a call
+    # coming, answered, held or ended, its audio moving.
+    conn.signal_subscribe(TELEPHONY, None, None, None, None, Gio.DBusSignalFlags.NONE, schedule)
+    conn.signal_subscribe("org.freedesktop.DBus", "org.freedesktop.DBus", "NameOwnerChanged", "/org/freedesktop/DBus",
+                          TELEPHONY, Gio.DBusSignalFlags.NONE, schedule)
+
+    def on_bluez(_conn, _sender, _path, _iface, signal_name, params):
+        # A scan changes signal strengths many times a second: only what
+        # the panel shows counts.
+        if signal_name == "PropertiesChanged" and not (set(params.unpack()[1]) & BLUEZ_KEYS):
+            return
+        schedule()
+    if sysconn:
+        sysconn.signal_subscribe(BLUEZ, None, None, None, None, Gio.DBusSignalFlags.NONE, on_bluez)
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
     emit()
     loop.run()
@@ -1463,7 +1506,32 @@ def doctor():
                    "status": "Installed" if sshfs else "Not installed",
                    "detail": "" if sshfs else "A device's photos and videos here: sshfs",
                    "fix": "" if sshfs else "sshfs", "fixLabel": "" if sshfs else "Install"})
+    checks.extend(bluetooth_checks(bluetooth_state()))
     return {"checks": checks, "network": lan, "firewall": fw}
+
+
+def bluetooth_checks(bt):
+    """This computer's part of calls with their audio here: Bluetooth, and
+    PipeWire's hands-free service. Optional: only calls here need them."""
+    installed = bt["bluez"] or shutil.which("bluetoothctl") is not None
+    if not bt["bluez"]:
+        status, detail, fix_, label = ("Stopped", "Bluetooth is not running", "bluetooth", "Start") if installed \
+            else ("Not installed", "Calls with their audio here need Bluetooth", "bluetooth", "Install")
+    elif not bt["present"]:
+        status, detail, fix_, label = "No adapter", "This computer has no Bluetooth", "", ""
+    elif not bt["powered"]:
+        status, detail, fix_, label = "Off", "Turn it on for calls with their audio here", "bluetooth-on", "Turn on"
+    else:
+        status, detail, fix_, label = "On", "", "", ""
+    ok = bt["bluez"] and bt["present"] and bt["powered"]
+    out = [{"key": "bluetooth", "ok": ok, "optional": True, "label": "Bluetooth", "status": status,
+            "detail": detail, "fix": fix_, "fixLabel": label}]
+    hf = ok and bt["service"] and bt["handsfree"]
+    out.append({"key": "handsfree", "ok": hf, "optional": True, "label": "Calls in this computer's audio",
+                "status": "Ready" if hf else ("Needs Bluetooth" if not ok else "Not running"),
+                "detail": "" if hf or not ok else "PipeWire's hands-free service, for calls with their audio here",
+                "fix": "" if hf or not ok else "audio", "fixLabel": "" if hf or not ok else "Restart audio"})
+    return out
 
 
 OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
@@ -1485,7 +1553,7 @@ def pkg_add(packages):
 # only that plan: it is built again at the run, and a plan that differs from
 # the one shown (its hash) does not run.
 
-ROOT_FIXES = ("install", "sshfs", "screen", "firewall")
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "bluetooth")
 
 
 def pacman_will_install(packages, run=None):
@@ -1504,6 +1572,14 @@ def pacman_will_install(packages, run=None):
     return [l.strip() for l in (out.stdout or "").splitlines() if l.strip() and not l.startswith("::")]
 
 
+def unit_active(unit, run=None):
+    run = run or subprocess.run
+    try:
+        return run(["systemctl", "is-active", "--quiet", unit], capture_output=True, text=True, timeout=10).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def package_installed(name, run=None):
     run = run or subprocess.run
     try:
@@ -1515,7 +1591,7 @@ def package_installed(name, run=None):
 def root_plan(what, run=None, lan=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
-    keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
+    keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen", "bluetooth") else []
     if keys:
         wanted = [p for k in keys for p in (fix_packages(k) or [])]
         if not wanted:
@@ -1526,7 +1602,8 @@ def root_plan(what, run=None, lan=None):
         packages = [p for p in wanted if not package_installed(p, run)]
         will = pacman_will_install(packages, run) if packages else []
         why = {"install": "KDE Connect, which the plugin needs", "sshfs": "sshfs, so the gallery can read the device's storage",
-               "screen": "scrcpy and adb, for the device's screen and apps"}
+               "screen": "scrcpy and adb, for the device's screen and apps",
+               "bluetooth": "Bluetooth (BlueZ), for calls with their audio here"}
         reason = "To install " + "; ".join(why.get(k, k) for k in keys)
         if will == []:
             actions = ["Nothing to install: " + ", ".join(wanted) + " already here"]
@@ -1535,6 +1612,15 @@ def root_plan(what, run=None, lan=None):
             if will and len(will) > len(packages):
                 actions.append("Those include what " + ", ".join(packages) + " need to run")
         commands = [] if will == [] else [pkg_add(packages)]
+        # Bluetooth installed but not running: started, and at every boot,
+        # in the same prompt as its packages.
+        if what == "bluetooth" and not unit_active(BLUETOOTH_UNIT, run):
+            enable = "/usr/bin/systemctl enable --now %s" % BLUETOOTH_UNIT
+            actions.append("Start Bluetooth, now and at every start: systemctl enable --now %s" % BLUETOOTH_UNIT)
+            commands = [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN, "/bin/sh", "-c",
+                         " && ".join(([shlex.join(["omarchy-pkg-add"] + packages)] if commands else []) + [enable])]]
+            if will == []:
+                actions = actions[1:]
     elif what == "firewall":
         lan = lan if lan is not None else local_network()
         if not lan:
@@ -1571,13 +1657,14 @@ def run_root(what, confirm):
     if what == "firewall":
         return say("Firewall now allows KDE Connect from %s" % local_network())
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "screen": "scrcpy and adb installed: set up a device's screen and apps"}.get(what, "Installed"))
+                "screen": "scrcpy and adb installed: set up a device's screen and apps",
+                "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed"))
 
 
 # What each install fix puts on this computer, so several go in one prompt
 # (`fix packages sshfs,screen`: Fix all).
 def fix_packages(key):
-    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
+    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES, "bluetooth": BLUETOOTH_PACKAGES}.get(key)
 
 
 def fix(what, confirm=""):
@@ -1592,6 +1679,24 @@ def fix(what, confirm=""):
         except GLib.Error as error:
             return say(error.message, EXIT_FAILED)
         return say("Looking for devices on the network")
+    if what == "bluetooth-on":
+        # Omarchy's own switch (the rfkill block it keeps across restarts).
+        tool = os.path.join(OMARCHY_BIN, "omarchy-bluetooth-power")
+        try:
+            ok = subprocess.run([tool, "on"], capture_output=True, text=True, timeout=20).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            ok = False
+        return say("Bluetooth is on") if ok else say("Bluetooth did not turn on", EXIT_FAILED)
+    if what == "audio":
+        # PipeWire's hands-free service comes with the audio services:
+        # Omarchy's restart brings them back.
+        tool = os.path.join(OMARCHY_BIN, "omarchy-restart-audio")
+        try:
+            subprocess.run([tool], capture_output=True, text=True, timeout=90)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return say(str(error), EXIT_FAILED)
+        state = bluetooth_state()
+        return say("Calls can use this computer's audio") if state["service"] else say("PipeWire's hands-free service is still not there", EXIT_FAILED)
     if what == "restart":
         # Every device reconnects; what a stuck daemon needs (a dead mount,
         # notifications that stopped), on a click.
@@ -1922,6 +2027,9 @@ def device_fix(what, device_id, arg=""):
         return say("Reloaded its KDE Connect plugins")
     if what == "remount":
         return say("Its storage is mounted again") if remount(device_id) else say("The storage did not mount", EXIT_FAILED)
+    if what == "bluetooth":
+        verb, _, address = arg.partition("=")
+        return bluetooth_fix(verb, device_id, address)
     status = screen_status(device_id)
     serial = status.get("serial") if status.get("state") == "ready" else ""
     if what == "grant":
@@ -1961,6 +2069,473 @@ def device_fix(what, device_id, arg=""):
         code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
         return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED)
     return say("Unknown fix %s" % what, EXIT_FAILED)
+
+
+# ---- Bluetooth calls (PipeWire's hands-free service) ------------------------
+#
+# Calls with their audio here come from Bluetooth hands-free (HFP): this
+# computer is the device's hands-free unit, as a car kit is. PipeWire
+# implements that side and offers it on the session bus
+# (org.pipewire.Telephony: an audio gateway per device connected for calls,
+# a call object under it per call); BlueZ, on the system bus, says what is
+# paired and connected. KDE Connect has no call control and no call audio
+# (#60): this is the second source, for calls only (AGENTS.md, the
+# boundary). A device is matched to its Bluetooth address once, on the
+# user's click (by its name first), and the match is kept in the cache
+# (bluetooth.json), as its adb serial is. Pairing is Omarchy's Bluetooth
+# menu's; the plugin connects a paired device on a click.
+#
+# PipeWire offers no way to move a call's audio back to the device once it
+# is here (only Activate, to bring it here): the device's own audio button
+# does that. Until the user answers or calls here, the audio stays on the
+# device (RejectSCO): a call answered on the device is not taken over.
+
+BLUEZ = "org.bluez"
+TELEPHONY = "org.pipewire.Telephony"
+TELEPHONY_PATH = "/org/pipewire/Telephony"
+TEL_AG = TELEPHONY + ".AudioGateway1"
+TEL_TRANSPORT = TELEPHONY + ".AudioGatewayTransport1"
+TEL_CALL = TELEPHONY + ".Call1"
+UUID_HANDSFREE = "0000111e-0000-1000-8000-00805f9b34fb"   # this computer as hands-free
+UUID_GATEWAY = "0000111f-0000-1000-8000-00805f9b34fb"     # a phone's audio gateway
+BLUETOOTH_FILE = "bluetooth.json"
+BLUETOOTH_PACKAGES = ["bluez", "bluez-utils"]
+BLUETOOTH_UNIT = "bluetooth.service"
+HFP_CODECS = {1: "CVSD", 2: "mSBC", 3: "LC3-SWB"}
+# Properties of a Bluetooth device worth a new snapshot: a scan changes
+# RSSI and the like many times a second, and none of them matters here.
+BLUEZ_KEYS = {"Powered", "Paired", "Connected", "Name", "Alias", "UUIDs", "Trusted", "Icon"}
+# A number as the phone dials it: digits and the keypad's own signs.
+DIAL_CHARS = re.compile(r"[^0-9+*#]")
+CALL_AUDIO_WAIT_SEC = 10
+
+
+def system_bus():
+    return Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+
+
+def managed_objects(conn, name, path):
+    """A service's GetManagedObjects, unpacked; None when it is not there."""
+    try:
+        result = conn.call_sync(name, path, "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
+                                None, None, Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+    except GLib.Error:
+        return None
+    return result.unpack()[0] if result is not None else {}
+
+
+def parse_bluez(objects):
+    """BlueZ's objects as the panel needs them: this computer's adapter
+    (there, on, offering hands-free) and the phones it knows, each
+    {address, name, paired, connected, gateway} (gateway: it offers calls)."""
+    adapter = {"present": False, "powered": False, "handsfree": False}
+    phones = []
+    for path, ifaces in sorted((objects or {}).items()):
+        a = ifaces.get("org.bluez.Adapter1")
+        if a is not None and (not adapter["present"] or (a.get("Powered") and not adapter["powered"])):
+            uuids = [str(u).lower() for u in a.get("UUIDs", []) or []]
+            adapter = {"present": True, "powered": bool(a.get("Powered")), "handsfree": UUID_HANDSFREE in uuids}
+        d = ifaces.get("org.bluez.Device1")
+        if d is None:
+            continue
+        uuids = [str(u).lower() for u in d.get("UUIDs", []) or []]
+        gateway = UUID_GATEWAY in uuids
+        if not gateway and d.get("Icon") != "phone":
+            continue
+        phones.append({"address": str(d.get("Address", "")).upper(), "name": str(d.get("Alias") or d.get("Name") or ""),
+                       "paired": bool(d.get("Paired")), "connected": bool(d.get("Connected")), "gateway": gateway})
+    return {"adapter": adapter, "phones": phones}
+
+
+def parse_gateway(path, ifaces, calls):
+    """One audio gateway (a device connected for calls) and its calls."""
+    ag = ifaces.get(TEL_AG) or {}
+    t = ifaces.get(TEL_TRANSPORT) or {}
+    out = {"path": path, "address": str(ag.get("Address", "")).upper(),
+           # idle (on the device, or no call), pending, active (here), error.
+           "audio": str(t.get("State", "idle")),
+           "codec": HFP_CODECS.get(int(t.get("Codec", 0) or 0), ""),
+           "keepOnPhone": bool(t.get("RejectSCO", False)),
+           "speaker": int(ag.get("SpeakerVolume", 0) or 0), "mic": int(ag.get("MicrophoneVolume", 0) or 0),
+           "calls": []}
+    for cpath, cifaces in sorted((calls or {}).items()):
+        c = cifaces.get(TEL_CALL)
+        if c is None:
+            continue
+        out["calls"].append({"id": cpath.rsplit("/", 1)[-1], "path": cpath, "state": str(c.get("State", "")),
+                             "number": str(c.get("LineIdentification", "") or ""), "name": str(c.get("Name", "") or ""),
+                             "multiparty": bool(c.get("Multiparty", False))})
+    return out
+
+
+def read_telephony(conn):
+    """PipeWire's hands-free service: None when it is not there, else
+    {address: gateway} for every device connected for calls."""
+    roots = managed_objects(conn, TELEPHONY, TELEPHONY_PATH)
+    if roots is None:
+        return None
+    out = {}
+    for path, ifaces in roots.items():
+        if TEL_AG not in ifaces:
+            continue
+        g = parse_gateway(path, ifaces, managed_objects(conn, TELEPHONY, path) or {})
+        if g["address"]:
+            out[g["address"]] = g
+    return out
+
+
+def bluetooth_record(update=None, drop=None):
+    """Each device's Bluetooth match, in the cache: {device id: {address,
+    name}}. `update`: {device id: match} to keep; `drop`: an id to forget."""
+    path = os.path.join(state_dir(), BLUETOOTH_FILE)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    if update is None and drop is None:
+        return data
+    data.update(update or {})
+    data.pop(drop, None)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+    return data
+
+
+def bluetooth_state(sysconn=None, conn=None):
+    """This computer's side of Bluetooth calls, and every phone it knows:
+    {present, powered, handsfree, service, phones, gateways}."""
+    try:
+        sysconn = sysconn or system_bus()
+        bluez = managed_objects(sysconn, BLUEZ, "/")
+    except GLib.Error:
+        bluez = None
+    try:
+        tel = read_telephony(conn or bus())
+    except GLib.Error:
+        tel = None
+    b = parse_bluez(bluez or {})
+    return dict(b["adapter"], bluez=bluez is not None, service=tel is not None,
+                phones=b["phones"], gateways=tel or {})
+
+
+def call_digits(number):
+    return DIAL_CHARS.sub("", str(number or ""))
+
+
+def handsfree_for(device_id, state, record, ended=None, since=None, seen=None):
+    """A device's calls through Bluetooth, for the snapshot: its match, and
+    while connected for calls its gateway with every call; None when it is
+    not matched. `since`: when each call became active (ms), `ended`: the
+    last call that ended on it."""
+    match = (record or {}).get(device_id)
+    if not match or not match.get("address"):
+        return None
+    address = str(match["address"]).upper()
+    phone = next((p for p in state.get("phones", []) if p["address"] == address), None)
+    g = (state.get("gateways") or {}).get(address)
+    out = {"address": address, "name": match.get("name", "") or (phone or {}).get("name", ""),
+           "paired": bool(phone and phone["paired"]), "connected": g is not None,
+           "audio": g["audio"] if g else "idle", "codec": g["codec"] if g else "",
+           "keepOnPhone": g["keepOnPhone"] if g else True, "speaker": g["speaker"] if g else 0,
+           "calls": [], "ended": (ended or {}).get(address)}
+    for c in (g["calls"] if g else []):
+        out["calls"].append(dict(c, since=(since or {}).get(c["path"]), seen=(seen or {}).get(c["path"])))
+    return out
+
+
+class CallTimes:
+    """When each call became active, and the last call that ended on each
+    device (how long it lasted, whether it was answered), so the card can
+    count a call's time and say it ended. Memory only."""
+
+    def __init__(self):
+        self.calls = {}     # path -> {address, number, name, since}
+        self.ended = {}     # address -> {at, number, name, answered, duration}
+
+    def note(self, gateways, now_ms):
+        here = set()
+        for g in (gateways or {}).values():
+            for c in g["calls"]:
+                here.add(c["path"])
+                known = self.calls.setdefault(c["path"], {"address": g["address"], "since": None, "seen": now_ms})
+                known["number"], known["name"] = c["number"], c["name"]
+                if c["state"] in ("active", "held") and known["since"] is None:
+                    known["since"] = now_ms
+        for path in [p for p in self.calls if p not in here]:
+            c = self.calls.pop(path)
+            self.ended[c["address"]] = {"at": now_ms, "number": c.get("number", ""), "name": c.get("name", ""),
+                                        "answered": c["since"] is not None,
+                                        "duration": now_ms - c["since"] if c["since"] is not None else 0}
+
+    def since(self):
+        return {p: c["since"] for p, c in self.calls.items() if c["since"] is not None}
+
+    def seen(self):
+        return {p: c["seen"] for p, c in self.calls.items()}
+
+
+def with_bluetooth(snap, bt, record, times=None):
+    """The snapshot with this computer's Bluetooth (for calls here) and
+    each paired device's calls through it."""
+    snap["bluetooth"] = {k: bt[k] for k in ("bluez", "present", "powered", "handsfree", "service")}
+    snap["bluetooth"]["phones"] = bt["phones"]
+    for d in snap.get("devices", []):
+        if d.get("paired"):
+            d["handsfree"] = handsfree_for(d["id"], bt, record, times.ended if times else None,
+                                           times.since() if times else None, times.seen() if times else None)
+    return snap
+
+
+def gateway_of(device_id, conn=None):
+    """(conn, gateway) for a device connected for calls, else (conn, None)."""
+    conn = conn or bus()
+    match = bluetooth_record().get(device_id) or {}
+    tel = read_telephony(conn) or {}
+    return conn, tel.get(str(match.get("address", "")).upper())
+
+
+def tel_call(conn, path, iface, method, args=None, sig=None):
+    params = GLib.Variant(sig, args) if sig else None
+    conn.call_sync(TELEPHONY, path, iface, method, params, None, Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+
+
+def tel_set(conn, path, iface, name, value):
+    tel_call(conn, path, "org.freedesktop.DBus.Properties", "Set", (iface, name, value), "(ssv)")
+
+
+def pick_call(gateway, states, call_id=""):
+    """The call a verb acts on: the one named, else the first in these states."""
+    calls = gateway["calls"]
+    if call_id:
+        return next((c for c in calls if c["id"] == call_id), None)
+    for state in states:
+        c = next((c for c in calls if c["state"] == state), None)
+        if c:
+            return c
+    return None
+
+
+def pw_objects(run=None):
+    """PipeWire's objects (`pw-dump`), or []."""
+    run = run or subprocess.run
+    try:
+        out = run(["pw-dump"], capture_output=True, text=True, timeout=10)
+        return json.loads(out.stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+
+
+def call_nodes(objects, address):
+    """The device's call audio in PipeWire: its source (the other end's
+    voice) and its sink (what goes to it), {source, sink} each {id, name}
+    or None, and which of them something already plays from or into."""
+    addr = address.upper()
+    nodes = {}
+    for o in objects:
+        if o.get("type") != "PipeWire:Interface:Node":
+            continue
+        p = ((o.get("info") or {}).get("props") or {})
+        if str(p.get("api.bluez5.address", "")).upper() != addr:
+            continue
+        kind = {"Audio/Source": "source", "Audio/Sink": "sink"}.get(p.get("media.class"))
+        if kind and not p.get("api.bluez5.internal"):
+            nodes[kind] = {"id": o.get("id"), "name": p.get("node.name", "")}
+    linked = {"source": False, "sink": False}
+    for o in objects:
+        if o.get("type") != "PipeWire:Interface:Link":
+            continue
+        info = o.get("info") or {}
+        if nodes.get("source") and info.get("output-node-id") == nodes["source"]["id"]:
+            linked["source"] = True
+        if nodes.get("sink") and info.get("input-node-id") == nodes["sink"]["id"]:
+            linked["sink"] = True
+    return {"source": nodes.get("source"), "sink": nodes.get("sink"), "linked": linked}
+
+
+def loopback_commands(nodes, title):
+    """The two loopbacks a call's audio here needs, for the halves nothing
+    plays yet: the other end's voice to this computer's output (following
+    the default output), this computer's microphone to the device. Each is
+    a Communication stream, so PipeWire's own policy places it."""
+    cmds = []
+    if nodes.get("source") and not nodes["linked"]["source"]:
+        cmds.append(["pw-loopback", "-n", "sceny-devices-call-in",
+                     "--capture-props", "target.object=%s node.dont-reconnect=true stream.dont-remix=true" % nodes["source"]["name"],
+                     "--playback-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', "")])
+    if nodes.get("sink") and not nodes["linked"]["sink"]:
+        cmds.append(["pw-loopback", "-n", "sceny-devices-call-out",
+                     "--capture-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', ""),
+                     "--playback-props", "target.object=%s node.dont-reconnect=true" % nodes["sink"]["name"]])
+    return cmds
+
+
+def call_audio(device_id, sleep=time.sleep):
+    """While a call's audio is here: its voice to this computer's output and
+    the microphone to the device, until killed or the audio goes. Run by
+    the panel's service while the call is up and its audio is here."""
+    match = bluetooth_record().get(device_id) or {}
+    address = str(match.get("address", ""))
+    if not address:
+        return say("Not set up for calls", EXIT_FAILED)
+    title = "Call (%s)" % (match.get("name") or "Devices")
+    nodes = None
+    for _ in range(CALL_AUDIO_WAIT_SEC * 2):
+        nodes = call_nodes(pw_objects(), address)
+        if nodes["source"] or nodes["sink"]:
+            break
+        sleep(0.5)
+    if not nodes or not (nodes["source"] or nodes["sink"]):
+        return say("The call's audio did not come here", EXIT_FAILED)
+    procs = []
+    for cmd in loopback_commands(nodes, title):
+        try:
+            procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        except OSError as error:
+            return say(str(error), EXIT_FAILED)
+    print(json.dumps({"audio": "here", "loopbacks": len(procs)}), flush=True)
+
+    def stop(*_args):
+        for p in procs:
+            if p.poll() is None:
+                p.terminate()
+        raise SystemExit(EXIT_OK)
+    signal.signal(signal.SIGTERM, stop)
+    try:
+        # The device's nodes go with the call's audio: then so does this.
+        while True:
+            sleep(2)
+            now = call_nodes(pw_objects(), address)
+            if not (now["source"] or now["sink"]):
+                break
+    except KeyboardInterrupt:
+        pass
+    for p in procs:
+        if p.poll() is None:
+            p.terminate()
+    return EXIT_OK
+
+
+def mute_target(objects, address):
+    """The node to mute for the microphone: the device's sink (what goes to
+    the device), whoever plays into it."""
+    nodes = call_nodes(objects, address)
+    return nodes["sink"]["id"] if nodes["sink"] else None
+
+
+def call_verb(what, device_id, arg="", conn=None):
+    """A click on the call card, through PipeWire's hands-free service.
+    Answer here / Dial bring the audio here; Answer on the device keeps it
+    there. Never run by a check: each reaches a real call."""
+    try:
+        conn, g = gateway_of(device_id, conn)
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    if g is None:
+        return say("Not connected for calls over Bluetooth", EXIT_FAILED)
+    path = g["path"]
+    try:
+        if what in ("answer", "answer-phone"):
+            c = pick_call(g, ("incoming", "waiting"), arg)
+            if not c:
+                return say("No call to answer", EXIT_FAILED)
+            tel_set(conn, path, TEL_TRANSPORT, "RejectSCO", GLib.Variant("b", what == "answer-phone"))
+            if c["state"] == "waiting":
+                # A second call: the first one waits on hold.
+                tel_call(conn, path, TEL_AG, "HoldAndAnswer")
+            else:
+                tel_call(conn, c["path"], TEL_CALL, "Answer")
+            return say("Answered" + (" on the device" if what == "answer-phone" else ""))
+        if what in ("decline", "hangup"):
+            c = pick_call(g, ("incoming", "waiting") if what == "decline" else ("active", "dialing", "alerting", "held"), arg)
+            if not c:
+                return say("No call", EXIT_FAILED)
+            tel_call(conn, c["path"], TEL_CALL, "Hangup")
+            return say("Declined" if what == "decline" else "Hung up")
+        if what == "end-answer":
+            tel_call(conn, path, TEL_AG, "ReleaseAndAnswer")
+            return say("Answered")
+        if what == "hangup-all":
+            tel_call(conn, path, TEL_AG, "HangupAll")
+            return say("Hung up")
+        if what == "dial":
+            number = call_digits(arg)
+            if not number:
+                return say("No number to call", EXIT_FAILED)
+            tel_set(conn, path, TEL_TRANSPORT, "RejectSCO", GLib.Variant("b", False))
+            tel_call(conn, path, TEL_AG, "Dial", (number,), "(s)")
+            return say("Calling")
+        if what == "tones":
+            tones = re.sub(r"[^0-9*#ABCD]", "", str(arg).upper())
+            if not tones:
+                return EXIT_OK
+            tel_call(conn, path, TEL_AG, "SendTones", (tones,), "(s)")
+            return EXIT_OK
+        if what == "swap":
+            tel_call(conn, path, TEL_AG, "SwapCalls")
+            return say("Swapped")
+        if what == "merge":
+            tel_call(conn, path, TEL_AG, "CreateMultiparty")
+            return say("Calls joined")
+        if what == "audio-here":
+            tel_set(conn, path, TEL_TRANSPORT, "RejectSCO", GLib.Variant("b", False))
+            if g["audio"] != "active":
+                tel_call(conn, path, TEL_TRANSPORT, "Activate")
+            return say("The call's audio is here")
+        if what == "keep-on-phone":
+            # Between calls: a call answered on the device stays there.
+            tel_set(conn, path, TEL_TRANSPORT, "RejectSCO", GLib.Variant("b", True))
+            return EXIT_OK
+        if what == "volume":
+            level = max(0, min(15, int(arg)))
+            tel_set(conn, path, TEL_AG, "SpeakerVolume", GLib.Variant("y", level))
+            return EXIT_OK
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    except ValueError:
+        return say("Not a level: %s" % arg, EXIT_FAILED)
+    if what == "mute":
+        node = mute_target(pw_objects(), g["address"])
+        if node is None:
+            return say("The call's audio is not here", EXIT_FAILED)
+        on = arg != "off"
+        out = subprocess.run(["wpctl", "set-mute", str(node), "1" if on else "0"], capture_output=True, text=True, timeout=5)
+        return say("Microphone off" if on else "Microphone on") if out.returncode == 0 else say("Could not mute", EXIT_FAILED)
+    return say("Unknown call action %s" % what, EXIT_FAILED)
+
+
+def bluetooth_fix(what, device_id, arg=""):
+    """A click's step for a device's calls: `use <address>` keeps the match
+    (the user's confirmation) and connects it; `connect` connects the one
+    kept. Pairing stays Omarchy's Bluetooth menu's."""
+    record = bluetooth_record()
+    state = bluetooth_state()
+    if what == "use":
+        address = str(arg).upper()
+        phone = next((p for p in state["phones"] if p["address"] == address), None)
+        if not phone or not phone["paired"]:
+            return say("Not paired over Bluetooth", EXIT_FAILED)
+        bluetooth_record(update={device_id: {"address": address, "name": phone["name"]}})
+        record = bluetooth_record()
+    match = record.get(device_id) or {}
+    address = str(match.get("address", "")).upper()
+    if not address:
+        return say("Not set up for calls", EXIT_FAILED)
+    if address in (state.get("gateways") or {}):
+        return say("Connected for calls")
+    tool = os.path.join(OMARCHY_BIN, "omarchy-bluetooth-device")
+    try:
+        subprocess.run([tool, "connect", address], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return say(str(error), EXIT_FAILED)
+    for _ in range(10):
+        if address in (read_telephony(bus()) or {}):
+            return say("Connected for calls")
+        time.sleep(0.5)
+    return say("Not connected: turn Bluetooth on, on the device", EXIT_FAILED)
 
 
 # ---- Screen and apps (scrcpy over adb) -------------------------------------
@@ -4549,8 +5124,18 @@ def main(argv):
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
                            docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv,
                            sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
+    if argv[0] == "call":
+        if len(argv) < 3:
+            return say("call needs what and a device id", EXIT_FAILED)
+        return call_verb(argv[1], argv[2], argv[3] if len(argv) > 3 else "")
+    if argv[0] == "call-audio":
+        if len(argv) < 2:
+            return say("call-audio needs a device id", EXIT_FAILED)
+        return call_audio(argv[1])
     if argv[0] == "snapshot":
-        print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
+        conn = bus()
+        snap = with_bluetooth(snapshot(conn), bluetooth_state(conn=conn), bluetooth_record())
+        print(json.dumps(with_seen(snap, load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))
         return EXIT_OK
     return act(argv)
 
