@@ -2566,20 +2566,20 @@ Panel {
     contentWidth: root.cardWidth
     contentHeight: root.cardHeight
 
-    // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut, so
-    // it comes before the catcher, whose Enter carries no modifiers.
-    Shortcut {
-      sequences: ["Shift+Return", "Shift+Enter"]
-      enabled: root.opened && !keyCatcher.blocked && root.cursorActive
-        && (root.appsOpen || (root.mainView && root.focusSection === "apps"))
-      onActivated: {
-        if (root.appsOpen) appsView.activate(true)
-        else root.activateCursor(true)
-      }
-    }
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut,
+      // so it comes before the catcher, whose Enter carries no modifiers.
+      Shortcut {
+        sequences: ["Shift+Return", "Shift+Enter"]
+        enabled: root.opened && !keyCatcher.blocked && root.cursorActive
+          && (root.appsOpen || (root.mainView && root.focusSection === "apps"))
+        onActivated: {
+          if (root.appsOpen) appsView.activate(true)
+          else root.activateCursor(true)
+        }
+      }
       blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
         || (root.appsOpen && !!appsView && appsView.searchFocused)
 
