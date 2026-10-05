@@ -494,6 +494,11 @@ Panel {
   // (its screen and apps work; what KDE Connect carries waits for it).
   readonly property bool screenHere: !!device && !reachable && screenReaches(device.id)
   readonly property bool deviceHere: reachable || screenHere
+  readonly property var screenOnlyIds: {
+    var out = {}
+    pairedDevices.forEach(function(d) { if (d.reachable !== true && screenReaches(d.id)) out[String(d.id)] = true })
+    return out
+  }
   readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
   function openScreenSetup(id) {
     if (!id) return
@@ -830,7 +835,7 @@ Panel {
   // The status fixes what it lists (the problems), nothing it did not show;
   // a device's page every feature on it.
   function fixAllPlans() {
-    var connected = pairedDevices.filter(function(d) { return d.reachable === true })
+    var connected = pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) })
     if (editingDevice && scopeDevice) return [{ id: String(scopeDevice.id), steps: Model.fixAllPlan(featureRowsFor(scopeDevice)) }]
     var computer = computerFixSteps()
     // No device to read again after: "this computer" runs it.
@@ -972,7 +977,7 @@ Panel {
     connection: Model.connectionSummary(setupChecks, ignoredChecks),
     connectionPills: Model.connectionPills(setupChecks, ignoredChecks),
     problems: allProblems,
-    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, screenOnlyIds),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
@@ -3520,7 +3525,7 @@ Panel {
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices") + " · " + Model.problemsLine(root.allProblems).toLowerCase())
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
-              : root.screenHere ? "KDE Connect lost it · screen and apps here"
+              : root.screenHere ? "Screen and apps only"
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily

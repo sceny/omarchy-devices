@@ -2066,14 +2066,15 @@ function groupCustom(custom, group) {
 
 // The Devices list at the top of Settings: every paired device in order,
 // then devices asking to pair, then devices in reach that could be paired.
-function devicesListRows(snapshot, settings, lowPercent) {
+// `screenOnly`: ids the screen link reaches while KDE Connect does not.
+function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
   var ordered = orderedDevices(snapshot, settings)
   var rows = []
   for (var i = 0; i < ordered.length; i++) {
     var d = ordered[i]
     var p = resolveProfile(settings, d, i === 0)
     rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
-                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : "Away",
+                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : (screenOnly && screenOnly[String(d.id)] ? "Screen and apps only" : "Away"),
                 away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1, pos: i, count: ordered.length })
   }
   // Asking to pair first (they wait on the user), then those in reach.
