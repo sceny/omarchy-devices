@@ -23,6 +23,32 @@ Column {
   property string network: ""
   property string appPlatform: "android"
   signal appPlatformSet(string platform)
+  // Screen and apps (scope "screen"): the page's model (Model.screenSetup)
+  // and the pairing code it shows.
+  property var screenSetup: null
+  property var screenQr: null
+  // Its screen's window is open: the tile is on, with its ✕.
+  property bool screenOpen: false
+  signal screenPlaceChosen(bool docked)
+  signal appSoundChosen(string sound)
+  // What it can do: a feature's one action, its switch; Fix all.
+  signal featureRequested(int index)
+  signal featureSwitched(int index, bool on)
+  signal fixAllRequested()
+  // Fix with AI (#101): the person's coding agent, with what went wrong.
+  // what: "features" (the section's), "feature" or "check" (a row's).
+  signal fixWithAiRequested(string what, int index)
+  signal checkAgainRequested()
+  property string agentName: ""
+  readonly property string aiTip: agentName !== "" ? "Opens " + agentName + ", your default coding agent, in a terminal, on what is wrong here"
+    : "Choose your coding agent first (Omarchy's own choice), then again"
+  // What it can do's problems: a marker and the section's own Fix all and
+  // Fix with AI in its title.
+  readonly property int featureProblems: rows.filter(function(r) { return r.kind === "feature" && r.problem }).length
+  readonly property string featuresLine: featureProblems > 0 ? featureProblems + (featureProblems === 1 ? " needs attention" : " need attention")
+    : Model.featuresSummary(rows.filter(function(r) { return r.kind === "feature" }))
+  property int fixAllCount: 0
+  signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
   property var justPaired: null
   // Pairings asked here: when each started (the card's countdown), and a
@@ -37,10 +63,9 @@ Column {
   property var sectionOrder: []
   property var barIndicators: []
   property bool batteryLowOnly: true
-  // Many devices: what the page edits ("root", "device", "defaults"), which
-  // of its settings the device changed, the icon picker, Unpair armed.
+  // What the page is ("root", "device", "defaults", "connection",
+  // "addDevice", "screen"), the icon picker, Unpair armed.
   property string scopeKind: "root"
-  property var custom: ({})
   property bool iconPicking: false
   property bool unpairArmed: false
   property string deviceName: ""
@@ -83,11 +108,10 @@ Column {
     return false
   }
   readonly property bool hasGroups: firstIndex("layout") >= 0
-  readonly property bool hasList: scopeKind !== "connection" && scopeKind !== "addDevice" && hasKind(["device", "request", "available"])
+  readonly property bool hasList: scopeKind === "root"
+  readonly property int problemCount: rows.filter(function(r) { return r.kind === "problem" }).length
+  readonly property int devicesIssues: rows.filter(function(r) { return r.kind === "problem" && r.where !== "computer" }).length
   readonly property bool hasIdentity: firstIndex("nickname") >= 0
-  function groupTitle(title, group) {
-    return scopeKind === "device" && Model.groupCustom(custom, group) ? title + " · CUSTOM" : title
-  }
   function devicesSummary() {
     var n = 0, asking = 0
     for (var i = 0; i < rows.length; i++) {
@@ -95,6 +119,7 @@ Column {
       if (rows[i].kind === "request") asking++
     }
     var line = n === 1 ? "1 device" : n + " devices"
+    if (devicesIssues > 0) line += " · " + devicesIssues + (devicesIssues === 1 ? " needs attention" : " need attention")
     return asking > 0 ? line + " · " + asking + (asking === 1 ? " wants to pair" : " want to pair") : line
   }
 
@@ -104,14 +129,91 @@ Column {
 
   spacing: Style.space(6)
 
-  // ---- Devices: every device, in order; asking to pair; in reach ----
+  // ---- The status: everything well, or each problem once, where its
+  //      cause is (a device, this computer); Fix all and Fix with AI for
+  //      all of them. A line opens the page that fixes it ----
+  Rectangle {
+    visible: root.scopeKind === "root"
+    width: root.width
+    implicitHeight: statusColumn.implicitHeight + 2 * Style.space(8)
+    radius: Style.cornerRadius
+    color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.06) : "transparent"
+    border.width: 1
+    border.color: root.problemCount > 0 ? Qt.alpha(Color.urgent, 0.55) : Qt.alpha(root.foreground, 0.18)
+    Column {
+      id: statusColumn
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(6)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(2)
+      RowLayout {
+        width: parent.width
+        spacing: Style.space(6)
+        Text {
+          Layout.leftMargin: Style.space(4)
+          text: root.problemCount > 0 ? Model.GLYPH.alert : Model.GLYPH.check
+          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.icon
+          Layout.alignment: Qt.AlignVCenter
+        }
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: Model.problemsLine(root.rows.filter(function(r) { return r.kind === "problem" }))
+          color: root.problemCount > 0 ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          Layout.alignment: Qt.AlignVCenter
+        }
+        Button {
+          visible: root.problemCount > 0 && root.fixAllCount > 0
+          text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all"
+          enabled: !(root.phone && root.phone.isBusy("fixAll"))
+          tooltipText: "Every fix the plugin can do, here and on your devices; anything that needs your password is shown first"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          onClicked: root.fixAllRequested()
+        }
+        Button {
+          visible: root.problemCount > 0
+          text: "Fix with AI"
+          tooltipText: root.aiTip
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.caption
+          onClicked: root.fixWithAiRequested("all", -1)
+        }
+      }
+      Repeater {
+        model: root.rows
+        ProblemRow {
+          required property var modelData
+          required property int index
+          visible: modelData.kind === "problem"
+          width: statusColumn.width
+          row: modelData
+          rowIndex: index
+        }
+      }
+    }
+  }
+
+  // ---- My devices: every device, the one in view too, in order; asking
+  //      to pair; Add a device ----
+  Item { visible: root.hasList; width: 1; height: Style.space(4) }
   FoldToggle {
     visible: root.hasList
     width: root.width
-    title: "DEVICES"
+    title: "MY DEVICES"
     summary: root.devicesSummary()
     folded: root.isFolded("devicesList")
-    foreground: root.foreground
+    foreground: root.devicesIssues > 0 ? Color.urgent : root.foreground
     fontFamily: root.fontFamily
     motion: root.motion
     animate: root.animate
@@ -126,7 +228,7 @@ Column {
     spacing: Style.space(4)
 
       Text {
-        visible: root.firstIndex("device") >= 0
+        visible: root.countOf("device") > 1
         textFormat: Text.PlainText
         width: root.width
         wrapMode: Text.WordWrap
@@ -141,7 +243,7 @@ Column {
         ListRow {
           required property var modelData
           required property int index
-          visible: modelData.kind === "device" || modelData.kind === "request" || modelData.kind === "available"
+          visible: modelData.kind === "device" || modelData.kind === "request" || modelData.kind === "addDevice"
           width: root.width
           row: modelData
           rowIndex: index
@@ -149,14 +251,26 @@ Column {
       }
   }
 
-  // ---- This device: its name and icon, and on its page where it shows ----
-  Item { visible: root.hasIdentity && root.scopeKind === "root"; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.hasIdentity && root.scopeKind === "root"; foreground: root.foreground }
+  // ---- For all devices (with two or more) and This computer: pages ----
+  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "defaults" || modelData.kind === "connection"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
 
+  // ---- A device's page: this device (its name and icon, where it shows) ----
   FoldToggle {
     visible: root.hasIdentity
     width: root.width
-    title: root.scopeKind === "device" ? "DEVICE" : "THIS DEVICE"
+    title: "THIS DEVICE"
     summary: root.deviceName
     folded: root.isFolded("identity")
     foreground: root.foreground
@@ -186,22 +300,83 @@ Column {
       }
   }
 
-  // ---- Defaults for all devices (the list's page); on a device's page,
-  //      its sections and shortcuts, edited on the page itself ----
+  // ---- What it can do (docs/design/setup.md): a row per feature, folding;
+  //      a problem marks its title, which then holds Fix all and Fix with AI ----
+  Item { visible: root.firstIndex("feature") >= 0; width: 1; height: Style.space(6) }
+  RowLayout {
+    visible: root.firstIndex("feature") >= 0
+    width: root.width
+    spacing: Style.space(4)
+    FoldToggle {
+      id: featuresFold
+      Layout.fillWidth: true
+      title: "WHAT IT CAN DO"
+      summary: root.featuresLine
+      folded: root.isFolded("features")
+      foreground: root.featureProblems > 0 ? Color.urgent : root.foreground
+      fontFamily: root.fontFamily
+      motion: root.motion
+      animate: root.animate
+      onToggled: root.foldToggled("features")
+    }
+    Button {
+      visible: root.featureProblems > 0 && root.fixAllCount > 0
+      Layout.preferredHeight: featuresFold.headerHeight
+      text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all"
+      enabled: !(root.phone && root.phone.isBusy("fixAll"))
+      tooltipText: "Every fix the plugin can do, here and on the device"
+      verticalPadding: 0
+      bordered: true
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      onClicked: root.fixAllRequested()
+    }
+    Button {
+      visible: root.featureProblems > 0
+      Layout.preferredHeight: featuresFold.headerHeight
+      text: "Fix with AI"
+      tooltipText: root.aiTip
+      verticalPadding: 0
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      fontSize: Style.font.caption
+      onClicked: root.fixWithAiRequested("features", -1)
+    }
+  }
+  FoldBody {
+    visible: root.firstIndex("feature") >= 0
+    open: !root.isFolded("features")
+    motion: root.motion
+    animate: root.animate
+    Repeater {
+      model: root.rows
+      FeatureRow {
+        required property var modelData
+        required property int index
+        visible: modelData.kind === "feature"
+        width: root.width
+        row: modelData
+        rowIndex: index
+      }
+    }
+  }
+
+  // ---- Its sections, shortcuts and bar (edited on its page), and each
+  //      group it changed back to the defaults ----
+  Item { visible: root.firstIndex("editPage") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("editPage") >= 0; foreground: root.foreground }
   Repeater {
     model: root.rows
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "defaults" || modelData.kind === "editPage"
+      visible: modelData.kind === "editPage" || modelData.kind === "resetGroup"
       width: root.width
       row: modelData
       rowIndex: index
     }
   }
-
-  Item { visible: root.hasGroups && (root.hasIdentity || root.hasList); width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.hasGroups && (root.hasIdentity || root.hasList); foreground: root.foreground }
 
   Column {
     id: groupsBox
@@ -212,7 +387,7 @@ Column {
     // ---- Layout ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("LAYOUT", "layout")
+      title: "LAYOUT"
       summary: Model.layoutSummary(root.flags, root.sectionOrder)
       folded: root.isFolded("layout")
       foreground: root.foreground
@@ -258,7 +433,7 @@ Column {
     // ---- Bar: what the pill shows beside the device glyph ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("BAR", "bar")
+      title: "BAR"
       summary: Model.barSummary(root.barIndicators, root.batteryLowOnly)
       folded: root.isFolded("bar")
       foreground: root.foreground
@@ -315,7 +490,7 @@ Column {
     // ---- Shortcuts ----
     FoldToggle {
       width: root.width
-      title: root.groupTitle("SHORTCUTS", "shortcuts")
+      title: "SHORTCUTS"
       summary: Model.shortcutsSummary(root.order)
       folded: root.isFolded("shortcuts")
       foreground: root.foreground
@@ -356,44 +531,11 @@ Column {
         }
 
     }
-
-    Repeater {
-      model: root.rows
-      ListRow {
-        required property var modelData
-        required property int index
-        visible: modelData.kind === "resetGroup"
-        width: root.width
-        row: modelData
-        rowIndex: index
-      }
-    }
   }
 
-  // ---- Connection and Add a device: rows that open the Connection page ----
-  Item { visible: root.firstIndex("connection") >= 0; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.firstIndex("connection") >= 0; foreground: root.foreground }
-  Repeater {
-    model: root.rows
-    ListRow {
-      required property var modelData
-      required property int index
-      visible: modelData.kind === "connection" || modelData.kind === "addDevice"
-      width: root.width
-      row: modelData
-      rowIndex: index
-    }
-  }
-
-  // ---- Connection: this computer (checking what exists). Add a device:
-  //      requests to pair, the steps on it, devices in reach (making a new
-  //      pairing) ----
-  PanelSectionHeader {
-    visible: root.scopeKind === "connection"
-    text: "THIS COMPUTER"
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-  }
+  // ---- This computer (checking what exists). Add a device: requests to
+  //      pair, the steps on it, devices in reach (making a new pairing) ----
+  // The page is named This computer: its checks need no header of their own.
   Text {
     visible: root.scopeKind === "connection" && root.firstIndex("check") < 0
     textFormat: Text.PlainText
@@ -412,6 +554,20 @@ Column {
       row: modelData
       rowIndex: index
     }
+  }
+  // Every fix there is, this computer's and the device's, in one go: a
+  // password only after its card says what for.
+  Button {
+    visible: root.scopeKind === "connection" && root.fixAllCount > 0
+    text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all (" + root.fixAllCount + ")"
+    iconText: Model.GLYPH.check
+    enabled: !(root.phone && root.phone.isBusy("fixAll"))
+    tooltipText: "Every fix the plugin can do on this computer; anything that needs your password is shown first"
+    bordered: true
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    fontSize: Style.font.bodySmall
+    onClicked: root.fixAllRequested()
   }
 
   PanelSectionHeader {
@@ -485,6 +641,60 @@ Column {
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
 
+  // ---- Screen and apps: the steps, then the page's actions ----
+  ScreenSetup {
+    visible: root.scopeKind === "screen"
+    width: root.width
+    setup: root.screenSetup
+    qr: root.screenQr
+    showLine: !root.screenSetup || root.screenSetup.state !== "ready"
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  // Each control drawn as what it is: the screen (a tile, as its shortcut),
+  // where it opens (one of two), a switch, and the setup's own actions.
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ScreenTileRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "open"
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ScreenPlaceRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "place"
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ScreenSoundRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key === "appSound"
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "screen" ? root.rows : []
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "screenAction" && modelData.key !== "open" && modelData.key !== "place" && modelData.key !== "appSound"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
   // Not ready to pair: what the panel shows once a phone is set up, with a
   // made-up one. Last, after pairing, which comes first.
   Button {
@@ -499,10 +709,10 @@ Column {
     onClicked: root.previewRequested()
   }
 
-  // The page's buttons (Unpair, Reset shortcuts, KDE Connect settings):
-  // their row takes room only when one of them shows (hidden buttons still
-  // left it 44 px tall, an empty band at the bottom of Add a device).
-  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0 || firstIndex("kdeconnect") >= 0
+  // The page's buttons (Unpair, Reset shortcuts): their row takes room only
+  // when one of them shows (hidden buttons still left it 44 px tall, an
+  // empty band at the bottom of Add a device).
+  readonly property bool hasButtons: firstIndex("unpair") >= 0 || firstIndex("reset") >= 0
   Item { visible: root.hasButtons; width: 1; height: Style.space(2) }
 
   Row {
@@ -529,20 +739,6 @@ Column {
       text: "Reset shortcuts"
       iconText: Model.GLYPH.reset
       tooltipText: "Back to Ring, Send files, Clipboard and Messages"
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      bordered: true
-      hasCursor: root.cursorIndex === rowIndex
-      onHovered: function(on) { if (on) root.hovered(rowIndex) }
-      onClicked: root.activated(rowIndex)
-    }
-
-    Button {
-      readonly property int rowIndex: root.firstIndex("kdeconnect")
-      visible: rowIndex >= 0
-      text: "KDE Connect settings"
-      iconText: Model.GLYPH.phoneCog
-      tooltipText: "Pairing, device permissions and KDE Connect's own plugins"
       foreground: root.foreground
       fontFamily: root.fontFamily
       bordered: true
@@ -615,6 +811,7 @@ Column {
     id: listRow
     property var row: ({})
     property int rowIndex: -1
+    readonly property bool hasPills: !!row.pills && row.pills.length > 0
     readonly property bool working: !!root.phone && (root.phone.isBusy("pair:" + row.id) || root.phone.isBusy("accept:" + row.id) || root.phone.isBusy("reject:" + row.id))
 
     hasCursor: false
@@ -683,13 +880,28 @@ Column {
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
-          visible: text !== ""
+          visible: text !== "" && !listRow.hasPills
           readonly property string note: root.pairingNotes[listRow.row.id] || ""
           text: note !== "" ? note + " · pair again" : (listRow.row.status || listRow.row.hint || "")
-          color: note !== "" ? Color.urgent : root.dim
+          color: note !== "" || (listRow.row.issues || 0) > 0 ? Color.urgent : root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           elide: Text.ElideRight
+        }
+        // This computer: a pill per thing it has, on, off (more can be set
+        // up) or failing, in place of a one-word summary.
+        Flow {
+          visible: listRow.hasPills
+          Layout.fillWidth: true
+          Layout.topMargin: Style.space(3)
+          spacing: Style.space(4)
+          Repeater {
+            model: listRow.hasPills ? listRow.row.pills : []
+            CapabilityPill {
+              required property var modelData
+              pill: modelData
+            }
+          }
         }
         // Pairing: the key to compare, drawn as on the pop-up.
         PairingKey {
@@ -727,6 +939,15 @@ Column {
         visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.alignment: Qt.AlignVCenter
+      }
+      // A choice on Screen and apps (Opens under the bar, Opens as a window).
+      Text {
+        visible: listRow.row.kind === "screenAction" && listRow.row.on !== undefined
+        text: listRow.row.on === true ? Model.GLYPH.checked : Model.GLYPH.unchecked
+        color: listRow.row.on === true ? root.foreground : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.icon
         Layout.alignment: Qt.AlignVCenter
@@ -894,14 +1115,573 @@ Column {
     }
   }
 
+  // A thing on the This computer row: on (✓), off (○: an optional package
+  // not installed; neutral, nothing is wrong) or failing (!).
+  component CapabilityPill: Rectangle {
+    id: pillBox
+    property var pill: ({})
+    readonly property bool failing: pill.state === "fail"
+    readonly property bool on: pill.state === "on"
+    implicitWidth: pillRow.implicitWidth + Style.space(12)
+    implicitHeight: pillRow.implicitHeight + Style.space(4)
+    radius: height / 2
+    color: "transparent"
+    border.width: 1
+    border.color: failing ? Color.urgent : (on ? Qt.darker(root.foreground, 1.3) : Qt.darker(root.foreground, 2.2))
+    Row {
+      id: pillRow
+      anchors.centerIn: parent
+      spacing: Style.space(4)
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        text: pillBox.failing ? Model.GLYPH.alert : (pillBox.on ? Model.GLYPH.check : Model.GLYPH.optional)
+        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        anchors.verticalCenter: parent.verticalCenter
+        textFormat: Text.PlainText
+        text: pillBox.pill.label || ""
+        color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  // The device's screen as a tile, drawn as its Screen shortcut is: on (the
+  // accent, a ✕ to close it) while its window is open, where a click brings
+  // it forward. Its status and a line of help beside it.
+  component ScreenTileRow: Row {
+    id: str
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool working: !!root.phone && root.phone.isBusy("screen")
+    width: root.width
+    spacing: Style.space(14)
+
+    CursorSurface {
+      id: tileBox
+      width: Math.round((root.width - 3 * Style.space(8)) / 4)
+      height: tileCol.implicitHeight + Style.space(18)
+      hasCursor: false
+      bordered: true
+      foreground: root.foreground
+      CursorStop { here: root.cursorIndex === str.rowIndex; glide: root.cursorGlide }
+
+      Rectangle {
+        anchors.fill: parent
+        radius: tileBox.radius
+        color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.14)
+        border.width: 1
+        border.color: Color.accent
+        opacity: root.screenOpen ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: (root.screenOpen ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+      }
+      Column {
+        id: tileCol
+        anchors.centerIn: parent
+        spacing: Style.space(4)
+        // Connecting: the waiting ring in place of the glyph, as on the
+        // shortcut's tile.
+        Item {
+          anchors.horizontalCenter: parent.horizontalCenter
+          width: tileGlyph.implicitWidth
+          height: tileGlyph.implicitHeight
+          Text {
+            id: tileGlyph
+            anchors.centerIn: parent
+            text: Model.GLYPH.screen
+            color: root.screenOpen ? Color.accent : root.foreground
+            opacity: str.working ? 0 : 1.0
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading + 2
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
+          }
+          WaitRing {
+            anchors.centerIn: parent
+            running: str.working
+            motion: root.motion
+            color: root.foreground
+            size: Math.round(Style.font.heading * 0.8)
+          }
+        }
+        Text {
+          anchors.horizontalCenter: parent.horizontalCenter
+          textFormat: Text.PlainText
+          text: str.row.label || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onEntered: root.hovered(str.rowIndex)
+        onClicked: root.activated(str.rowIndex)
+      }
+      PanelActionButton {
+        visible: root.screenOpen
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: Style.space(2)
+        size: Style.space(18)
+        iconText: Model.GLYPH.close
+        tooltipText: "Close its screen"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.screenCloseRequested()
+      }
+    }
+    Column {
+      anchors.verticalCenter: tileBox.verticalCenter
+      width: str.width - tileBox.width - str.spacing
+      spacing: Style.space(2)
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        text: root.screenSetup ? root.screenSetup.line : ""
+        color: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+      }
+      Text {
+        width: parent.width
+        textFormat: Text.PlainText
+        wrapMode: Text.WordWrap
+        text: root.screenOpen ? "Open: click to bring it forward" : (str.row.hint || "")
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+      }
+    }
+  }
+
+  // Where the screen opens: one of two, as a choice is drawn in Settings
+  // (the chosen one filled), with a line on the chosen one.
+  // Where an app's sound plays (#116): one of two, as where the screen opens.
+  component ScreenSoundRow: Column {
+    id: ssr
+    property var row: ({})
+    property int rowIndex: -1
+    width: root.width
+    spacing: Style.space(6)
+    topPadding: Style.space(6)
+
+    PanelSectionHeader {
+      text: "AN APP'S SOUND"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    Item {
+      width: parent.width
+      height: soundRow.implicitHeight + Style.space(8)
+      CursorStop { here: root.cursorIndex === ssr.rowIndex; glide: root.cursorGlide }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        onEntered: root.hovered(ssr.rowIndex)
+      }
+      Row {
+        id: soundRow
+        anchors.verticalCenter: parent.verticalCenter
+        x: Style.space(4)
+        spacing: Style.space(4)
+        Button {
+          text: "Here"
+          iconText: Model.GLYPH.volume
+          selected: ssr.row.sound === "here"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("here")
+        }
+        Button {
+          text: "On " + (ssr.row.device || "the device")
+          iconText: Model.GLYPH.phone
+          selected: ssr.row.sound === "phone"
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("phone")
+        }
+      }
+    }
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: ssr.row.hint || ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+  }
+
+  component ScreenPlaceRow: Column {
+    id: spr
+    property var row: ({})
+    property int rowIndex: -1
+    width: root.width
+    spacing: Style.space(6)
+    topPadding: Style.space(6)
+
+    PanelSectionHeader {
+      text: "OPENS"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    Item {
+      width: parent.width
+      height: segRow.implicitHeight + Style.space(8)
+      CursorStop { here: root.cursorIndex === spr.rowIndex; glide: root.cursorGlide }
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        onEntered: root.hovered(spr.rowIndex)
+      }
+      Row {
+        id: segRow
+        anchors.verticalCenter: parent.verticalCenter
+        x: Style.space(4)
+        spacing: Style.space(4)
+        Button {
+          text: "Under the bar"
+          iconText: Model.GLYPH.dockTop
+          selected: spr.row.docked === true
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.screenPlaceChosen(true)
+        }
+        Button {
+          text: "As a window"
+          iconText: Model.GLYPH.window
+          selected: spr.row.docked === false
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.screenPlaceChosen(false)
+        }
+      }
+    }
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: spr.row.hint || ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+    // How to free it and dock it back: Omarchy's keys, as key caps.
+    Column {
+      topPadding: Style.space(4)
+      spacing: Style.space(5)
+      Repeater {
+        model: spr.row.keys || []
+        Row {
+          required property var modelData
+          spacing: Style.space(10)
+          Row {
+            id: caps
+            width: Style.space(96)
+            spacing: Style.space(3)
+            // No key for it on this machine: said, as the tips say it.
+            Text {
+              visible: !modelData.keys || modelData.keys.length === 0
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: Model.NO_SHORTCUT
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              font.italic: true
+            }
+            Repeater {
+              model: modelData.keys || []
+              Rectangle {
+                required property string modelData
+                width: capText.implicitWidth + Style.space(10)
+                height: capText.implicitHeight + Style.space(4)
+                radius: Style.space(3)
+                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                border.width: 1
+                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.22)
+                Text {
+                  id: capText
+                  anchors.centerIn: parent
+                  textFormat: Text.PlainText
+                  text: modelData
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
+            }
+          }
+          Text {
+            anchors.verticalCenter: caps.verticalCenter
+            textFormat: Text.PlainText
+            text: modelData.text
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+      }
+    }
+  }
+
   // A check on this computer: its status icon, name, short status and one
   // action (its fix), with a line of detail while it fails. A failing one
   // can be ignored (it stops lighting the gear's dot) and brought back.
+  // A feature of the device: its glyph, name and state, what is missing, its
+  // one action (it just works: the plugin does every step it can), and a
+  // switch where it can be turned off (its KDE Connect plugins).
+  // A problem in the status: where it is, what, and the way to its page.
+  component ProblemRow: CursorSurface {
+    id: problemRow
+    property var row: ({})
+    property int rowIndex: -1
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === problemRow.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    color: "transparent"
+    implicitHeight: problemContent.implicitHeight + Style.space(8)
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.hovered(problemRow.rowIndex)
+      onClicked: root.activated(problemRow.rowIndex)
+    }
+    RowLayout {
+      id: problemContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(4)
+      anchors.rightMargin: Style.space(4)
+      spacing: Style.space(8)
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        Text {
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          text: problemRow.row.label || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          elide: Text.ElideRight
+        }
+        Text {
+          Layout.fillWidth: true
+          visible: text !== ""
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
+          text: problemRow.row.detail || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+      }
+      Text {
+        textFormat: Text.PlainText
+        text: problemRow.row.whereLabel || ""
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Layout.alignment: Qt.AlignVCenter
+        Layout.maximumWidth: root.width * 0.35
+        elide: Text.ElideRight
+      }
+      Text {
+        text: Model.GLYPH.chevronRight
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.alignment: Qt.AlignVCenter
+      }
+    }
+  }
+
+  component FeatureRow: CursorSurface {
+    id: featureRow
+    property var row: ({})
+    property int rowIndex: -1
+    readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
+    readonly property bool acts: (row.steps || []).length > 0
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    implicitHeight: featureContent.implicitHeight + Style.space(12)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: featureRow.acts ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onEntered: root.hovered(featureRow.rowIndex)
+      onClicked: if (featureRow.acts) root.featureRequested(featureRow.rowIndex)
+    }
+
+    RowLayout {
+      id: featureContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(10)
+
+      Text {
+        Layout.alignment: Qt.AlignVCenter
+        Layout.preferredWidth: Style.space(20)
+        horizontalAlignment: Text.AlignHCenter
+        text: featureRow.row.glyph || ""
+        color: featureRow.row.state === "on" ? root.foreground : root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.body
+      }
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        RowLayout {
+          Layout.fillWidth: true
+          spacing: Style.space(10)
+          Text {
+            Layout.fillWidth: true
+            textFormat: Text.PlainText
+            text: featureRow.row.label || ""
+            color: featureRow.row.state === "on" || featureRow.row.state === "attention" || featureRow.row.state === "setup" ? root.foreground : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            elide: Text.ElideRight
+          }
+          Text {
+            textFormat: Text.PlainText
+            text: featureRow.working ? "Working…" : (featureRow.row.stateLabel || "")
+            color: featureRow.row.state === "attention" ? Color.urgent : root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+        Text {
+          Layout.fillWidth: true
+          visible: text !== "" && featureRow.row.state !== "on" && !featureRow.row.pending
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: featureRow.row.detail || featureRow.row.hint || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+        // What a fix left: the step for the user, then waiting for it (it is
+        // seen when done) or Check again; or that it did not work.
+        Text {
+          visible: !!featureRow.row.pending
+          Layout.fillWidth: true
+          textFormat: Text.PlainText
+          wrapMode: Text.WordWrap
+          text: featureRow.row.pending ? featureRow.row.pending.text : ""
+          color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+        }
+        RowLayout {
+          visible: !!featureRow.row.pending && featureRow.row.pending.failed !== true
+          spacing: Style.space(6)
+          WaitRing {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
+            running: visible
+            color: root.dim
+            size: Math.round(Style.font.caption * 0.9)
+          }
+          Text {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
+            textFormat: Text.PlainText
+            text: "Waiting for it…"
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Button {
+            visible: !!featureRow.row.pending && featureRow.row.pending.wait !== true && featureRow.row.pending.failed !== true
+            text: "Check again"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            onClicked: root.checkAgainRequested()
+          }
+        }
+        // Its actions, on a line of their own so the name keeps its room.
+        Row {
+          visible: fixButton.visible || aiButton.visible
+          Layout.topMargin: Style.space(4)
+          spacing: Style.space(6)
+          Button {
+            id: fixButton
+            // Not while it waits for the user's step: nothing to press again.
+            visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
+                                         || featureRow.row.problem === true)
+            // A step on its own page (the screen link's): Set up there.
+            readonly property bool onPage: !!((featureRow.row.steps || [])[0] || {}).page
+            text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : onPage ? "Set up" : "Turn on")
+            enabled: !featureRow.working
+            tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
+              ? "Does every step it can; shows what your password is for before asking for it" : "Does every step it can, then says what is left"
+            bordered: true
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: root.featureRequested(featureRow.rowIndex)
+          }
+          Button {
+            id: aiButton
+            visible: featureRow.row.problem === true && !featureRow.working
+            text: "Fix with AI"
+            tooltipText: root.aiTip
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: root.fixWithAiRequested("feature", featureRow.rowIndex)
+          }
+        }
+      }
+      ToggleSwitch {
+        visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
+        Layout.alignment: Qt.AlignVCenter
+        checked: featureRow.row.on !== false
+        busy: featureRow.working
+        foreground: root.foreground
+        onToggled: root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
+      }
+    }
+  }
+
   component CheckRow: CursorSurface {
     id: checkRow
     property var row: ({})
     property int rowIndex: -1
-    readonly property bool failing: row.ok !== true && row.ignored !== true
+    // Optional (Screen tools, Gallery tools): missing is a choice, not a
+    // fault; it offers its install, never alerts and has nothing to ignore.
+    readonly property bool optional: row.optional === true
+    readonly property bool failing: row.ok !== true && row.ignored !== true && !optional
+    readonly property bool offering: row.ok !== true && (failing || optional)
     readonly property bool fixing: root.setupFixing[row.fix] === true
     hasCursor: false
     CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
@@ -927,7 +1707,7 @@ Column {
         Layout.alignment: Qt.AlignVCenter
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
-        text: checkRow.row.ok === true ? Model.GLYPH.check : Model.GLYPH.alert
+        text: checkRow.row.ok === true ? Model.GLYPH.check : (checkRow.optional ? Model.GLYPH.optional : Model.GLYPH.alert)
         color: checkRow.failing ? Color.urgent : root.dim
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
@@ -942,7 +1722,7 @@ Column {
             Layout.fillWidth: true
             textFormat: Text.PlainText
             text: checkRow.row.label || ""
-            color: checkRow.failing ? root.foreground : root.dim
+            color: checkRow.offering ? root.foreground : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.body
             elide: Text.ElideRight
@@ -957,7 +1737,7 @@ Column {
         }
         Text {
           Layout.fillWidth: true
-          visible: checkRow.failing && text !== ""
+          visible: checkRow.offering && text !== ""
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
           text: checkRow.row.detail || ""
@@ -967,13 +1747,13 @@ Column {
         }
       }
       Button {
-        visible: checkRow.failing && (checkRow.row.fix || "") !== ""
+        visible: checkRow.offering && (checkRow.row.fix || "") !== ""
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
         iconText: checkRow.fixing ? "\u{F0996}" : ""
         iconSpinning: checkRow.fixing
         enabled: !checkRow.fixing
-        tooltipText: checkRow.row.fix === "install" || checkRow.row.fix === "firewall" ? "Asks for your password" : ""
+        tooltipText: ["install", "firewall", "screen", "sshfs"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily
@@ -981,7 +1761,7 @@ Column {
         onClicked: root.fixRequested(checkRow.row.fix)
       }
       Button {
-        visible: checkRow.row.ok !== true
+        visible: checkRow.row.ok !== true && !checkRow.optional
         Layout.alignment: Qt.AlignVCenter
         text: checkRow.row.ignored === true ? "Undo" : "Ignore"
         tooltipText: checkRow.row.ignored === true ? "Light the gear's dot again while it fails" : "Leave it as it is; the gear's dot stops showing it"
@@ -989,6 +1769,16 @@ Column {
         fontFamily: root.fontFamily
         fontSize: Style.font.bodySmall
         onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
+      }
+      Button {
+        visible: checkRow.failing
+        Layout.alignment: Qt.AlignVCenter
+        text: "Fix with AI"
+        tooltipText: root.aiTip
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: root.fixWithAiRequested("check", checkRow.rowIndex)
       }
     }
   }

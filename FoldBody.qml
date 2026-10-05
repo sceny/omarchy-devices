@@ -18,7 +18,9 @@ Item {
   // as hidden, so its content would measure 0 and it could never grow (a
   // section that starts hidden, such as Files, stayed an empty header).
   visible: open || height > 0.5
-  clip: true
+  // Clipped while it folds or unfolds; open and still, its content may
+  // reach past it (a tile dragged to another row).
+  clip: !open || Math.abs(height - bodyColumn.implicitHeight) > 0.5
   opacity: open ? 1 : 0
 
   Behavior on height { enabled: body.animate; NumberAnimation { duration: Model.MOTION.inMs * body.motion; easing.type: Easing.OutCubic } }

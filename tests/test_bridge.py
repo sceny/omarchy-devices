@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import re
 import importlib.machinery
 import importlib.util
 import os
@@ -911,3 +912,306 @@ class OpenFile(unittest.TestCase):
     def test_json_is_text_to_gio(self):
         self.assertTrue(bridge.Gio.content_type_is_a("application/json", "text/plain"),
                         "why GIO finds a text editor for JSON where xdg-open finds nothing")
+
+
+class Screen(unittest.TestCase):
+    """The device's screen and apps over adb: reading adb's and scrcpy's
+    output, finding the device, and what runs. Nothing reaches a device."""
+
+    PHONE = {"id": "p1", "name": "Pixel 8", "addresses": ["192.168.1.20"]}
+
+    def test_scrcpy_version(self):
+        self.assertEqual(bridge.scrcpy_version("scrcpy 4.1 <https://github.com/Genymobile/scrcpy>"), (4, 1))
+        self.assertEqual(bridge.scrcpy_version(""), ())
+
+    def test_adb_devices(self):
+        text = ("List of devices attached\n"
+                "192.168.1.20:37099      device product:shiba model:Pixel_8 device:shiba transport_id:2\n"
+                "0A1B2C3D               unauthorized usb:1-2 transport_id:3\n\n")
+        self.assertEqual(bridge.parse_adb_devices(text), [
+            {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "Pixel 8"},
+            {"serial": "0A1B2C3D", "state": "unauthorized", "usb": True, "model": ""}])
+
+    def test_scrcpy_apps_short_and_long_names(self):
+        text = ("[server] INFO: List of apps:\n"
+                " * Settings                       com.android.settings\n"
+                " - Messages                       com.google.android.apps.messaging\n"
+                " - A name of thirty characters or more\n"
+                "                                  org.example.longname\n")
+        self.assertEqual(bridge.parse_scrcpy_apps(text), [
+            {"name": "Settings", "package": "com.android.settings", "system": True},
+            {"name": "Messages", "package": "com.google.android.apps.messaging", "system": False},
+            {"name": "A name of thirty characters or more", "package": "org.example.longname", "system": False}])
+
+    def test_pairing_qr_is_androids_format(self):
+        self.assertEqual(bridge.pairing_qr("sceny-abc", "pw"), "WIFI:T:ADB;S:sceny-abc;P:pw;;")
+
+    def test_wifi_matches_by_address(self):
+        devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
+                   {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": ""}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, []), ("192.168.1.20:37099", "wifi", "device"))
+
+    def test_wifi_matches_an_mdns_serial_through_its_host(self):
+        devices = [{"serial": "adb-0A1B2C3D-xYz._adb-tls-connect._tcp", "state": "device", "usb": False, "model": ""}]
+        mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, mdns)[1], "wifi")
+
+    def test_a_connected_device_is_found_without_browsing_the_network(self):
+        devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
+                   {"serial": "192.168.1.20:41234", "state": "device", "usb": False, "model": ""}]
+        asked = []
+        ask = lambda serial: asked.append(serial) or ("0A1B2C3D" if serial.endswith(":41234") else "OTHER")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "0A1B2C3D", ask=ask), ("192.168.1.20:41234", "wifi", "device"),
+                         "its own serial, asked directly: a new port is still it")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "", ask=ask), (None, "", ""), "never set up: the browse finds it")
+        offline = [dict(devices[1], state="offline")]
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, offline, "0A1B2C3D", ask=ask), (None, "", ""), "not connected: the browse")
+
+    def test_usb_matches_by_name_and_another_device_does_not(self):
+        devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Tablet"}), (None, "", ""))
+
+    def test_the_devices_own_serial_from_mdns_and_pairing(self):
+        self.assertEqual(bridge.serial_of_service("adb-0A1B2C3D-xYz"), "0A1B2C3D")
+        self.assertEqual(bridge.serial_of_service("adb-0A1B2C3D-xYz._adb-tls-connect._tcp"), "0A1B2C3D")
+        self.assertEqual(bridge.serial_of_service("sceny-abc"), "")
+        self.assertEqual(bridge.paired_serial("Successfully paired to 192.168.1.20:41011 [guid=adb-0A1B2C3D-xYz]"), "0A1B2C3D")
+        self.assertEqual(bridge.paired_serial("Failed: wrong password"), "")
+
+    def test_its_own_serial_wins_over_another_address(self):
+        """KDE Connect reaches it over a VPN; Wireless debugging is on its Wi-Fi."""
+        vpn = dict(self.PHONE, addresses=["100.70.1.2"], name="Galaxy")
+        mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
+        wifi = {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "SM S918W"}
+        usb = {"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "SM S918W"}
+        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns), (None, "", ""), "unknown: no match by address or name")
+        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns, serial="0A1B2C3D"), ("192.168.1.20:37099", "wifi", "device"))
+        self.assertEqual(bridge.match_adb(vpn, [wifi, usb], mdns, serial="0A1B2C3D")[1], "usb", "the cable first")
+        moved = dict(wifi, serial="192.168.1.20:40001")
+        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D"), (None, "", ""))
+        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D", identities={"192.168.1.20:40001": "0A1B2C3D"})[0],
+                         "192.168.1.20:40001", "asked the device")
+        self.assertEqual(bridge.match_adb(vpn, [usb], [], serial="FFFF")[0], None, "another phone on the cable")
+
+    def test_docking_rule(self):
+        self.assertEqual(bridge.title_regex("Pixel (8) · Screen"), "^Pixel \\(8\\) · Screen$")
+        lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.4664, 35, True)
+        for part in ('float = true', 'pin = true', 'tag = "+pop"', '"(monitor_h*0.7*0.4664)"', '"(monitor_w-monitor_h*0.7*0.4664-10)"', '"(45)"',
+                     'match = { title = "^Pixel 8 · Screen$" }', 'old:set_enabled(false)'):
+            self.assertIn(part, lua)
+        tiled = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.4664, 35, False)
+        self.assertIn("old:set_enabled(false)", tiled)
+        self.assertNotIn("hl.window_rule", tiled, "tiled: the rule only ends")
+
+    def test_an_open_window_is_brought_forward_not_opened_twice(self):
+        saved = (bridge.screen_device, bridge.find_window, bridge.screen_status)
+        launched = []
+        bridge.screen_device = lambda i: {"id": i, "name": "Pixel 8"}
+        bridge.find_window = lambda t: {"address": "0xabc", "title": t} if t == "Pixel 8 · Screen" else None
+        bridge.screen_status = lambda i: self.fail("no status needed")
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
+        finally:
+            bridge.screen_device, bridge.find_window, bridge.screen_status = saved
+        self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
+
+    def test_the_display_as_it_is_now(self):
+        self.assertEqual(bridge.parse_display("  init=1080x2316 450dpi cur=2316x1080 app=2148x1080"), (2316, 1080), "rotated")
+        self.assertEqual(bridge.parse_display("", "Physical size: 1440x3088\nOverride size: 1080x2316"), (1080, 2316))
+        self.assertEqual(bridge.parse_display("", ""), (0, 0))
+
+    def test_any_device_fits_the_box(self):
+        self.assertEqual(bridge.fit_display((1080, 2316), 1152, 1008), (470, 1008), "a phone meets the height")
+        self.assertEqual(bridge.fit_display((2560, 1600), 1152, 1008), (1152, 720), "a tablet in landscape meets the width")
+        w, h = bridge.fit_display((2176, 1812), 1152, 1008)
+        self.assertTrue(w <= 1152 and h <= 1008 and abs(w / h - 2176 / 1812) < 0.01, "an open foldable keeps its shape")
+        self.assertEqual(bridge.fit_display((0, 0), 1152, 1008)[1], 1008, "unknown: a phone's shape")
+
+    def test_dock_geometry(self):
+        mon = {"x": 2560, "y": 0, "width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
+        self.assertEqual(bridge.dock_geometry(mon, (1080, 2316)), (470, 1008, 4640, 45))
+        self.assertEqual(bridge.dock_geometry(mon, (1080, 2316), (1900, 40, 470, 1008)), (470, 1008, 4460, 40), "the panel's card")
+        self.assertEqual(bridge.parse_rect("1900,40,470,1008"), (1900, 40, 470, 1008))
+        self.assertIsNone(bridge.parse_rect("1,2,3"))
+
+    TOP = {"barPos": "top", "screenW": 2560, "screenH": 1440, "barW": 2560, "barH": 35, "gap": 5, "margin": 5,
+           "anchorX": 2200, "anchorY": 0, "anchorW": 40, "anchorH": 35}
+
+    def test_dock_rect_matches_the_panels(self):
+        """The same cases as Model.dockRect's test: the two must agree."""
+        self.assertEqual(bridge.dock_rect(self.TOP, (1080, 2316)), (2220 - 235, 40, 470, 1008))
+        self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[2:], (1152, 720))
+        self.assertEqual(bridge.dock_rect(self.TOP, (2560, 1600))[0], 2560 - 1152 - 5)
+        self.assertEqual(bridge.dock_rect(dict(self.TOP, barPos="bottom"), (1080, 2316))[1], 1440 - 35 - 1008 - 5)
+
+    def test_a_moved_window_turns_in_place_in_the_devices_shape(self):
+        mon = {"width": 2560, "height": 1440, "scale": 1, "reserved": [0, 35, 0, 0]}
+        portrait, landscape = (1080, 2316), (2316, 1080)
+        home = bridge.dock_rect(self.TOP, landscape)
+        self.assertEqual(bridge.placement(self.TOP, home, landscape, portrait, mon), bridge.dock_rect(self.TOP, portrait),
+                         "docked under the chip: docked again")
+        # Made large in landscape, then turned upright: too tall for the
+        # screen, so smaller, still the device's shape, and on the screen.
+        big = (-171, 37, 2728, 1269)
+        x, y, w, h = bridge.placement(self.TOP, big, landscape, portrait, mon)
+        self.assertAlmostEqual(w / h, 1080 / 2316, delta=0.005)
+        self.assertTrue(x >= 5 and y >= 35 + 5 and x + w <= 2560 - 5 and y + h <= 1440 - 5, (x, y, w, h))
+        # Moved, not resized: the same size against the docked one, kept centred.
+        moved = (800, 300) + home[2:]
+        x, y, w, h = bridge.placement(self.TOP, moved, landscape, portrait, mon)
+        self.assertEqual((w, h), bridge.dock_rect(self.TOP, portrait)[2:])
+        self.assertEqual((x + w // 2, y + h // 2), (800 + home[2] // 2, min(300 + home[3] // 2, 1440 - 5 - h // 2)))
+
+    def test_refit_puts_the_window_inside_the_cards_border(self):
+        mons = [{"id": 1, "x": 2560, "y": 0}]
+        card = bridge.dock_rect(self.TOP, (1080, 2316))
+        x, y, w, h = card
+        win = {"address": "0xabc", "monitor": 1, "at": [2560 + x + 2, y + 2], "size": [w - 4, h - 4]}
+        self.assertEqual(bridge.refit(win, card, mons, 2), [], "already there, inside its 2 px border")
+        self.assertEqual(bridge.resting(win, mons, 2), card)
+        turned = bridge.dock_rect(self.TOP, (2316, 1080))
+        moves = bridge.refit(win, turned, mons, 2)
+        tx, ty, tw, th = turned
+        self.assertEqual(moves, ['hl.dsp.window.resize({ window = "address:0xabc", x = %d, y = %d })' % (tw - 4, th - 4),
+                                 'hl.dsp.window.move({ window = "address:0xabc", x = %d, y = %d })' % (2560 + tx + 2, ty + 2)])
+
+    def test_scrcpy_says_the_display_changed_before_the_picture(self):
+        line = "[server] VERBOSE: DisplayMonitor: 1080x2316 [rotation=0] -> 2316x1080 [rotation=1]"
+        self.assertEqual(bridge.parse_display_change(line), ((1080, 2316, 0), (2316, 1080, 1)))
+        self.assertIsNone(bridge.parse_display_change("[server] VERBOSE: DisplayMonitor: 1080x2316 [rotation=0] (unchanged)"))
+
+    def test_same_shape_allows_a_rounded_side(self):
+        self.assertTrue(bridge.same_shape((1080, 2316), (1088, 2320)))
+        self.assertFalse(bridge.same_shape((1080, 2316), (2316, 1080)))
+
+    def test_a_stale_lock_is_not_a_watcher(self):
+        with tempfile.TemporaryDirectory() as d:
+            lock = os.path.join(d, "w.pid")
+            open(lock, "w").write(str(os.getpid()))   # alive, but this test is no watcher
+            self.assertFalse(bridge.watch_running(lock))
+            self.assertFalse(bridge.watch_running(os.path.join(d, "none.pid")))
+
+    def test_a_stretched_grab_is_not_the_new_picture(self):
+        def ppm(w, h, f):
+            return (w, h, bytes(v for y in range(h) for x in range(w) for v in f(x / w, y / h)))
+        portrait = ppm(20, 40, lambda u, v: (int(255 * u), int(255 * v), 40))
+        stretched = ppm(40, 20, lambda u, v: (int(255 * u), int(255 * v), 40))
+        turned = ppm(40, 20, lambda u, v: (int(255 * v), int(255 * u), 200))
+        self.assertTrue(bridge.looks_stretched(portrait, stretched))
+        self.assertFalse(bridge.looks_stretched(portrait, turned))
+        self.assertFalse(bridge.looks_stretched(None, turned), "no old still: nothing to compare")
+
+    def test_a_tile_takes_the_phones_width_from_either_side(self):
+        def layout(inverted):
+            state = {"w": 1261}
+            calls = []
+            def run(lua):
+                dx = int(re.search(r"x = (-?\d+)", lua).group(1))
+                calls.append(dx)
+                state["w"] += -dx if inverted else dx   # the right-hand tile moves the other way
+            return state, calls, run
+        for inverted in (False, True):
+            state, calls, run = layout(inverted)
+            win = {"address": "0xabc", "title": "Pixel 8 · Screen", "size": [1261, 1381], "floating": False}
+            look = lambda: {"size": [state["w"], 1381]}
+            self.assertTrue(bridge.fit_tile(win, (1080, 2316), run=run, look=look, sleep=lambda s: None, monitor_width=2560))
+            self.assertEqual(state["w"], round(1381 * 1080 / 2316), "inverted=%s" % inverted)
+        alone = {"address": "0xabc", "title": "x", "size": [2536, 1381], "floating": False}
+        self.assertFalse(bridge.fit_tile(alone, (1080, 2316), run=lambda lua: None, look=lambda: alone, sleep=lambda s: None, monitor_width=2560))
+        state, calls, run = layout(False)
+        turned = {"address": "0xabc", "title": "x", "size": [644, 1381], "floating": False}
+        state["w"] = 644
+        bridge.fit_tile(turned, (2316, 1080), run=run, look=lambda: {"size": [state["w"], 1381]}, sleep=lambda s: None, monitor_width=2560)
+        self.assertEqual(state["w"], 1280, "landscape: back to half the monitor, never more")
+        self.assertFalse(bridge.fit_tile(dict(alone, floating=True), (1080, 2316)), "docked: not a tile")
+
+    def test_the_keys_are_this_machines(self):
+        omarchy = [{"modmask": 64, "key": "F", "description": "Full screen", "dispatcher": "__lua", "arg": "27"},
+                   {"modmask": 64, "key": "O", "description": "Pop window out (float & pin)", "dispatcher": "__lua", "arg": "39"}]
+        self.assertEqual(bridge.bound_keys(omarchy), {"fullscreen": ["Super", "F"], "pop": ["Super", "O"]})
+        rebound = [{"modmask": 72, "key": "p", "description": "", "dispatcher": "exec", "arg": "omarchy-hyprland-window-pop"},
+                   {"modmask": 64, "key": "Return", "description": "", "dispatcher": "fullscreen", "arg": "0"}]
+        self.assertEqual(bridge.bound_keys(rebound), {"pop": ["Super", "Alt", "P"], "fullscreen": ["Super", "Return"]})
+        self.assertEqual(bridge.bound_keys([]), {}, "nothing bound: nothing told")
+
+    def test_the_display_in_one_line(self):
+        self.assertEqual(bridge.parse_display("cur=2316x1080\nSurfaceOrientation: 1"), (2316, 1080))
+
+    def test_scrcpy_says_the_shape(self):
+        self.assertEqual(bridge.parse_texture("INFO: Texture: 2316x1080"), (2316, 1080))
+        self.assertIsNone(bridge.parse_texture("INFO: Renderer: opengl"))
+        cmd = bridge.screen_command("S1", "Pixel 8 · Screen", log="/tmp/x y.log")
+        self.assertEqual(cmd[:5], ["uwsm-app", "--", "sh", "-c", "exec stdbuf -oL -eL \"$0\" \"$@\" >>'/tmp/x y.log' 2>&1"])
+        self.assertEqual(cmd[5:8], ["scrcpy", "--serial", "S1"])
+
+    def test_turn_or_morph(self):
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 1), ("turn", -90),
+                         "rotation 1: the drawing turned clockwise, so the device turned counter-clockwise")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 3), ("turn", 90), "turned clockwise")
+        self.assertEqual(bridge.turn_of((2316, 1080), (1080, 2316), 1, 0), ("turn", 90), "back upright: the other way")
+        self.assertEqual(bridge.turn_of((1080, 2316), (1080, 2316), 0, 2), ("turn", 180), "upside down: a half turn in place")
+        self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080)), ("turn", -90), "rotation unknown")
+        self.assertEqual(bridge.turn_of((904, 2316), (1812, 2176)), ("morph", 0), "unfolded")
+        self.assertEqual(bridge.turn_of((1812, 2176), (904, 2316)), ("morph", 0), "folded")
+
+    def test_rule_at_the_cards_place(self):
+        lua = bridge.dock_rule_lua("screen:p1:", "Pixel 8 · Screen", 0.47, 35, True, (1900, 40, 470, 1008))
+        self.assertIn("size = { 470, 1008 }, move = { 1900, 40 }", lua)
+        self.assertIn('animation = "popin 100%"', lua, "a fade in and out, no scaling")
+        self.assertIn('tag = "-default-opacity"', lua, "opaque: out of Omarchy's default opacity")
+        self.assertIn('opacity = "1 1"', lua)
+
+    def test_the_screen_and_an_app(self):
+        self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
+                         ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8 · Screen"])
+        self.assertEqual(bridge.screen_title("Pixel 8"), "Pixel 8 · Screen")
+        self.assertEqual(bridge.screen_title("Pixel 8", "Messages"), "Messages · Pixel 8")
+        app = bridge.screen_command("S1", "Messages · Pixel 8", "com.example.app", {"flex": True})
+        self.assertIn("--new-display", app)
+        self.assertIn("--start-app=com.example.app", app)
+        self.assertIn("--flex-display", app)
+        self.assertNotIn("--flex-display", bridge.screen_command("S1", "x", "com.example.app", {"flex": False}))
+
+    def test_install_asks_for_the_packages_through_pkexec(self):
+        ran = []
+        saved = bridge.subprocess.run
+        def fake(cmd, **kw):
+            # Nothing installed yet; pacman would install the three.
+            if cmd[:2] == ["pacman", "-Q"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            if cmd[:2] == ["pacman", "-Sp"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(p + " 1.0" for p in cmd[5:]), "")
+            ran.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        bridge.subprocess.run = fake
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                shown = bridge.root_plan("screen")
+                self.assertEqual(bridge.fix("screen", shown["hash"]), bridge.EXIT_OK)
+        finally:
+            bridge.subprocess.run = saved
+        self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
+                                os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
+                         "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
+
+    def test_avahi_finds_the_device(self):
+        text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"
+                "=;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local;Pixel-8.local;192.168.1.20;37099;\n"
+                "=;wlan0;IPv6;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local;Pixel-8.local;fe80::1;37099;\n"
+                "=;wlan0;IPv4;sceny-abc;_adb-tls-pairing._tcp;local;Pixel-8.local;192.168.1.20;41011;\n")
+        self.assertEqual(bridge.parse_avahi(text), [
+            {"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099},
+            {"name": "sceny-abc", "kind": "pairing", "host": "192.168.1.20", "port": 41011}])
+
+    def test_the_record_survives(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: d
+            try:
+                self.assertEqual(bridge.screen_record("p1"), {})
+                bridge.screen_record("p1", {"paired": True, "at": 5})
+                self.assertTrue(bridge.screen_record("p1")["paired"])
+            finally:
+                bridge.state_dir = saved

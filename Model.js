@@ -61,7 +61,20 @@ var GLYPH = {
   callRing: "\u{F03F6}",     // phone-in-talk: a phone with waves (checked by rendering)
   callMissed: "\u{F03FA}",   // phone-missed
   callBack: "\u{F03F2}",     // phone
-  callText: "\u{F0369}"      // message-text
+  callText: "\u{F0369}",     // message-text
+  screen: "\u{F0989}",       // monitor-cellphone: the device's screen in a window here
+  apps: "\u{F003B}",         // apps: its apps, each in a window
+  optional: "\u{F0766}",     // circle-outline: a check only one feature needs
+  tip: "\u{F0336}",          // lightbulb-outline: a tip while the screen connects
+  dockTop: "\u{F1513}",      // dock-top: the screen opens under the bar
+  window: "\u{F05B2}",       // window-restore: the screen opens as a window
+  pin: "\u{F0403}",          // pin: an app kept in the Apps section
+  pinOff: "\u{F0404}",       // pin-off
+  search: "\u{F0349}",       // magnify
+  // Demo apps (no real icons in demo mode)
+  clock: "\u{F0150}", calendar: "\u{F00ED}", camera: "\u{F0100}", map: "\u{F034D}", music: "\u{F075A}",
+  notes: "\u{F082E}", weather: "\u{F0599}", chat: "\u{F0B79}", mail: "\u{F01EE}", image: "\u{F02E9}",
+  calculator: "\u{F00EC}", cog: "\u{F0493}", cart: "\u{F0110}", bank: "\u{F0070}", fitness: "\u{F0E8E}"
 }
 
 // One pace for every motion in the plugin: things leave quickly and arrive
@@ -104,6 +117,8 @@ var SHORTCUTS = [
   { key: "messages", glyph: GLYPH.messages, label: "Messages", hint: "Open text messages", needs: "sms" },
   { key: "ping", glyph: GLYPH.wave, label: "Ping", hint: "Pop a notification up on it", needs: "ping" },
   { key: "playPause", glyph: GLYPH.playPause, label: "Play/Pause", hint: "Play or pause what it is playing", needs: "media" },
+  // scrcpy over adb, not KDE Connect: set up on its own page the first time.
+  { key: "screen", glyph: GLYPH.screen, label: "Screen", hint: "Its screen in a window here, with your mouse and keyboard", needs: "" },
   { key: "kdeconnect", glyph: GLYPH.phoneCog, label: "KDE Connect", hint: "Open the KDE Connect app", needs: "" }
 ]
 
@@ -136,6 +151,7 @@ function composerHint(text, device, canPing) {
 var LAYOUT = [
   { key: "showDevices", section: "devices", label: "Devices", hint: "Switch, pair and unpair devices" },
   { key: "showShortcuts", section: "actions", label: "Shortcuts", hint: "The row of quick action buttons" },
+  { key: "showApps", section: "apps", label: "Apps", hint: "Its apps, each in a window here, once its screen is set up" },
   { key: "showMedia", section: "media", label: "Now playing", hint: "What the device is playing" },
   { key: "showNotifications", section: "notifications", label: "Notifications", hint: "The device's notifications, with reply" },
   { key: "showReceived", section: "received", label: "Received", hint: "Files it sent you, while there are any" },
@@ -145,7 +161,7 @@ var LAYOUT = [
 // A section added in a release joins a saved order at its default place
 // (normalizeSections), so Received and Photos come last for everyone who had
 // an order.
-var DEFAULT_SECTIONS = ["devices", "actions", "media", "notifications", "received", "photos"]
+var DEFAULT_SECTIONS = ["devices", "actions", "apps", "media", "notifications", "received", "photos"]
 
 function layoutBySection(section) {
   for (var i = 0; i < LAYOUT.length; i++) if (LAYOUT[i].section === section) return LAYOUT[i]
@@ -167,10 +183,18 @@ function normalizeSections(value) {
       if (DEFAULT_SECTIONS.indexOf(key) >= 0 && out.indexOf(key) < 0) out.push(key)
     }
   }
-  for (var j = 0; j < DEFAULT_SECTIONS.length; j++)
-    if (out.indexOf(DEFAULT_SECTIONS[j]) < 0) out.splice(Math.min(j, out.length), 0, DEFAULT_SECTIONS[j])
+  for (var j = 0; j < DEFAULT_SECTIONS.length; j++) {
+    var k = DEFAULT_SECTIONS[j]
+    if (out.indexOf(k) >= 0) continue
+    var after = SECTION_JOINS_AFTER[k] ? out.indexOf(SECTION_JOINS_AFTER[k]) : -1
+    out.splice(after >= 0 ? after + 1 : Math.min(j, out.length), 0, k)
+  }
   return out
 }
+
+// A section added later joins a saved order beside its neighbour, wherever
+// the user put it (Apps after Shortcuts).
+var SECTION_JOINS_AFTER = { apps: "actions" }
 
 // The sections the page can show, in order: the Devices section is gone
 // from the page (tabs and Settings do its work), so it is never moved past.
@@ -249,7 +273,7 @@ function moveShortcut(order, key, delta) {
 // The settings page as one flat list, so keyboard and mouse share a cursor:
 // the layout switches in the sections' order, the bar indicators (chosen ones
 // in their order, then the rest) and the only-when-low option, the shortcuts
-// (the same way), then reset and the KDE Connect link.
+// (the same way), then Reset shortcuts.
 // Each row of an order carries `pos` (its place) and `count` (how many share
 // the order), for its arrows and for dragging it.
 function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
@@ -287,7 +311,6 @@ function settingsRows(flags, order, can, sections, bar, lowOnly, calls) {
                 available: !can || s.needs === "" || can[s.needs] === true })
   }
   rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
-  rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
   return rows
 }
 
@@ -691,6 +714,22 @@ function playerApp(identity, deviceName) {
   return dash > 0 ? id.slice(0, dash) : id
 }
 
+// Where an app window's sound goes. scrcpy takes the device's whole sound
+// output (not the app's alone), and the device goes quiet meanwhile: with
+// something else playing there (music in its headset), an app's sound stays
+// on the device; the app that is playing keeps its sound here. `chosen`:
+// the device's setting ("here" or "phone"); `playing`: the apps playing on
+// it now (players' names).
+function appSound(chosen, playing, appName) {
+  if (chosen === "phone") return { sound: "phone", kept: false }
+  var name = String(appName || "").toLowerCase()
+  var others = (playing || []).filter(function(p) {
+    var n = String(p || "").toLowerCase()
+    return !(n && name && (n === name || n.indexOf(name) >= 0 || name.indexOf(n) >= 0))
+  })
+  return others.length > 0 ? { sound: "phone", kept: true, playing: others[0] } : { sound: "here", kept: false }
+}
+
 // A player belongs to this phone when KDE Connect exported it and its
 // identity ends with the phone's name. With no name to match, any KDE Connect
 // player counts.
@@ -840,7 +879,7 @@ function demoSnapshot(live, kind) {
   // its own buttons, a long text) and a group chat (who said what).
   dev.notifications = [
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
-    { id: "demo-5", key: "k5", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
+    { id: "demo-5", key: "0|com.example.whatsapp|5|null|10005", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
   ]
   return { daemon: true, demo: true, devices: [dev] }
@@ -861,9 +900,28 @@ function visibleNotifications(device, media) {
     if (!n) continue
     if (n.silent && !String(n.text || "").trim() && !String(n.title || "").trim()) continue
     if (isMediaNotification(n, players)) continue
+    if (isHiddenSummary(n)) continue
     out.push(n)
   }
   return out
+}
+
+// Android hides a player left paused this long (AOSP's MediaTimeoutListener):
+// so does the panel (KDE Connect #35, our #33).
+var PLAYER_HIDE_MS = 10 * 60 * 1000
+function playerHidden(pausedSinceMs, nowMs) {
+  return !!pausedSinceMs && nowMs - pausedSinceMs >= PLAYER_HIDE_MS
+}
+
+// One UI's own "1 more notification" (KDE Connect #51, our #52): a System
+// UI summary the phone's shade never shows. Nothing marks it but its shape:
+// from System UI, no text, no action, no reply, a count in its title.
+function isHiddenSummary(n) {
+  var app = String(n.app || "").trim().toLowerCase()
+  var fromSystemUi = app === "system ui" || notificationPackage(n) === "com.android.systemui"
+  if (!fromSystemUi) return false
+  if (String(n.text || "").trim() !== "" || (n.actions || []).length > 0 || n.replyId) return false
+  return /\d/.test(String(n.title || n.ticker || ""))
 }
 
 // A playback notification comes from an app that has a media player right
@@ -1028,16 +1086,18 @@ function shortcutsSummary(order) {
   return labels.length ? labels.join(", ") : "None"
 }
 
-// ---- Connection: this computer, pairing, adding a device ----
+// ---- This computer: its checks (the page of that name, scope "connection") ----
 
-// The doctor's checks that are about this computer (the Connection page);
-// its paired and connected checks are the devices' own pages' business.
-var COMPUTER_CHECKS = ["installed", "running", "firewall", "network"]
+// The doctor's checks that are about this computer (the This computer
+// page); its paired and connected checks are the devices' own pages'
+// business, and so is anything a device must do (Wireless debugging, a
+// permission): a problem shows once, where its cause is.
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen", "sshfs"]
 // Short names: the status beside each says the rest ("Running", "Closed").
 // One row per thing on this computer, named after it: a service's checks
 // (KDE Connect: installed, running) become one row that says which state it
 // is in, so other services (Bluetooth, scrcpy) can each have theirs.
-var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network" }
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
 
 function computerChecks(checks) {
   var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
@@ -1056,30 +1116,51 @@ function computerChecks(checks) {
 }
 
 // Failing checks on this computer the user has not ignored: the gear's dot.
+// An optional one (Screen and apps: only one feature needs it) never counts.
 function connectionIssues(checks, ignored) {
   var skip = ignored || []
-  return computerChecks(checks).filter(function(c) { return !c.ok && skip.indexOf(c.key) < 0 }).length
+  return computerChecks(checks).filter(function(c) { return !c.ok && !c.optional && skip.indexOf(c.key) < 0 }).length
 }
 
+// The This computer row's pills: what this computer has, one per thing.
+// "on" works; "off" is an optional package not installed (more can be
+// done, nothing is wrong); "fail" is a required check failing, the only
+// state that lights the gear's dot (an ignored one reads "off"). Whether
+// a device's screen is set up is that device's business, not a pill here.
+function connectionPills(checks, ignored) {
+  var skip = ignored || []
+  return computerChecks(checks).map(function(c) {
+    var state = c.ok ? "on" : (c.optional || skip.indexOf(c.key) >= 0 ? "off" : "fail")
+    return { key: c.key, label: CHECK_NAMES[c.key] || c.label, state: state }
+  })
+}
+
+// One line under the pills, or in their place in a tooltip: what is to fix,
+// else how much more can be set up, else that everything is on.
 function connectionSummary(checks, ignored) {
   var list = computerChecks(checks)
   if (list.length === 0) return "Checking…"
   var n = connectionIssues(checks, ignored)
-  return n === 0 ? "All good" : (n === 1 ? "1 to fix" : n + " to fix")
+  if (n > 0) return n === 1 ? "1 to fix" : n + " to fix"
+  var off = connectionPills(checks, ignored).filter(function(p) { return p.state === "off" }).length
+  return off === 0 ? "Everything on" : (off === 1 ? "1 more to set up" : off + " more to set up")
 }
 
-// The Connection page's rows, in one list for the keyboard: this computer's
+// The This computer page's rows, in one list for the keyboard: this computer's
 // checks (status icon, name, short status, one action; a failing one can be
 // ignored). It checks what exists; Add a device (addDeviceRows) makes a new
 // pairing.
 function connectionRows(checks, ignored) {
   var skip = ignored || []
-  var rows = computerChecks(checks).map(function(c) {
-    return { kind: "check", key: c.key, ok: !!c.ok, ignored: !c.ok && skip.indexOf(c.key) >= 0, label: CHECK_NAMES[c.key] || c.label,
-             status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
+  return computerChecks(checks).map(function(c) {
+    var row = { kind: "check", key: c.key, ok: !!c.ok, optional: !!c.optional, ignored: !c.ok && !c.optional && skip.indexOf(c.key) >= 0,
+             label: CHECK_NAMES[c.key] || c.label, status: c.status || (c.ok ? "OK" : ""), detail: c.ok ? "" : String(c.detail || ""),
              fix: String(c.fix || ""), fixLabel: String(c.fixLabel || "Fix") }
+    // Installed is all this computer does for it: a device's own steps are
+    // on that device's page.
+    if (c.ok && (c.key === "screen" || c.key === "sshfs")) Object.assign(row, { status: "Installed", fix: "" })
+    return row
   })
-  return rows
 }
 
 // The Add a device page's rows: devices asking to pair, then devices in
@@ -1089,6 +1170,508 @@ function addDeviceRows(devices) {
   ;(devices || []).forEach(function(r) { if (r.kind === "request") rows.push(r) })
   ;(devices || []).forEach(function(r) { if (r.kind === "available") rows.push(r) })
   return rows
+}
+
+// ---- What a device can do (docs/design/setup.md, #128) ----
+// Three layers, read from the bridge's reports and never set by hand:
+//  - gateways: how the plugin gets something from a device (KDE Connect,
+//    Android's permissions, the storage link, the screen link);
+//  - setup items: what a gateway needs, each checked once, where it lives
+//    (this computer or the device), with its remedies;
+//  - features: what the user gets, from the items they need. One item can
+//    serve several features (notification access); one feature can need
+//    several gateways (Gallery: KDE Connect and the storage link).
+// Everything reads them: the device page's rows, the status, the gear dot,
+// the main page's line, Fix all.
+
+var GATEWAYS = [
+  { key: "kdeconnect", label: "KDE Connect", hint: "Its link to this computer, and KDE Connect's parts for it" },
+  { key: "android", label: "Android permissions", hint: "What KDE Connect may do on the device" },
+  { key: "storage", label: "Storage link", hint: "Its storage, mounted here (KDE Connect's sftp, sshfs)" },
+  { key: "screen", label: "Screen link", hint: "adb to the device, and scrcpy here" },
+  { key: "bluetooth", label: "Bluetooth", planned: true, hint: "For calls with their audio here (#59)" }
+]
+
+var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
+
+// needs: the setup items it uses; switch: the items its switch turns off,
+// only its own (a shared one, such as notification access, never).
+var FEATURES = [
+  { key: "notifications", label: "Notifications", glyph: GLYPH.bell, hint: "Its notifications here, with reply",
+    needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"] },
+  { key: "messages", label: "Messages", glyph: GLYPH.messages, hint: "Every conversation, read and send",
+    needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"] },
+  { key: "names", label: "Names", glyph: GLYPH.group, hint: "Its contacts' names for numbers",
+    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"] },
+  { key: "media", label: "Now playing", glyph: GLYPH.music, hint: "What it plays, with controls",
+    needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"] },
+  { key: "calls", label: "Calls", glyph: GLYPH.callRing, hint: "Who is calling, and missed calls",
+    needs: ["link", "plugin:telephony", "permission:phone"], switch: ["plugin:telephony"] },
+  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, hint: "Its newest photos and videos",
+    needs: ["link", "plugin:sftp", "package:sshfs", "permission:storage", "health:mount"], switch: ["plugin:sftp"] },
+  { key: "share", label: "Files", glyph: GLYPH.sendFile, hint: "Send files both ways", needs: ["link", "plugin:share"], switch: ["plugin:share"] },
+  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, hint: "Shared clipboard", needs: ["link", "plugin:clipboard"], switch: ["plugin:clipboard"] },
+  { key: "ring", label: "Ring", glyph: GLYPH.ring, hint: "Ring it, even on silent", needs: ["link", "plugin:findmyphone"], switch: ["plugin:findmyphone"] },
+  { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"] },
+  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, hint: "Its screen and apps in windows here",
+    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"] }
+]
+
+// One word for each state, everywhere.
+var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", off: "Turned off", unavailable: "Not on this device", away: "Away" }
+
+// A setup item: { key, gateway, scope: "computer" | "device", label, state,
+// detail, steps }. state: "ok", "missing" (to set up), "broken" (it worked
+// and stopped: a problem), "off" (a switch turned it off), "unavailable"
+// (the device does not offer it), "unknown" (being read), "away".
+// A step: { kind, label, fix, orAsk, fallback, page }. kind: "auto" (the
+// plugin does it: fix is { verb, what, arg } for the service, `fix <what>`
+// or `device-fix <what> <device> <arg>`; a package's asks for the password
+// after its card) or "ask" (only the user can; `page` is where: "screen",
+// its Screen and apps page). `fallback`: runs only when the step before it
+// failed. `item`: the item it is for.
+//
+// `ctx`: { report: the bridge's `features <device>` (null while read),
+// screen: { state, line } from `screen <device>` (null while read), checks:
+// this computer's (`doctor`), name: the device's, own: { screenFeature } }.
+function setupItem(key, ctx) {
+  var report = ctx.report, name = ctx.name || "the device"
+  var parts = key.split(":"), kind = parts[0], what = parts[1] || ""
+  var item = { key: key, scope: "device", label: "", state: "ok", detail: "", steps: [] }
+  function is(state, detail) { item.state = state; item.detail = detail || ""; return item }
+  function check(k) { return (ctx.checks || []).filter(function(c) { return c.key === k })[0] || null }
+  // The screen link reaches the device now (adb), whatever KDE Connect says.
+  var adbHere = !!ctx.screen && ctx.screen.state === "ready"
+  // KDE Connect's link: everything it carries waits on it. Lost while the
+  // screen link still reaches the device, it is not away: KDE Connect is.
+  function linked() {
+    if (!report) return is("unknown", "Looking…")
+    if (!report.reachable) return is(adbHere ? "unknown" : "away", "When " + name + " connects")
+    return null
+  }
+  if (kind === "link") {
+    item.gateway = "kdeconnect"; item.label = "the link to " + name
+    if (report && !report.reachable && adbHere) {
+      // adb knows where it is: KDE Connect pointed there; else KDE Connect
+      // on the device let run in the background and opened.
+      item.steps.push({ kind: "auto", label: "Point KDE Connect at " + name + "'s address on this network", fix: { verb: "device", what: "reconnect" } })
+      item.steps.push({ kind: "auto", label: "Let KDE Connect run on " + name + " and open it", fix: { verb: "device", what: "wake" }, fallback: true })
+      return is("broken", "KDE Connect lost " + name + "; its screen link still reaches it")
+    }
+    return linked() || is("ok", (report.links || []).join(", "))
+  }
+  if (kind === "plugin") {
+    item.gateway = "kdeconnect"; item.label = "KDE Connect's " + what + " part"
+    if (!report || !report.reachable) return linked()
+    var p = (report.plugins || {})[what]
+    if (!p || p.offered === false) return is("unavailable", name + " does not offer it")
+    if (p.on === false) {
+      item.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: what + "=on" } })
+      return is("off", "")
+    }
+    return is("ok")
+  }
+  if (kind === "permission") {
+    item.gateway = "android"; item.label = PERMISSION_NAMES[what]
+    if (!report || !report.reachable) return linked()
+    // Read over adb: unknown without it, and nothing to say then.
+    if (!report.permissions || report.permissions[what] !== false) return is("ok")
+    // Granted over adb on a click; else the switch to turn on, on the device.
+    item.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[what] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: what },
+                      orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[what] })
+    return is("missing", "Needs " + PERMISSION_NAMES[what])
+  }
+  if (key === "health:notifications") {
+    // None here while the device holds several (read over adb): KDE
+    // Connect's listener went quiet (#94, our #95). Read again, then its
+    // listener bound again on the device; else the device's restart.
+    item.gateway = "kdeconnect"; item.label = "notifications arriving"
+    if (!report || !report.reachable) return linked()
+    var counts = report.notifications
+    if (!(counts && counts.here === 0 && counts.device !== null && counts.device >= 3)) return is("ok")
+    item.steps.push({ kind: "auto", label: "Read its notifications again", fix: { verb: "device", what: "renotify" } })
+    item.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" },
+                      orAsk: "Restart " + name + ": KDE Connect stopped sending its notifications" })
+    return is("broken", name + " has " + counts.device + " notifications; none arrive here")
+  }
+  if (key === "health:mount") {
+    item.gateway = "storage"; item.label = "its storage mounted"
+    if (!report || !report.reachable) return linked()
+    if (!(report.files && report.files.mounted === false && report.files.error)) return is("ok")
+    item.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
+    item.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" }, fallback: true })
+    return is("broken", "Its storage did not mount: " + report.files.error)
+  }
+  if (kind === "package") {
+    // This computer's: it shows there, with its fix; here, where it is.
+    item.scope = "computer"
+    item.gateway = what === "sshfs" ? "storage" : "screen"
+    item.label = (what === "sshfs" ? "sshfs" : "scrcpy and adb") + " on this computer"
+    var c = check(what)
+    var missing = c ? !c.ok : (what === "sshfs" ? !!(report && report.files && report.files.sshfs === false) : !!(ctx.screen && ctx.screen.state === "tools"))
+    if (!missing) return is("ok")
+    // Installed from wherever it is asked (the feature's own click, or This
+    // computer): its card says what for first; it is the same item either way.
+    item.steps.push({ kind: "auto", label: "Install " + item.label + " (asks for your password)", fix: { verb: "fix", what: what } })
+    return is("missing", "Needs " + item.label)
+  }
+  if (key === "own:screen") {
+    item.gateway = "screen"; item.label = "Screen and apps turned on"
+    return ctx.own && ctx.own.screenFeature === false ? is("off", "") : is("ok")
+  }
+  if (key === "screen") {
+    item.gateway = "screen"; item.label = "the screen link"
+    var st = ctx.screen ? ctx.screen.state : "checking"
+    var line = ctx.screen ? ctx.screen.line || "" : ""
+    if (st === "checking") return is("unknown", "Looking…")
+    if (st === "ready") return is("ok", line)
+    if (st === "tools") return is("ok")   // package:screen says it
+    item.steps.push({ kind: "ask", label: line || "Set up on its page", page: "screen" })
+    // Set up once and lost (Wireless debugging off after a restart, adb not
+    // reaching it): a problem. Never set up: to set up.
+    return is(st === "off" || st === "away" ? "broken" : "missing", line)
+  }
+  return is("unknown", "")
+}
+
+// Every item a device's features need, once each.
+function setupItems(ctx) {
+  var keys = []
+  FEATURES.forEach(function(f) { f.needs.forEach(function(k) { if (keys.indexOf(k) < 0) keys.push(k) }) })
+  // Each step knows its item: a wait on the user's step ends when that item
+  // is done, and the rest then runs by itself.
+  return keys.map(function(k) {
+    var it = setupItem(k, ctx)
+    it.steps.forEach(function(st) { st.item = k })
+    return it
+  })
+}
+
+// A feature's row, from its items: { key, label, glyph, hint, state,
+// stateLabel, detail, steps, switchable, on, gateways, needs }. Worked
+// out the same way for every feature: away > being read > not on this
+// device > turned off > needs attention > to set up > on.
+function featureState(f, items, ctx) {
+  var by = {}
+  items.forEach(function(it) { by[it.key] = it })
+  var mine = f.needs.map(function(k) { return by[k] })
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true,
+              switchable: f.switch.length > 0, needs: f.needs.slice(),
+              gateways: mine.map(function(it) { return it.gateway }).filter(function(g, i, a) { return g && a.indexOf(g) === i }) }
+  function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
+  function first(state) { return mine.filter(function(it) { return it.state === state }) }
+  var away = first("away")
+  if (away.length > 0) return done("away", away[0].detail)
+  // Being read: the link (or the screen's) only; an item not read yet
+  // elsewhere says nothing.
+  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" })
+  var off = mine.filter(function(it) { return it.state === "off" && f.switch.indexOf(it.key) >= 0 })
+  if (off.length > 0) {
+    row.on = false
+    off.forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    return done("off", "")
+  }
+  if (reading.length > 0) return done("setup", "Looking…")
+  var unavailable = first("unavailable")
+  if (unavailable.length > 0) { row.switchable = false; return done("unavailable", unavailable[0].detail) }
+  // This computer's first (one password for its packages), then the
+  // device's; a broken item after what it needs (sshfs before a remount).
+  var missing = first("missing").sort(function(a, b) { return (a.scope === "computer" ? 0 : 1) - (b.scope === "computer" ? 0 : 1) })
+  var broken = first("broken")
+  if (broken.length > 0) {
+    missing.concat(broken).forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    return done("attention", broken[0].detail)
+  }
+  if (missing.length > 0) {
+    missing.forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    var screen = missing.filter(function(it) { return it.key === "screen" })[0]
+    return done("setup", screen ? screen.detail : "Needs " + missing.map(function(it) { return it.label }).join(" and "))
+  }
+  return done("on", f.key === "screen" && by.screen ? by.screen.detail : "")
+}
+
+// A device's setup: its items, its features from them, and its gateways
+// (each with its items and the features that use it).
+function deviceSetup(ctx) {
+  var items = setupItems(ctx)
+  var features = FEATURES.map(function(f) { return featureState(f, items, ctx) })
+  var gateways = GATEWAYS.map(function(g) {
+    var its = items.filter(function(it) { return it.gateway === g.key })
+    return { key: g.key, label: g.label, hint: g.hint, planned: !!g.planned, items: its,
+             usedBy: FEATURES.filter(function(f) { return f.needs.some(function(k) { return its.some(function(it) { return it.key === k }) }) })
+               .map(function(f) { return f.key }) }
+  })
+  return { items: items, features: features, gateways: gateways }
+}
+
+function featureRows(report, screen, deviceName, checks, own) {
+  return deviceSetup({ report: report, screen: screen, name: deviceName, checks: checks || [], own: own || {} }).features
+}
+
+// The steps one click runs for a feature (Turn on, Fix): every one the
+// plugin can do, in order, up to the first only the user can do.
+function featurePlan(row) {
+  var out = []
+  for (var i = 0; i < (row.steps || []).length; i++) {
+    var s = row.steps[i]
+    if (s.kind !== "auto") break
+    out.push(s)
+  }
+  return out
+}
+
+// Fix all on a device: every feature's automatic steps, each once, this
+// computer's installs first (one password card for them all). A feature
+// turned off stays off: its own switch turns it on.
+function fixAllPlan(rows) {
+  var seen = {}, installs = [], rest = []
+  ;(rows || []).forEach(function(r) {
+    if (r.state === "on" || r.state === "unavailable" || r.state === "away" || r.state === "off") return
+    featurePlan(r).forEach(function(s) {
+      var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
+      if (seen[id]) return
+      seen[id] = true
+      ;(s.fix.verb === "fix" && s.fix.what !== "restart" ? installs : rest).push(s)
+    })
+  })
+  return installs.concat(rest)
+}
+
+// One line for a device's features: what is on, and what is left.
+function featuresSummary(rows) {
+  var on = (rows || []).filter(function(r) { return r.state === "on" }).length
+  var attention = (rows || []).filter(function(r) { return r.state === "attention" }).length
+  var setup = (rows || []).filter(function(r) { return r.state === "setup" }).length
+  var parts = [on + " on"]
+  if (attention > 0) parts.push(attention + " " + (attention === 1 ? "needs" : "need") + " attention")
+  if (setup > 0) parts.push(setup + " to set up")
+  return parts.join(" · ")
+}
+
+// Demo: a made-up device's report, with one feature to set up and one off.
+function demoFeatures() {
+  var plugins = {}
+  ;["notifications", "sms", "contacts", "mprisremote", "telephony", "sftp", "share", "clipboard", "findmyphone", "battery", "ping"].forEach(function(k) {
+    plugins[k] = { on: k !== "clipboard", offered: true, loaded: k !== "clipboard" }
+  })
+  return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
+           permissions: { notifications: true, sms: true, contacts: false, phone: true, storage: true },
+           files: { sshfs: true, mounted: true, error: "" } }
+}
+
+// ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
+
+// The Screen and apps page for one device: a line on where it stands, the
+// steps (each done or not; the first not done is the current one), and the
+// page's actions, which are also its keyboard rows. `status`: the bridge's
+// (`screen <device>`), null while it is read; `pairing`: the QR pairing on
+// this page ({ phase, qr, message }), or null.
+function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound) {
+  var name = deviceLabel(device)
+  var s = status || { state: "checking", tools: {} }
+  var tools = s.tools || {}
+  var state = String(s.state || "checking")
+  var ready = state === "ready"
+  var trusted = ready || state === "off" || state === "unauthorized"
+  // Wireless debugging seen on this Wi-Fi (the device announces it): the
+  // steps before the code are done, whatever adb knows yet.
+  var seen = s.seen === true
+  var samsung = isSamsung(device)
+  var phase = pairing ? String(pairing.phase || "") : ""
+  var steps = [
+    { key: "tools", text: "scrcpy and adb on this computer", done: tools.ok === true },
+    { key: "developer", done: trusted || seen,
+      text: "On " + name + ", turn on Developer options: " + (samsung ? "Settings › About phone › Software information" : "Settings › About phone")
+        + " › tap Build number seven times (it asks for your PIN)" },
+    { key: "wireless", done: ready || seen,
+      text: "Turn on Wireless debugging: Settings › " + (samsung ? "Developer options (at the bottom)" : "System › Developer options")
+        + " › Wireless debugging, and Allow on this network. This page ticks it when it sees it" },
+    { key: "pair", done: trusted, qr: true,
+      text: "Tap the words Wireless debugging to open it, then Pair device with QR code, and scan the code here" }
+  ]
+  // A code on show: the steps before it are done on the device by now,
+  // so scanning it is the step.
+  var current = -1
+  if (phase !== "" && phase !== "error" && !trusted) current = steps.length - 1
+  else for (var i = 0; i < steps.length; i++) if (!steps[i].done) { current = i; break }
+  steps.forEach(function(st, i) { st.current = i === current })
+
+  var line = {
+    checking: "Checking…",
+    tools: "Install scrcpy and adb to see " + name + "'s screen, and open its apps in windows, here",
+    pair: seen ? "Wireless debugging is on: scan the code with " + name
+      : "Once, " + name + " trusts this computer: then its screen opens from the Screen shortcut",
+    off: seen ? "Wireless debugging is on, but " + name + " does not know this computer any more: scan the code again"
+      : "Wireless debugging is off on " + name + ": it turns off when " + name + " restarts",
+    unauthorized: "On " + name + ", allow USB debugging (tick Always allow from this computer)",
+    away: name + " is away: on this Wi-Fi with Wireless debugging on, or on a USB cable"
+      + (waiting ? "; the screen opens as soon as it is back" : ""),
+    ready: "Ready over " + (s.via === "usb" ? "USB" : "Wi-Fi") + (s.android ? " · Android " + s.android : "")
+  }[state] || "Checking…"
+  if (ready && s.apps !== true) line += ". Apps in windows need Android 10"
+
+  var pairingNote = phase === "starting" ? "Making a code…"
+    : phase === "qr" ? "Waiting for " + name + " to scan it…"
+    : phase === "found" ? "Found " + name + ": pairing…"
+    : phase === "paired" ? "Paired: connecting…"
+    : phase === "error" ? String(pairing.message || "That did not work")
+    : ""
+
+  var actions = []
+  if (state === "tools") actions.push({ key: "install", label: "Install", hint: "Asks for your password" })
+  // Only off again (a restart): set up already, one step missing, so the
+  // page shows that step alone (`only`), and pairing again is not offered.
+  var onlyStep = state === "off" && !seen
+  if (state === "pair" || (state === "off" && !onlyStep) || state === "away") {
+    if (phase === "" || phase === "error") actions.push({ key: "pair", label: state === "pair" ? "Show the code" : "Pair again", hint: "A QR code for " + name + " to scan" })
+    else actions.push({ key: "stopPair", label: "Stop", hint: "" })
+  }
+  if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
+  if (ready) {
+    // Three kinds of control, each drawn as what it is: the screen itself
+    // (a tile, as its shortcut), where it opens (one of two), and a switch.
+    actions.push({ key: "open", label: "Screen", hint: "Use it with your mouse: right-click is Back" })
+    actions.push({ key: "place", label: "Opens", docked: docked !== false,
+                   hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window",
+                   keys: screenKeyLines(s.keys, docked !== false) })
+    if (docked === false)
+      actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
+                     hint: "Beside another window, its tile takes " + name + "'s width" })
+    // Its apps (a window each, #116): where their sound plays. Not settled:
+    // the device gives its sound to one window at a time.
+    if (s.apps)
+      actions.push({ key: "appSound", label: "An app's sound", sound: appSound === "phone" ? "phone" : "here", device: name,
+                     hint: (appSound === "phone" ? "Its sound stays on " + name : "Its sound plays here")
+                       + ". Not settled yet: " + name + " gives its sound to one window at a time." })
+  }
+  return {
+    state: state, line: line, steps: onlyStep ? [] : steps, pairingNote: pairingNote,
+    only: onlyStep ? "Turn it on: Developer options › Wireless debugging" : "",
+    waitingNote: waiting && (state === "off" || state === "away") ? "Opens as soon as it is on" : "",
+    showQr: !!(pairing && pairing.qr && (phase === "qr" || phase === "found")),
+    usbNote: state === "pair" || state === "away" ? "No Wi-Fi debugging (Android 10 and older)? Turn on USB debugging in Developer options and plug it in." : "",
+    // Off again after a restart: one tap next time.
+    quickTip: state === "off" && !seen ? "Next time in one tap: Developer options › Quick settings developer tiles › Wireless debugging, then pull down Quick settings" : "",
+    waiting: !!waiting && (state === "off" || state === "away"),
+    actions: actions
+  }
+}
+
+// ---- The screen opening: the panel's card becomes the docked window ----
+
+// The docked window's box (DOCK_* in the bridge): of the screen's height,
+// and of its width, which a tablet in landscape meets first.
+var DOCK_SHARE = { height: 0.7, width: 0.45 }
+
+// The device's display (its current width and height, rotation and a
+// foldable's screen included) fitted to the box: a phone meets its height,
+// a tablet in landscape its width. Unknown: a phone's shape.
+function fitDisplay(display, boxW, boxH) {
+  var w = display && display[0] > 0 && display[1] > 0 ? display[0] : 9
+  var h = display && display[0] > 0 && display[1] > 0 ? display[1] : 19.5
+  var k = Math.min(boxW / w, boxH / h)
+  return { w: Math.round(w * k), h: Math.round(h * k) }
+}
+
+// Where the card ends when it becomes the device's docked window: its
+// size, the display fitted to the box (never past the room under the
+// bar), placed as Omarchy's KeyboardPanel places a card (cardOrigin), so
+// the card only grows into it and the window then takes its exact place.
+// ctx: { display, barPos, screenW, screenH, barW, barH, gap, margin,
+// anchorX, anchorY, anchorW, anchorH }, in the monitor's coordinates.
+function dockRect(ctx) {
+  var side = ctx.barPos === "left" || ctx.barPos === "right"
+  var roomW = ctx.screenW - (side ? ctx.barW + ctx.gap + ctx.margin : 2 * ctx.margin)
+  var roomH = ctx.screenH - (side ? 2 * ctx.margin : ctx.barH + ctx.gap + ctx.margin)
+  var size = fitDisplay(ctx.display, Math.min(roomW, ctx.screenW * DOCK_SHARE.width), Math.min(roomH, ctx.screenH * DOCK_SHARE.height))
+  var x, y
+  if (ctx.barPos === "bottom") { x = ctx.anchorX + ctx.anchorW / 2 - size.w / 2; y = ctx.screenH - ctx.barH - size.h - ctx.gap }
+  else if (ctx.barPos === "left") { x = ctx.barW + ctx.gap; y = ctx.anchorY + ctx.anchorH / 2 - size.h / 2 }
+  else if (ctx.barPos === "right") { x = ctx.screenW - ctx.barW - size.w - ctx.gap; y = ctx.anchorY + ctx.anchorH / 2 - size.h / 2 }
+  else { x = ctx.anchorX + ctx.anchorW / 2 - size.w / 2; y = ctx.barH + ctx.gap }
+  x = Math.max(ctx.margin, Math.min(x, ctx.screenW - size.w - ctx.margin))
+  y = Math.max(ctx.margin, Math.min(y, ctx.screenH - size.h - ctx.margin))
+  return { x: Math.round(x), y: Math.round(y), w: size.w, h: size.h }
+}
+
+// The screen's window title (the bridge's screen_title): how the panel
+// knows the window is open, from Hyprland's own list of windows.
+function screenTitle(name) {
+  return String(name || "Device") + " · Screen"
+}
+
+// One tip while the screen connects (the card waits a second or two each
+// time): a different one each opening, so they teach a little at a time.
+// All true of scrcpy as it opens here (its Alt shortcuts: Super belongs to
+// Hyprland) and of the docked window.
+var SCREEN_TIPS = [
+  "Right-click is Back, middle-click is Home",
+  "Free it ({pop}), then full screen ({fullscreen})",
+  "Turn your phone: the window turns with it",
+  "Drop a file on it to copy it to the phone's Downloads",
+  "Copy on the phone, paste here: the clipboard comes across",
+  "Alt+O turns the phone's own screen off; this one stays on",
+  "Move it anywhere: it stays where you put it, even turned",
+  "Alt+N opens the phone's notifications",
+  "Rather a window like any other? Settings › Screen and apps"
+]
+// How long a tip stays up at least, so it can be read: about a second and
+// a little more per letter, never more than 2.2 s (a phone that takes longer
+// to connect adds nothing).
+function tipReadMs(text) {
+  return Math.min(2200, 1000 + 20 * String(text || "").length)
+}
+// The n-th tip, with this machine's own keys ({pop}, {fullscreen}): an
+// action with no key here reads "no shortcut", as on the page.
+function screenTip(n, keys) {
+  var k = keys || {}
+  var i = ((Math.floor(n) % SCREEN_TIPS.length) + SCREEN_TIPS.length) % SCREEN_TIPS.length
+  return SCREEN_TIPS[i].replace("{pop}", keyText(k.pop)).replace("{fullscreen}", keyText(k.fullscreen))
+}
+
+// How to free the docked screen and dock it back, and full screen, with
+// this machine's own keys (the bridge reads them from Hyprland: Omarchy's
+// pop-out toggle, Super+O by default, and its full screen, Super+F). An
+// action with no key here says so (keys null: "no shortcut"), never a key
+// that does nothing.
+var NO_SHORTCUT = "no shortcut"
+function screenKeyLines(keys, docked) {
+  var k = keys || {}
+  if (!docked) return [{ keys: k.fullscreen || null, text: "Full screen" }]
+  return [{ keys: k.pop || null, text: "Frees it from the bar" },
+          { keys: k.fullscreen || null, text: "Full screen, once freed" },
+          { keys: k.pop || null, text: "Again: back under the bar" }]
+}
+// A key as a tip tells it: "Super+O", else "no shortcut".
+function keyText(keys) {
+  return keys && keys.length ? keys.join("+") : NO_SHORTCUT
+}
+
+// The page's keyboard rows: one per action, in order.
+function screenRows(setup) {
+  return (setup ? setup.actions : []).map(function(a) {
+    var row = { kind: "screenAction", key: a.key, label: a.label, hint: a.hint }
+    if (a.on !== undefined) row.on = a.on
+    if (a.docked !== undefined) row.docked = a.docked
+    if (a.keys !== undefined) row.keys = a.keys
+    return row
+  })
+}
+
+// Made-up states for the demo phone (screenshots and checks): nothing in a
+// demo reaches adb or a device.
+function demoScreen(kind) {
+  var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
+  if (kind === "tools") return { state: "tools", tools: { ok: false } }
+  // The demo's keys are Omarchy's defaults; a real device's come from this
+  // machine (the bridge).
+  if (kind === "ready" || kind === "opens") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400],
+                                                   keys: { pop: ["Super", "O"], fullscreen: ["Super", "F"] } }
+  // Ready on a machine with no key for Omarchy's pop-out or full screen.
+  if (kind === "nokeys") return { state: "ready", tools: tools, via: "wifi", android: "16", sdk: 36, apps: true, wireless: true, display: [1080, 2400], keys: {} }
+  // Wireless debugging just turned on, not paired yet.
+  if (kind === "seen") return { state: "pair", seen: true, tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
+  return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
 }
 
 // ---- A paired device that is away: where it was, and what to try ----
@@ -1238,8 +1821,22 @@ var PROFILE_SETTINGS = {
   showMedia: function(v) { return layoutFlag(v) },
   showNotifications: function(v) { return layoutFlag(v) },
   showPhotos: function(v) { return layoutFlag(v) },
+  showApps: function(v) { return layoutFlag(v) },
+  // The apps kept in the Apps section, in their order (packages).
+  pinnedApps: function(v) { return normalizePinned(v) },
+  // Where an app's sound plays: here, or left on the device. Not settled:
+  // the device gives its sound to one window at a time.
+  appSound: function(v) { return v === "phone" ? "phone" : "here" },
   showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
+  // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
+  screenDocked: function(v) { return layoutFlag(v) },
+  // Screen and apps as a feature: off, no screen, no apps, nothing read
+  // over adb, and nothing about it to fix.
+  screenFeature: function(v) { return layoutFlag(v) },
+  // Experimental, off unless chosen: a tiled screen's tile takes the
+  // device's width (Hyprland has no such thing; the plugin moves the edge).
+  screenFitTile: function(v) { return v === true || v === "true" },
   collapsed: function(v) { return collapsedState(v) }
 }
 
@@ -1305,6 +1902,9 @@ function resolveProfile(settings, device, isFirst) {
     icon: /^[0-9A-Fa-f]{4,6}$/.test(String(stored.icon || "")) ? String(stored.icon).toUpperCase() : "",
     bar: bar,
     showInPanel: stored.showInPanel !== false,
+    // The Screen shortcut was added when its screen was set up: once, so a
+    // removal stays removed (screenShortcutChanges).
+    screenShortcut: stored.screenShortcut === "added",
     custom: {}
   }
   for (var key in PROFILE_SETTINGS) {
@@ -1424,6 +2024,23 @@ function withProfile(entry, deviceId, changes, isFirst) {
   return e
 }
 
+// What setting up a device's screen writes, once: the Screen shortcut
+// joins its shortcuts (where they live: the flat keys with one device, its
+// profile with several) and its profile notes that it did. null when it
+// was done before; the user may have taken the shortcut away since.
+function screenShortcutChanges(entry, deviceId, profile, single, isFirst) {
+  if (!profile || profile.screenShortcut) return null
+  var next = profile.shortcuts.indexOf("screen") >= 0 ? null : profile.shortcuts.concat(["screen"])
+  if (single) {
+    var changes = { devices: withProfile(entry, deviceId, { screenShortcut: "added" }, isFirst).devices }
+    if (next) changes.shortcuts = next
+    return changes
+  }
+  var own = { screenShortcut: "added" }
+  if (next) own.shortcuts = next
+  return { devices: withProfile(entry, deviceId, own, isFirst).devices }
+}
+
 // The entry with a new device order (ids). The old `deviceId` stays as it
 // was, for a downgrade.
 function withOrder(entry, ids) {
@@ -1452,7 +2069,7 @@ var BAR_PLACE_LABELS = { always: "Always", attention: "With news", never: "Never
 // Which profile settings each settings group holds, for its Custom mark and
 // its "Use the defaults".
 var SETTING_GROUPS = {
-  layout: ["showShortcuts", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
+  layout: ["showShortcuts", "showApps", "showMedia", "showNotifications", "showReceived", "showPhotos", "sectionOrder"],
   bar: ["barIndicators", "batteryLowOnly", "showCalls"],
   shortcuts: ["shortcuts"]
 }
@@ -1465,14 +2082,15 @@ function groupCustom(custom, group) {
 
 // The Devices list at the top of Settings: every paired device in order,
 // then devices asking to pair, then devices in reach that could be paired.
-function devicesListRows(snapshot, settings, lowPercent) {
+// `screenOnly`: ids the screen link reaches while KDE Connect does not.
+function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
   var ordered = orderedDevices(snapshot, settings)
   var rows = []
   for (var i = 0; i < ordered.length; i++) {
     var d = ordered[i]
     var p = resolveProfile(settings, d, i === 0)
     rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
-                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : "Away",
+                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : (screenOnly && screenOnly[String(d.id)] ? "Screen and apps only" : "Away"),
                 away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1, pos: i, count: ordered.length })
   }
   // Asking to pair first (they wait on the user), then those in reach.
@@ -1494,65 +2112,133 @@ function devicesListRows(snapshot, settings, lowPercent) {
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
 //   scope: "root" | "defaults" | "device"
-//   single: one paired device or none (Settings is one flat page)
+//   single: one paired device or none (no For all devices, no bar place or tab)
+//   problems: settingsProblems(...)          (root: the status)
 //   devices: devicesListRows(...)            (root)
-//   identity: { nickname, icon, glyph, bar, showInPanel } (single root, device)
+//   connection, connectionPills: This computer's line and pills (root)
+//   identity: { nickname, icon, glyph, bar, showInPanel } (device)
+//   features: the device's feature rows      (device)
 //   edit: the profile being edited (defaults, or the device's), with custom
 //   can: the device's capabilities, for shortcuts it cannot do
 function settingsPageRows(ctx) {
   var rows = []
   var scope = ctx.scope || "root"
+  var problems = ctx.problems || []
   if (scope === "root") {
-    if (!ctx.single) (ctx.devices || []).forEach(function(r) { rows.push(r) })
-    else (ctx.devices || []).forEach(function(r) { if (r.kind !== "device") rows.push(r) })
-  }
-  var identity = ctx.identity && (scope === "device" || (scope === "root" && ctx.single))
-  if (identity) {
-    rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
-    rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
-    if (scope === "device") {
-      rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
-      rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
-    }
-  }
-  if (scope === "root" && !ctx.single) {
-    rows.push({ kind: "defaults", key: "defaults", label: "Defaults for all devices", hint: "Sections, bar and shortcuts for devices that did not change them, and for new ones" })
-  } else {
-    // A panel torn down mid-reload can ask with nothing to edit.
-    var e = ctx.edit || resolveProfile(readSettings({}), null, true)
-    var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
-                            e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
-    // A device's page (and the one-device page) edits its sections,
-    // shortcuts and bar on the page itself (edit in place): here, a row
-    // that opens that. The defaults, with no page of their own, keep them.
-    var onPage = scope === "device" || (scope === "root" && ctx.single)
-    if (onPage) rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
-                            hint: "Edited on the page itself (✎, or right-click its chip in the bar)" })
-    base.forEach(function(r) {
-      // The Devices section is gone from the main page (tabs, the pairing
-      // card and this list do its work); the kdeconnect row stays at root.
-      if (r.kind === "layout" && r.section === "devices") return
-      if (r.kind === "kdeconnect" || r.kind === "reset") return
-      if (onPage && (r.kind === "layout" || r.kind === "shortcut" || r.kind === "bar" || r.kind === "barFlag")) return
-      rows.push(r)
+    // One shape whatever the count: the status, My devices (every device,
+    // the one in view too; asking to pair; Add a device), For all devices
+    // (with two or more: with one, its own layout is the defaults), and
+    // This computer.
+    problems.forEach(function(p) { rows.push(Object.assign({ kind: "problem" }, p)) })
+    ;(ctx.devices || []).forEach(function(r) {
+      if (r.kind === "available") return   // Add a device lists those
+      if (r.kind !== "device") { rows.push(r); return }
+      var n = problems.filter(function(p) { return p.where === r.id }).length
+      rows.push(Object.assign({}, r, { issues: n, status: n > 0 ? r.status + " · " + n + (n === 1 ? " needs attention" : " need attention") : r.status }))
     })
-    if (scope === "device") {
-      ["layout", "bar", "shortcuts"].forEach(function(g) {
-        if (groupCustom(e.custom, g))
-          rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
-                      hint: "This device changed it; the defaults apply again" })
-      })
-      rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
-    } else if (!onPage) {
-      rows.push({ kind: "reset", key: "reset", label: "Reset shortcuts" })
+    rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair it, then turn on what it can do" })
+    if (!ctx.single)
+      rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
+    rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
+                pills: ctx.connectionPills || [] })
+    return rows
+  }
+  // A panel torn down mid-reload can ask with nothing to edit.
+  var e = ctx.edit || resolveProfile(readSettings({}), null, true)
+  if (scope === "device") {
+    if (ctx.identity) {
+      rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
+      rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
+      // Where it shows among others: nothing to choose with one device.
+      if (!ctx.single) {
+        rows.push({ kind: "barPlace", key: "bar", label: "In the bar", hint: "Its chip: always, only with news, or never", value: ctx.identity.bar === "own" ? "always" : ctx.identity.bar })
+        rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
+      }
     }
+    // What it can do (docs/design/setup.md): a row per feature, its state
+    // and its one action; Screen and apps' row opens its page.
+    ;(ctx.features || []).forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
+    // Its sections, shortcuts and bar are edited on the page itself (edit
+    // in place); here, whether they are the defaults, and the way there.
+    var own = !ctx.single && ["layout", "bar", "shortcuts"].some(function(g) { return groupCustom(e.custom, g) })
+    rows.push({ kind: "editPage", key: "editPage", label: "Sections, shortcuts and bar",
+                hint: (ctx.single ? "Edited" : own ? "Its own · edited" : "The defaults for all devices · edited") + " on its page (✎, or right-click its chip in the bar)" })
+    if (!ctx.single) ["layout", "bar", "shortcuts"].forEach(function(g) {
+      if (groupCustom(e.custom, g))
+        rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
+                    hint: "This device changed it; the defaults apply again" })
+    })
+    rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
+    return rows
   }
-  if (scope === "root") {
-    rows.push({ kind: "connection", key: "connection", label: "Connection", hint: ctx.connection || "KDE Connect, the firewall, the network" })
-    rows.push({ kind: "addDevice", key: "addDevice", label: "Add a device", hint: "The steps on it, requests to pair, devices in reach" })
-    rows.push({ kind: "kdeconnect", key: "kdeconnect", label: "KDE Connect settings" })
-  }
+  // For all devices: the groups as settings rows (the defaults have no page
+  // of their own to edit them on).
+  var base = settingsRows({ showShortcuts: e.showShortcuts, showMedia: e.showMedia, showNotifications: e.showNotifications, showReceived: e.showReceived, showPhotos: e.showPhotos },
+                          e.shortcuts, ctx.can || null, e.sectionOrder, e.barIndicators, e.batteryLowOnly, e.showCalls)
+  base.forEach(function(r) {
+    if (r.kind === "layout" && r.section === "devices") return
+    rows.push(r)
+  })
   return rows
+}
+
+// What needs the user, each problem once, where its cause is: this
+// computer's failing checks (not ignored, not optional), then each
+// connected device's broken setup items (it worked and stopped), each once
+// with the features it affects (none turned off), and fixes that did not
+// work on a feature none of whose items is listed. `devices`: [{ id,
+// title, setup: deviceSetup(...), rows: its feature rows with `pending` }].
+// The status at the top of Settings, the gear's dot and the main page's
+// line all count these.
+function settingsProblems(checks, ignored, devices) {
+  var out = []
+  connectionRows(checks, ignored).forEach(function(c) {
+    if (!c.ok && !c.optional && !c.ignored)
+      out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : ""), steps: [] })
+  })
+  ;(devices || []).forEach(function(d) {
+    var rows = d.rows || [], setup = d.setup || { items: [] }
+    var shown = {}
+    setup.items.forEach(function(it) {
+      if (it.state !== "broken") return
+      var affects = rows.filter(function(r) { return r.needs.indexOf(it.key) >= 0 && r.state !== "off" && r.state !== "unavailable" })
+      if (affects.length === 0) return
+      affects.forEach(function(r) { shown[r.key] = true })
+      var gateway = GATEWAYS.filter(function(g) { return g.key === it.gateway })[0]
+      var tried = affects.map(function(r) { return r.pending && r.pending.tried ? r.pending.tried : "" }).filter(function(t) { return t })[0] || ""
+      // Many features behind one item (KDE Connect's link): the gateway's name.
+      out.push({ where: String(d.id), whereLabel: d.title, key: it.key,
+                 label: affects.length > 2 && gateway ? gateway.label : affects.map(function(r) { return r.label }).join(", "),
+                 gateway: gateway ? gateway.label : "", detail: it.detail, steps: it.steps, tried: tried,
+                 affects: affects.map(function(r) { return r.key }) })
+    })
+    rows.forEach(function(r) {
+      if (shown[r.key] || !(r.pending && r.pending.failed)) return
+      out.push({ where: String(d.id), whereLabel: d.title, key: "feature:" + r.key, label: r.label, detail: r.pending.text,
+                 steps: r.steps || [], tried: r.pending.tried || "", affects: [r.key] })
+    })
+  })
+  return out
+}
+
+// Fix all on Settings' status: what it lists, each step once.
+function problemsPlan(problems) {
+  var seen = {}, out = []
+  ;(problems || []).forEach(function(p) {
+    featurePlan(p).forEach(function(s) {
+      var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
+      if (seen[id]) return
+      seen[id] = true
+      out.push(s)
+    })
+  })
+  return out
+}
+
+// The status's one line: all well, or how many need the user.
+function problemsLine(problems) {
+  var n = (problems || []).length
+  return n === 0 ? "Everything works" : n === 1 ? "1 thing needs you" : n + " things need you"
 }
 
 // The entry with a new device order. A device whose place in the bar only
@@ -1686,7 +2372,196 @@ var SECTION_EMPTY = {
   media: "Shows while the device plays something",
   notifications: "Shows while there are notifications",
   photos: "Shows its newest photos and videos",
+  apps: "Shows its apps once its screen is set up",
   received: "Shows the files it sends you"
+}
+
+// ---- Apps: the device's apps, each in a window of its own (#116) ----
+// The list comes from the bridge (`apps`): {package, name, system, icon,
+// opened}. icon: a safe PNG's path, "" not read yet, "none" none to read.
+
+var APPS_RECENT = 7       // recently opened, first on the All apps page
+
+function normalizePinned(v) {
+  if (typeof v === "string") {
+    try { v = JSON.parse(v) } catch (e) { v = null }
+  }
+  var out = []
+  if (v && typeof v !== "string" && typeof v.length === "number")
+    for (var i = 0; i < v.length; i++) {
+      var p = String(v[i] || "")
+      if (/^[A-Za-z][\w]*(\.[\w]+)+$/.test(p) && out.indexOf(p) < 0) out.push(p)
+    }
+  return out
+}
+
+function appByPackage(apps, pkg) {
+  for (var i = 0; i < (apps || []).length; i++) if (apps[i].package === pkg) return apps[i]
+  return null
+}
+
+// The pinned apps that are on the device, in their order.
+function pinnedAppsOf(apps, pinned) {
+  return normalizePinned(pinned).map(function(p) { return appByPackage(apps, p) }).filter(function(a) { return !!a })
+}
+
+// The section's two rows: { pinned, recent }. Every pinned app (the row
+// wraps), All apps at its right end; the recently opened ones that are not
+// pinned, one row (All apps last when nothing is pinned).
+function appSectionRows(apps, pinned, columns) {
+  var keep = normalizePinned(pinned)
+  var shown = pinnedAppsOf(apps, keep)
+  return {
+    pinned: shown,
+    recent: recentApps(apps, true).filter(function(a) { return keep.indexOf(a.package) < 0 })
+      .slice(0, Math.max(0, shown.length > 0 ? columns : columns - 1))
+  }
+}
+
+// The All apps tile's slot in the pinned row: the row's last column, or
+// after the pins once they fill it (`extra`: an app coming in).
+function allAppsSlot(count, columns, extra) {
+  return Math.max(columns - 1, count + (extra ? 1 : 0))
+}
+
+// Pinned at a place among the ones shown (a drop, a move), or moved there
+// when it already is. `shown`: the pinned packages the row draws, in order
+// (the list also keeps apps this device does not have, which stay where
+// they are); without it, every pinned one is shown.
+function pinAppAt(pinned, pkg, at, shown) {
+  var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
+  var drawn = (shown || keep).filter(function(p) { return p !== pkg && keep.indexOf(p) >= 0 })
+  var k = Math.max(0, Math.min(drawn.length, at))
+  // Before the one it lands in front of, else just after the last one drawn.
+  var place = k < drawn.length ? keep.indexOf(drawn[k]) : (drawn.length > 0 ? keep.indexOf(drawn[drawn.length - 1]) + 1 : keep.length)
+  keep.splice(place, 0, pkg)
+  return keep
+}
+
+// Where the keys go among tiles laid out in groups (pinned, recent, all),
+// each group a grid of `columns`: the rows, each a list of flat indexes.
+function cursorRows(groups, columns) {
+  var rows = [], base = 0, c = Math.max(1, columns)
+  for (var g = 0; g < groups.length; g++) {
+    for (var i = 0; i < groups[g]; i += c) {
+      var row = []
+      for (var j = i; j < Math.min(groups[g], i + c); j++) row.push(base + j)
+      rows.push(row)
+    }
+    base += groups[g]
+  }
+  return rows
+}
+
+// One key: the index it goes to, or -1 when it leaves the tiles (up from
+// the first row, down from the last). Sideways it stays in its row. A row
+// may repeat an index over empty columns (a tile at the row's end), so up
+// and down land under the column: sideways skips the repeats.
+function cursorStep(rows, index, dx, dy) {
+  var r = -1, col = 0
+  for (var i = 0; i < rows.length; i++) {
+    var at = rows[i].indexOf(index)
+    if (at >= 0) { r = i; col = at; break }
+  }
+  if (r < 0) return rows.length > 0 && rows[0].length > 0 ? rows[0][0] : -1
+  if (dx !== 0) {
+    var k = col
+    while (k + dx >= 0 && k + dx < rows[r].length) {
+      k += dx
+      if (rows[r][k] !== index) return rows[r][k]
+    }
+    return index
+  }
+  var t = r + (dy > 0 ? 1 : -1)
+  if (t < 0 || t >= rows.length) return -1
+  return rows[t][Math.min(col, rows[t].length - 1)]
+}
+
+function recentApps(apps, withSystem) {
+  return (apps || []).filter(function(a) { return (a.opened || 0) > 0 && (withSystem || !a.system) })
+    .sort(function(a, b) { return b.opened - a.opened })
+}
+
+// Accents and case do not matter to a search.
+function foldText(s) {
+  return String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+}
+
+function byName(a, b) {
+  var x = foldText(a.name), y = foldText(b.name)
+  return x < y ? -1 : x > y ? 1 : 0
+}
+
+// The All apps page: { recent, all }, every app, the system's own too.
+// Without a search, the recently opened ones lead (also in the list, as on
+// a phone); with one, the matches, those whose name starts with it first.
+function appsForPage(apps, query) {
+  var shown = apps || []
+  var q = foldText(query).trim()
+  if (q === "")
+    return { recent: recentApps(shown, true).slice(0, APPS_RECENT), all: shown.slice().sort(byName) }
+  // The name; a package only when the search looks like one (a dot).
+  var hits = shown.filter(function(a) { return foldText(a.name).indexOf(q) >= 0 || (q.indexOf(".") >= 0 && a.package.toLowerCase().indexOf(q) >= 0) })
+  hits.sort(function(a, b) {
+    var pa = foldText(a.name).indexOf(q) === 0 ? 0 : 1, pb = foldText(b.name).indexOf(q) === 0 ? 0 : 1
+    return pa !== pb ? pa - pb : byName(a, b)
+  })
+  return { recent: [], all: hits }
+}
+
+function appsSummary(apps, pinned) {
+  var count = (apps || []).length
+  var kept = normalizePinned(pinned).filter(function(p) { return !!appByPackage(apps, p) }).length
+  var all = count === 1 ? "1 app" : count + " apps"
+  return kept > 0 ? kept + " pinned · " + all : all
+}
+
+// A tile without an icon: the name's first letter.
+function appLetter(name) {
+  // A letter (it has a case) or a digit; the shell's JavaScript has no
+  // Unicode classes in its expressions.
+  var s = String(name || "")
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i)
+    if (c.toLowerCase() !== c.toUpperCase() || (c >= "0" && c <= "9")) return c.toUpperCase()
+  }
+  return "?"
+}
+
+// KDE Connect's id of a notification is Android's key,
+// "user|package|id|tag|uid": the app it came from.
+function notificationPackage(n) {
+  var parts = String(n && (n.key || n.id) || "").split("|")
+  return parts.length >= 3 && /^[A-Za-z][\w]*(\.[\w]+)+$/.test(parts[1]) ? parts[1] : ""
+}
+
+// The app a notification can open in a window, or null (not a launchable
+// app on the device).
+function appForNotification(n, apps) {
+  var pkg = notificationPackage(n)
+  return pkg ? appByPackage(apps, pkg) : null
+}
+
+function pinApp(pinned, pkg, on) {
+  var keep = normalizePinned(pinned).filter(function(p) { return p !== pkg })
+  if (on) keep.push(pkg)
+  return keep
+}
+
+// Demo: made-up apps, drawn with glyphs (no icon files), some recently opened.
+function demoApps(nowMs) {
+  var now = nowMs || Date.now()
+  var list = [
+    ["Clock", "clock", false, 3], ["Calendar", "calendar", false, 1], ["Camera", "camera", false, 0],
+    ["Maps", "map", false, 2], ["Music", "music", false, 4], ["Notes", "notes", false, 0],
+    ["Weather", "weather", false, 0], ["WhatsApp", "chat", false, 5], ["Mail", "mail", false, 0],
+    ["Photos", "image", false, 0], ["Shop", "cart", false, 0], ["Bank", "bank", false, 0],
+    ["Fitness", "fitness", false, 0], ["Calculator", "calculator", true, 0], ["Settings", "cog", true, 0]
+  ]
+  return list.map(function(e) {
+    return { package: "com.example." + e[0].toLowerCase(), name: e[0], system: e[2], icon: "", glyph: GLYPH[e[1]],
+             opened: e[3] > 0 ? now - e[3] * 3600000 : 0 }
+  })
 }
 
 // ---- Files: the device's newest photos (#65) and files it sent (#37) ----
@@ -1731,7 +2606,7 @@ function placeToResume(left, nowMs, ctx) {
   if (!left || !(nowMs - left.at >= 0 && nowMs - left.at < KEEP_PLACE_MS)) return null
   if (ctx && ctx.openingScope) return null
   if (ctx && ctx.requested && ctx.requested !== left.device) return null
-  if (!left.settingsOpen && !left.messagesOpen && !(left.y > 0)) return null
+  if (!left.settingsOpen && !left.messagesOpen && !left.appsOpen && !(left.y > 0)) return null
   return left
 }
 

@@ -10,7 +10,10 @@ before and after.
 ## The README picture
 
 `preview.png` (the marketplace card and the README) is composed by
-`tools/listing-image` from two demo shots of a 2560x1440 screen:
+`tools/listing-image` from two demo shots of a 2560x1440 screen, and a
+made-up phone screen for the screen's window (`tools/phone-screen`, which
+it runs: generated, so nothing in it is from a real device; its clock is
+the shot's):
 
 1. Put the panel's monitor on an empty workspace, and the pointer off the
    panel (`hyprctl dispatch 'hl.dsp.cursor.move({ x = 300, y = 700 })'`).
@@ -20,12 +23,38 @@ before and after.
    repository; no one recognisable, no watermark in the middle, no
    one else's characters).
 3. The pointer off the panel *before* `open` (else the cursor shows).
-   `demo ""`, the Gallery in view (Shortcuts folded, `moveSection`), `open`,
-   then `grim -o <monitor> main.png`; `messages`, `openThread 9001`, then
-   `grim -o <monitor> messages.png`.
+   `demo ""`, `open`, then Shortcuts and Received folded, Apps,
+   notifications, Now playing and the Gallery open (`fold <section>`), then
+   `grim -o <monitor> main.png`. `messages`, `u` if only the unread ones
+   show (the demo keeps your filter), `openThread 9001`, a few seconds,
+   then `grim -o <monitor> messages.png`.
 4. `tools/listing-image main.png messages.png preview.png`. If the panel's
    size changed, measure the cards again (`cardRect`) and move the labels.
-5. Back: `close`, `live`, stop the player, return to your workspace.
+5. Back: `close`, `live`, stop the player (`pkill -f '^python3 tools/demo-player'`:
+   anchored, or it matches the shell running it), return to your workspace.
+
+## The bar's picture
+
+`bar.png` is the pill cut from the preview's `main.png`
+(`-crop 300x35+2060+0`, scaled 300%): the demo pill with its bubble, bell,
+texts and play mark.
+
+## The screen's pictures
+
+The demo opens no window, so `screen-docked.png` and `screen-turned.png`
+put a made-up phone screen (`tools/phone-screen`, portrait and
+`2316x1080`) where the plugin docks the real one, on a demo desktop shot
+with the panel closed: at `Model.dockRect`'s place and size for the pill
+(470x1008 under it, turned 1152x537), framed 2 px in the accent colour as
+Hyprland frames a window; then cropped around it and scaled down.
+
+## The apps' picture
+
+`apps-windows.png` is two made-up app screens (`tools/app-screen`: a map
+and a list, each with its app bar) placed as Omarchy tiles two windows
+(gaps 10 out, 5 in, under the bar: 1261x1381 each at (10,45) and
+(1285,45), a 2 px border) on a demo desktop shot with the panel closed,
+then scaled to half.
 
 ## The user guide's pictures
 

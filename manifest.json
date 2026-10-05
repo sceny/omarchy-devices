@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "sceny.devices",
   "name": "Devices",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "author": "sceny",
   "license": "MIT",
-  "description": "Your phones and tablets in the Omarchy bar through KDE Connect: battery, shortcuts, a media carousel with seek and volume, notifications with reply and dismiss, and a full text-message view.",
+  "description": "Your Android phone or tablet in the Omarchy bar, through KDE Connect: notifications with reply, SMS and MMS text messages, calls, battery, media controls, photos and files, clipboard, ring. Mirror its screen and open its apps in windows here (scrcpy over Wi-Fi or USB), set up from the panel. One switch per feature sets it up; Settings fixes what it can by itself. An iPhone or iPad shares files and the clipboard.",
   "kinds": [
     "service",
     "bar-widget"
@@ -27,10 +27,14 @@
       ],
       "batteryLowOnly": true,
       "showCalls": true,
+      "screenDocked": true,
+      "screenFitTile": false,
+      "appSound": "here",
       "lowBatteryPercent": 15,
       "deviceId": "",
       "showDevices": true,
       "showShortcuts": true,
+      "showApps": true,
       "showMedia": true,
       "showNotifications": true,
       "showReceived": true,
@@ -44,6 +48,7 @@
       "sectionOrder": [
         "devices",
         "actions",
+        "apps",
         "media",
         "notifications",
         "received",
@@ -64,6 +69,13 @@
         "label": "Show shortcuts",
         "defaultValue": true,
         "description": "The row of quick action buttons under the header."
+      },
+      {
+        "key": "showApps",
+        "type": "boolean",
+        "label": "Show apps",
+        "defaultValue": true,
+        "description": "The device's apps, each opening in a window here: the pinned ones, then the recently opened; All apps for the rest. Shows once its screen is set up."
       },
       {
         "key": "showMedia",
@@ -100,6 +112,7 @@
         "defaultValue": [
           "devices",
           "actions",
+          "apps",
           "media",
           "notifications",
           "received",
@@ -110,6 +123,7 @@
           "enum": [
             "devices",
             "actions",
+            "apps",
             "media",
             "notifications",
             "received",
@@ -178,6 +192,31 @@
         "label": "Calls",
         "defaultValue": true,
         "description": "While the phone rings, the caller in the bar and over the panel; a missed call stays until closed."
+      },
+      {
+        "key": "screenDocked",
+        "type": "boolean",
+        "label": "Screen opens under the bar",
+        "defaultValue": true,
+        "description": "The device's screen opens under its chip in the bar, in the device's own shape, on every workspace: the panel grows into it. Off, a window like any other."
+      },
+      {
+        "key": "screenFitTile",
+        "type": "boolean",
+        "label": "Fit a tiled screen to the device (experimental)",
+        "defaultValue": false,
+        "description": "When the screen opens as a window, beside another window its tile takes the device's width, and follows it as it turns. Hyprland has no such option; the plugin moves the tile's edge."
+      },
+      {
+        "key": "appSound",
+        "type": "string",
+        "label": "An app's sound",
+        "defaultValue": "here",
+        "enum": [
+          "here",
+          "phone"
+        ],
+        "description": "Where an app opened in a window plays its sound: here, or on the device. The device gives its sound to one window at a time."
       },
       {
         "key": "lowBatteryPercent",

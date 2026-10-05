@@ -2,6 +2,7 @@ import QtQuick
 import Qt.labs.folderlistmodel
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import Quickshell.Services.Mpris
 import "Model.js" as Model
 
@@ -226,17 +227,18 @@ Item {
     var out = {}
     for (var i = 0; i < ordered.length; i++) {
       var d = ordered[i]
-      var media = [], playing = false
+      var media = [], playing = false, playingApps = []
       for (var j = 0; j < all.length; j++) {
         var p = all[j]
         if (!p || !Model.isPhonePlayer(p.dbusName, p.identity, String(d.name || ""))) continue
         media.push({ app: Model.playerApp(p.identity, d.name), title: p.trackTitle })
-        if (p.isPlaying) playing = true
+        if (p.isPlaying) { playing = true; playingApps.push(Model.playerApp(p.identity, d.name)) }
       }
       out[d.id] = {
         notifications: Model.visibleNotifications(d, media).length,
         messages: smsService.deviceId === String(d.id) ? smsService.unreadCount : 0,
         playing: playing,
+        playingApps: playingApps,
         lowPercent: lowPercent,
         call: calls[d.id] ? { state: calls[d.id].state } : null
       }
@@ -282,13 +284,36 @@ Item {
     if (reachable) {
       for (var i = 0; i < all.length; i++) {
         var p = all[i]
-        if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName)) out.push(p)
+        if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName) && !Model.playerHidden(pausedSince[String(p.dbusName)], Date.now())) out.push(p)
       }
       out.sort(function(a, b) { return String(a.identity || "").localeCompare(String(b.identity || "")) })
     }
     var same = out.length === players.length
     for (var j = 0; same && j < out.length; j++) same = out[j] === players[j]
     if (!same) players = out
+  }
+
+  // A player paused this long Android hides itself (its media controls
+  // go), while KDE Connect still reports it (#35, our #33): hidden here too,
+  // back as soon as it plays. Far longer than a seek's pause, so nothing
+  // blinks (the list changes only when that time is crossed).
+  property var pausedSince: ({})
+  Timer {
+    interval: 5000
+    repeat: true
+    running: root.reachable
+    onTriggered: {
+      var all = Mpris.players ? Mpris.players.values : []
+      var next = {}, now = Date.now()
+      for (var i = 0; i < all.length; i++) {
+        var p = all[i]
+        if (!p || !Model.isPhonePlayer(p.dbusName, p.identity, root.deviceName)) continue
+        var name = String(p.dbusName)
+        if (!p.isPlaying) next[name] = root.pausedSince[name] || now
+      }
+      root.pausedSince = next
+      root.updatePlayers()
+    }
   }
 
   onDeviceNameChanged: updatePlayers()
@@ -424,7 +449,112 @@ Item {
     if (changed) waits = next
   }
 
-  onSnapshotChanged: if (Object.keys(waits).length > 0) checkWaits()
+  onSnapshotChanged: {
+    if (Object.keys(waits).length > 0) checkWaits()
+    // A device back (a phone restarted, back on the Wi-Fi): a gallery that
+    // failed reads again at once, not after its 10 minutes, and its
+    // features are read again.
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    var next = {}
+    for (var i = 0; i < list.length; i++) {
+      var d = list[i], id = String(d.id)
+      next[id] = d.reachable === true
+      if (d.reachable === true && wasReachable[id] === false) {
+        // Back: its notifications read again while no panel shows them, so
+        // one dismissed there while the cancel was lost goes (#4).
+        if (openPanels === 0 && !demo) {
+          var renotify = silentComponent.createObject(root, { command: [bridge, "device-fix", "renotify", id] })
+          renotify.running = true
+        }
+        var st = photoState[id]
+        if (st && !st.ok) setPhotoState(id, Object.assign({}, st, { at: 0, error: "" }))
+        if (openPanels > 0) { readFeatures(id); if (device && String(device.id) === id) Qt.callLater(function() { root.refreshPhotos(true) }) }
+      }
+    }
+    wasReachable = next
+  }
+  property var wasReachable: ({})
+  // Fix with AI (#101): the person's default coding agent, launched as
+  // Omarchy launches it (`omarchy agent prompt`, its own mode), with the
+  // facts and the plugin's skill by path, as `omarchy agent crash` does.
+  readonly property string pluginFolder: bridge.replace(/\/bin\/kdeconnect-bridge$/, "")
+  // Read again on each panel opening and before each launch: one picked
+  // meanwhile (`omarchy agent --pick`) is the one used.
+  property string agentName: ""
+  Process {
+    id: agentRead
+    running: true
+    command: ["omarchy-default-agent"]
+    property var then: null
+    stdout: StdioCollector {
+      onStreamFinished: {
+        root.agentName = text.trim()
+        var t = agentRead.then
+        agentRead.then = null
+        if (t) t()
+      }
+    }
+  }
+  function readAgent(then) {
+    if (agentRead.running) { if (then) agentRead.then = then; return }
+    agentRead.then = then || null
+    agentRead.running = true
+  }
+  onOpenPanelsChanged: if (openPanels > 0) readAgent()
+  // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
+  // did, "" when none ran).
+  function fixWithAi(problems) {
+    if (demo) { report("Demo: your coding agent would open on it", false); return }
+    readAgent(function() { launchAgent(problems) })
+  }
+  function launchAgent(problems) {
+    // No default agent yet: Omarchy's own choice of one, first.
+    if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
+    var lines = (problems || []).map(function(p) {
+      return "  - " + p.label + (p.detail ? ": " + p.detail : "") + (p.tried ? " (the plugin's own fix was tried: " + p.tried + ")" : "")
+    }).join("\n")
+    var prompt = "Devices, the Omarchy shell plugin sceny.devices, shows a problem on this machine and I want it fixed.\n\n"
+      + "What it shows:\n" + lines + "\n\n"
+      + "Use the setup-help skill: it covers how to investigate, how to fix it, and when it is worth reporting "
+      + "(never with personal data). If your harness has no skill mechanism, read the skill files directly and follow them instead:\n\n"
+      + "  " + pluginFolder + "/.claude/skills/setup-help/SKILL.md"
+    silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
+  }
+
+  // A fix that stopped at a step only the user can do, or did not work: per
+  // device and feature ("id:key"). { text, wait (it can be seen when done:
+  // read again on its own), failed, tried }.
+  property var featurePending: ({})
+  function setPending(id, key, value) {
+    var next = Object.assign({}, featurePending)
+    if (value) next[String(id) + ":" + key] = value
+    else delete next[String(id) + ":" + key]
+    featurePending = next
+  }
+  function pendingFor(id, key) { return featurePending[String(id) + ":" + key] || null }
+  // Waiting for a step that can be seen when done: read again every few
+  // seconds, for two minutes at most.
+  Timer {
+    interval: 4000
+    repeat: true
+    running: root.openPanels > 0 && Object.keys(root.featurePending).some(function(k) { return root.featurePending[k].wait })
+    onTriggered: {
+      var now = Date.now(), ids = {}
+      Object.keys(root.featurePending).forEach(function(k) {
+        var p = root.featurePending[k]
+        if (!p.wait) return
+        if (now - p.at > 120000) { var n = Object.assign({}, p, { wait: false }); var all = Object.assign({}, root.featurePending); all[k] = n; root.featurePending = all; return }
+        ids[k.split(":")[0]] = true
+      })
+      Object.keys(ids).forEach(function(id) { root.readFeatures(id, true) })
+    }
+  }
+
+  // A fix run on its own (no click): nothing said, done or not.
+  Component {
+    id: silentComponent
+    Process { onExited: destroy() }
+  }
 
   // The phone may never answer (it went away mid-click): the limit still ends it.
   Timer {
@@ -504,7 +634,7 @@ Item {
 
   // ---- Reconnect: look for devices again (Model.awayState) ----
   // When the last search started (Reconnect, the panel opening on an away
-  // device, the Connection page), and a clock for "12 min ago" and for
+  // device, Add a device), and a clock for "12 min ago" and for
   // when the search has run out.
   property real searchedAt: 0
   property real awayClock: Date.now()
@@ -548,17 +678,196 @@ Item {
     doctorProc.running = true
   }
 
+  // ---- What a device can do (docs/design/setup.md): its report
+  //      (kdeconnect-bridge features), and the steps one click runs ----
+  property var featureReports: ({})        // device id -> the bridge's features report
+  // Read at most once in 3 s per device (an opening, Settings, a device's
+  // page all ask), unless `force` (after a fix, a check again, the screen
+  // turning ready, a wait).
+  property var featuresReadAt: ({})
+  function readFeatures(id, force) {
+    if (!id) return
+    var now = Date.now()
+    if (force !== true && now - (featuresReadAt[String(id)] || 0) < 3000) return
+    var at = Object.assign({}, featuresReadAt)
+    at[String(id)] = now
+    featuresReadAt = at
+    // A demo's report follows its device (away in the away demo).
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
+    var st = screenOf(String(id))
+    var proc = featuresComponent.createObject(root, { device: String(id),
+      command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
+    proc.running = true
+  }
+  Component {
+    id: featuresComponent
+    Process {
+      id: featuresProc
+      property string device: ""
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var r = null
+          try { r = JSON.parse(text) } catch (e) {}
+          if (r) { var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next }
+          featuresProc.destroy()
+        }
+      }
+    }
+  }
+
+  // Root, only for what was shown: a fix that needs the password is
+  // described first (rootAsk, the panel's card: why and every action), and
+  // runs only on Continue, only that plan (its hash).
+  property var rootAsk: null               // { what, why, actions, hash }
+  property var rootThen: null
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall"]
+  function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
+  function askRoot(what, then) {
+    if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }
+    var proc = describeComponent.createObject(root, { what: what, then: then || null,
+      command: [bridge, "fix"].concat(String(what).split(" ")).concat(["--describe"]) })
+    proc.running = true
+  }
+  Component {
+    id: describeComponent
+    Process {
+      id: describeProc
+      property string what: ""
+      property var then: null
+      stdout: StdioCollector {
+        onStreamFinished: {
+          var plan = null
+          try { plan = JSON.parse(text) } catch (e) {}
+          var then = describeProc.then
+          if (!plan || !plan.hash) { root.report(plan && plan.error ? plan.error : "Could not tell what it would do", true); if (then) then(2) }
+          // Nothing that needs root (all installed): no password, no card.
+          else if ((plan.commands || []).length === 0) root.runRoot(plan, then)
+          // Every panel closed while it was described: nothing asked later.
+          else if (root.openPanels === 0) { if (then) then(1) }
+          else {
+            // One card at a time: one still up is answered as cancelled.
+            var before = root.rootThen
+            root.rootThen = then
+            root.rootAsk = plan
+            if (before) before(1)
+          }
+          describeProc.destroy()
+        }
+      }
+    }
+  }
+  function confirmRoot() {
+    var plan = rootAsk, then = rootThen
+    rootAsk = null
+    rootThen = null
+    if (plan) runRoot(plan, then)
+  }
+  function cancelRoot() {
+    var then = rootThen
+    rootAsk = null
+    rootThen = null
+    if (then) then(1)
+  }
+  function runRoot(plan, then) {
+    var key = "fix:" + plan.what
+    var next = Object.assign({}, setupFixing)
+    next[plan.what] = true
+    setupFixing = next
+    var proc = actionComponent.createObject(root, { key: key,
+      command: [bridge, "fix"].concat(String(plan.what).split(" ")).concat(["--confirm", plan.hash]) })
+    proc.exited.connect(function(code) {
+      var done = Object.assign({}, root.setupFixing)
+      delete done[plan.what]
+      root.setupFixing = done
+      Qt.callLater(root.runDoctor)
+      if (then) then(code)
+    })
+    proc.running = true
+  }
+
+  // One click's steps for a device (Model.featurePlan, Model.fixAllPlan):
+  // this computer's installs first, together and after the card; then each
+  // step for the device in order. A permission that cannot be granted from
+  // here says the switch to turn on, on the device. `key`: busy meanwhile.
+  // `left`: the step after them only the user can do ({ text, wait }), shown
+  // as pending once they are done.
+  // `then(ok)`: called when it is done, ok when every step ran (Fix all
+  // chains its devices so).
+  // A step marked `fallback` runs only when the one before it failed.
+  function runSteps(id, steps, key, left, then) {
+    if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
+    var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
+    if (feature) setPending(id, feature, null)
+    setBusy(key, true)
+    var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
+    var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
+    var packages = installs.filter(function(s) { return s.fix.what !== "firewall" }).map(function(s) { return s.fix.what })
+    var firewall = installs.some(function(s) { return s.fix.what === "firewall" })
+    var queue = []
+    if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
+    if (firewall) queue.push({ root: "firewall" })
+    rest.forEach(function(s) { queue.push({ step: s }) })
+    var stoppedAt = null, cancelled = false
+    function finish() {
+      setBusy(key, false)
+      if (feature) {
+        if (stoppedAt) setPending(id, feature, stoppedAt)
+        else if (left) setPending(id, feature, Object.assign({ at: Date.now(), failed: false, tried: "it did what it could; one step is left" }, left))
+      }
+      if (findDevice(id)) readFeatures(id, true)
+      runDoctor()
+      if (then) then(!stoppedAt && !cancelled)
+    }
+    function next(i) {
+      if (i >= queue.length) { finish(); return }
+      var q = queue[i]
+      if (q.root) {
+        askRoot(q.root, function(code) {
+          if (code === 0) next(i + 1)
+          else { if (code !== 1) stoppedAt = { text: "Did not install", wait: false, failed: true, at: Date.now(), tried: "its install did not work" }; else cancelled = true; finish() }
+        })
+        return
+      }
+      var s = q.step
+      var cmd = s.fix.verb === "device" ? [bridge, "device-fix", s.fix.what, String(id)].concat(s.fix.arg ? [s.fix.arg] : [])
+                                        : [bridge, "fix", s.fix.what]
+      var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: i < queue.length - 1 })
+      proc.exited.connect(function(code) {
+        var after = i + 1
+        // Failed with a fallback after it: that one next. Done: past them.
+        if (code !== 0 && after < queue.length && queue[after].step && queue[after].step.fallback) { next(after); return }
+        if (code === 0) while (after < queue.length && queue[after].step && queue[after].step.fallback) after++
+        // A step for the user (a permission adb could not grant): said in
+        // the row, and seen when done where it can be.
+        if (code !== 0 && s.orAsk) { stoppedAt = { text: s.orAsk, wait: s.fix.what === "grant", waitFor: s.item || "", failed: false, at: Date.now(), tried: "it could not " + s.label.toLowerCase() }; finish(); return }
+        if (code !== 0) { stoppedAt = { text: "Did not work: " + s.label, wait: false, failed: true, at: Date.now(), tried: "it did not work at: " + s.label }; finish(); return }
+        next(after)
+      })
+      proc.running = true
+    }
+    next(0)
+  }
+
   function fixSetup(what) {
     if (!what || setupFixing[what]) return
+    // A password: what it is for, shown first (rootAsk).
+    if (isRootFix(what)) {
+      askRoot(what, function(code) {
+        if (what === "screen" && code === 0 && root.device) root.screenSetupNeeded(String(root.device.id))
+      })
+      return
+    }
     var next = Object.assign({}, setupFixing)
     next[what] = true
     setupFixing = next
     var proc = actionComponent.createObject(root, { key: "fix:" + what, command: [bridge, "fix", what] })
-    proc.exited.connect(function() {
+    proc.exited.connect(function(code) {
       var done = Object.assign({}, root.setupFixing)
       delete done[what]
       root.setupFixing = done
       Qt.callLater(root.runDoctor)
+      // Installed for the screen: the next steps are on the device.
+      if (what === "screen" && code === 0 && root.device) root.screenSetupNeeded(String(root.device.id))
     })
     proc.running = true
   }
@@ -584,6 +893,415 @@ Item {
     running: root.setupWanted > 0
     triggeredOnStart: true
     onTriggered: root.runDoctor()
+  }
+
+  // ---- Screen and apps (kdeconnect-bridge screen*): scrcpy over adb ----
+  // Where each device stands, read while its Screen and apps page shows and
+  // when the Screen shortcut is pressed; the QR pairing runs while the page
+  // shows its code. A demo reads nothing: its states are made up.
+  property var screenStates: ({})          // device id -> the bridge's status
+  property var screenPairing: null         // { device, phase, qr, message }
+  property string screenThen: ""           // a device to open once read (Screen shortcut)
+  property bool screenThenDocked: true
+  property var screenThenPlace: null       // where the docked window goes: a function, read at launch
+  property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
+  property var screenThenApp: null         // an app to open once read, instead of the screen ({ package, name, sound, pop })
+  property string demoScreenKind: "pair"
+  signal screenSetupNeeded(string id, var app)
+  // Its window is there (a place: the panel closes), or it did not open.
+  signal screenOpened(string id)
+  signal screenOpenFailed(string id)
+
+  function screenOf(id) { return screenStates[String(id)] || null }
+  // Devices whose screen window is open, docked or not: Hyprland's own list
+  // of windows (Quickshell keeps it from Hyprland's events, for the shell
+  // already: no polling), by the window's title. The Screen shortcut is on
+  // meanwhile. Worked out only while a panel shows the shortcut.
+  readonly property var screenOpen: {
+    if (openPanels === 0) return ({})
+    var titles = {}
+    var list = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < list.length; i++) titles[String(list[i].title || "")] = true
+    var out = {}
+    var devs = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var j = 0; j < devs.length; j++)
+      if (titles[Model.screenTitle(devs[j].name)]) out[String(devs[j].id)] = true
+    return out
+  }
+  function screenIsOpen(id) { return !!id && screenOpen[String(id)] === true }
+  function closeScreen(id) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-close", String(id)])
+  }
+  // The device's display shape, for the card that becomes its window: the
+  // status read now, else the one the bridge kept (screen.json), so the card
+  // takes the right shape from the first frame of an opening.
+  function screenDisplay(id) {
+    var st = screenOf(id)
+    if (st && st.display && st.display[0] > 0) return st.display
+    var kept = screenKept[String(id)]
+    return kept && kept.display && kept.display[0] > 0 ? kept.display : null
+  }
+  property var screenKept: ({})
+  FileView {
+    path: (Quickshell.env("XDG_CACHE_HOME") || (Quickshell.env("HOME") + "/.cache")) + "/sceny.devices/screen.json"
+    watchChanges: true
+    onFileChanged: reload()
+    onLoaded: { try { root.screenKept = JSON.parse(text()) || {} } catch (e) {} }
+  }
+  function setScreen(id, status) {
+    // Ready now: its features again, with adb (permissions, notifications).
+    var was = screenStates[String(id)]
+    if (status && status.state === "ready" && !(was && was.state === "ready") && openPanels > 0) Qt.callLater(function() { root.readFeatures(String(id), true) })
+    var next = Object.assign({}, screenStates)
+    next[String(id)] = status
+    screenStates = next
+    if (screenThen !== "" && screenThen === String(id)) {
+      screenThen = ""
+      var app = screenThenApp
+      screenThenApp = null
+      if (app) {
+        var key = "screen:" + id + ":" + app.package
+        if (status && status.state === "ready" && !demo) {
+          // Locked: the bridge wakes it and opens the app once it is unlocked.
+          if (status.locked) report("Unlock " + Model.deviceLabel(findDevice(id)) + " to open " + app.name + ": it opens as soon as you do", false)
+          launchScreen(id, app.package, app.name, false, null, false, app.sound, app.pop)
+          return
+        }
+        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open " + (app.pop ? "popped out" : "in a window") + " here", false); return }
+        setBusy(key, false)
+        screenSetupNeeded(String(id), app)
+        return
+      }
+      if (status && status.state === "ready" && !demo) {
+        // Read now: the card has grown to the display's real shape.
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit)
+        return
+      }
+      if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
+      setBusy("screen", false)
+      screenSetupNeeded(String(id))
+    }
+  }
+  function readScreen(id) {
+    if (!id) return
+    if (demo) { setScreen(id, Model.demoScreen(demoScreenKind)); return }
+    if (screenProc.running) return   // its exit reads a device still waiting
+    screenProc.device = String(id)
+    screenProc.command = [bridge, "screen", String(id)]
+    screenProc.running = true
+  }
+  // The Screen shortcut: its window when the device is ready, else its
+  // setup page. The state is read first, so it never acts on a stale one;
+  // the tile waits (its ring) from the click until the window is there.
+  // `place`: a function giving where the docked window goes ({ rect: the
+  // panel's card as it becomes the window, ctx: the chip's place }), read
+  // once the state is.
+  function pressScreen(id, docked, place, fit) {
+    if (!id || isBusy("screen")) return
+    setBusy("screen", true)
+    screenThen = String(id)
+    screenThenDocked = docked !== false
+    screenThenPlace = place || null
+    screenThenFit = fit === true
+    readScreen(id)
+  }
+  // An app's tile: its window, tiled, once the state is read (as the
+  // Screen shortcut), else the screen's setup page. `sound`: "phone" leaves
+  // its sound on the device.
+  // `pop`: as Omarchy's pop-out (Shift+Enter, Shift+click), else tiled.
+  function pressApp(id, app, sound, pop) {
+    if (!id || !app) return
+    var key = "screen:" + id + ":" + app.package
+    if (isBusy(key) || isBusy("screen")) return
+    setBusy(key, true)
+    screenThen = String(id)
+    screenThenApp = { package: app.package, name: app.name, sound: sound || "here", pop: pop === true }
+    readScreen(id)
+  }
+  function openScreen(id, pkg, label, docked) {
+    if (demo) { report("Demo: no window opens", false); return }
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
+    if (isBusy(key)) return
+    setBusy(key, true)
+    launchScreen(id, pkg, label, docked)
+  }
+  // Busy is already set: the bridge returns once the window is there.
+  // `place` ({ rect: { x, y, w, h } on the monitor, ctx }): exactly where
+  // it opens, and the chip it stays under when the device turns.
+  function placeArgs(place) {
+    var out = []
+    if (place && place.rect) out.push("--at", [place.rect.x, place.rect.y, place.rect.w, place.rect.h].join(","))
+    if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
+    return out
+  }
+  function launchScreen(id, pkg, label, docked, place, fit, sound, pop) {
+    var key = pkg ? "screen:" + id + ":" + pkg : "screen"
+    var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
+    if (pkg) { cmd.push(pop ? "--pop" : "--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
+    else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
+    else cmd = cmd.concat(placeArgs(place))
+    var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
+    // Connecting takes a moment: said by the card or the tile in a panel;
+    // with none open (a key), by Omarchy's on-screen display.
+    if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
+    proc.exited.connect(function(code) {
+      if (code === 0) {
+        if (pkg) root.appOpened(String(id), pkg)
+        root.screenOpened(String(id))
+        // Docked, it follows turns under the chip; tiled, its tile takes the
+        // device's width as it turns.
+        if (!pkg) root.watchScreen(id, place && place.ctx ? place.ctx : ({}), fit === true)
+      }
+      else root.screenOpenFailed(String(id))
+    })
+    proc.running = true
+  }
+  // ---- Apps (#116): each device's apps (kdeconnect-bridge apps, kept a day
+  //      in the cache), and their icons as they are read (app-icons) ----
+  property var appLists: ({})              // device id -> { state, at, apps: [{ package, name, system, icon, opened }] }
+  property var demoAppList: ({ state: "ready", at: 0, apps: Model.demoApps(Date.now()) })
+  function appsOf(id) {
+    if (demo) return demoAppList
+    return id ? (appLists[String(id)] || null) : null
+  }
+  // The list from the cache at once; read from the device when asked or a
+  // day old (and it can be reached). Then the icons not read yet.
+  function readApps(id, refresh) {
+    if (!id || demo) return
+    if (appsProc.running) { if (appsProc.device !== String(id) || refresh) appsAgain = { id: String(id), refresh: refresh === true }; return }
+    appsProc.device = String(id)
+    appsProc.command = [bridge, "apps", String(id)].concat(refresh ? ["--refresh"] : [])
+    appsProc.running = true
+  }
+  property var appsAgain: null
+  // The viewed device's list from the cache as soon as it is known, so the
+  // first opening has its Apps section at once (set up here only).
+  function warmApps() {
+    if (demo || !device || appLists[String(device.id)]) return
+    var kept = screenKept[String(device.id)]
+    if (kept && kept.paired) readApps(String(device.id))
+  }
+  onScreenKeptChanged: warmApps()
+  // A device's list or its icons being read now (the All apps page's ring).
+  function appsReading(id) {
+    return !!id && ((appsProc.running && appsProc.device === String(id)) || (iconsProc.running && iconsProc.device === String(id)))
+  }
+  function setApps(id, list) {
+    var next = Object.assign({}, appLists)
+    next[String(id)] = list
+    appLists = next
+  }
+  function readIcons(id) {
+    var list = appLists[String(id)]
+    if (!list || iconsProc.running) return
+    var missing = (list.apps || []).filter(function(a) { return a.icon === "" })
+    if (missing.length === 0) return
+    iconsProc.device = String(id)
+    iconsProc.command = [bridge, "app-icons", String(id)]
+    iconsProc.running = true
+  }
+  // Icons come one by one: drawn a few at a time, not a new list per icon.
+  property var iconsPending: ({})
+  function applyIcons() {
+    var id = iconsProc.device
+    var list = appLists[id]
+    if (!list || Object.keys(iconsPending).length === 0) return
+    var pending = iconsPending
+    iconsPending = ({})
+    setApps(id, Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return pending[a.package] !== undefined ? Object.assign({}, a, { icon: pending[a.package] }) : a
+    }) }))
+  }
+  Timer { id: iconsBatch; interval: 400; onTriggered: root.applyIcons() }
+  // Out of the recent ones (the ✕ on a recent app, or x): at once here, and
+  // in the cache's list of when each was opened, until it opens again.
+  function forgetApp(id, pkg) {
+    var list = appLists[String(id)]
+    if (demo) list = demoAppList
+    if (!list || !pkg) return
+    var next = Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return a.package === pkg ? Object.assign({}, a, { opened: 0 }) : a
+    }) })
+    if (demo) { demoAppList = next; return }
+    setApps(id, next)
+    var proc = actionComponent.createObject(root, { key: "forget:" + pkg, command: [bridge, "app-forget", String(id), pkg], quietSuccess: true })
+    proc.running = true
+  }
+  signal appOpened(string id, string pkg)
+  onAppOpened: function(id, pkg) {
+    var list = appLists[id]
+    if (!list) return
+    setApps(id, Object.assign({}, list, { apps: list.apps.map(function(a) {
+      return a.package === pkg ? Object.assign({}, a, { opened: Date.now() }) : a
+    }) }))
+  }
+  Process {
+    id: appsProc
+    property string device: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var list = null
+        try { list = JSON.parse(text) } catch (e) {}
+        if (list && list.apps) {
+          root.setApps(appsProc.device, list)
+          root.readIcons(appsProc.device)
+        }
+      }
+    }
+    onExited: if (root.appsAgain) { var again = root.appsAgain; root.appsAgain = null; Qt.callLater(function() { root.readApps(again.id, again.refresh) }) }
+  }
+  Process {
+    id: iconsProc
+    property string device: ""
+    stdout: SplitParser {
+      onRead: function(line) {
+        var e = null
+        try { e = JSON.parse(line) } catch (err) {}
+        if (!e || !e.package) return
+        var next = Object.assign({}, root.iconsPending)
+        next[e.package] = e.icon || "none"
+        root.iconsPending = next
+        if (!iconsBatch.running) iconsBatch.start()
+      }
+    }
+    onExited: root.applyIcons()
+  }
+
+  // ---- Re-fit (kdeconnect-bridge screen-watch): the docked window follows
+  //      the device's shape; each change comes here for ScreenTurn ----
+  property var screenTurn: null            // { kind, angle, from, to, monitor, device, still, at }
+  property real turnMotion: 1              // ScreenTurn's pace (slowMotion, for checks)
+  property var screenWatchers: ({})        // device id -> its watcher
+  // The window shows again under the card (the watcher, once the new
+  // picture is there): the card fades then.
+  signal screenRevealed(string id)
+  // The device's new picture, a still of it, while the card turns.
+  signal screenPicture(string id, string path)
+  function watchScreen(id, ctx, fit) {
+    var st = screenOf(id)
+    if (demo || !id || !ctx || !st || !st.serial || screenWatchers[String(id)]) return
+    // (ctx is {} for a tiled screen: only a docked one goes under the chip)
+    var proc = watchComponent.createObject(root, { device: String(id),
+      command: [bridge, "screen-watch", String(id), String(st.serial), "--ctx", JSON.stringify(ctx)].concat(fit ? ["--fit"] : []) })
+    var next = Object.assign({}, screenWatchers)
+    next[String(id)] = proc
+    screenWatchers = next
+    proc.running = true
+  }
+  Component {
+    id: watchComponent
+    Process {
+      id: watchProc
+      property string device: ""
+      stdout: SplitParser {
+        onRead: function(line) {
+          try {
+            var ev = JSON.parse(line)
+            if (ev.ev === "refit") root.screenTurn = Object.assign({ at: Date.now() }, ev)
+            else if (ev.ev === "picture") root.screenPicture(String(ev.device || ""), String(ev.still || ""))
+            else if (ev.ev === "revealed") {
+              // The turn's timing, for diagnosing (no device data).
+              console.info("sceny.devices screen turn: new picture after " + ev.picture_ms + " ms, shown after " + ev.shown_ms + " ms")
+              root.screenRevealed(String(ev.device || ""))
+            }
+          } catch (e) {}
+        }
+      }
+      onExited: {
+        var next = Object.assign({}, root.screenWatchers)
+        delete next[watchProc.device]
+        root.screenWatchers = next
+        watchProc.destroy()
+      }
+    }
+  }
+
+  // The keyboard to its window, once the panel has let go of it.
+  function focusScreen(id) {
+    if (demo || !id) return
+    Quickshell.execDetached([bridge, "screen-focus", String(id)])
+  }
+  // Under the bar (docked) or as a window: the open window moves now, the next opens so.
+  // `place`: where it docks ({ rect, ctx }, Panel.dockRectFor/dockCtx).
+  function dockScreen(id, docked, place) {
+    if (demo || !id) return
+    var cmd = [bridge, "screen-dock", String(id), docked ? "on" : "off"]
+    if (docked) cmd = cmd.concat(placeArgs(place))
+    Quickshell.execDetached(cmd)
+    if (docked && place) watchScreen(id, place.ctx)
+  }
+  function startScreenPair(id) {
+    if (pairProc.running || demoPairQr.running) return
+    screenPairing = { device: String(id), phase: "starting", qr: null, message: "" }
+    if (demo) { demoPairQr.running = true; return }
+    pairProc.command = [bridge, "screen-pair", String(id)]
+    pairProc.running = true
+  }
+  function stopScreenPair() {
+    screenPairing = null
+    if (pairProc.running) pairProc.running = false
+  }
+  function pairingEvent(ev) {
+    if (!screenPairing) return
+    var p = Object.assign({}, screenPairing)
+    if (ev.ev === "qr") { p.phase = "qr"; p.qr = Model.qrGrid(String(ev.ascii || "")) }
+    else if (ev.ev === "error") { p.phase = "error"; p.message = String(ev.message || "") }
+    else p.phase = String(ev.ev || "")
+    screenPairing = p
+    if (p.phase === "connected") {
+      readScreen(p.device)
+      screenPairing = null
+    }
+  }
+
+  Process {
+    id: screenProc
+    property string device: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        // Unreadable: no state, so a click waiting on it ends (setScreen).
+        var st = null
+        try { st = JSON.parse(text) } catch (e) {}
+        root.setScreen(screenProc.device, st)
+      }
+    }
+    onExited: if (root.screenThen !== "" && root.screenThen !== screenProc.device) Qt.callLater(function() { root.readScreen(root.screenThen) })
+  }
+  Process {
+    id: pairProc
+    stdout: SplitParser {
+      onRead: function(line) {
+        try { root.pairingEvent(JSON.parse(line)) } catch (e) {}
+      }
+    }
+    // Ended without an answer (the code ran out is an error event first).
+    onExited: function(code) {
+      if (root.screenPairing && root.screenPairing.phase !== "error")
+        root.screenPairing = Object.assign({}, root.screenPairing, { phase: "error", message: "Pairing stopped" })
+    }
+  }
+  // A demo's Screen: it waits like a connection, then opens nothing (the
+  // card grows back), or with demoScreen "opens" acts as if a window opened
+  // (the panel fades as the card, to see the hand-off).
+  Timer {
+    id: demoOpening
+    property string device: ""
+    interval: 2000
+    onTriggered: {
+      root.setBusy("screen", false)
+      if (root.demoScreenKind === "opens") { root.screenOpened(device); return }
+      root.report("Demo: no window opens", false)
+      root.screenOpenFailed(device)
+    }
+  }
+  // The demo's code: made like a real one, for a code nobody can use.
+  Process {
+    id: demoPairQr
+    command: ["qrencode", "-t", "ASCII", "-m", "0", "WIFI:T:ADB;S:sceny-demo;P:demo;;"]
+    stdout: StdioCollector {
+      onStreamFinished: root.pairingEvent({ ev: "qr", ascii: text })
+    }
   }
 
   // Pairing acts on any device the daemon knows, not only the one followed.
@@ -686,7 +1404,7 @@ Item {
     if (device && device.paired && device.can && device.can.sms === true) smsDeviceId = String(device.id)
     else if (smsDeviceId === "" && device && device.paired && !(device.can && device.can.sms === false)) smsDeviceId = String(device.id)
   }
-  onDeviceChanged: followSms()
+  onDeviceChanged: { followSms(); warmApps() }
   readonly property bool barCountsMessages: profile.barIndicators.indexOf("messages") >= 0
   SmsService {
     id: smsService
@@ -886,6 +1604,9 @@ Item {
       property string key: ""
       property var wait: null
       property int exitCode: -1
+      // Its success says nothing worth a toast (the screen's window opening
+      // is the answer itself); a failure is still said.
+      property bool quietSuccess: false
 
       stdout: StdioCollector { id: procOut }
       stderr: StdioCollector { id: procErr }
@@ -902,7 +1623,7 @@ Item {
           return
         }
         root.setBusy(proc.key, false)
-        if (proc.exitCode === 0) root.report(out, false)
+        if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false) }
         else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false)
         else root.report(err || out || "That did not work", true)
         proc.destroy()

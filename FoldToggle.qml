@@ -31,7 +31,13 @@ Item {
   signal toggled()
   signal refreshRequested()
 
-  implicitHeight: foldRow.implicitHeight
+  // One height for every section header, folded or open, text alone or with
+  // icons beside it, so the title never moves as a section folds: the size
+  // of a header's buttons (folded Shortcuts), which everything beside a
+  // title takes (folded Apps' icons, the play button, the arrows, the ring);
+  // the cover is smaller.
+  readonly property real headerHeight: Style.space(22)
+  implicitHeight: Math.max(foldRow.implicitHeight, headerHeight)
   implicitWidth: foldRow.implicitWidth
 
   MouseArea {
@@ -69,10 +75,13 @@ Item {
     }
     Image {
       id: foldThumb
-      readonly property bool shown: fold.folded && fold.thumb !== "" && status !== Image.Error
-      Layout.preferredWidth: shown ? Style.space(18) : 0
+      // Its room is kept while there is a cover, folded or open, so nothing
+      // beside it moves: like the summary and the folded icons, it only fades.
+      readonly property bool has: fold.thumb !== "" && status !== Image.Error
+      readonly property bool shown: fold.folded && has
+      Layout.preferredWidth: has ? Style.space(18) : 0
       Layout.preferredHeight: Style.space(18)
-      Layout.rightMargin: shown ? Style.space(8) : 0
+      Layout.rightMargin: has ? Style.space(8) : 0
       Layout.alignment: Qt.AlignVCenter
       source: fold.thumb
       sourceSize.width: 36
@@ -81,8 +90,6 @@ Item {
       asynchronous: true
       clip: true
       opacity: shown ? 1 : 0
-      Behavior on Layout.preferredWidth { enabled: fold.animate; NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
-      Behavior on Layout.rightMargin { enabled: fold.animate; NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
       Behavior on opacity { enabled: fold.animate; NumberAnimation { duration: (foldThumb.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
     }
 
@@ -101,8 +108,8 @@ Item {
     }
     Item {
       visible: fold.canBusy
-      Layout.preferredWidth: Style.space(20)
-      Layout.preferredHeight: Style.space(20)
+      Layout.preferredWidth: fold.headerHeight
+      Layout.preferredHeight: fold.headerHeight
       Layout.leftMargin: Style.space(6)
       Layout.alignment: Qt.AlignVCenter
       // One at a time, at the panel's pace: the one leaving fades out, and
@@ -118,7 +125,7 @@ Item {
       PanelActionButton {
         id: foldRefresh
         anchors.centerIn: parent
-        size: Style.space(20)
+        size: fold.headerHeight
         fontSize: Style.font.caption
         iconText: Model.GLYPH.refresh
         tooltipText: fold.refreshTip
