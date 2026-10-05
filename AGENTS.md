@@ -535,9 +535,14 @@ Keep them; change one only with the owner.
   it does, the picture, the main keys, privacy, then links to the user guide
   and the internals. User pages (`docs/`) are screenshot-first (demo data
   only), with little text, a breadcrumb back to the README on each page, and
-  no history. A feature's page shows the feature; its setup lives in the
-  Setup section (`docs/setup/`), and the feature's page links to it,
-  never mixing the two. Anything technical goes in `docs/internals/`, linked from the
+  no history. One page per feature (`docs/use/`), each the same shape:
+  breadcrumb, title, what you get in a line or three, the picture, its
+  sections, its keys, and one closing line linking its setup and limits.
+  Setup lives in `docs/setup/`, never on a feature's page; security in
+  `docs/security.md`; the mechanism (KDE Connect, scrcpy) is named only
+  there, in *Built on* and in `docs/internals/`. The tone is confident and
+  concrete, never hyperbole: say what it does, with the detail that shows
+  it was made with care. Anything technical goes in `docs/internals/`, linked from the
   README's last section. Cut words before adding them: a page that grows
   past about 250 words is split or trimmed.
 

@@ -4,7 +4,7 @@
 
 Once per phone. The screen and the apps come from
 [scrcpy](https://github.com/Genymobile/scrcpy) over adb, not KDE Connect.
-What they do: [Screen and apps](../screen-and-apps.md).
+What they do: [Screen](../use/screen.md), [Apps](../use/apps.md).
 
 ![Screen and apps: the steps on the phone and the pairing QR code (demo data)](../images/screen-setup.png)
 
