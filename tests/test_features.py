@@ -181,5 +181,41 @@ class Reconnect(unittest.TestCase):
         self.assertEqual(bridge.with_address(["192.168.1.23"], "192.168.1.23", "192.168.1.23"), ["192.168.1.23"], "nothing to change")
 
 
+class AppPopOut(unittest.TestCase):
+    def open(self, popout):
+        rules, launched = [], []
+        names = ["screen_status", "find_window", "hypr_json", "border_size", "apps_opened", "screen_device", "say"]
+        saved = {n: getattr(bridge, n) for n in names}
+        saved_run = bridge.subprocess.run
+        windows = iter([None, {"address": "0x1"}])
+        try:
+            bridge.screen_status = lambda d: {"state": "ready", "apps": True, "serial": "s", "display": [1080, 2340],
+                                              "tools": {"flex": True}}
+            bridge.find_window = lambda title: next(windows, {"address": "0x1"})
+            bridge.hypr_json = lambda what: [{"focused": True, "reserved": [0, 30, 0, 0]}]
+            bridge.border_size = lambda: 2
+            bridge.apps_opened = lambda *a: None
+            bridge.screen_device = lambda d: {"name": "Pixel 8"}
+            bridge.say = lambda message, code=0: code
+            bridge.subprocess.run = lambda cmd, **kw: rules.append(cmd[2]) if cmd[:2] == ["hyprctl", "eval"] else None
+            code = bridge.screen_open("dev", "org.example.app", "Example", docked=False, launch=launched.append,
+                                      sleep=lambda s: None, popout=popout)
+        finally:
+            for n, v in saved.items():
+                setattr(bridge, n, v)
+            bridge.subprocess.run = saved_run
+        return code, rules[0], launched[0]
+
+    def test_tiled_by_default_popped_out_on_asking(self):
+        code, rule, cmd = self.open(False)
+        self.assertEqual(code, 0)
+        self.assertNotIn("float = true", rule, "tiled: the rule only ends an earlier one")
+        code, rule, cmd = self.open(True)
+        self.assertIn('tag = "+pop"', rule, "Omarchy's pop-out")
+        self.assertIn("float = true", rule)
+        self.assertIn("pin = true", rule)
+        self.assertIn("--start-app=org.example.app", cmd, "the app itself, in its own display")
+
+
 if __name__ == "__main__":
     unittest.main()
