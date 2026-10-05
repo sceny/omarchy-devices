@@ -83,7 +83,7 @@ type their password.
 KDE Connect cannot mark messages read on the phone, show RCS messages,
 mute the ringer, or follow a call to its end; an app's notification opens
 the app, not the message (#122). The user guide's
-[troubleshooting page](../troubleshooting.md) lists the rest.
+[What it cannot do](../setup/limits.md) lists the rest.
 
 When the cause is in KDE Connect itself, say so plainly and point to its
 issues in this repository (label `external:kde-connect`).

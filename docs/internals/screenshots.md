@@ -33,6 +33,15 @@ the shot's):
 5. Back: `close`, `live`, stop the player (`pkill -f '^python3 tools/demo-player'`:
    anchored, or it matches the shell running it), return to your workspace.
 
+## The screen's pictures
+
+The demo opens no window, so `screen-docked.png` and `screen-turned.png`
+put a made-up phone screen (`tools/phone-screen`, portrait and
+`2316x1080`) where the plugin docks the real one, on a demo desktop shot
+with the panel closed: at `Model.dockRect`'s place and size for the pill
+(470x1008 under it, turned 1152x537), framed 2 px in the accent colour as
+Hyprland frames a window; then cropped around it and scaled down.
+
 ## The user guide's pictures
 
 One topic per picture, cropped to the panel's card alone (`cardRect` gives

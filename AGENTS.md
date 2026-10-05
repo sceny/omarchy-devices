@@ -31,7 +31,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
   Connect's daemon and command line are enough: its own app is never needed.
 - **A feature no source offers is not faked.** Ongoing notifications never
   leave the phone; messages cannot be marked read on the phone; RCS is not
-  in the SMS store. Say so in the UI or the docs (`docs/troubleshooting.md`).
+  in the SMS store. Say so in the UI or the docs (`docs/setup/limits.md`).
 - **A KDE Connect fault is handled here when a user meets it:** fixed or
   filtered in the plugin (a dead mount mounted again, a hidden notification
   or player not shown, notifications read again), and still tracked
@@ -535,7 +535,9 @@ Keep them; change one only with the owner.
   it does, the picture, the main keys, privacy, then links to the user guide
   and the internals. User pages (`docs/`) are screenshot-first (demo data
   only), with little text, a breadcrumb back to the README on each page, and
-  no history. Anything technical goes in `docs/internals/`, linked from the
+  no history. A feature's page shows the feature; its setup lives in the
+  Setup section (`docs/setup/`), and the feature's page links to it,
+  never mixing the two. Anything technical goes in `docs/internals/`, linked from the
   README's last section. Cut words before adding them: a page that grows
   past about 250 words is split or trimmed.
 
