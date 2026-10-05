@@ -691,7 +691,8 @@ Item {
     var at = Object.assign({}, featuresReadAt)
     at[String(id)] = now
     featuresReadAt = at
-    if (demo) { var d = Object.assign({}, featureReports); d[String(id)] = Model.demoFeatures(); featureReports = d; return }
+    // A demo's report follows its device (away in the away demo).
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })

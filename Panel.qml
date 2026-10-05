@@ -3520,10 +3520,11 @@ Panel {
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices") + " · " + Model.problemsLine(root.allProblems).toLowerCase())
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
+              : root.screenHere ? "KDE Connect lost it · its screen and apps are here"
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.heroNeutral || (root.heroDevice && root.heroDevice.reachable === true) ? 1.0 : 0.45
+            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || root.screenReaches(root.heroDevice.id))) ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
