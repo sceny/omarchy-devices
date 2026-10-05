@@ -2202,6 +2202,29 @@ def bound_keys(binds):
     return found
 
 
+UNLOCK_WAIT_SEC = 60
+
+
+def keyguard_showing(text):
+    """Whether the lock screen shows, from `dumpsys window policy`: its
+    KeyguardStateMonitor says (mIsShowing). An app does not start on a
+    display of its own behind it: the window stays empty."""
+    block = False
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s.startswith("KeyguardStateMonitor"):
+            block = True
+        elif block and s.startswith("mIsShowing="):
+            return s.split("=", 1)[1].strip() == "true"
+    return False
+
+
+def device_locked(serial, run=None):
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args, timeout=10))
+    code, out = run(["dumpsys", "window", "policy"])
+    return code == 0 and keyguard_showing(out)
+
+
 def fast_adb_match(device, devices, known, ask=None):
     """The device among adb's connections now, asked for its own serial
     directly: (serial, via, state), or (None, "", "") when adb is not
@@ -2293,6 +2316,9 @@ def screen_status(device_id):
         screen_record(device_id, {"display": status["display"]})
     status["apps"] = tools["apps"] and status["sdk"] >= APPS_MIN_SDK
     status["wireless"] = status["sdk"] >= WIRELESS_MIN_SDK or status["sdk"] == 0
+    # Locked: an app waits for it to be unlocked (the screen itself shows the
+    # lock screen, to unlock from here).
+    status["locked"] = device_locked(serial)
     status["state"] = "ready"
     return status
 
@@ -3034,6 +3060,16 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
         return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
     if package and not status["apps"]:
         return say("Apps in a window need Android 10 and scrcpy 3", EXIT_FAILED)
+    # Locked, an app would open on an empty display: its screen is woken,
+    # and the app opens once the user unlocks it.
+    if package and status.get("locked"):
+        adb(["-s", status["serial"], "shell", "input", "keyevent", "KEYCODE_WAKEUP"])
+        for _ in range(UNLOCK_WAIT_SEC * 2):
+            sleep(0.5)
+            if not device_locked(status["serial"]):
+                break
+        else:
+            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED)
     top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5

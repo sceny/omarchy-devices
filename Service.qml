@@ -962,7 +962,12 @@ Item {
       screenThenApp = null
       if (app) {
         var key = "screen:" + id + ":" + app.package
-        if (status && status.state === "ready" && !demo) { launchScreen(id, app.package, app.name, false, null, false, app.sound, app.pop); return }
+        if (status && status.state === "ready" && !demo) {
+          // Locked: the bridge wakes it and opens the app once it is unlocked.
+          if (status.locked) report("Unlock " + Model.deviceLabel(findDevice(id)) + " to open " + app.name + ": it opens as soon as you do", false)
+          launchScreen(id, app.package, app.name, false, null, false, app.sound, app.pop)
+          return
+        }
         if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open " + (app.pop ? "popped out" : "in a window") + " here", false); return }
         setBusy(key, false)
         screenSetupNeeded(String(id), app)

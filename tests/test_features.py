@@ -181,6 +181,15 @@ class Reconnect(unittest.TestCase):
         self.assertEqual(bridge.with_address(["192.168.1.23"], "192.168.1.23", "192.168.1.23"), ["192.168.1.23"], "nothing to change")
 
 
+class Locked(unittest.TestCase):
+    def test_the_lock_screen_from_its_monitor(self):
+        text = ("    Policy\n      screenState=SCREEN_STATE_OFF\n      KeyguardStateMonitor\n        mIsShowing=true\n"
+                "        mSimSecure=false\n")
+        self.assertTrue(bridge.keyguard_showing(text))
+        self.assertFalse(bridge.keyguard_showing(text.replace("mIsShowing=true", "mIsShowing=false")))
+        self.assertFalse(bridge.keyguard_showing("    SomethingElse\n        mIsShowing=true\n"), "another part's mIsShowing is not the lock screen")
+
+
 class AppPopOut(unittest.TestCase):
     def open(self, popout):
         rules, launched = [], []

@@ -305,7 +305,9 @@ Keep them; change one only with the owner.
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
   floating and pinned at the top right in the device's shape; its sound
   stays on the device, without a word, while another app plays there,
-  `Model.appSound`, since scrcpy takes the device's whole output): one
+  `Model.appSound`, since scrcpy takes the device's whole output; a
+  locked device is woken and the app opens once it is unlocked, never an
+  empty window): one
   virtual display per app, following its window (`--flex-display`), and
   never the device's on-screen keyboard (`--display-ime-policy=hide`):
   typing is this computer's keyboard. All apps shows every app, the

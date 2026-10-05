@@ -22,7 +22,8 @@ GitHub release with these notes.
   An app's sound plays here or stays on the phone. Shift+Enter or
   Shift+click opens an app popped out (floating, pinned) instead of tiled.
   Opening an app never takes music playing in your headset: its sound
-  stays on the phone then.
+  stays on the phone then. On a locked phone, the phone wakes and the app
+  opens once you unlock it (it was an empty window).
 
 - **Setup that just works** ([#126](https://github.com/sceny/omarchy-devices/issues/126),
   [#121](https://github.com/sceny/omarchy-devices/issues/121),
