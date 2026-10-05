@@ -1525,7 +1525,7 @@ Column {
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
-    readonly property bool acts: row.key === "screen" || (row.steps || []).length > 0
+    readonly property bool acts: (row.steps || []).length > 0
     hasCursor: false
     CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
@@ -1638,12 +1638,12 @@ Column {
             // Not while it waits for the user's step: nothing to press again.
             visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
                                          || featureRow.row.problem === true)
-            // Blocked by this computer: its fix is there (This computer).
-            readonly property bool here: ((featureRow.row.steps || [])[0] || {}).kind === "computer"
-            text: featureRow.working ? "Working…" : here ? "This computer" : (featureRow.row.state === "attention" ? "Fix" : featureRow.row.key === "screen" ? "Set up" : "Turn on")
-            iconText: here && !featureRow.working ? Model.GLYPH.chevronRight : ""
+            // A step on its own page (the screen link's): Set up there.
+            readonly property bool onPage: !!((featureRow.row.steps || [])[0] || {}).page
+            text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : onPage ? "Set up" : "Turn on")
             enabled: !featureRow.working
-            tooltipText: here ? "Its fix is on This computer" : "Does what it can, then says what is left"
+            tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
+              ? "Does every step it can; shows what your password is for before asking for it" : "Does every step it can, then says what is left"
             bordered: true
             foreground: root.foreground
             fontFamily: root.fontFamily

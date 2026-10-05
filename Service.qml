@@ -789,7 +789,8 @@ Item {
   // here says the switch to turn on, on the device. `key`: busy meanwhile.
   // `left`: the step after them only the user can do ({ text, wait }), shown
   // as pending once they are done.
-  // `then`: called when it is done (Fix all chains its devices so).
+  // `then(ok)`: called when it is done, ok when every step ran (Fix all
+  // chains its devices so).
   // A step marked `fallback` runs only when the one before it failed.
   function runSteps(id, steps, key, left, then) {
     if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
@@ -804,7 +805,7 @@ Item {
     if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
     if (firewall) queue.push({ root: "firewall" })
     rest.forEach(function(s) { queue.push({ step: s }) })
-    var stoppedAt = null
+    var stoppedAt = null, cancelled = false
     function finish() {
       setBusy(key, false)
       if (feature) {
@@ -813,7 +814,7 @@ Item {
       }
       if (findDevice(id)) readFeatures(id, true)
       runDoctor()
-      if (then) then()
+      if (then) then(!stoppedAt && !cancelled)
     }
     function next(i) {
       if (i >= queue.length) { finish(); return }
@@ -821,7 +822,7 @@ Item {
       if (q.root) {
         askRoot(q.root, function(code) {
           if (code === 0) next(i + 1)
-          else { if (code !== 1) stoppedAt = { text: "Did not install", wait: false, failed: true, at: Date.now(), tried: "its install did not work" }; finish() }
+          else { if (code !== 1) stoppedAt = { text: "Did not install", wait: false, failed: true, at: Date.now(), tried: "its install did not work" }; else cancelled = true; finish() }
         })
         return
       }
@@ -836,7 +837,7 @@ Item {
         if (code === 0) while (after < queue.length && queue[after].step && queue[after].step.fallback) after++
         // A step for the user (a permission adb could not grant): said in
         // the row, and seen when done where it can be.
-        if (code !== 0 && s.orAsk) { stoppedAt = { text: s.orAsk, wait: s.fix.what === "grant", failed: false, at: Date.now(), tried: "it could not " + s.label.toLowerCase() }; finish(); return }
+        if (code !== 0 && s.orAsk) { stoppedAt = { text: s.orAsk, wait: s.fix.what === "grant", waitFor: s.item || "", failed: false, at: Date.now(), tried: "it could not " + s.label.toLowerCase() }; finish(); return }
         if (code !== 0) { stoppedAt = { text: "Did not work: " + s.label, wait: false, failed: true, at: Date.now(), tried: "it did not work at: " + s.label }; finish(); return }
         next(after)
       })

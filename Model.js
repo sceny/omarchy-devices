@@ -1156,113 +1156,230 @@ function addDeviceRows(devices) {
   return rows
 }
 
-// ---- What a device can do: features from sources (docs/design/setup.md) ----
-// One table says what each feature needs; its state is worked out from the
-// bridge's report (`features <device>`) and the screen's state, never set
-// by hand. Everything reads these states: the device page's rows, the
-// status, the gear dot, the main page's line, Fix all.
+// ---- What a device can do (docs/design/setup.md, #128) ----
+// Three layers, read from the bridge's reports and never set by hand:
+//  - gateways: how the plugin gets something from a device (KDE Connect,
+//    Android's permissions, the storage link, the screen link);
+//  - setup items: what a gateway needs, each checked once, where it lives
+//    (this computer or the device), with its remedies;
+//  - features: what the user gets, from the items they need. One item can
+//    serve several features (notification access); one feature can need
+//    several gateways (Gallery: KDE Connect and the storage link).
+// Everything reads them: the device page's rows, the status, the gear dot,
+// the main page's line, Fix all.
 
-// plugins: KDE Connect's, for this device (short names); permissions: KDE
-// Connect's on the device (read over adb); computer: a package this
-// computer needs for it (its step points to This computer).
-var FEATURES = [
-  { key: "notifications", label: "Notifications", glyph: GLYPH.bell, plugins: ["notifications"], permissions: ["notifications"],
-    hint: "Its notifications here, with reply" },
-  { key: "messages", label: "Messages", glyph: GLYPH.messages, plugins: ["sms"], permissions: ["sms"], hint: "Every conversation, read and send" },
-  { key: "names", label: "Names", glyph: GLYPH.group, plugins: ["contacts"], permissions: ["contacts"], hint: "Its contacts' names for numbers" },
-  { key: "media", label: "Now playing", glyph: GLYPH.music, plugins: ["mprisremote"], permissions: ["notifications"], hint: "What it plays, with controls" },
-  { key: "calls", label: "Calls", glyph: GLYPH.callRing, plugins: ["telephony"], permissions: ["phone"], hint: "Who is calling, and missed calls" },
-  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, plugins: ["sftp"], permissions: ["storage"], computer: "sshfs",
-    hint: "Its newest photos and videos" },
-  { key: "share", label: "Files", glyph: GLYPH.sendFile, plugins: ["share"], hint: "Send files both ways" },
-  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, plugins: ["clipboard"], hint: "Shared clipboard" },
-  { key: "ring", label: "Ring", glyph: GLYPH.ring, plugins: ["findmyphone"], hint: "Ring it, even on silent" },
-  { key: "battery", label: "Battery", glyph: GLYPH.bolt, plugins: ["battery"], hint: "Its battery in the bar" },
-  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, screen: true, hint: "Its screen and apps in windows here" }
+var GATEWAYS = [
+  { key: "kdeconnect", label: "KDE Connect", hint: "Its link to this computer, and KDE Connect's parts for it" },
+  { key: "android", label: "Android permissions", hint: "What KDE Connect may do on the device" },
+  { key: "storage", label: "Storage link", hint: "Its storage, mounted here (KDE Connect's sftp, sshfs)" },
+  { key: "screen", label: "Screen link", hint: "adb to the device, and scrcpy here" },
+  { key: "bluetooth", label: "Bluetooth", planned: true, hint: "For calls with their audio here (#59)" }
 ]
 
 var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
 
+// needs: the setup items it uses; switch: the items its switch turns off,
+// only its own (a shared one, such as notification access, never).
+var FEATURES = [
+  { key: "notifications", label: "Notifications", glyph: GLYPH.bell, hint: "Its notifications here, with reply",
+    needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"] },
+  { key: "messages", label: "Messages", glyph: GLYPH.messages, hint: "Every conversation, read and send",
+    needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"] },
+  { key: "names", label: "Names", glyph: GLYPH.group, hint: "Its contacts' names for numbers",
+    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"] },
+  { key: "media", label: "Now playing", glyph: GLYPH.music, hint: "What it plays, with controls",
+    needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"] },
+  { key: "calls", label: "Calls", glyph: GLYPH.callRing, hint: "Who is calling, and missed calls",
+    needs: ["link", "plugin:telephony", "permission:phone"], switch: ["plugin:telephony"] },
+  { key: "gallery", label: "Gallery", glyph: GLYPH.picture, hint: "Its newest photos and videos",
+    needs: ["link", "plugin:sftp", "package:sshfs", "permission:storage", "health:mount"], switch: ["plugin:sftp"] },
+  { key: "share", label: "Files", glyph: GLYPH.sendFile, hint: "Send files both ways", needs: ["link", "plugin:share"], switch: ["plugin:share"] },
+  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, hint: "Shared clipboard", needs: ["link", "plugin:clipboard"], switch: ["plugin:clipboard"] },
+  { key: "ring", label: "Ring", glyph: GLYPH.ring, hint: "Ring it, even on silent", needs: ["link", "plugin:findmyphone"], switch: ["plugin:findmyphone"] },
+  { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"] },
+  { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, hint: "Its screen and apps in windows here",
+    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"] }
+]
+
 // One word for each state, everywhere.
 var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", off: "Turned off", unavailable: "Not on this device", away: "Away" }
 
-// A feature's state and the steps to it: { key, label, glyph, hint, state,
-// stateLabel, detail, steps: [{ kind, label, fix, orAsk, fallback }],
-// switchable, on }. A step's kind: "auto" (the plugin does it: fix is
-// { verb, what, arg } for the service, `fix <what>` or `device-fix <what>
-// <device> <arg>`), "ask" (only the user can) or "computer" (a package
-// here: This computer fixes it). `fallback`: runs only when the step before
-// it failed. `report`: the bridge's features for the device (null while
-// read); `screen`: Model.screenSetup's (null while read).
-function featureState(f, report, screen, deviceName) {
-  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "",
-              switchable: !!(f.plugins && f.plugins.length), on: true }
-  var name = deviceName || "the device"
-  function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
-  // Its switch is the plugin's own (screenFeature), not KDE Connect's.
-  if (f.screen) {
-    row.switchable = true
-    var st = screen ? screen.state : "checking"
-    if (st === "disabled") { row.on = false; return done("off", "") }
-    if (st === "ready") return done("on", screen.line || "")
-    if (st === "checking") return done("setup", "Looking…")
-    if (st === "tools") {
-      row.steps.push({ kind: "computer", label: "Install scrcpy and adb on this computer" })
-      return done("setup", "Needs scrcpy and adb on this computer")
+// A setup item: { key, gateway, scope: "computer" | "device", label, state,
+// detail, steps }. state: "ok", "missing" (to set up), "broken" (it worked
+// and stopped: a problem), "off" (a switch turned it off), "unavailable"
+// (the device does not offer it), "unknown" (being read), "away".
+// A step: { kind, label, fix, orAsk, fallback, page }. kind: "auto" (the
+// plugin does it: fix is { verb, what, arg } for the service, `fix <what>`
+// or `device-fix <what> <device> <arg>`; a package's asks for the password
+// after its card) or "ask" (only the user can; `page` is where: "screen",
+// its Screen and apps page). `fallback`: runs only when the step before it
+// failed. `item`: the item it is for.
+//
+// `ctx`: { report: the bridge's `features <device>` (null while read),
+// screen: { state, line } from `screen <device>` (null while read), checks:
+// this computer's (`doctor`), name: the device's, own: { screenFeature } }.
+function setupItem(key, ctx) {
+  var report = ctx.report, name = ctx.name || "the device"
+  var parts = key.split(":"), kind = parts[0], what = parts[1] || ""
+  var item = { key: key, scope: "device", label: "", state: "ok", detail: "", steps: [] }
+  function is(state, detail) { item.state = state; item.detail = detail || ""; return item }
+  function check(k) { return (ctx.checks || []).filter(function(c) { return c.key === k })[0] || null }
+  // KDE Connect's link: everything it carries waits on it.
+  function linked() {
+    if (!report) return is("unknown", "Looking…")
+    if (!report.reachable) return is("away", "When " + name + " connects")
+    return null
+  }
+  if (kind === "link") {
+    item.gateway = "kdeconnect"; item.label = "the link to " + name
+    return linked() || is("ok", (report.links || []).join(", "))
+  }
+  if (kind === "plugin") {
+    item.gateway = "kdeconnect"; item.label = "KDE Connect's " + what + " part"
+    if (!report || !report.reachable) return linked()
+    var p = (report.plugins || {})[what]
+    if (!p || p.offered === false) return is("unavailable", name + " does not offer it")
+    if (p.on === false) {
+      item.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: what + "=on" } })
+      return is("off", "")
     }
-    row.steps.push({ kind: "ask", label: screen ? screen.line : "Set up on its page" })
-    return done(st === "off" || st === "away" ? "attention" : "setup", screen ? screen.line : "")
+    return is("ok")
   }
-  if (!report) return done("setup", "Looking…")
-  if (!report.reachable) return done("away", "When " + name + " connects")
-  var plugins = report.plugins || {}
-  for (var i = 0; i < f.plugins.length; i++) {
-    var p = plugins[f.plugins[i]]
-    if (!p || p.offered === false) { row.switchable = false; return done("unavailable", name + " does not offer it") }
-  }
-  var off = f.plugins.filter(function(k) { return plugins[k].on === false })
-  if (off.length > 0) {
-    row.on = false
-    row.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: off.map(function(k) { return k + "=on" }).join(",") } })
-    return done("off", "")
-  }
-  // This computer's: it shows there, with its fix; here, where it is.
-  if (f.computer === "sshfs") {
-    if (!(report.files && report.files.sshfs)) {
-      row.steps.push({ kind: "computer", label: "Install " + f.computer + " on this computer" })
-      return done("setup", "Needs " + f.computer + " on this computer")
-    }
-  }
-  var perms = report.permissions
-  var missing = (f.permissions || []).filter(function(k) { return perms && perms[k] === false })
-  missing.forEach(function(k) {
+  if (kind === "permission") {
+    item.gateway = "android"; item.label = PERMISSION_NAMES[what]
+    if (!report || !report.reachable) return linked()
+    // Read over adb: unknown without it, and nothing to say then.
+    if (!report.permissions || report.permissions[what] !== false) return is("ok")
     // Granted over adb on a click; else the switch to turn on, on the device.
-    row.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[k] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: k },
-                     orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[k] })
-  })
-  // None here while the device holds several (read over adb): KDE Connect's
-  // listener went quiet (#94, our #95). Read again, then its listener bound
-  // again on the device; else the device's restart.
-  var counts = report.notifications
-  if (f.key === "notifications" && counts && counts.here === 0 && counts.device !== null && counts.device >= 3) {
-    row.steps.push({ kind: "auto", label: "Read its notifications again", fix: { verb: "device", what: "renotify" } })
-    row.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" },
-                     orAsk: "Restart " + name + ": KDE Connect stopped sending its notifications" })
-    return done("attention", name + " has " + counts.device + " notifications; none arrive here")
+    item.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[what] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: what },
+                      orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[what] })
+    return is("missing", "Needs " + PERMISSION_NAMES[what])
   }
-  if (f.key === "gallery" && report.files && report.files.mounted === false && report.files.error) {
-    row.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
-    row.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" }, fallback: true })
-    return done("attention", "Its storage did not mount: " + report.files.error)
+  if (key === "health:notifications") {
+    // None here while the device holds several (read over adb): KDE
+    // Connect's listener went quiet (#94, our #95). Read again, then its
+    // listener bound again on the device; else the device's restart.
+    item.gateway = "kdeconnect"; item.label = "notifications arriving"
+    if (!report || !report.reachable) return linked()
+    var counts = report.notifications
+    if (!(counts && counts.here === 0 && counts.device !== null && counts.device >= 3)) return is("ok")
+    item.steps.push({ kind: "auto", label: "Read its notifications again", fix: { verb: "device", what: "renotify" } })
+    item.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" },
+                      orAsk: "Restart " + name + ": KDE Connect stopped sending its notifications" })
+    return is("broken", name + " has " + counts.device + " notifications; none arrive here")
   }
-  if (row.steps.length > 0) {
-    return done("setup", "Needs " + missing.map(function(k) { return PERMISSION_NAMES[k] }).join(" and "))
+  if (key === "health:mount") {
+    item.gateway = "storage"; item.label = "its storage mounted"
+    if (!report || !report.reachable) return linked()
+    if (!(report.files && report.files.mounted === false && report.files.error)) return is("ok")
+    item.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
+    item.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" }, fallback: true })
+    return is("broken", "Its storage did not mount: " + report.files.error)
   }
-  return done("on", "")
+  if (kind === "package") {
+    // This computer's: it shows there, with its fix; here, where it is.
+    item.scope = "computer"
+    item.gateway = what === "sshfs" ? "storage" : "screen"
+    item.label = (what === "sshfs" ? "sshfs" : "scrcpy and adb") + " on this computer"
+    var c = check(what)
+    var missing = c ? !c.ok : (what === "sshfs" ? !!(report && report.files && report.files.sshfs === false) : !!(ctx.screen && ctx.screen.state === "tools"))
+    if (!missing) return is("ok")
+    // Installed from wherever it is asked (the feature's own click, or This
+    // computer): its card says what for first; it is the same item either way.
+    item.steps.push({ kind: "auto", label: "Install " + item.label + " (asks for your password)", fix: { verb: "fix", what: what } })
+    return is("missing", "Needs " + item.label)
+  }
+  if (key === "own:screen") {
+    item.gateway = "screen"; item.label = "Screen and apps turned on"
+    return ctx.own && ctx.own.screenFeature === false ? is("off", "") : is("ok")
+  }
+  if (key === "screen") {
+    item.gateway = "screen"; item.label = "the screen link"
+    var st = ctx.screen ? ctx.screen.state : "checking"
+    var line = ctx.screen ? ctx.screen.line || "" : ""
+    if (st === "checking") return is("unknown", "Looking…")
+    if (st === "ready") return is("ok", line)
+    if (st === "tools") return is("ok")   // package:screen says it
+    item.steps.push({ kind: "ask", label: line || "Set up on its page", page: "screen" })
+    // Set up once and lost (Wireless debugging off after a restart, adb not
+    // reaching it): a problem. Never set up: to set up.
+    return is(st === "off" || st === "away" ? "broken" : "missing", line)
+  }
+  return is("unknown", "")
 }
 
-function featureRows(report, screen, deviceName) {
-  return FEATURES.map(function(f) { return featureState(f, report, screen, deviceName) })
+// Every item a device's features need, once each.
+function setupItems(ctx) {
+  var keys = []
+  FEATURES.forEach(function(f) { f.needs.forEach(function(k) { if (keys.indexOf(k) < 0) keys.push(k) }) })
+  // Each step knows its item: a wait on the user's step ends when that item
+  // is done, and the rest then runs by itself.
+  return keys.map(function(k) {
+    var it = setupItem(k, ctx)
+    it.steps.forEach(function(st) { st.item = k })
+    return it
+  })
+}
+
+// A feature's row, from its items: { key, label, glyph, hint, state,
+// stateLabel, detail, steps, switchable, on, gateways, needs }. Worked
+// out the same way for every feature: away > being read > not on this
+// device > turned off > needs attention > to set up > on.
+function featureState(f, items, ctx) {
+  var by = {}
+  items.forEach(function(it) { by[it.key] = it })
+  var mine = f.needs.map(function(k) { return by[k] })
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true,
+              switchable: f.switch.length > 0, needs: f.needs.slice(),
+              gateways: mine.map(function(it) { return it.gateway }).filter(function(g, i, a) { return g && a.indexOf(g) === i }) }
+  function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
+  function first(state) { return mine.filter(function(it) { return it.state === state }) }
+  var away = first("away")
+  if (away.length > 0) return done("away", away[0].detail)
+  // Being read: the link (or the screen's) only; an item not read yet
+  // elsewhere says nothing.
+  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" })
+  var off = mine.filter(function(it) { return it.state === "off" && f.switch.indexOf(it.key) >= 0 })
+  if (off.length > 0) {
+    row.on = false
+    off.forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    return done("off", "")
+  }
+  if (reading.length > 0) return done("setup", "Looking…")
+  var unavailable = first("unavailable")
+  if (unavailable.length > 0) { row.switchable = false; return done("unavailable", unavailable[0].detail) }
+  // This computer's first (one password for its packages), then the
+  // device's; a broken item after what it needs (sshfs before a remount).
+  var missing = first("missing").sort(function(a, b) { return (a.scope === "computer" ? 0 : 1) - (b.scope === "computer" ? 0 : 1) })
+  var broken = first("broken")
+  if (broken.length > 0) {
+    missing.concat(broken).forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    return done("attention", broken[0].detail)
+  }
+  if (missing.length > 0) {
+    missing.forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    var screen = missing.filter(function(it) { return it.key === "screen" })[0]
+    return done("setup", screen ? screen.detail : "Needs " + missing.map(function(it) { return it.label }).join(" and "))
+  }
+  return done("on", f.key === "screen" && by.screen ? by.screen.detail : "")
+}
+
+// A device's setup: its items, its features from them, and its gateways
+// (each with its items and the features that use it).
+function deviceSetup(ctx) {
+  var items = setupItems(ctx)
+  var features = FEATURES.map(function(f) { return featureState(f, items, ctx) })
+  var gateways = GATEWAYS.map(function(g) {
+    var its = items.filter(function(it) { return it.gateway === g.key })
+    return { key: g.key, label: g.label, hint: g.hint, planned: !!g.planned, items: its,
+             usedBy: FEATURES.filter(function(f) { return f.needs.some(function(k) { return its.some(function(it) { return it.key === k }) }) })
+               .map(function(f) { return f.key }) }
+  })
+  return { items: items, features: features, gateways: gateways }
+}
+
+function featureRows(report, screen, deviceName, checks, own) {
+  return deviceSetup({ report: report, screen: screen, name: deviceName, checks: checks || [], own: own || {} }).features
 }
 
 // The steps one click runs for a feature (Turn on, Fix): every one the
@@ -1277,20 +1394,21 @@ function featurePlan(row) {
   return out
 }
 
-// Fix all on a device: every feature's automatic steps, each once (a
-// feature turned off stays off: its own switch turns it on).
+// Fix all on a device: every feature's automatic steps, each once, this
+// computer's installs first (one password card for them all). A feature
+// turned off stays off: its own switch turns it on.
 function fixAllPlan(rows) {
-  var seen = {}, out = []
+  var seen = {}, installs = [], rest = []
   ;(rows || []).forEach(function(r) {
     if (r.state === "on" || r.state === "unavailable" || r.state === "away" || r.state === "off") return
     featurePlan(r).forEach(function(s) {
       var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
       if (seen[id]) return
       seen[id] = true
-      out.push(s)
+      ;(s.fix.verb === "fix" && s.fix.what !== "restart" ? installs : rest).push(s)
     })
   })
-  return out
+  return installs.concat(rest)
 }
 
 // One line for a device's features: what is on, and what is left.
@@ -2039,20 +2157,50 @@ function settingsPageRows(ctx) {
 
 // What needs the user, each problem once, where its cause is: this
 // computer's failing checks (not ignored, not optional), then each
-// device's features in trouble (a feature that needs attention, or a fix
-// that did not work). `devices`: [{ id, title, rows }] (rows: Panel's
-// featureRowsFor). The status at the top of Settings, the gear's dot and
-// the main page's line all count these.
+// connected device's broken setup items (it worked and stopped), each once
+// with the features it affects (none turned off), and fixes that did not
+// work on a feature none of whose items is listed. `devices`: [{ id,
+// title, setup: deviceSetup(...), rows: its feature rows with `pending` }].
+// The status at the top of Settings, the gear's dot and the main page's
+// line all count these.
 function settingsProblems(checks, ignored, devices) {
   var out = []
   connectionRows(checks, ignored).forEach(function(c) {
     if (!c.ok && !c.optional && !c.ignored)
-      out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : "") })
+      out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : ""), steps: [] })
   })
   ;(devices || []).forEach(function(d) {
-    ;(d.rows || []).forEach(function(r) {
-      if (r.problem) out.push({ where: String(d.id), whereLabel: d.title, key: r.key, label: r.label,
-                                detail: r.pending && r.pending.failed ? r.pending.text : (r.detail || "") })
+    var rows = d.rows || [], setup = d.setup || { items: [] }
+    var shown = {}
+    setup.items.forEach(function(it) {
+      if (it.state !== "broken") return
+      var affects = rows.filter(function(r) { return r.needs.indexOf(it.key) >= 0 && r.state !== "off" && r.state !== "unavailable" })
+      if (affects.length === 0) return
+      affects.forEach(function(r) { shown[r.key] = true })
+      var gateway = GATEWAYS.filter(function(g) { return g.key === it.gateway })[0]
+      var tried = affects.map(function(r) { return r.pending && r.pending.tried ? r.pending.tried : "" }).filter(function(t) { return t })[0] || ""
+      out.push({ where: String(d.id), whereLabel: d.title, key: it.key, label: affects.map(function(r) { return r.label }).join(", "),
+                 gateway: gateway ? gateway.label : "", detail: it.detail, steps: it.steps, tried: tried,
+                 affects: affects.map(function(r) { return r.key }) })
+    })
+    rows.forEach(function(r) {
+      if (shown[r.key] || !(r.pending && r.pending.failed)) return
+      out.push({ where: String(d.id), whereLabel: d.title, key: "feature:" + r.key, label: r.label, detail: r.pending.text,
+                 steps: r.steps || [], tried: r.pending.tried || "", affects: [r.key] })
+    })
+  })
+  return out
+}
+
+// Fix all on Settings' status: what it lists, each step once.
+function problemsPlan(problems) {
+  var seen = {}, out = []
+  ;(problems || []).forEach(function(p) {
+    featurePlan(p).forEach(function(s) {
+      var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
+      if (seen[id]) return
+      seen[id] = true
+      out.push(s)
     })
   })
   return out

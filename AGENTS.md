@@ -222,16 +222,32 @@ Keep them; change one only with the owner.
   edits the flat keys. Identity (nickname, icon, bar, tab) is never
   inherited. Moving a device writes down how each one shows in the bar,
   so moving never changes it.
+- **Features, gateways and setup items are three things**
+  (`docs/design/setup.md` section 4, #128): a feature is what the user
+  gets; a gateway is how the plugin gets it (KDE Connect, Android's
+  permissions, the storage link, the screen link; Bluetooth planned); a
+  setup item is what a gateway needs, checked once where it lives (this
+  computer or the device). Features list the items they need
+  (`Model.FEATURES` `needs`) and the ones their switch turns off, only
+  their own (`switch`); every state comes from the items
+  (`Model.deviceSetup`). A new source is a gateway with its items, never a
+  branch for one feature.
+- **One switch gets a feature working.** Turning a feature on runs every
+  step the plugin can, across its gateways, this computer's packages
+  first (one password card for them); it stops only at a step the user
+  must do, waits for it where it can be seen, and then carries on by
+  itself. A step that needs a page of its own (the screen link's pairing)
+  opens that page.
 - **A problem shows once, where its cause is**, and is counted the same
   everywhere (`Model.settingsProblems`): this computer's failing checks
-  (not optional, not ignored) and connected devices' features that need
-  attention or whose fix did not work. Settings' status lists them; the
-  gear's dot and a line at the top of the main page (folding in) count
-  them. This computer holds only this computer (a package installed is
-  all it says of the screen or the gallery); a feature that needs
-  something here says so and its button opens This computer. *Fix all*
-  runs what its page is about: the status everything, This computer its
-  checks, a device's page that device.
+  (not optional, not ignored) and connected devices' broken items (they
+  worked and stopped), each once with the features it affects (none
+  turned off), and fixes that did not work. Settings' status lists them;
+  the gear's dot and a line at the top of the main page (folding in)
+  count them. This computer holds only this computer; a package installed
+  is all it says of the screen or the gallery. *Fix all* runs what its
+  page is about: the status what it lists, This computer its checks, a
+  device's page that device.
 - **The gallery and received files are read, never kept beyond the cache**
   (two sections, Gallery and Received, each gone while it has nothing).
   The gallery is read from the device's storage (KDE Connect's sftp, which

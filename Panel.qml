@@ -677,40 +677,59 @@ Panel {
   }
   readonly property var setupChecks: phone ? phone.setupChecks : []
   readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
-  // ---- What a device can do (docs/design/setup.md): its features from
-  //      its sources, a state each, one action that just works ----
+  // ---- What a device can do (docs/design/setup.md, #128): its gateways,
+  //      their setup items, and its features from them; one action each ----
   function screenBrief(id) {
-    if (!screenOnFor(id)) return { state: "disabled", line: "" }
     var st = phone ? phone.screenOf(String(id)) : null
     if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
     // This computer's checks not in yet (just started): still looking.
     return screenInstalled || setupChecks.length === 0 ? null : { state: "tools", line: "Needs scrcpy and adb here" }
   }
-  // Each row with what a fix left (pending: a step for the user, waiting
-  // or to check again; or it did not work) and whether it is a problem
-  // (Fix and Fix with AI show on every problem, always).
-  // Every paired device's rows, worked out once per change and only while
-  // the panel is open (each panel has its own; the rest read from here).
-  readonly property var featureRowsById: {
+  // Every paired device's setup (Model.deviceSetup: items, features,
+  // gateways), worked out once per change and only while the panel is open
+  // (each panel has its own; the rest read from here). Each feature row
+  // carries what a fix left (pending: a step for the user, waiting or to
+  // check again; or it did not work) and whether it is a problem (Fix and
+  // Fix with AI show on every problem, always).
+  readonly property var setupById: {
     var out = {}
     if (!opened || !phone) return out
     var pend = phone.featurePending
     pairedDevices.forEach(function(d) {
       var id = String(d.id)
-      out[id] = Model.featureRows(phone.featureReports[id] || null, screenBrief(id), Model.deviceLabel(d)).map(function(r) {
+      var setup = Model.deviceSetup({ report: phone.featureReports[id] || null, screen: screenBrief(id), name: Model.deviceLabel(d),
+                                      checks: setupChecks, own: { screenFeature: screenOnFor(id) } })
+      setup.features = setup.features.map(function(r) {
         var p = pend[id + ":" + r.key] || null
         if (p && r.state === "on") p = null   // done: nothing pending
         return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed) })
       })
+      out[id] = setup
     })
     return out
   }
+  readonly property var featureRowsById: {
+    var out = {}
+    Object.keys(setupById).forEach(function(id) { out[id] = setupById[id].features })
+    return out
+  }
   function featureRowsFor(d) { return d ? (featureRowsById[String(d.id)] || []) : [] }
-  // Pending steps that are done (the feature is on now) go, every device's.
+  // Pending steps that are done go, every device's: the feature is on, or
+  // the user's step it waited for is done, and then the rest runs by itself
+  // (one switch gets it working).
   onFeatureRowsByIdChanged: {
     if (!phone) return
     Object.keys(featureRowsById).forEach(function(id) {
-      featureRowsById[id].forEach(function(r) { if (r.state === "on" && phone.pendingFor(id, r.key)) phone.setPending(id, r.key, null) })
+      featureRowsById[id].forEach(function(r) {
+        var p = phone.pendingFor(id, r.key)
+        if (!p) return
+        if (r.state === "on") { phone.setPending(id, r.key, null); return }
+        if (p.wait && p.waitFor && !(r.steps || []).some(function(s) { return s.item === p.waitFor })) {
+          phone.setPending(id, r.key, null)
+          var d = phone.findDevice(id)
+          if (d) Qt.callLater(function() { root.featureAction(r, d) })
+        }
+      })
     })
   }
   // Fix with AI: what is wrong, and what the plugin's own fix did.
@@ -722,8 +741,7 @@ Panel {
     else if (what === "feature") list = [aiProblem(settingsRows[index])]
     else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
     else if (what === "all") list = allProblems.map(function(p) {
-      var r = p.where === "computer" ? null : featureRowsFor(phone.findDevice(p.where)).filter(function(x) { return x.key === p.key })[0]
-      return { label: p.label + " (" + p.whereLabel + ")", detail: p.detail, tried: r && r.pending ? r.pending.tried : "" }
+      return { label: p.label + (p.gateway ? " via " + p.gateway : "") + " (" + p.whereLabel + ")", detail: p.detail, tried: p.tried || "" }
     })
     else if (what === "gallery") list = [{ label: "Gallery", detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
     if (list.length === 0) return
@@ -736,7 +754,7 @@ Panel {
   // count them.
   readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
     pairedDevices.filter(function(d) { return d.reachable === true }).map(function(d) {
-      return { id: String(d.id), title: Model.deviceLabel(d), rows: featureRowsFor(d) }
+      return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
   readonly property int settingsIssues: allProblems.length
   // Every connected device's features, read when the panel opens (the
@@ -751,29 +769,43 @@ Panel {
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
   // the user can do (said in the row, or as the result).
-  function featureAction(row) {
-    var d = featureDevice()
+  // `d`: the device (else the page's).
+  function featureAction(row, d) {
+    d = d || featureDevice()
     if (!d || !phone || !row) return
-    if (row.key === "screen") { openScreenSetup(String(d.id)); return }
-    // Blocked by this computer: its fix is there, shown once.
-    if ((row.steps || [])[0] && row.steps[0].kind === "computer") { openConnection(); return }
     var plan = Model.featurePlan(row)
+    var rest = (row.steps || [])[plan.length]
+    var id = String(d.id)
+    // A step on a page of its own (the screen link's pairing): that page,
+    // once every step before it is done.
+    if (rest && rest.page) {
+      if (plan.length === 0) openStepPage(rest.page, id)
+      else phone.runSteps(id, plan, "feature:" + row.key, null, function(ok) { if (ok && root.opened) root.openStepPage(rest.page, id) })
+      return
+    }
     // What is left after them: the step only the user can do, shown in the
     // row (waiting for it where it can be seen, else Check again).
-    var rest = (row.steps || [])[plan.length]
     var left = rest ? { text: rest.orAsk || rest.label, wait: false } : null
-    if (plan.length > 0) phone.runSteps(String(d.id), plan, "feature:" + row.key, left)
-    else if (left) phone.setPending(String(d.id), row.key, Object.assign({ at: Date.now(), failed: false, tried: "" }, left))
+    if (plan.length > 0) phone.runSteps(id, plan, "feature:" + row.key, left)
+    else if (left) phone.setPending(id, row.key, Object.assign({ at: Date.now(), failed: false, tried: "" }, left))
   }
-  // Off: its KDE Connect plugins off for this device, so it stops sending it.
+  function openStepPage(page, id) {
+    if (page === "connection") openConnection()
+    else if (page === "screen") openScreenSetup(id)
+  }
+  // A feature's switch: its own items only (Model.FEATURES' switch). KDE
+  // Connect's plugins on or off for this device (it stops sending it), or
+  // the plugin's own flag (Screen and apps).
   function featureSwitch(row, on) {
     var d = featureDevice()
     if (!d || !phone || !row) return
-    if (row.key === "screen") { setScreenFeature(String(d.id), on); return }
-    if (on) { featureAction(row); return }
     var f = Model.FEATURES.filter(function(x) { return x.key === row.key })[0]
-    if (!f || !f.plugins) return
-    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: f.plugins.map(function(k) { return k + "=off" }).join(",") } }],
+    if (!f) return
+    if (f.switch.indexOf("own:screen") >= 0) setScreenFeature(String(d.id), on)
+    var plugins = f.switch.filter(function(k) { return k.indexOf("plugin:") === 0 }).map(function(k) { return k.slice(7) })
+    if (plugins.length === 0) return
+    if (on) { featureAction(row); return }
+    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
                    "feature:" + row.key)
   }
   // Fix all, for what the page is about: Settings' status everything (this
@@ -794,7 +826,7 @@ Panel {
     // No device to read again after: "this computer" runs it.
     if (settingsScope === "connection") return [{ id: "computer", steps: computer }]
     var plans = connected.map(function(d) {
-      return { id: String(d.id), steps: Model.fixAllPlan(featureRowsFor(d).filter(function(r) { return r.problem })) }
+      return { id: String(d.id), steps: Model.problemsPlan(allProblems.filter(function(p) { return p.where === String(d.id) })) }
     })
     return [{ id: "computer", steps: computer }].concat(plans)
   }

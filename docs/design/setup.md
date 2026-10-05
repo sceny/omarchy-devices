@@ -48,26 +48,28 @@
 
 A check the user ignored (*Ignore*, `ignoredChecks`) stops lighting the dot.
 
-## 4. The model (`Model.js`: `FEATURES`, `featureStates`)
+## 4. The model (`Model.js`: `GATEWAYS`, `FEATURES`, `deviceSetup`; #128)
 
-One table says what each feature needs; every state is worked out from the
-bridge's report (`doctor`, now per device), never set by hand:
+Three layers, read from the bridge's reports (`doctor`, `features`,
+`screen`), never set by hand:
 
-| Feature | KDE Connect plugins | Permissions (Android) | Other sources |
-|---|---|---|---|
-| Notifications | notifications | notification access | |
-| Messages | sms | SMS | |
-| Names | contacts | contacts | |
-| Now playing | mprisremote | notification access | |
-| Calls | telephony | phone, call log | *planned:* Bluetooth (#59) |
-| Gallery | sftp | all files access | sshfs here |
-| Files it sends | share | | |
-| Clipboard | clipboard | | |
-| Ring | findmyphone | | |
-| Battery | battery | | |
-| Screen and apps | | | scrcpy and adb here; Wireless debugging; adb pairing |
+- **Gateways**: how the plugin gets something from a device.
+- **Setup items**: what a gateway needs, each checked once where it lives,
+  with its remedies; states ok, missing, broken (it worked and stopped),
+  off, unavailable, unknown, away.
+- **Features**: what the user gets, from the items they need.
 
-Everything reads the same states: the device page's rows, Settings'
+| Gateway | Setup items (where) | Features |
+|---|---|---|
+| KDE Connect | the link (device); a plugin per feature (device); notifications arriving (device, health) | all but Screen and apps |
+| Android permissions | notification access, SMS, contacts, phone, all files access (device, over adb or a tap) | Notifications, Now playing, Messages, Names, Calls, Gallery |
+| Storage link | sshfs (this computer); its storage mounted (device, health) | Gallery |
+| Screen link | scrcpy and adb (this computer); Wireless debugging and adb pairing (device); Screen and apps on (the plugin's switch) | Screen and apps |
+| *planned:* Bluetooth | BlueZ and audio here; paired for calls | Calls with audio (#59) |
+
+A feature's state comes from its items the same way for every feature:
+away > being read > turned off > not on this device > needs attention >
+to set up > on. Everything reads it: the device page's rows, Settings'
 status, the gear dot, the main page's line, *Fix all*, *Fix with AI*.
 
 ## 5. Just works
@@ -75,10 +77,10 @@ status, the gear dot, the main page's line, *Fix all*, *Fix with AI*.
 A feature's one action (*Turn on*, *Fix*) runs every step the plugin can do,
 in order, and stops at the first one only the user can do:
 
-1. KDE Connect's plugins on for this device (`setPluginEnabled`);
-2. a package this computer needs (sshfs, scrcpy) is This computer's: the
-   row says so and its button goes there, where its fix asks for the
-   password once, after a card says what for;
+1. a package this computer needs (sshfs, scrcpy), first and in one
+   password prompt after a card says what for: the same item This
+   computer shows;
+2. KDE Connect's plugins on for this device (`setPluginEnabled`);
 3. the phone's permissions, granted over adb when the screen is set up
    (`pm grant`, the notification listener, all files access), else the one
    tap to do on the phone;
@@ -115,10 +117,10 @@ Settings
   this computer (KDE Connect, the firewall, the network, the packages); a
   device's page holds that device (its features, its permissions, Wireless
   debugging, its mount). A feature that needs something here says so
-  (*Needs sshfs on this computer*) and its button opens This computer.
+  (*Needs sshfs on this computer*), and its one click installs it.
 - **The status** lists every problem (Model.settingsProblems: a check
-  failing here, not optional nor ignored; a feature that needs attention
-  or a fix that did not work, on a connected device). The gear's dot and
+  failing here, not optional nor ignored; a broken item on a connected
+  device, once with the features it affects; a fix that did not work). The gear's dot and
   a line at the top of the main page count the same list.
 - **Fix all** runs what its page is about: the status everything (this
   computer first, one password), This computer its checks, a device's

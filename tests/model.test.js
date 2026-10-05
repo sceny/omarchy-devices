@@ -514,16 +514,17 @@ test("settings rows: one shape whatever the count: My devices, For all devices w
 test("settings status: each problem once, where its cause is; a device's line and This computer say so", () => {
   const checks = [{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed", fix: "firewall" },
     { key: "network", ok: true }, { key: "screen", ok: false, optional: true, status: "Not installed" }]
-  const rows = M.featureRows(Object.assign(M.demoFeatures(), { files: { sshfs: true, mounted: false, error: "gone" } }), { state: "ready", line: "" }, "Pixel 8")
-    .map(r => Object.assign({}, r, { problem: r.state === "attention" }))
-  const problems = M.settingsProblems(checks, [], [{ id: "p1", title: "Pixel 8", rows }])
-  assert.deepEqual(problems.map(p => [p.where, p.key]), [["computer", "firewall"], ["p1", "gallery"]], "an optional package missing is not a problem")
+  const setup = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { files: { sshfs: true, mounted: false, error: "gone" } }), screen: { state: "ready", line: "" },
+                                name: "Pixel 8", checks })
+  const problems = M.settingsProblems(checks, [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }])
+  assert.deepEqual(problems.map(p => [p.where, p.key]), [["computer", "firewall"], ["p1", "health:mount"]], "an optional package missing is not a problem")
+  assert.deepEqual([problems[1].label, problems[1].gateway, problems[1].affects], ["Gallery", "Storage link", ["gallery"]], "the item, its gateway, what it affects")
   assert.equal(M.settingsProblems(checks, ["firewall"], []).length, 0, "an ignored check is not either")
   assert.equal(M.problemsLine(problems), "2 things need you")
   assert.equal(M.problemsLine([]), "Everything works")
   const list = M.devicesListRows(snap(phone()), M.readSettings({}), 15)
   const root = M.settingsPageRows({ scope: "root", single: true, devices: list, problems })
-  assert.deepEqual(root.filter(r => r.kind === "problem").map(r => r.key), ["firewall", "gallery"], "the status leads")
+  assert.deepEqual(root.filter(r => r.kind === "problem").map(r => r.key), ["firewall", "health:mount"], "the status leads")
   assert.equal(root.find(r => r.kind === "device").issues, 1)
   assert.match(root.find(r => r.kind === "device").status, /1 needs attention$/)
 })
@@ -1053,12 +1054,12 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual([gallery.state, gallery.steps.map(s => s.fix.what), gallery.steps.map(s => !!s.fallback)], ["attention", ["remount", "restart"], [false, true]],
                    "#99: mount again; KDE Connect restarted only when that did not work")
   const noSshfs = M.featureRows(Object.assign({}, report, { files: { sshfs: false } }), null, "Pixel 8").find(r => r.key === "gallery")
-  assert.deepEqual([noSshfs.state, noSshfs.steps[0].kind, noSshfs.detail], ["setup", "computer", "Needs sshfs on this computer"],
-                   "this computer's step points there: its fix shows once, on This computer")
+  assert.deepEqual([noSshfs.state, noSshfs.steps[0].fix, noSshfs.detail], ["setup", { verb: "fix", what: "sshfs" }, "Needs sshfs on this computer"],
+                   "one click installs it (its card first), the same item This computer shows")
   assert.deepEqual(M.featurePlan({ steps: [{ kind: "auto", fix: { what: "a" } }, { kind: "ask" }, { kind: "auto", fix: { what: "b" } }] }).map(s => s.fix.what), ["a"],
                    "up to the first step only the user can do")
   const all = M.fixAllPlan(M.featureRows(Object.assign({}, dead, { files: { sshfs: false, mounted: false, error: "x" } }), { state: "tools", line: "" }, "Pixel 8"))
-  assert.ok(!all.some(s => s.fix.what === "sshfs" || s.fix.what === "screen"), "a device's Fix all runs its own steps: this computer's are This computer's")
+  assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
   assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
@@ -1073,8 +1074,11 @@ test("settings: a device's page lists what it can do; This computer", () => {
 })
 
 test("screen and apps can be turned off per device: its switch, no problem, read from the profile", () => {
-  const off = M.featureRows(M.demoFeatures(), { state: "disabled", line: "" }, "Pixel 8").find(r => r.key === "screen")
+  const offSetup = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "off", line: "Wireless debugging is off" }, name: "Pixel 8", own: { screenFeature: false } })
+  const off = offSetup.features.find(r => r.key === "screen")
   assert.deepEqual([off.state, off.on, off.switchable], ["off", false, true])
+  assert.equal(M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: offSetup, rows: offSetup.features }]).length, 0,
+               "its link broken while it is turned off: not a problem")
   const on = M.featureRows(M.demoFeatures(), { state: "off", line: "Wireless debugging is off" }, "Pixel 8").find(r => r.key === "screen")
   assert.deepEqual([on.state, on.switchable], ["attention", true], "on, it can be turned off too")
   assert.equal(M.fixAllPlan([off]).length, 0, "turned off: nothing to fix")
@@ -1083,6 +1087,29 @@ test("screen and apps can be turned off per device: its switch, no problem, read
   const two = M.readSettings({ devices: { t1: { screenFeature: false } } })
   assert.equal(M.resolveProfile(two, tablet(), false).screenFeature, false)
   assert.equal(M.resolveProfile(two, phone(), true).screenFeature, true, "on unless turned off")
+})
+
+test("setup items: one item serves several features and shows once; gateways say what uses them", () => {
+  const report = Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } })
+  const setup = M.deviceSetup({ report, screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const by = k => setup.features.find(r => r.key === k)
+  assert.deepEqual([by("notifications").state, by("media").state], ["setup", "setup"], "notification access serves both")
+  assert.equal(setup.items.filter(it => it.key === "permission:notifications").length, 1, "checked once")
+  assert.deepEqual(M.fixAllPlan(setup.features).filter(s => s.fix.what === "grant").length, 1, "allowed once")
+  assert.equal(by("notifications").steps[0].item, "permission:notifications", "a step knows its item: a wait on it ends when it is done")
+  const android = setup.gateways.find(g => g.key === "android")
+  assert.deepEqual(android.usedBy, ["notifications", "messages", "names", "media", "calls", "gallery"])
+  assert.deepEqual(by("gallery").gateways, ["kdeconnect", "storage", "android"], "a feature names the gateways it goes through")
+  assert.deepEqual(by("screen").gateways, ["screen"])
+  assert.ok(setup.gateways.find(g => g.key === "bluetooth").planned)
+  // A broken shared item: once, with every feature it affects.
+  const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: quiet, rows: quiet.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.affects.join()]), [["health:notifications", "notifications"]])
+  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["renotify", "relisten"])
+  // Before anything is read: looking, never a problem.
+  const none = M.deviceSetup({ report: null, screen: null, name: "Pixel 8" })
+  assert.ok(none.features.every(r => r.state === "setup" && r.detail === "Looking…"))
 })
 
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
