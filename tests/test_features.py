@@ -110,10 +110,9 @@ class RootPlans(unittest.TestCase):
         self.assertEqual((plan["commands"], plan["actions"][0]), ([], "Nothing to install: kdeconnect already here"))
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24")
-        self.assertEqual(len(plan["actions"]), 2)
-        self.assertTrue(all("from 192.168.5.0/24" in a for a in plan["actions"]))
-        self.assertIn("192.168.5.0/24", plan["commands"][0][-1])
+        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=[])
+        self.assertTrue(plan["actions"] and all("192.168.5.0/24" not in a or "from 192.168.0.0/16" in a for a in plan["actions"]))
+        self.assertIn("from 192.168.0.0/16", plan["commands"][0][-1], "the private range around this network (test_network has the rest)")
 
     def test_runs_only_the_plan_shown(self):
         self.assertEqual(bridge.run_root("sshfs", ""), bridge.EXIT_FAILED, "no hash: nothing runs")

@@ -31,6 +31,11 @@ Column {
   property bool screenOpen: false
   signal screenPlaceChosen(bool docked)
   signal appSoundChosen(string sound)
+  // From anywhere (scope "reach"): the page's model (Model.reachSetup), and
+  // an address typed on it.
+  property var reachSetup: null
+  signal reachAddressSet(string text)
+  signal reachFieldFocus(bool focused)
   // What it can do: a feature's one action, its switch; Fix all.
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
@@ -126,6 +131,9 @@ Column {
   // The user's click or Enter on the Nickname row only (never scripted).
   function editNickname() { if (nicknameField) nicknameField.forceActiveFocus() }
   property var nicknameField: null
+  // The same for From anywhere's address field.
+  function editReachAddress() { if (reachField) reachField.forceActiveFocus() }
+  property var reachField: null
 
   spacing: Style.space(6)
 
@@ -640,6 +648,37 @@ Column {
     }
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
+
+  // ---- From anywhere: where it stands, the steps, then the page's actions
+  //      (an address field among them, in their order) ----
+  ReachSetup {
+    visible: root.scopeKind === "reach"
+    width: root.width
+    setup: root.reachSetup
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+  }
+  Repeater {
+    model: root.scopeKind === "reach" ? root.rows : []
+    Column {
+      id: reachRow
+      required property var modelData
+      required property int index
+      width: root.width
+      ListRow {
+        visible: reachRow.modelData.field !== true
+        width: parent.width
+        row: reachRow.modelData
+        rowIndex: reachRow.index
+      }
+      AddressRow {
+        visible: reachRow.modelData.field === true
+        width: parent.width
+        row: reachRow.modelData
+        rowIndex: reachRow.index
+      }
+    }
+  }
 
   // ---- Screen and apps: the steps, then the page's actions ----
   ScreenSetup {
@@ -1520,12 +1559,81 @@ Column {
     }
   }
 
+  // From anywhere's address (#8): typed here; Enter gives it to KDE
+  // Connect, Esc leaves it as it was.
+  component AddressRow: CursorSurface {
+    id: addrRow
+    property var row: ({})
+    property int rowIndex: -1
+    hasCursor: false
+    CursorStop { here: root.cursorIndex === addrRow.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    implicitHeight: addrContent.implicitHeight + Style.space(12)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.hovered(addrRow.rowIndex)
+      onClicked: root.activated(addrRow.rowIndex)
+    }
+
+    RowLayout {
+      id: addrContent
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(10)
+      spacing: Style.space(10)
+
+      ColumnLayout {
+        Layout.fillWidth: true
+        spacing: Style.space(1)
+        Text {
+          textFormat: Text.PlainText
+          Layout.fillWidth: true
+          text: addrRow.row.label || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+        }
+        Text {
+          textFormat: Text.PlainText
+          Layout.fillWidth: true
+          text: addrRow.row.hint || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.caption
+          wrapMode: Text.WordWrap
+        }
+      }
+      PanelField {
+        id: addr
+        Layout.preferredWidth: Style.space(150)
+        Layout.alignment: Qt.AlignVCenter
+        text: addrRow.row.value || ""
+        placeholderText: "100.101.102.103"
+        foreground: root.foreground
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        Component.onCompleted: root.reachField = addr
+        onActiveFocusChanged: root.reachFieldFocus(activeFocus)
+        onAccepted: { root.reachAddressSet(text); root.reachFieldFocus(false) }
+        escapeStep: "revert"
+        savedText: addrRow.row.value || ""
+        onSteppedOut: root.reachFieldFocus(false)
+      }
+    }
+  }
+
   component FeatureRow: CursorSurface {
     id: featureRow
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
-    readonly property bool acts: (row.steps || []).length > 0
+    readonly property bool acts: (row.steps || []).length > 0 || !!row.page
     hasCursor: false
     CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
@@ -1638,8 +1746,9 @@ Column {
             // Not while it waits for the user's step: nothing to press again.
             visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
                                          || featureRow.row.problem === true)
-            // A step on its own page (the screen link's): Set up there.
-            readonly property bool onPage: !!((featureRow.row.steps || [])[0] || {}).page
+            // A step on its own page (the screen link's), or a feature with
+            // a page (From anywhere): Set up there.
+            readonly property bool onPage: !!featureRow.row.page || !!((featureRow.row.steps || [])[0] || {}).page
             text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : onPage ? "Set up" : "Turn on")
             enabled: !featureRow.working
             tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
@@ -1669,6 +1778,15 @@ Column {
         busy: featureRow.working
         foreground: root.foreground
         onToggled: root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
+      }
+      // A page of its own (From anywhere): the row opens it.
+      Text {
+        visible: !!featureRow.row.page
+        text: Model.GLYPH.chevronRight
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.icon
+        Layout.alignment: Qt.AlignVCenter
       }
     }
   }

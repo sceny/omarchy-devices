@@ -50,6 +50,7 @@ var GLYPH = {
   chevronRight: "\u{F0142}",
   chevronDown: "\u{F0140}",
   wifi: "\u{F05A9}",
+  anywhere: "\u{F059F}",     // web: reach it on any network (#119)
   wifiOff: "\u{F05AA}",
   bluetooth: "\u{F00AF}",
   volume: "\u{F057E}",       // volume-high
@@ -1092,12 +1093,12 @@ function shortcutsSummary(order) {
 // page); its paired and connected checks are the devices' own pages'
 // business, and so is anything a device must do (Wireless debugging, a
 // permission): a problem shows once, where its cause is.
-var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen", "sshfs"]
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "mesh", "screen", "sshfs"]
 // Short names: the status beside each says the rest ("Running", "Closed").
 // One row per thing on this computer, named after it: a service's checks
 // (KDE Connect: installed, running) become one row that says which state it
 // is in, so other services (Bluetooth, scrcpy) can each have theirs.
-var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", mesh: "Mesh network", screen: "Screen tools", sshfs: "Gallery tools" }
 
 function computerChecks(checks) {
   var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })
@@ -1189,13 +1190,16 @@ var GATEWAYS = [
   { key: "android", label: "Android permissions", hint: "What KDE Connect may do on the device" },
   { key: "storage", label: "Storage link", hint: "Its storage, mounted here (KDE Connect's sftp, sshfs)" },
   { key: "screen", label: "Screen link", hint: "adb to the device, and scrcpy here" },
+  { key: "network", label: "Network", hint: "How this computer reaches it: Wi-Fi, or a mesh (Tailscale, NordVPN Meshnet) on any network" },
   { key: "bluetooth", label: "Bluetooth", planned: true, hint: "For calls with their audio here (#59)" }
 ]
 
 var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
 
 // needs: the setup items it uses; switch: the items its switch turns off,
-// only its own (a shared one, such as notification access, never).
+// only its own (a shared one, such as notification access, never). page:
+// its own page (its row opens it; Fix all leaves it to the user unless it
+// broke). onDetail: the item whose detail its row shows when on.
 var FEATURES = [
   { key: "notifications", label: "Notifications", glyph: GLYPH.bell, hint: "Its notifications here, with reply",
     needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"] },
@@ -1214,7 +1218,9 @@ var FEATURES = [
   { key: "ring", label: "Ring", glyph: GLYPH.ring, hint: "Ring it, even on silent", needs: ["link", "plugin:findmyphone"], switch: ["plugin:findmyphone"] },
   { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"] },
   { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, hint: "Its screen and apps in windows here",
-    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"] }
+    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"], onDetail: "screen" },
+  { key: "reach", label: "From anywhere", glyph: GLYPH.anywhere, hint: "Reach it on any network, through a mesh such as Tailscale",
+    needs: ["mesh", "reach:mesh"], switch: [], page: "reach", onDetail: "reach:mesh" }
 ]
 
 // One word for each state, everywhere.
@@ -1315,6 +1321,51 @@ function setupItem(key, ctx) {
     item.steps.push({ kind: "auto", label: "Install " + item.label + " (asks for your password)", fix: { verb: "fix", what: what } })
     return is("missing", "Needs " + item.label)
   }
+  if (key === "mesh") {
+    // This computer's mesh, one for every device (This computer's row):
+    // Tailscale through Omarchy's own installer, signed in there; on, its
+    // interface let through the firewall.
+    item.scope = "computer"; item.gateway = "network"; item.label = "a mesh on this computer"
+    var m = check("mesh")
+    if (!m) return is("unknown", "Looking…")
+    if (m.ok) return is("ok", m.status || "")
+    if (m.fix === "firewall") {
+      item.steps.push({ kind: "auto", label: "Let " + (m.status || "the mesh") + " through the firewall (asks for your password)", fix: { verb: "fix", what: "firewall" } })
+      return is("missing", m.detail || "The firewall keeps the mesh out")
+    }
+    item.steps.push({ kind: "auto", label: "Set up Tailscale with Omarchy's installer (in a terminal, with your password)", fix: { verb: "fix", what: "tailscale" } })
+    item.steps.push({ kind: "ask", label: "Sign in to Tailscale in the page it opens; this goes on by itself after", wait: true })
+    return is("missing", "Needs a mesh on this computer: Tailscale")
+  }
+  if (key === "reach:mesh") {
+    // The device's address on the mesh, given to KDE Connect (its custom
+    // devices): KDE Connect then reaches it on any network.
+    item.gateway = "network"; item.label = name + "'s address away from home"
+    if (!report) return is("unknown", "Looking…")
+    var net = report.network
+    if (!net) return is("unknown", "")
+    var peer = net.peer
+    var on = (net.meshes || []).filter(function(x) { return x.on })
+    if (peer && net.added) return is("ok", peer.label + " · " + peer.address)
+    // An address the user typed on its page (#8) does the same.
+    if (!peer && net.typed && net.typedKept) return is("ok", "At " + net.typed)
+    if (peer) {
+      item.steps.push({ kind: "auto", label: "Point KDE Connect at " + name + "'s " + peer.label + " address", fix: { verb: "device", what: "reach" } })
+      // Given before and gone, or the device's address changed: it worked
+      // and stopped.
+      if (net.given && (!net.givenKept || net.given !== peer.address))
+        return is("broken", net.givenKept ? "Its " + peer.label + " address changed" : "KDE Connect lost its " + peer.label + " address")
+      return is("missing", "KDE Connect does not know its " + peer.label + " address yet")
+    }
+    if (on.length > 0 && (net.candidates || []).length > 0) {
+      item.steps.push({ kind: "ask", label: "Pick " + name + " among your " + on[0].label + " devices", page: "reach" })
+      return is("missing", "Which of your " + on[0].label + " devices is " + name + "?")
+    }
+    var meshnet = on.length > 0 && on[0].mesh === "meshnet"
+    item.steps.push({ kind: "ask", wait: true, label: "On " + name + ": " + (meshnet ? "open NordVPN and turn Meshnet on" : "install Tailscale from its store and sign in")
+                      + ", with the same account as this computer" })
+    return is("missing", on.length > 0 ? name + " is not on your " + on[0].label + " yet" : "Needs a mesh")
+  }
   if (key === "own:screen") {
     item.gateway = "screen"; item.label = "Screen and apps turned on"
     return ctx.own && ctx.own.screenFeature === false ? is("off", "") : is("ok")
@@ -1355,7 +1406,7 @@ function featureState(f, items, ctx) {
   var by = {}
   items.forEach(function(it) { by[it.key] = it })
   var mine = f.needs.map(function(k) { return by[k] })
-  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true,
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true, page: f.page || "",
               switchable: f.switch.length > 0, needs: f.needs.slice(),
               gateways: mine.map(function(it) { return it.gateway }).filter(function(g, i, a) { return g && a.indexOf(g) === i }) }
   function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
@@ -1364,7 +1415,7 @@ function featureState(f, items, ctx) {
   if (away.length > 0) return done("away", away[0].detail)
   // Being read: the link (or the screen's) only; an item not read yet
   // elsewhere says nothing.
-  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" })
+  var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" || it.gateway === "network" })
   var off = mine.filter(function(it) { return it.state === "off" && f.switch.indexOf(it.key) >= 0 })
   if (off.length > 0) {
     row.on = false
@@ -1387,7 +1438,7 @@ function featureState(f, items, ctx) {
     var screen = missing.filter(function(it) { return it.key === "screen" })[0]
     return done("setup", screen ? screen.detail : "Needs " + missing.map(function(it) { return it.label }).join(" and "))
   }
-  return done("on", f.key === "screen" && by.screen ? by.screen.detail : "")
+  return done("on", f.onDetail && by[f.onDetail] ? by[f.onDetail].detail : "")
 }
 
 // A device's setup: its items, its features from them, and its gateways
@@ -1427,6 +1478,9 @@ function fixAllPlan(rows) {
   var seen = {}, installs = [], rest = []
   ;(rows || []).forEach(function(r) {
     if (r.state === "on" || r.state === "unavailable" || r.state === "away" || r.state === "off") return
+    // A feature with a page of its own is set up there, by choice; broken,
+    // it is fixed with the rest.
+    if (r.page && r.state !== "attention") return
     featurePlan(r).forEach(function(s) {
       var id = s.fix.verb + ":" + s.fix.what + ":" + (s.fix.arg || "")
       if (seen[id]) return
@@ -1456,7 +1510,7 @@ function demoFeatures() {
   })
   return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
            permissions: { notifications: true, sms: true, contacts: false, phone: true, storage: true },
-           files: { sshfs: true, mounted: true, error: "" } }
+           files: { sshfs: true, mounted: true, error: "" }, network: demoNetwork("") }
 }
 
 // ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
@@ -1674,6 +1728,118 @@ function demoScreen(kind) {
   return { state: kind || "pair", tools: tools, via: "", android: "", sdk: 0, apps: false, wireless: true }
 }
 
+// ---- From anywhere: the device's network (#119, #8) ----
+
+var LINK_WORDS = { lan: "Wi-Fi", tailscale: "Tailscale", meshnet: "NordVPN Meshnet", mesh: "a mesh", bluetooth: "Bluetooth",
+                   network: "the network", usb: "USB", wifi: "Wi-Fi" }
+
+// How KDE Connect reaches it now, in words: "Wi-Fi", "Tailscale", "Wi-Fi
+// and Bluetooth"; "" when it does not.
+function linkText(links) {
+  var words = []
+  ;(links || []).forEach(function(l) { var w = LINK_WORDS[l.kind] || ""; if (w && words.indexOf(w) < 0) words.push(w) })
+  return words.length <= 1 ? (words[0] || "") : words.slice(0, -1).join(", ") + " and " + words[words.length - 1]
+}
+
+// An IPv4 or IPv6 address, as KDE Connect takes one.
+function isIpAddress(text) {
+  var t = String(text || "").trim()
+  if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(t)) return t.split(".").every(function(n) { return Number(n) <= 255 })
+  return /^[0-9a-fA-F:]+$/.test(t) && t.indexOf(":") >= 0 && t.split("::").length <= 2
+}
+
+// The From anywhere page for one device: where it stands, the steps (each
+// done or not; the first not done is the current one), the mesh's devices
+// to pick from when none is certainly it, and the page's actions, which are
+// also its keyboard rows. `report`: the bridge's features report (its
+// `network`), null while read; `checks`: this computer's (`doctor`);
+// `row`: its feature row (Model.featureRows), for its state and steps;
+// `screen`: the screen link's status (how adb reaches it).
+function reachSetup(report, device, checks, row, screen) {
+  var name = deviceLabel(device)
+  var net = report ? report.network || null : null
+  var mesh = (checks || []).filter(function(c) { return c.key === "mesh" })[0] || null
+  if (!net) return { state: "checking", line: "Checking…", now: "", steps: [], candidates: [], notes: [], actions: [{ key: "check", label: "Check again", hint: "" }] }
+  var on = (net.meshes || []).filter(function(m) { return m.on })
+  var label = on.length > 0 ? on[0].label : "Tailscale"
+  var meshnet = on.length > 0 && on[0].mesh === "meshnet"
+  var peer = net.peer
+  var typed = !!net.typed && net.typedKept
+  var ready = (!!peer && net.added) || (!peer && typed)
+  var steps = [
+    { key: "mesh", done: !!mesh && mesh.ok,
+      text: on.length > 0 ? label + " on this computer" + (mesh && mesh.fix === "firewall" ? ", let through the firewall" : "")
+                          : "Tailscale on this computer: Omarchy's installer sets it up, and you sign in" },
+    { key: "device", done: !!peer,
+      text: "On " + name + ": " + (meshnet ? "open NordVPN and turn Meshnet on" : "install Tailscale from its store and sign in") + ", with the same account" },
+    { key: "kde", done: !!peer && net.added,
+      text: "KDE Connect knows " + name + "'s " + label + " address" + (peer ? " (" + peer.address + ")" : "") }
+  ]
+  var current = -1
+  for (var i = 0; i < steps.length; i++) if (!steps[i].done) { current = i; break }
+  steps.forEach(function(st, i) { st.current = i === current })
+
+  var kde = linkText(net.links)
+  var adbVia = screen && screen.state === "ready" ? LINK_WORDS[screen.via] || "" : ""
+  var now = device && device.reachable === true && kde ? "Connected now over " + kde
+    : adbVia ? "KDE Connect does not reach it now; its screen link does, over " + adbVia
+    : "Not connected now"
+  var notes = []
+  if (net.isolated) notes.push("Likely: this Wi-Fi keeps its devices apart (guest or office Wi-Fi). " + (ready ? label + " reaches it anyway." : "A mesh reaches it anyway."))
+  if (peer && peer.online === false && ready) notes.push(peer.label + " sees " + name + " offline now")
+  var line = ready ? (peer ? "Reaches " + name + " on any network, through " + peer.label : "Reaches " + name + " at " + net.typed)
+    : "Reach " + name + " away from home: through a mesh, free with Tailscale"
+
+  var actions = []
+  var left = row ? (row.steps || []) : []
+  if (!ready && left.length > 0 && !left[0].page)
+    actions.push({ key: "setup", label: "Set it up", hint: left.some(function(s) { return s.fix && s.fix.verb === "fix" })
+      ? "Does every step it can; shows what your password is for first" : "Does every step it can, then says what is left" })
+  ;(net.candidates || []).forEach(function(c, i) {
+    actions.push({ key: "pick:" + i, label: "This is " + name + ": " + c.name, address: c.address,
+                   hint: c.label + " · " + c.address + (c.online ? "" : " · offline now") })
+  })
+  actions.push({ key: "address", label: "Its address", field: true, value: net.typed || "",
+                 hint: "Or an address that reaches it: another network, your own VPN. KDE Connect tries it as well" })
+  if (net.typed) actions.push({ key: "forgetTyped", label: "Forget " + net.typed, hint: "KDE Connect stops trying it" })
+  if (net.given && net.givenKept) actions.push({ key: "forget", label: "Stop reaching it through " + label, hint: "KDE Connect forgets its " + label + " address" })
+  actions.push({ key: "check", label: "Check again", hint: "" })
+  return { state: ready ? "ready" : "setup", line: line, now: now, steps: ready ? [] : steps, notes: notes,
+           candidates: net.candidates || [], actions: actions }
+}
+
+function reachRows(setup) {
+  return (setup ? setup.actions : []).map(function(a) {
+    var row = { kind: "reachAction", key: a.key, label: a.label, hint: a.hint }
+    if (a.field) { row.field = true; row.value = a.value }
+    if (a.address) row.address = a.address
+    return row
+  })
+}
+
+// Made-up networks for the demo phone: nothing in a demo reaches a mesh.
+// "" or "ready": on Tailscale, given to KDE Connect; "setup": Tailscale
+// here, the phone not on it yet; "pick": two phones to choose from; "none":
+// no mesh here; "isolated": away on a Wi-Fi that keeps devices apart.
+function demoNetwork(kind) {
+  var tailscale = { mesh: "tailscale", label: "Tailscale", on: kind !== "none", installed: kind !== "none", state: kind === "none" ? "" : "Running" }
+  var peer = { name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true }
+  var base = { meshes: kind === "none" ? [] : [tailscale], peer: null, match: "", candidates: [], added: false, given: "", givenKept: false,
+               typed: "", typedKept: false, links: [{ kind: "lan", address: "192.168.1.23" }], isolated: false }
+  if (kind === "" || kind === "ready") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true })
+  if (kind === "pick") return Object.assign(base, { candidates: [{ name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true },
+                                                                  { name: "old-phone", mesh: "tailscale", label: "Tailscale", address: "100.101.102.104", online: false }] })
+  if (kind === "isolated") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true, links: [], isolated: true })
+  return base
+}
+
+// The demo's mesh check (This computer's row) for a demo network.
+function demoMeshCheck(kind) {
+  if (kind === "none") return { key: "mesh", ok: false, optional: true, label: "Mesh network", status: "Not set up",
+                                detail: "Reach your devices on any network: Tailscale, with Omarchy's installer", fix: "tailscale", fixLabel: "Set up" }
+  return { key: "mesh", ok: true, optional: true, label: "Mesh network", status: "Tailscale", detail: "", fix: "", fixLabel: "" }
+}
+
 // ---- A paired device that is away: where it was, and what to try ----
 
 // Whether an IPv4 address is inside a network written "192.168.1.0/24";
@@ -1708,17 +1874,24 @@ function isSamsung(device) { return /galaxy|samsung|^sm-/i.test(String(device &&
 // network, and after a search that found nothing, what to try on it.
 // Causes are likely, never certain. `searchedAt`: when Reconnect last
 // started, 0 for never.
-function awayState(device, network, searchedAt, nowMs) {
+function awayState(device, network, searchedAt, nowMs, net) {
   var seen = device && device.lastSeen
   var lines = []
   if (seen && seen.at) {
-    var how = seen.link === "Bluetooth" ? "Bluetooth" : (seen.link === "LAN" ? "Wi-Fi" : "the network")
+    // KDE Connect's LAN link over a mesh is the mesh, not Wi-Fi.
+    var how = seen.link === "Bluetooth" ? "Bluetooth" : inNetwork(seen.address, "100.64.0.0/10") ? "a mesh"
+      : (seen.link === "LAN" ? "Wi-Fi" : "the network")
     lines.push("Last seen on " + how + (seen.address ? " at " + seen.address : "") + ", " + agoText(seen.at, nowMs))
     if (inNetwork(seen.address, network) === false)
       lines.push("Likely on another network: this computer is on " + network)
   } else {
     lines.push("Not seen by this computer yet")
   }
+  // What its network says (From anywhere, #119): a Wi-Fi that keeps its
+  // devices apart, or the mesh seeing it while KDE Connect does not.
+  if (net && net.isolated) lines.push("Likely: this Wi-Fi keeps its devices apart (guest or office Wi-Fi)")
+  if (net && net.peer && net.peer.online && net.added)
+    lines.push(net.peer.label + " sees it online: KDE Connect is trying its address")
   var searching = searchedAt > 0 && nowMs - searchedAt < SEARCH_MS
   if (searchedAt > 0 && !searching)
     lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
