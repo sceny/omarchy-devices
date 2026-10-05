@@ -4,7 +4,7 @@
 
 Click the pill. Every section folds to one line.
 
-![The panel: shortcuts, Now playing, notifications, received files and the Gallery (demo data)](images/panel.png)
+![The panel: shortcuts, apps, notifications, Now playing and received files folded, and the Gallery (demo data)](images/panel.png)
 
 ## Notifications
 
@@ -19,11 +19,19 @@ The phone's active player: seek, skip, volume. The others are a swipe or
 
 ![Now playing: cover, seek bar and volume (demo data)](images/now-playing.png)
 
+When something needs you, a red line at the top says what and opens
+[Settings](settings.md); ✕ closes it until something new does.
+
 ## Shortcuts
 
-Messages, send files, the clipboard, ring it, send a text or a link.
+Messages, send files, the clipboard, ring it, send a text or a link, its
+[screen](screen-and-apps.md).
 
 ![Shortcuts as tiles (demo data)](images/shortcuts.png)
+
+## Apps
+
+Its pinned and recent [apps](apps.md); one opens in a window here.
 
 ## Make it yours
 
@@ -41,4 +49,5 @@ shows, order and hide sections, pick shortcuts. ✓ keeps it; Esc undoes.
 | Enter | Activate; play/pause on the player |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `r` · `x` · `e` | Reply · dismiss · show all |
+| `a` · `o` · Shift+Enter | All apps · a notification's app · an app popped out |
 | `s` · `E` · Esc | Settings · edit · back |

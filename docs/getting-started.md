@@ -4,8 +4,9 @@
 
 ## Install
 
-You need Omarchy 4, KDE Connect on the computer
-(`sudo pacman -S --needed kdeconnect`), and the phone on the same network.
+You need Omarchy 4 and the phone on the same network. What the computer is
+missing (KDE Connect; scrcpy and adb for the screen; sshfs for the
+gallery), the panel installs on a click, after a card says what.
 
 ```bash
 omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable
@@ -19,8 +20,10 @@ this computer in the app and accept here.
 
 ![Add a device: the steps on the phone and a QR code for the app (demo data)](images/add-device.png)
 
-Once paired, its page shows what it can do; turn on what you want, one
-click each. An iPhone shares files and the clipboard only.
+Once paired, its page shows what it can do: one switch per feature does
+every step it can, here and on the phone, and says the one left to you
+(a permission to allow). An iPhone or iPad shares files and the clipboard
+only.
 
 ## Check this computer
 

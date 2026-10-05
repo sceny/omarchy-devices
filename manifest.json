@@ -5,7 +5,7 @@
   "version": "0.7.0",
   "author": "sceny",
   "license": "MIT",
-  "description": "Your phones and tablets in the Omarchy bar through KDE Connect: battery, shortcuts, a media carousel with seek and volume, notifications with reply and dismiss, and a full text-message view.",
+  "description": "Your Android phone or tablet in the Omarchy bar, through KDE Connect: notifications with reply, SMS and MMS text messages, calls, battery, media controls, photos and files, clipboard, ring. Mirror its screen and open its apps in windows here (scrcpy over Wi-Fi or USB), set up from the panel. One switch per feature sets it up; Settings fixes what it can by itself. An iPhone or iPad shares files and the clipboard.",
   "kinds": [
     "service",
     "bar-widget"

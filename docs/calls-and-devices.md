@@ -19,14 +19,19 @@ only with news, or never. `1`–`9` switch tabs.
 
 ![Tabs for a phone, a tablet and a laptop (demo data)](images/devices.png)
 
-Each one has its own page in Settings: nickname, icon, its place in the
-bar, its tab, and Unpair.
+Each one has its own page in Settings, with tabs to the next: nickname,
+icon, its place in the bar, its tab, what it can do, and Unpair.
 
-![A tablet's own settings (demo data)](images/device-page.png)
+![A tablet's own page in Settings: the tabs to the others, what it can do, and Unpair (demo data)](images/device-page.png)
 
 ## Away
 
 When a device is not in reach, its page says where it was last seen and
 offers *Reconnect*.
+
+If KDE Connect lost it but its screen still opens, it is not away: the
+panel keeps its screen and apps (*Screen and apps only*), and Settings
+lists KDE Connect with a *Fix* that points KDE Connect at the phone's
+address on the network.
 
 ![An away device with Reconnect (demo data)](images/away.png)

@@ -1,10 +1,12 @@
 # Devices
 
-Your phone in the [Omarchy](https://omarchy.org) bar, through
-[KDE Connect](https://kdeconnect.kde.org/): notifications, texts, calls,
-media and photos, without picking it up.
+Your Android phone or tablet in the [Omarchy](https://omarchy.org) bar:
+notifications, texts, calls, media and photos through
+[KDE Connect](https://kdeconnect.kde.org/), and its screen and apps in
+windows here through [scrcpy](https://github.com/Genymobile/scrcpy),
+without picking it up. An iPhone or iPad shares files and the clipboard.
 
-![Devices in the Omarchy bar: the pill with its notification bubble, the panel with Now playing, the Gallery and notifications, and the messages view with a conversation (demo data)](preview.png)
+![Devices in the Omarchy bar: the pill with its notification bubble, the phone's screen in a window, the panel with its apps, notifications, Now playing and the Gallery, and the messages view with a conversation (demo data)](preview.png)
 
 - **[Notifications](docs/panel.md)**: reply, dismiss, the app's own buttons.
 - **[Messages](docs/messages.md)**: every conversation and picture; reply
@@ -15,28 +17,30 @@ media and photos, without picking it up.
   it, send files, the clipboard, a link.
 - **[Gallery and files](docs/gallery-and-files.md)**: its newest photos and
   videos, and the files it sent you.
-- **[Screen](docs/screen-and-apps.md)**: the phone's screen in a window
-  here, with your mouse and keyboard (scrcpy, set up from the panel).
-- **[Apps](docs/apps.md)**: its apps, each in a window of its own, with
-  their icons; pin the ones you use, or open one from its notification.
+- **[Screen and apps](docs/screen-and-apps.md)**: its screen, and each of
+  its [apps](docs/apps.md), in a window here, with your mouse and keyboard.
 - **[Several devices](docs/calls-and-devices.md)**: a tab and a chip each.
-- **[Setup](docs/getting-started.md)**: checks with fixes, a QR code for the
-  app, a demo phone to look around first.
+- **[Setup](docs/getting-started.md)**: one switch per feature does every
+  step it can and says the one left to you; [Settings](docs/settings.md)
+  lists what needs you, with *Fix all* and *Fix with AI*.
 
 | Key | Action |
 |---|---|
 | Click / middle-click the pill | Open the panel / messages |
-| `j` `k` · Enter | Move · activate |
+| `j` `k` · Enter | Move · activate (Shift+Enter: an app popped out) |
+| `a` | All apps |
 | `r` · `x` | Reply to · dismiss a notification |
 | `s` · `E` · Esc | Settings · edit the page · back |
 
 ## Privacy and safety
 
 - Everything stays between the computer and your phone, over your own
-  network. Devices sends nothing anywhere else.
-- It never sends a text, rings the phone or plays anything on its own.
+  network. It never sends a text, rings or plays anything on its own.
 - The phone's screen needs Wireless debugging, which you turn on and pair
   yourself; only a computer that scanned your code can use it.
+- A password only after a card shows what it is for; nothing else runs
+  with it. *Fix with AI* opens your own agent, and files an issue only with
+  your yes, never with your data.
 - Pictures from the phone are opened in a sandbox first: what you see is a
   copy made from their pixels, never the phone's file.
 - It keeps only caches, in `~/.cache/sceny.devices/`. Drafts stay in

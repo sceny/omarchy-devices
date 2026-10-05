@@ -36,6 +36,11 @@ bin/kdeconnect-bridge photos-cached <device>   # the last photo list, at once (t
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc on the panel
 "${IPC[@]}" move 0 1                 # an arrow key (dx dy): the cursor moves, the glide slides; never Enter (slowMotion 10 to watch)
 "${IPC[@]}" rightClickChip <device> ; "${IPC[@]}" edit   # edit the page (and again to end); then editBar <key>, editBarFlag <key>, editMoveBar <key> -1, editSection <key>, editShortcut <key>
+"${IPC[@]}" problems ; "${IPC[@]}" closeBanner   # what needs the user (status, dot, main page's line); close that line
+"${IPC[@]}" settingsRowsInfo ; "${IPC[@]}" pressSetting <index>   # Settings' rows; a row as Enter would
+"${IPC[@]}" switchFeature screen false ; "${IPC[@]}" screenFeatureInfo   # a feature's switch on the device page shown
+"${IPC[@]}" demoScreen ready ; "${IPC[@]}" appsInfo   # demo only: the screen link's state; the Apps section
+"${IPC[@]}" askRoot firewall ; "${IPC[@]}" cancelRoot   # the password card (nothing runs until Continue)
 "${IPC[@]}" slowMotion 10          # stretch every transition
 ```
 

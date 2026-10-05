@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# A made-up phone home screen, for the user guide's pictures and the
+# marketplace image: a gradient wallpaper, the clock and the date, a grid of
+# coloured app tiles and a dock. Generated, so nothing in it comes from a
+# real device. docs/internals/screenshots.md says where it is used.
+#
+#   tools/phone-screen OUT.png [WIDTHxHEIGHT] [TIME] [DATE]
+#   (default 1080x2316, a phone; 18:40 on Saturday, 4 October)
+set -euo pipefail
+
+out=$1
+size=${2:-1080x2316}
+clock=${3:-18:40}
+day=${4:-Saturday, 4 October}
+w=${size%x*} h=${size#*x}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+FG='#F4F1E8' DIM='#D9D3C2'
+BOLD=JetBrainsMono-NF-Bold REGULAR=JetBrainsMono-NF-Regular
+# Sizes follow the width, so a tablet or a landscape screen reads the same.
+u=$(( w / 36 ))                       # one unit: 30 px on a 1080 px phone
+tile=$(( u * 6 )) gap=$(( u * 3 )) cols=4
+left=$(( (w - cols * tile - (cols - 1) * gap) / 2 ))
+
+# The wallpaper: dusk teal into deep green, with a soft light top left.
+# The glow is a circle fading to nothing at its edge, so it has no border.
+glow=$(( w * 3 / 2 ))
+magick -size "${w}x${h}" gradient:'#2E6B5E'-'#0E1E1A' \
+  \( -size "${glow}x${glow}" radial-gradient:'rgba(255,236,190,0.32)'-'rgba(255,236,190,0)' \) \
+  -geometry "-$(( glow / 3 ))-$(( glow / 3 ))" -composite "$tmp/wall.png"
+
+# The status bar, the clock and the date.
+magick "$tmp/wall.png" -fill "$FG" \
+  -font "$BOLD" -pointsize $(( u * 13 / 10 )) -gravity NorthWest -annotate +$(( u * 2 ))+$(( u ))  "$clock" \
+  -font "$REGULAR" -gravity NorthEast -annotate +$(( u * 2 ))+$(( u ))  $'\U000F0928  \U000F0079  85%' \
+  -font "$BOLD" -pointsize $(( u * 6 )) -gravity North -annotate +0+$(( u * 6 ))  "$clock" \
+  -font "$REGULAR" -pointsize $(( u * 3 / 2 )) -fill "$DIM" -annotate +0+$(( u * 14 )) "$day" \
+  "$tmp/base.png"
+
+# App tiles: a colour, a glyph, a name. Generic apps only, no brand.
+apps=(
+  "#4E8EF7|$'\U000F01EE'|Mail" "#F2A93B|$'\U000F00ED'|Calendar" "#E5534B|$'\U000F0100'|Camera" "#57B38A|$'\U000F02E9'|Photos"
+  "#8E6FE0|$'\U000F075A'|Music" "#3FA7C9|$'\U000F034D'|Maps" "#D9824A|$'\U000F0954'|Clock" "#5C9E5C|$'\U000F0599'|Weather"
+  "#C2667E|$'\U000F0110'|Store" "#6B7C93|$'\U000F0493'|Settings" "#3D9970|$'\U000F0F0E'|Files" "#B58B3A|$'\U000F00BE'|Books"
+)
+dock=( "#34A853|$'\U000F03F2'" "#4285F4|$'\U000F0361'" "#F4B400|$'\U000F0517'" "#DB4437|$'\U000F059F'" )
+
+draw_tile() {   # x y colour glyph [label]
+  local x=$1 y=$2 colour=$3 glyph=$4 label=${5:-}
+  magick -size "${tile}x${tile}" xc:none -fill "$colour" \
+    -draw "roundrectangle 0,0 $(( tile - 1 )),$(( tile - 1 )) $(( tile / 4 )),$(( tile / 4 ))" \
+    -fill "$FG" -font "$REGULAR" -pointsize $(( tile / 2 )) -gravity center -annotate +0+0 "$glyph" \
+    "$tmp/tile.png"
+  magick "$tmp/screen.png" "$tmp/tile.png" -geometry "+${x}+${y}" -composite "$tmp/screen.png"
+  if [ -n "$label" ]; then
+    magick "$tmp/screen.png" -fill "$FG" -font "$REGULAR" -pointsize $(( u * 11 / 10 )) -gravity NorthWest \
+      -annotate "+$(( x + tile / 2 - ${#label} * u * 11 / 30 ))+$(( y + tile + u / 2 ))" "$label" "$tmp/screen.png"
+  fi
+}
+
+cp "$tmp/base.png" "$tmp/screen.png"
+top=$(( u * 22 ))
+for i in "${!apps[@]}"; do
+  IFS='|' read -r colour glyph label <<< "${apps[$i]}"
+  eval "glyph=$glyph"
+  draw_tile $(( left + (i % cols) * (tile + gap) )) $(( top + (i / cols) * (tile + gap + u * 2) )) "$colour" "$glyph" "$label"
+done
+
+# The dock: a frosted strip with four tiles, above the gesture bar.
+dock_y=$(( h - tile - u * 7 ))
+magick "$tmp/screen.png" -fill 'rgba(255,255,255,0.14)' \
+  -draw "roundrectangle $(( left - u )),$(( dock_y - u )) $(( w - left + u )),$(( dock_y + tile + u )) $(( u * 3 )),$(( u * 3 ))" \
+  -fill 'rgba(255,255,255,0.6)' -draw "roundrectangle $(( w / 2 - u * 4 )),$(( h - u * 2 )) $(( w / 2 + u * 4 )),$(( h - u * 2 + u / 3 )) $(( u / 6 )),$(( u / 6 ))" \
+  "$tmp/screen.png"
+for i in "${!dock[@]}"; do
+  IFS='|' read -r colour glyph <<< "${dock[$i]}"
+  eval "glyph=$glyph"
+  draw_tile $(( left + i * (tile + gap) )) "$dock_y" "$colour" "$glyph"
+done
+
+magick "$tmp/screen.png" -depth 8 -strip "$out"
