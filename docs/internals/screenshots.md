@@ -33,6 +33,12 @@ the shot's):
 5. Back: `close`, `live`, stop the player (`pkill -f '^python3 tools/demo-player'`:
    anchored, or it matches the shell running it), return to your workspace.
 
+## The bar's picture
+
+`bar.png` is the pill cut from the preview's `main.png`
+(`-crop 300x35+2060+0`, scaled 300%): the demo pill with its bubble, bell,
+texts and play mark.
+
 ## The screen's pictures
 
 The demo opens no window, so `screen-docked.png` and `screen-turned.png`

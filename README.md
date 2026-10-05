@@ -1,31 +1,33 @@
 # Devices
 
-Your phone on your [Omarchy](https://omarchy.org) desktop. Answer its texts
-and notifications from your keyboard, see who is calling, play its music,
-open its photos, and use its screen and apps in windows here, with your
-mouse and keyboard, while the phone stays in your pocket. Android phones
-and tablets; an iPhone or iPad shares files and the clipboard.
+Your phone, on your [Omarchy](https://omarchy.org) desktop. Its screen
+docked under the bar and its apps in windows of their own; its texts and
+notifications answered from your keyboard; who is calling, what is
+playing, the photo you just took. All of it a key away, while the phone
+stays in your pocket. Android phones and tablets; an iPhone or iPad shares
+files and the clipboard.
 
 **[Devices on the Omarchy plugins marketplace](https://plugins.omarchy.org/plugin.html?id=sceny.devices)**
 · install: `omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable`
 
 ![Devices in the Omarchy bar: the pill with its notification bubble, the phone's screen in a window, the panel with its apps, notifications, Now playing and the Gallery, and the messages view with a conversation (demo data)](preview.png)
 
-- **[Screen and apps](docs/screen-and-apps.md)**: its screen docked by
-  the bar in the phone's shape, turning as you turn it; each of its
-  [apps](docs/apps.md) in a window of its own, a map beside your browser.
-- **[Notifications](docs/panel.md)**: reply, dismiss, press the app's own
-  buttons; a chat shows who said what.
-- **[Messages](docs/messages.md)**: every conversation, with pictures;
+- **[Screen](docs/use/screen.md)**: docked by the bar in the phone's
+  shape, turning as you turn it; **[apps](docs/use/apps.md)** each in a
+  window of its own, a map beside your browser.
+- **[Notifications](docs/use/notifications.md)**: reply, dismiss, press the
+  app's own buttons; a chat shows who said what.
+- **[Messages](docs/use/messages.md)**: every conversation, with pictures;
   reply or start one, all from the keyboard.
-- **[Calls](docs/calls.md)**: who is calling, by name; a missed call to
+- **[Calls](docs/use/calls.md)**: who is calling, by name; a missed call to
   call or text back.
-- **[Now playing](docs/panel.md)**: the phone's player here, cover, seek
-  and volume; **shortcuts** to ring it, send files, a link or the clipboard.
-- **[Gallery and files](docs/gallery-and-files.md)**: its newest photos and
-  videos, and the files it sent you, a drag away from any window.
-- **[Several devices](docs/panel.md#several-devices)**: a tab and a chip
-  each, with its own news.
+- **[Now playing](docs/use/now-playing.md)**: cover, seek and volume;
+  **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
+  the clipboard.
+- **[Gallery](docs/use/gallery.md)** and **[received files](docs/use/received.md)**:
+  its newest photos and videos, and what it sent you, a drag away.
+- **[Several devices](docs/use/devices.md)**: a tab and a pill each, with
+  its own news; **[make it yours](docs/use/edit.md)** on the page itself.
 
 | Key | Action |
 |---|---|
@@ -57,12 +59,20 @@ needs Wireless debugging, which you pair and can revoke:
 ## User guide
 
 **Use it:**
-[The panel](docs/panel.md) ·
-[Messages](docs/messages.md) ·
-[Calls](docs/calls.md) ·
-[Gallery and files](docs/gallery-and-files.md) ·
-[Screen and apps](docs/screen-and-apps.md) ·
-[Apps](docs/apps.md) ·
+[The bar](docs/use/bar.md) ·
+[The panel](docs/use/panel.md) ·
+[Notifications](docs/use/notifications.md) ·
+[Messages](docs/use/messages.md) ·
+[Calls](docs/use/calls.md) ·
+[Now playing](docs/use/now-playing.md) ·
+[Shortcuts](docs/use/shortcuts.md) ·
+[Gallery](docs/use/gallery.md) ·
+[Received](docs/use/received.md) ·
+[Screen](docs/use/screen.md) ·
+[Apps](docs/use/apps.md) ·
+[Several devices](docs/use/devices.md) ·
+[Make it yours](docs/use/edit.md) ·
+[The keyboard](docs/use/keyboard.md) ·
 [What's new](CHANGELOG.md)
 
 **Set it up:**
