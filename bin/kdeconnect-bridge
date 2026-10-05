@@ -2201,28 +2201,29 @@ def bound_keys(binds):
     return found
 
 
-def screen_status(device_id):
-    """Where a device stands for its screen and apps, as JSON:
+def fast_adb_match(device, devices, known, ask=None):
+    """The device among adb's connections now, asked for its own serial
+    directly: (serial, via, state), or (None, "", "") when adb is not
+    connected to it. The usual case, and fast: no network browse (avahi
+    resolving every announced service takes seconds)."""
+    if not known:
+        return None, "", ""
+    ask = ask or (lambda serial: adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip())
+    identities = {d["serial"]: ask(d["serial"]) for d in devices if not d["usb"] and d["state"] == "device"}
+    serial, via, state = match_adb(device, devices, [], serial=known, identities=identities)
+    return (serial, via, state) if serial and state == "device" else (None, "", "")
 
-    state: tools (scrcpy or adb missing), away (not reachable on Wi-Fi or
-           USB), pair (never set up), off (paired before; Wireless debugging
-           is off now), unauthorized (USB: allow it on the device), ready.
-    """
-    tools = screen_tools()
-    status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
-              "apps": False, "wireless": True, "seen": False, "display": [0, 0]}
-    if not tools["ok"]:
-        return status
-    device = screen_device(device_id) or {"id": device_id}
-    adb(["start-server"], timeout=15)
+
+def browse_adb_match(device, devices, known, status):
+    """The device found on the network (mDNS) or by USB, when adb is not
+    connected to it yet: (serial, via, state, mdns, devices). Sets
+    status["seen"]: Wireless debugging announced before pairing."""
     mdns = mdns_services()
     addresses = set(device.get("addresses") or [])
-    known = screen_record(device_id).get("serial", "")
     ours = lambda s: (known and serial_of_service(s["name"]) == known) or s["host"] in addresses
     # Wireless debugging on, seen before pairing: the steps on the device
     # before the code are done.
     status["seen"] = any(ours(s) for s in mdns)
-    devices = parse_adb_devices(adb(["devices", "-l"])[1])
     # A Wi-Fi entry mDNS does not name (its port changed): ask the device.
     identities = {d["serial"]: adb(["-s", d["serial"], "shell", "getprop", "ro.serialno"])[1].strip()
                   for d in devices if known and not d["usb"] and d["state"] == "device" and not adb_identity(d, mdns)}
@@ -2243,6 +2244,30 @@ def screen_status(device_id):
         serial, via, state = match_adb(device, devices, mdns, names)
         if not serial and any(d["state"] == "unauthorized" for d in usb):
             serial, via, state = next(d["serial"] for d in usb if d["state"] == "unauthorized"), "usb", "unauthorized"
+    return serial, via, state, mdns, devices
+
+
+def screen_status(device_id):
+    """Where a device stands for its screen and apps, as JSON:
+
+    state: tools (scrcpy or adb missing), away (not reachable on Wi-Fi or
+           USB), pair (never set up), off (paired before; Wireless debugging
+           is off now), unauthorized (USB: allow it on the device), ready.
+    """
+    tools = screen_tools()
+    status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
+              "apps": False, "wireless": True, "seen": False, "display": [0, 0]}
+    if not tools["ok"]:
+        return status
+    device = screen_device(device_id) or {"id": device_id}
+    adb(["start-server"], timeout=15)
+    known = screen_record(device_id).get("serial", "")
+    devices = parse_adb_devices(adb(["devices", "-l"])[1])
+    serial, via, state = fast_adb_match(device, devices, known)
+    if serial:
+        mdns = []
+    else:
+        serial, via, state, mdns, devices = browse_adb_match(device, devices, known, status)
     if not serial:
         status["state"] = "away" if not device.get("reachable") else \
             ("off" if screen_record(device_id).get("paired") else "pair")

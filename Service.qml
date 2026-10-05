@@ -1068,6 +1068,14 @@ Item {
     appsProc.running = true
   }
   property var appsAgain: null
+  // The viewed device's list from the cache as soon as it is known, so the
+  // first opening has its Apps section at once (set up here only).
+  function warmApps() {
+    if (demo || !device || appLists[String(device.id)]) return
+    var kept = screenKept[String(device.id)]
+    if (kept && kept.paired) readApps(String(device.id))
+  }
+  onScreenKeptChanged: warmApps()
   // A device's list or its icons being read now (the All apps page's ring).
   function appsReading(id) {
     return !!id && ((appsProc.running && appsProc.device === String(id)) || (iconsProc.running && iconsProc.device === String(id)))
@@ -1389,7 +1397,7 @@ Item {
     if (device && device.paired && device.can && device.can.sms === true) smsDeviceId = String(device.id)
     else if (smsDeviceId === "" && device && device.paired && !(device.can && device.can.sms === false)) smsDeviceId = String(device.id)
   }
-  onDeviceChanged: followSms()
+  onDeviceChanged: { followSms(); warmApps() }
   readonly property bool barCountsMessages: profile.barIndicators.indexOf("messages") >= 0
   SmsService {
     id: smsService

@@ -956,6 +956,17 @@ class Screen(unittest.TestCase):
         mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
         self.assertEqual(bridge.match_adb(self.PHONE, devices, mdns)[1], "wifi")
 
+    def test_a_connected_device_is_found_without_browsing_the_network(self):
+        devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
+                   {"serial": "192.168.1.20:41234", "state": "device", "usb": False, "model": ""}]
+        asked = []
+        ask = lambda serial: asked.append(serial) or ("0A1B2C3D" if serial.endswith(":41234") else "OTHER")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "0A1B2C3D", ask=ask), ("192.168.1.20:41234", "wifi", "device"),
+                         "its own serial, asked directly: a new port is still it")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "", ask=ask), (None, "", ""), "never set up: the browse finds it")
+        offline = [dict(devices[1], state="offline")]
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, offline, "0A1B2C3D", ask=ask), (None, "", ""), "not connected: the browse")
+
     def test_usb_matches_by_name_and_another_device_does_not(self):
         devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
