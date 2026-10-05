@@ -6,6 +6,9 @@ notifications, texts, calls, media and photos through
 windows here through [scrcpy](https://github.com/Genymobile/scrcpy),
 without picking it up. An iPhone or iPad shares files and the clipboard.
 
+**[Devices on the Omarchy plugins marketplace](https://plugins.omarchy.org/plugin.html?id=sceny.devices)**
+· install: `omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable`
+
 ![Devices in the Omarchy bar: the pill with its notification bubble, the phone's screen in a window, the panel with its apps, notifications, Now playing and the Gallery, and the messages view with a conversation (demo data)](preview.png)
 
 - **[Notifications](docs/panel.md)**: reply, dismiss, the app's own buttons.
