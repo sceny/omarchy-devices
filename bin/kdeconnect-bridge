@@ -3211,6 +3211,14 @@ def tile_back(place, win, run=hypr_dispatch, look=None, sleep=time.sleep):
     return side_of(win, place) is None
 
 
+def same_window(a, b):
+    """Whether two looks are one window: by Hyprland's stable id, since a
+    new window can take a closed one's address (it is a pointer)."""
+    if a.get("stableId") is not None and b.get("stableId") is not None:
+        return a["stableId"] == b["stableId"]
+    return a.get("address") == b.get("address")
+
+
 def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=None, border=0):
     """Closes an open window and opens it again in its place (`launch`
     starts it; `look()` finds it by its title). True once it is back."""
@@ -3218,7 +3226,7 @@ def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=N
     run("hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"]))
     for _ in range(REOPEN_WAIT_SEC * 4):
         now = look()
-        if not now or now.get("address") != win["address"]:
+        if not now or not same_window(now, win):
             break
         sleep(0.25)
     else:
@@ -3226,7 +3234,7 @@ def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=N
     launch()
     for _ in range(WINDOW_WAIT_SEC * 4):
         new = look()
-        if new and new.get("address") != win["address"]:
+        if new and not same_window(new, win):
             break
         sleep(0.25)
     else:
@@ -3298,12 +3306,15 @@ def window_stream(pid, dump):
     process, from pw-dump), and the name of this computer's output it
     plays on. A lone scrcpy stream counts when no process matches (a
     launcher in between)."""
-    nodes = [o for o in dump if o.get("type") == "PipeWire:Interface:Node"]
-    streams = [n for n in nodes if ((n.get("info") or {}).get("props") or {}).get("media.class") == "Stream/Output/Audio"]
     props = lambda n: (n.get("info") or {}).get("props") or {}
-    mine = [n for n in streams if pid and str(props(n).get("application.process.id")) == str(pid)]
+    nodes = [o for o in dump if o.get("type") == "PipeWire:Interface:Node"]
+    streams = [n for n in nodes if props(n).get("media.class") == "Stream/Output/Audio"]
+    # The process is the stream's client's (its node seldom says it).
+    clients = {o.get("id"): props(o) for o in dump if o.get("type") == "PipeWire:Interface:Client"}
+    of = lambda n, key: props(n).get(key) or clients.get(props(n).get("client.id"), {}).get(key)
+    mine = [n for n in streams if pid and str(of(n, "application.process.id")) == str(pid)]
     if not mine:
-        scrcpy = [n for n in streams if "scrcpy" in str(props(n).get("application.process.binary") or props(n).get("application.name") or "").lower()]
+        scrcpy = [n for n in streams if "scrcpy" in str(of(n, "application.process.binary") or of(n, "application.name") or "").lower()]
         mine = scrcpy if len(scrcpy) == 1 else []
     sink = ""
     for o in dump:

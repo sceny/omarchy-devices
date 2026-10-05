@@ -124,6 +124,15 @@ class Reopen(unittest.TestCase):
         self.assertTrue(bridge.reopen_window(old, launch, look, run, sleep=lambda s: None, mons=[]))
         self.assertTrue(any('workspace = "3"' in l and "follow = false" in l for l in state["ran"]))
 
+    def test_the_new_window_may_take_the_old_ones_address(self):
+        # Hyprland's address is a pointer: a new window can get the closed
+        # one's; its stable id tells them apart (seen live).
+        old = dict(window("0x1", (10, 40), (940, 1000)), stableId=7)
+        new = dict(window("0x1", (970, 40), (940, 1000)), stableId=8)
+        state, run, launch, look = self.hypr(old, new)
+        self.assertTrue(bridge.reopen_window(old, launch, look, run, sleep=lambda s: None, mons=[]))
+        self.assertEqual(len([l for l in state["ran"] if "window.swap" in l]), 1)
+
     def test_a_window_that_will_not_close_is_left_alone(self):
         old = window("0x1", (10, 40), (940, 1000))
         launched = []
@@ -158,6 +167,16 @@ class Stream(unittest.TestCase):
         two = PW + [dict(PW[1], id=79, info={"props": dict(PW[1]["info"]["props"], **{"application.process.id": 5})})]
         self.assertEqual(bridge.window_stream(1, two)[0], None, "two scrcpy streams: not a guess")
         self.assertEqual(bridge.window_stream(4242, [PW[1]]), (77, ""))
+
+    def test_the_process_from_the_streams_client(self):
+        # As PipeWire has it (seen live): the node names its client, and the
+        # client its process.
+        dump = [{"id": 90, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 46}}},
+                {"id": 91, "type": "PipeWire:Interface:Node", "info": {"props": {"media.class": "Stream/Output/Audio", "client.id": 47}}},
+                {"id": 46, "type": "PipeWire:Interface:Client", "info": {"props": {"application.process.id": 4242, "application.process.binary": "scrcpy"}}},
+                {"id": 47, "type": "PipeWire:Interface:Client", "info": {"props": {"application.process.id": 5, "application.process.binary": "firefox"}}}]
+        self.assertEqual(bridge.window_stream(4242, dump)[0], 90)
+        self.assertEqual(bridge.window_stream(1, dump)[0], 90, "the lone scrcpy one, by its client's program")
 
     def test_wpctls_answer(self):
         self.assertEqual(bridge.parse_wpctl_volume("Volume: 0.40\n"), (0.4, False))
