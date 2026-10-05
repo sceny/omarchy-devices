@@ -6,6 +6,28 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+### Highlights
+
+- **From anywhere**: the phone in the panel away from home, through
+  Tailscale (Omarchy's installer, from the panel) or NordVPN Meshnet, or an
+  address you type. Its page says how it is connected now; a new network
+  is announced at once; a Wi-Fi that keeps its devices apart is named as
+  the likely cause.
+
+### Issues
+
+- [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away
+- [#8](https://github.com/sceny/omarchy-devices/issues/8) Reach devices over Tailscale or a custom address
+
+### Upgrading
+
+- **The firewall's fix** opens KDE Connect's ports to every private
+  network (home, office) and to your mesh, instead of only the network
+  you were on. Rules you have stay.
+- **This computer** has a *Mesh network* row (optional).
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights

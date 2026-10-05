@@ -1614,7 +1614,7 @@ Column {
         Layout.preferredWidth: Style.space(150)
         Layout.alignment: Qt.AlignVCenter
         text: addrRow.row.value || ""
-        placeholderText: "100.101.102.103"
+        placeholderText: "192.168.1.20"
         foreground: root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.bodySmall

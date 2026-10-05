@@ -1787,14 +1787,14 @@ function reachSetup(report, device, checks, row, screen) {
   var notes = []
   if (net.isolated) notes.push("Likely: this Wi-Fi keeps its devices apart (guest or office Wi-Fi). " + (ready ? label + " reaches it anyway." : "A mesh reaches it anyway."))
   if (peer && peer.online === false && ready) notes.push(peer.label + " sees " + name + " offline now")
-  var line = ready ? (peer ? "Reaches " + name + " on any network, through " + peer.label : "Reaches " + name + " at " + net.typed)
+  var line = ready ? (peer ? "Reaches " + name + " on any network, through " + peer.label + " (" + peer.address + ")" : "Reaches " + name + " at " + net.typed)
     : "Reach " + name + " away from home: through a mesh, free with Tailscale"
 
   var actions = []
   var left = row ? (row.steps || []) : []
   if (!ready && left.length > 0 && !left[0].page)
     actions.push({ key: "setup", label: "Set it up", hint: left.some(function(s) { return s.fix && s.fix.verb === "fix" })
-      ? "Does every step it can; shows what your password is for first" : "Does every step it can, then says what is left" })
+      ? "Every step it can; a password only after saying what for" : "Every step it can, then what is left" })
   ;(net.candidates || []).forEach(function(c, i) {
     actions.push({ key: "pick:" + i, label: "This is " + name + ": " + c.name, address: c.address,
                    hint: c.label + " · " + c.address + (c.online ? "" : " · offline now") })

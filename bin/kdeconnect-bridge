@@ -1663,9 +1663,12 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None):
                    "Signs this computer in to Tailscale: a page opens in your browser",
                    "Lets you manage it without a password, receives Taildrop files in Downloads, and adds Tailscale to the bar"]
         commands = [[os.path.join(OMARCHY_BIN, "omarchy-launch-floating-terminal-with-presentation"), "omarchy-install-service-tailscale"]]
+        footer = "Nothing else runs with it. Its terminal asks for the password, not this panel."
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
+    if what == "tailscale":
+        plan["footer"] = footer
     plan["hash"] = hashlib.sha256(json.dumps([commands, actions]).encode()).hexdigest()[:16]
     return plan
 

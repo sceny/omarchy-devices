@@ -68,6 +68,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
 | `SetupChecks.qml` | the steps on a new device, for Add a device (This computer's rows are its checks, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
+| `ReachSetup.qml` | a device's From anywhere page: where it stands, how it is connected, the steps (`Model.reachSetup`, from `kdeconnect-bridge features`' `network`) |
 | `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
 | `ScreenTurn.qml` | a docked screen turning or folding: the card that turns or morphs to its new place while the window moves under it |
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
@@ -225,7 +226,7 @@ Keep them; change one only with the owner.
 - **Features, gateways and setup items are three things**
   (`docs/design/setup.md` section 4, #128): a feature is what the user
   gets; a gateway is how the plugin gets it (KDE Connect, Android's
-  permissions, the storage link, the screen link; Bluetooth planned); a
+  permissions, the storage link, the screen link, the network; Bluetooth planned); a
   setup item is what a gateway needs, checked once where it lives (this
   computer or the device). Features list the items they need
   (`Model.FEATURES` `needs`) and the ones their switch turns off, only
@@ -399,9 +400,21 @@ Keep them; change one only with the owner.
 - **Fixes change the system only on a click.** `fix install`, `fix firewall`,
   `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
   packages through Omarchy's `omarchy-pkg-add`, with Omarchy's bin on the
-  `PATH` pkexec clears); the
-  firewall rule is limited to the local network the default route is on,
-  never opened to everyone.
+  `PATH` pkexec clears); the firewall rules open KDE Connect's ports to the
+  private ranges (as Omarchy opens Sunshine's) and on a mesh's interface
+  (`tailscale0`, `nordlynx`), never to everyone. `fix tailscale` opens
+  Omarchy's own installer in its terminal (as its Install menu does),
+  after the same card.
+- **Away from home goes through a mesh, Tailscale first** (#119, the
+  Network gateway): NordVPN Meshnet is used the same way when it is on.
+  The device's mesh address goes into KDE Connect's custom devices (its
+  daemon's `customDevices` over D-Bus, never its config file), with an
+  address the user typed (#8); only the addresses this plugin gave are
+  replaced or taken back. The device is matched among the mesh's peers by
+  an address it is reached at, then the one picked or matched before
+  (`network.json` in the cache), then the same name; else the user picks
+  it. From anywhere is a feature with a page of its own: its row opens
+  it, and Fix all leaves it to the user unless it broke.
 - **A feature that needs more than KDE Connect ships its own setup.** A
   package, a setting on the device or a pairing is a step the panel walks
   the user through: a check (This computer's row from `doctor`; optional

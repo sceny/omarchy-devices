@@ -1203,7 +1203,7 @@ test("from anywhere's page: steps, the mesh's phones to pick, an address field, 
     return M.reachSetup(report, dev, checks, M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach"))
   }
   const ready = page("")
-  assert.deepEqual([ready.state, ready.line, ready.now, ready.steps.length], ["ready", "Reaches Pixel 8 on any network, through Tailscale", "Connected now over Wi-Fi", 0])
+  assert.deepEqual([ready.state, ready.line, ready.now, ready.steps.length], ["ready", "Reaches Pixel 8 on any network, through Tailscale (100.101.102.103)", "Connected now over Wi-Fi", 0])
   assert.deepEqual(ready.actions.map(a => a.key), ["address", "forget", "check"])
   const none = page("none")
   assert.deepEqual(none.steps.map(s => [s.key, s.done, s.current]), [["mesh", false, true], ["device", false, false], ["kde", false, false]])

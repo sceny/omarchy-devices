@@ -2947,7 +2947,7 @@ Panel {
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: "Nothing else runs with it. The system asks for the password next."
+            text: rootCard.shown && rootCard.shown.footer ? rootCard.shown.footer : "Nothing else runs with it. The system asks for the password next."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption

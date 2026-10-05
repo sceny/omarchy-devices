@@ -28,6 +28,8 @@ files and the clipboard.
   its newest photos and videos, and what it sent you, a drag away.
 - **[Several devices](docs/use/devices.md)**: a tab and a pill each, with
   its own news; **[make it yours](docs/use/edit.md)** on the page itself.
+- **[From anywhere](docs/use/anywhere.md)**: away from home, through
+  Tailscale, which Omarchy installs.
 
 | Key | Action |
 |---|---|
@@ -71,6 +73,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Screen](docs/use/screen.md) ·
 [Apps](docs/use/apps.md) ·
 [Several devices](docs/use/devices.md) ·
+[From anywhere](docs/use/anywhere.md) ·
 [Make it yours](docs/use/edit.md) ·
 [The keyboard](docs/use/keyboard.md) ·
 [What's new](CHANGELOG.md)
@@ -79,6 +82,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Getting started](docs/setup/getting-started.md) ·
 [Your devices](docs/setup/devices.md) ·
 [Screen and apps](docs/setup/screen-and-apps.md) ·
+[From anywhere](docs/setup/anywhere.md) ·
 [Settings](docs/setup/settings.md) ·
 [Troubleshooting](docs/setup/troubleshooting.md) ·
 [What it cannot do](docs/setup/limits.md) ·

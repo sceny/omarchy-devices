@@ -13,7 +13,7 @@ opens on it: [what it may do](../security.md#fix-with-ai)). The main page shows 
 - **Sections, shortcuts and the bar** are edited on the page itself (`E`).
   With two or more devices, *For all devices* sets them for devices that
   did not change them.
-- **This computer:** KDE Connect, the firewall, the network, the screen's
+- **This computer:** KDE Connect, the firewall, the network, the mesh, the screen's
   and gallery's tools. *Ignore* one you will not fix.
 - **Add a device** pairs a new one, then shows what it can do
   ([Getting started](getting-started.md#add-your-phone)).

@@ -80,6 +80,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
 "${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # This computer: a failing firewall (a problem: the status, the gear's dot); Ignore / Undo
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
+"${IPC[@]}" reach ; "${IPC[@]}" reachInfo   # the viewed device's From anywhere page, as its row opens it (#119)
+"${IPC[@]}" demoReach <ready|setup|pick|none|isolated>   # demo only: a made-up network and This computer's mesh row; then `page main` after `demo away` shows the away card's lines
 "${IPC[@]}" preview true            # Preview with a demo phone (the user's demo, with its strip); false: Back to setup
 "${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
 "${IPC[@]}" settingsScope <root|defaults|device> ; "${IPC[@]}" settingsRowsInfo   # a settings page and its rows
