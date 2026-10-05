@@ -214,9 +214,10 @@
         "defaultValue": "here",
         "enum": [
           "here",
-          "phone"
+          "phone",
+          "both"
         ],
-        "description": "Where an app opened in a window plays its sound: here, or on the device. The device gives its sound to one window at a time."
+        "description": "Where an app opened in a window plays its sound: here, on the device, or both (Android 13). An open app's tile changes its own, and the app keeps that choice."
       },
       {
         "key": "lowBatteryPercent",

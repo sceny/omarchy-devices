@@ -20,6 +20,9 @@ The panel shows what KDE Connect sends. Today it does not:
 - Apps in windows need **Android 10** or newer; older phones open only the
   whole screen.
 - An app that **protects its screen** (many banks) shows black.
+- **Sound** here needs Android 11; **Both** needs Android 13, and an app
+  can keep its sound out of it. One window takes the phone's whole sound
+  at a time, and changing where it plays opens the window again.
 - A notification opens its **app**, not that message: the phone does not
   offer it yet ([#122](https://github.com/sceny/omarchy-devices/issues/122)).
 

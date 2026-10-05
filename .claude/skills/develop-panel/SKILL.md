@@ -99,6 +99,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
 "${IPC[@]}" pressDismiss <index>      # demo only: its X, to see the waiting ring
 "${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
+"${IPC[@]}" demoWindow Maps true ; "${IPC[@]}" soundCard com.example.maps   # demo only: an app's window "open" (its badge); its sound card ("" the screen's)
+"${IPC[@]}" soundInfo ; "${IPC[@]}" soundVolume 0.4 ; "${IPC[@]}" chooseSound phone   # the card; a real choice reopens the real window (owner's go)
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```
 

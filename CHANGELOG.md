@@ -6,6 +6,13 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
+  an open app's tile and the Screen shortcut say where its sound plays;
+  click (or `v`) for Here, On the phone or Both, and its volume here. The
+  window reopens in its place; an app keeps its choice.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights

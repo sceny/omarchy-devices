@@ -55,8 +55,11 @@ Item {
   signal dragMoved(real dx, real dy, point at)
   signal dragEnded(point at)
   signal hovered()
+  // Its window is open (#129): the badge's click, to choose where its sound plays.
+  signal soundRequested()
 
   readonly property bool hasIcon: !!app.icon && app.icon !== "none"
+  readonly property bool windowOpen: app.open === true
   readonly property bool hot: mouse.containsMouse || here
 
   // Compact (a folded section's row of icons): the icon alone, centred, so
@@ -83,6 +86,7 @@ Item {
     spacing: Style.space(5)
 
     Item {
+      id: iconBox
       anchors.horizontalCenter: parent.horizontalCenter
       width: tile.iconPx
       height: tile.iconPx
@@ -191,6 +195,43 @@ Item {
   }
   Timer { id: pinFlash; interval: 900 }
 
+  // Its window is open here: where its sound plays, at the icon's corner;
+  // a click (or v) chooses it again (#129). Not on a folded row's icons.
+  Rectangle {
+    id: soundBadge
+    readonly property real size: Math.round(Style.space(18))
+    visible: tile.windowOpen && !tile.compact && !tile.dragging
+    x: column.x + iconBox.x + iconBox.width - size * 0.6
+    y: column.y + iconBox.y + iconBox.height - size * 0.6
+    width: size
+    height: size
+    radius: size / 2
+    color: Color.background
+    border.width: 1
+    border.color: soundMouse.containsMouse ? Color.accent : Qt.rgba(tile.foreground.r, tile.foreground.g, tile.foreground.b, 0.35)
+    Text {
+      anchors.centerIn: parent
+      textFormat: Text.PlainText
+      text: tile.app.sound === "phone" ? Model.GLYPH.phone : tile.app.sound === "both" ? Model.GLYPH.devices : Model.GLYPH.volume
+      color: soundMouse.containsMouse ? Color.accent : tile.foreground
+      font.family: tile.fontFamily
+      font.pixelSize: Math.round(soundBadge.size * 0.62)
+    }
+    MouseArea {
+      id: soundMouse
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: tile.hovered()
+      onClicked: tile.soundRequested()
+    }
+    PanelToolTip {
+      visible: soundMouse.containsMouse
+      text: "Its sound plays " + ({ here: "here", phone: "on the device", both: "here and on the device" })[tile.app.sound || "here"] + " · change it (v)"
+      fontFamily: tile.fontFamily
+    }
+  }
+
   // Out of the recent ones (x), shown while hovered.
   PanelActionButton {
     visible: tile.canForget && tile.hot && !tile.dragging
@@ -205,9 +246,10 @@ Item {
   }
 
   PanelToolTip {
-    visible: mouse.containsMouse && !mouse.dragging
+    visible: mouse.containsMouse && !mouse.dragging && !soundMouse.containsMouse
     // An app (not All apps): Shift opens it popped out.
     text: tile.working ? "Opening " + (tile.app.name || "") + "…"
+      : tile.windowOpen ? (tile.app.name || "") + " is open: click to bring it forward"
       : "Open " + (tile.app.name || "") + " in a window" + (tile.app.package ? " · Shift+click: popped out" : "")
     fontFamily: tile.fontFamily
   }

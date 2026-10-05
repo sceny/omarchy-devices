@@ -878,7 +878,11 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "appSound"]])
   const sound = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "phone").actions.find(a => a.key === "appSound")
   assert.deepEqual([sound.sound, sound.device], ["phone", "Pixel 8"])
-  assert.match(sound.hint, /^Its sound stays on Pixel 8\. Not settled yet/)
+  assert.match(sound.hint, /^Its sound stays on Pixel 8\. An open app's tile changes its own/)
+  const both = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "both").actions.find(a => a.key === "appSound")
+  assert.deepEqual([both.sound, both.limits.both], ["both", ""], "Android 16: both offered")
+  const old = M.screenSetup(Object.assign(M.demoScreen("ready"), { sdk: 31 }), { name: "Pixel 8" }, null, true, false, false, "here").actions.find(a => a.key === "appSound")
+  assert.equal(old.limits.both, "Needs Android 13")
   assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
   assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
   assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")
@@ -1133,6 +1137,45 @@ test("an app's sound: here unless something else plays on the device; the playin
   assert.deepEqual(M.appSound("here", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "music in its headset stays there")
   assert.deepEqual(M.appSound("here", ["Spotify"], "Spotify"), { sound: "here", kept: false }, "the app playing: its sound comes with it")
   assert.deepEqual(M.appSound("phone", [], "Maps"), { sound: "phone", kept: false }, "the device's own choice")
+  assert.deepEqual(M.appSound("both", [], "Maps"), { sound: "both", kept: false }, "both: here and on the device")
+  assert.deepEqual(M.appSound("both", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "both would bring the music here too: kept there")
+  assert.deepEqual(M.appSound("weird", [], "Maps"), { sound: "here", kept: false }, "an unknown setting reads as here")
+})
+
+test("a window's sound (#129): the app's own last choice beats the quiet rule; the screen keeps here", () => {
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Maps", "here"), { sound: "here", kept: false, remembered: true }, "chosen here for Maps: here, music or not")
+  assert.deepEqual(M.appSound("phone", [], "Maps", "both"), { sound: "both", kept: false, remembered: true }, "its own choice over the device's")
+  assert.deepEqual(M.appSound("phone", [], "Maps", "nonsense"), { sound: "phone", kept: false }, "an unknown memory is none")
+  assert.equal(M.screenSound(undefined), "here", "the screen as it always was")
+  assert.equal(M.screenSound("both"), "both")
+})
+
+test("a window's sound card: three places, what each does, the volume while it plays here", () => {
+  const ready = M.demoScreen("ready")
+  const card = M.windowSoundCard({ label: "Maps" }, "here", { found: true, volume: 0.4, muted: false, output: "Speakers" }, "Pixel 8", ready)
+  assert.equal(card.title, "Maps's sound")
+  assert.deepEqual(card.options.map(o => [o.key, o.label, o.selected, o.enabled]),
+    [["here", "Here", true, true], ["phone", "On Pixel 8", false, true], ["both", "Both", false, true]])
+  assert.deepEqual([card.volume, card.level, card.muted, card.output], [true, 0.4, false, "Plays on Speakers"])
+  assert.match(card.line, /Pixel 8 goes quiet/)
+  const phone = M.windowSoundCard({ label: "Maps" }, "phone", { found: false }, "Pixel 8", ready)
+  assert.deepEqual([phone.volume, phone.output], [false, ""], "on the phone: no volume here (the phone's own is Now playing's)")
+  const starting = M.windowSoundCard({ label: "" }, "both", { found: false }, "Pixel 8", ready)
+  assert.deepEqual([starting.title, starting.volume, starting.output], ["Pixel 8's screen: its sound", false, "Its sound is not playing here yet"])
+  const old = M.windowSoundCard({ label: "Maps" }, "here", null, "Pixel 8", Object.assign({}, ready, { sdk: 32 }))
+  assert.deepEqual(old.options.map(o => o.enabled), [true, true, false], "Android 12: no both")
+  assert.equal(old.options[2].hint, "Needs Android 13")
+  assert.equal(M.windowSoundCard({ label: "Maps" }, "here", { found: true, volume: 1.7 }, "Pixel 8", ready).level, 1, "a level past 100% shows full")
+})
+
+test("an open app's window: its tile knows it, and where its sound plays", () => {
+  assert.equal(M.windowTitle("Pixel 8", "Maps"), "Maps · Pixel 8")
+  assert.equal(M.windowTitle("Pixel 8", ""), "Pixel 8 · Screen")
+  const apps = [{ package: "com.example.maps", name: "Maps" }, { package: "com.example.notes", name: "Notes" }]
+  const out = M.withWindows(apps, { Maps: true }, { "com.example.maps": "both" }, "here")
+  assert.deepEqual(out[0], { package: "com.example.maps", name: "Maps", open: true, sound: "both" })
+  assert.equal(out[1], apps[1], "a closed one is the same object")
+  assert.equal(M.withWindows(apps, { Notes: true }, {}, "phone")[1].sound, "phone", "not chosen on its window: where it opened")
 })
 
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {

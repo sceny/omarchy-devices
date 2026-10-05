@@ -714,20 +714,109 @@ function playerApp(identity, deviceName) {
   return dash > 0 ? id.slice(0, dash) : id
 }
 
-// Where an app window's sound goes. scrcpy takes the device's whole sound
-// output (not the app's alone), and the device goes quiet meanwhile: with
-// something else playing there (music in its headset), an app's sound stays
-// on the device; the app that is playing keeps its sound here. `chosen`:
-// the device's setting ("here" or "phone"); `playing`: the apps playing on
-// it now (players' names).
-function appSound(chosen, playing, appName) {
+// Where a window's sound plays (#129): here (scrcpy's default source, the
+// device's whole output, the device quiet meanwhile), on the device (no
+// sound forwarded), or both (what apps play, captured while it keeps
+// playing there; an app may keep its sound to itself). Both needs Android
+// 13 (scrcpy's playback source and its dup); any sound here, Android 11.
+var SOUND_PLACES = ["here", "phone", "both"]
+// The key the screen's own window is remembered under, beside its apps.
+var SCREEN_SOUND = "@screen"
+
+function soundPlace(v) {
+  return SOUND_PLACES.indexOf(v) >= 0 ? v : "here"
+}
+
+// Where an app window's sound goes when it opens. `chosen`: the device's
+// setting (here, phone or both); `playing`: the apps playing on it now
+// (players' names); `remembered`: this app's last choice, made on its own
+// window (kept in the cache). scrcpy takes the device's sound (not the
+// app's alone): with something else playing there (music in its headset),
+// a new app's sound stays on the device, unless the user chose otherwise
+// for that app; the app that is playing keeps its sound here.
+function appSound(chosen, playing, appName, remembered) {
+  if (SOUND_PLACES.indexOf(remembered) >= 0) return { sound: remembered, kept: false, remembered: true }
   if (chosen === "phone") return { sound: "phone", kept: false }
   var name = String(appName || "").toLowerCase()
   var others = (playing || []).filter(function(p) {
     var n = String(p || "").toLowerCase()
     return !(n && name && (n === name || n.indexOf(name) >= 0 || name.indexOf(n) >= 0))
   })
-  return others.length > 0 ? { sound: "phone", kept: true, playing: others[0] } : { sound: "here", kept: false }
+  return others.length > 0 ? { sound: "phone", kept: true, playing: others[0] } : { sound: soundPlace(chosen), kept: false }
+}
+
+// The screen's own window: its last choice, else here, as it always was.
+function screenSound(remembered) {
+  return SOUND_PLACES.indexOf(remembered) >= 0 ? remembered : "here"
+}
+
+// What a device can do with a window's sound, from its screen status
+// (`sdk`: Android's API level, 0 when not read): the reason a place cannot
+// be offered, "" when it can.
+function soundLimits(status) {
+  var sdk = Number((status || {}).sdk) || 0
+  return {
+    here: sdk > 0 && sdk < 30 ? "Needs Android 11" : "",
+    phone: "",
+    both: sdk > 0 && sdk < 33 ? "Needs Android 13" : ""
+  }
+}
+
+// The card a window's sound is chosen on, while that window is open.
+// `target`: { label: the app's name, "" for the screen }; `sound`: where
+// it plays now; `stream`: its sound here, as read ({ found, volume, muted,
+// output }), or null while read; `status`: the device's screen status.
+function windowSoundCard(target, sound, stream, deviceName, status) {
+  var device = String(deviceName || "the device")
+  var label = target && target.label ? String(target.label) : ""
+  var limits = soundLimits(status)
+  var place = soundPlace(sound)
+  var hints = {
+    here: "Here only: " + device + " goes quiet while it plays here",
+    phone: "Its sound stays on " + device,
+    both: "Here and on " + device + " (an app can keep its sound to itself)"
+  }
+  var labels = { here: "Here", phone: "On " + device, both: "Both" }
+  var glyphs = { here: GLYPH.volume, phone: GLYPH.phone, both: GLYPH.devices }
+  var options = SOUND_PLACES.map(function(k) {
+    return { key: k, label: labels[k], glyph: glyphs[k], selected: k === place, enabled: limits[k] === "",
+             hint: limits[k] || hints[k] }
+  })
+  var s = stream || null
+  var playsHere = place !== "phone"
+  var found = !!s && s.found === true
+  return {
+    title: label ? label + "'s sound" : device + "'s screen: its sound",
+    options: options,
+    line: hints[place],
+    note: "Changing it opens the window again, in its place",
+    // Its volume here, while its sound plays here and the stream is found.
+    volume: playsHere && found,
+    level: found ? Math.max(0, Math.min(1, Number(s.volume) || 0)) : 0,
+    muted: found && s.muted === true,
+    output: !playsHere ? "" : found ? (s.output ? "Plays on " + s.output : "") : (s ? "Its sound is not playing here yet" : "")
+  }
+}
+
+// A window's title: the screen's (`Pixel 8 · Screen`), or an app's
+// (`Maps · Pixel 8`), as the bridge names them (screen_title).
+function windowTitle(name, label) {
+  return label ? String(label) + " · " + String(name || "Device") : screenTitle(name)
+}
+
+// The apps with their window, when it is open here: `open` and where its
+// sound plays (`sound`), for the tile's badge. `openLabels`: the open
+// windows' labels (app names, label -> true); `sounds`: where each open one
+// plays (package -> place), else `fallback`.
+function withWindows(apps, openLabels, sounds, fallback) {
+  var open = openLabels || {}
+  return (apps || []).map(function(a) {
+    if (open[a.name] !== true) return a
+    var out = Object.assign({}, a)
+    out.open = true
+    out.sound = soundPlace((sounds || {})[a.package] || fallback)
+    return out
+  })
 }
 
 // A player belongs to this phone when KDE Connect exported it and its
@@ -1537,12 +1626,18 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
-    // Its apps (a window each, #116): where their sound plays. Not settled:
-    // the device gives its sound to one window at a time.
-    if (s.apps)
-      actions.push({ key: "appSound", label: "An app's sound", sound: appSound === "phone" ? "phone" : "here", device: name,
-                     hint: (appSound === "phone" ? "Its sound stays on " + name : "Its sound plays here")
-                       + ". Not settled yet: " + name + " gives its sound to one window at a time." })
+    // Its apps (a window each, #116): where their sound plays when they
+    // open; an open window changes its own (#129), and an app keeps its
+    // last choice.
+    if (s.apps) {
+      var sound = soundPlace(appSound)
+      var limits = soundLimits(s)
+      actions.push({ key: "appSound", label: "An app's sound", sound: sound, device: name, limits: limits,
+                     hint: { here: "Its sound plays here, and " + name + " goes quiet meanwhile",
+                             phone: "Its sound stays on " + name,
+                             both: "Its sound plays here and on " + name }[sound]
+                       + ". An open app's tile changes its own, and the app keeps it." })
+    }
   }
   return {
     state: state, line: line, steps: onlyStep ? [] : steps, pairingNote: pairingNote,
@@ -1824,9 +1919,9 @@ var PROFILE_SETTINGS = {
   showApps: function(v) { return layoutFlag(v) },
   // The apps kept in the Apps section, in their order (packages).
   pinnedApps: function(v) { return normalizePinned(v) },
-  // Where an app's sound plays: here, or left on the device. Not settled:
-  // the device gives its sound to one window at a time.
-  appSound: function(v) { return v === "phone" ? "phone" : "here" },
+  // Where an app's sound plays when it opens: here, left on the device, or
+  // both (Android 13). An open window changes its own (#129).
+  appSound: function(v) { return soundPlace(v) },
   showReceived: function(v) { return layoutFlag(v) },
   showCalls: function(v) { return layoutFlag(v) },
   // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
