@@ -2,9 +2,9 @@
 
 # Apps
 
-The phone's apps, each in a window of its own here, while the phone's own
-screen stays free. Set up once with the screen:
-[Setup › Screen and apps](setup/screen-and-apps.md).
+The phone's apps, each in a window of its own here, tiled with the rest,
+while the phone's own screen stays free: a map beside your browser, a chat
+beside your editor.
 
 ![All apps: search, the recently opened, then A to Z (demo data)](images/apps.png)
 
@@ -15,8 +15,8 @@ screen stays free. Set up once with the screen:
   (`Shift+H` / `Shift+L`); drag one out to unpin it. ✕ (or `x`) takes a
   recent one out until you open it again.
 - **A notification** opens its app in a window (its window button, or
-  `o`). It opens the app, not that message: KDE Connect cannot open a
-  notification yet.
+  `o`). It opens the app, not that message, which the phone does not
+  offer yet.
 - The window tiles like any other, and the app fills it as you resize it.
   **Shift+Enter** (or Shift+click) opens it popped out instead: floating,
   pinned, at the top right.
@@ -33,3 +33,4 @@ screen stays free. Set up once with the screen:
 - The list and the icons are read from the phone once a day and once per
   app version, and kept in `~/.cache/sceny.devices/`. ↻ on All apps reads
   them again.
+- Set up once, with the screen: [Setup › Screen and apps](setup/screen-and-apps.md).

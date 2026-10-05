@@ -4,15 +4,14 @@
 
 ## Gallery
 
-The phone's newest photos and videos, as its own gallery finds them.
-Click one to open it; from a corner, copy it or save it in
-`Pictures/<device>`; or drag it into a window. Below, the biggest albums
+The phone's newest photos and videos, here before you pick it up. Click
+one to open it; from a corner, copy it or save it in `Pictures/<device>`;
+or drag it straight into a chat or an editor. Below, the biggest albums
 open in Files.
 
 ![Gallery: two rows of photos, a video marked with play, and album links (demo data)](images/gallery.png)
 
-A ring by its title means the phone is being read. Set up once:
-[Setup › Your devices](setup/devices.md).
+A ring by its title means the phone is being read.
 
 ## Received
 
@@ -25,4 +24,4 @@ you rename, move or delete there follows here.
 
 A picture from the phone opens as a copy made in a sandbox from its
 pixels, so your viewer never reads the phone's file. One that cannot be
-read that way is not opened.
+read that way is not opened. Setup: [Your devices](setup/devices.md).

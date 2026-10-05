@@ -21,7 +21,7 @@ the phone's own shape, on every workspace. Or as a window like any other.
 - **Full screen:** Omarchy's pop-out key, then its full screen key (the
   panel shows your keys).
 - **Back by itself.** After the phone restarts, it opens again as soon as
-  Wireless debugging is back.
+  the phone lets it.
 
 ![The same phone turned sideways, its window turned with it (a made-up phone screen)](images/screen-turned.png)
 

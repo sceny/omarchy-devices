@@ -2,7 +2,8 @@
 
 # The panel
 
-Click the pill. Every section folds to one line.
+Your phone, one click on its pill: its notifications, what it plays, its
+apps and its newest photos. Every section folds to one line.
 
 ![The panel: shortcuts, apps, notifications, Now playing and received files folded, and the Gallery (demo data)](images/panel.png)
 
@@ -19,19 +20,17 @@ The phone's active player: seek, skip, volume. The others are a swipe or
 
 ![Now playing: cover, seek bar and volume (demo data)](images/now-playing.png)
 
-When something needs you, a red line at the top says what and opens
-[Settings](setup/settings.md); ✕ closes it until something new does.
-
 ## Shortcuts
 
-Messages, send files, the clipboard, ring it, send a text or a link, its
-[screen](screen-and-apps.md).
+Its [screen](screen-and-apps.md), messages, send files or a link, the
+clipboard, ring it.
 
 ![Shortcuts as tiles (demo data)](images/shortcuts.png)
 
 ## Apps
 
-Its pinned and recent [apps](apps.md); one opens in a window here.
+The ones you pinned and the ones you opened last; a click opens one in a
+window here. [Apps](apps.md).
 
 ## Several devices
 
@@ -46,6 +45,9 @@ Press `E` (or right-click the page): choose what the chip in the bar
 shows, order and hide sections, pick shortcuts. ✓ keeps it; Esc undoes.
 
 ![Editing the page: the bar chip, sections and shortcuts (demo data)](images/edit.png)
+
+When something needs you, a red line at the top says what and opens
+[Settings](setup/settings.md); ✕ closes it until something new does.
 
 ## Keys
 

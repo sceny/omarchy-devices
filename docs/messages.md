@@ -2,12 +2,13 @@
 
 # Messages
 
-Middle-click the pill, or pick *Messages* in the panel.
+Your texts, read and answered from your keyboard: every conversation on
+the phone, with unread marks, a filter and search. History loads as you
+scroll; pictures open full size. Drafts wait while you switch.
 
 ![Messages: conversations and a conversation with a picture (demo data)](images/messages.png)
 
-Every conversation, with unread marks, a filter and search. History loads
-as you scroll; pictures open full size. Drafts wait while you switch.
+Middle-click the pill, or pick *Messages* in the panel.
 
 ## A new message
 
