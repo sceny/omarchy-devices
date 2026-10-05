@@ -485,6 +485,15 @@ Panel {
     else persistDeviceProfile(String(id), { screenDocked: next })
     if (phone) phone.dockScreen(id, next, { rect: dockRectFor(id), ctx: dockCtx() })
   }
+  // The screen link reaches the device now (adb), whatever KDE Connect says.
+  function screenReaches(id) {
+    var st = phone ? phone.screenOf(String(id)) : null
+    return !!st && st.state === "ready" && screenOnFor(id)
+  }
+  // Here by one gateway or another: KDE Connect, or the screen link alone
+  // (its screen and apps work; what KDE Connect carries waits for it).
+  readonly property bool screenHere: !!device && !reachable && screenReaches(device.id)
+  readonly property bool deviceHere: reachable || screenHere
   readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
   function openScreenSetup(id) {
     if (!id) return
@@ -753,7 +762,7 @@ Panel {
   // Settings' status lists them; the gear's dot and the main page's line
   // count them.
   readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
-    pairedDevices.filter(function(d) { return d.reachable === true }).map(function(d) {
+    pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) }).map(function(d) {
       return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
   readonly property int settingsIssues: allProblems.length
@@ -764,7 +773,8 @@ Panel {
   function readAllFeatures() {
     if (!phone) return
     pairedDevices.forEach(function(d) { if (d.reachable === true) phone.readFeatures(String(d.id)) })
-    if (device && device.reachable === true && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
+    // KDE Connect away too: the screen link may still reach it.
+    if (device && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
   }
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
@@ -1455,7 +1465,9 @@ Panel {
   }
 
   // Screen and apps turned off: no Screen shortcut.
+  // KDE Connect away with the screen link here: only what works without it.
   readonly property var actions: Model.shortcutTiles(device && !screenOnFor(device.id) ? shortcutOrder.filter(function(k) { return k !== "screen" }) : shortcutOrder, can)
+    .filter(function(t) { return root.reachable || Model.shortcutByKey(t.key).needs === "" })
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // The sections drawn under the header, in the chosen order: switched on
@@ -1469,7 +1481,7 @@ Panel {
       // The Devices section is gone: tabs switch, the pairing card and
       // Settings' device list pair and unpair.
       if (key === "devices") continue
-      else if (!reachable) continue
+      else if (!reachable && !(screenHere && (key === "actions" || key === "apps"))) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "apps" && showApps && allApps.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -4854,7 +4866,7 @@ Panel {
               // or KDE Connect down: the way to This computer.
               Column {
                 id: awayColumn
-                visible: root.showMain && !root.reachable
+                visible: root.showMain && !root.deviceHere
                 width: parent.width
                 spacing: Style.space(8)
                 readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon

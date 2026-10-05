@@ -232,6 +232,14 @@ Keep them; change one only with the owner.
   their own (`switch`); every state comes from the items
   (`Model.deviceSetup`). A new source is a gateway with its items, never a
   branch for one feature.
+- **A device is here by any gateway.** KDE Connect away while the screen
+  link reaches it is not *away*: its screen, apps and the shortcuts that
+  need no KDE Connect stay on the main page, and KDE Connect's link is one
+  problem whose fix uses what adb knows (`device-fix reconnect`: KDE
+  Connect pointed at the device's address, kept with the user's own custom
+  devices; else `wake`: KDE Connect on the device let run in the
+  background and opened). The away card shows only when no gateway reaches
+  it.
 - **One switch gets a feature working.** Turning a feature on runs every
   step the plugin can, across its gateways, this computer's packages
   first (one password card for them); it stops only at a step the user

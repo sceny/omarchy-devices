@@ -167,5 +167,19 @@ class Renotify(unittest.TestCase):
             bridge.plugin_on, bridge.set_plugin, bridge.say, bridge.time.sleep = saved
 
 
+class Reconnect(unittest.TestCase):
+    def test_the_address_from_the_serial_or_the_device(self):
+        self.assertEqual(bridge.device_address("192.168.1.23:37011"), "192.168.1.23")
+        out = "3: wlan0    inet 192.168.1.40/24 brd 192.168.1.255 scope global wlan0"
+        self.assertEqual(bridge.device_address("R5CT1234", run=lambda args: (0, out)), "192.168.1.40")
+        self.assertEqual(bridge.device_address("R5CT1234", run=lambda args: (1, "")), "", "USB only: no address")
+
+    def test_the_users_own_custom_devices_stay(self):
+        self.assertEqual(bridge.with_address(["10.0.0.5"], "", "192.168.1.23"), ["10.0.0.5", "192.168.1.23"])
+        self.assertEqual(bridge.with_address(["10.0.0.5", "192.168.1.20"], "192.168.1.20", "192.168.1.23"), ["10.0.0.5", "192.168.1.23"],
+                         "the address it added before goes when it changed")
+        self.assertEqual(bridge.with_address(["192.168.1.23"], "192.168.1.23", "192.168.1.23"), ["192.168.1.23"], "nothing to change")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -57,7 +57,11 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
-                                              reload, wireless (over a USB cable)
+                                              reload, wireless (over a USB cable),
+                                              renotify, relisten, reconnect (KDE
+                                              Connect pointed at the address adb
+                                              knows), wake (KDE Connect on it let
+                                              run in the background, and opened)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
   kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
@@ -1787,6 +1791,98 @@ def remount(device_id, conn=None):
         return False
 
 
+# ---- KDE Connect's link, fixed through the screen link (adb) ----------------
+#
+# KDE Connect finds a device by broadcast; a network that drops it, or a
+# device that put KDE Connect to sleep, leaves the device away though adb
+# still reaches it. adb then knows where it is: KDE Connect is pointed at that
+# address (its custom devices, as its own settings do), and failing that,
+# KDE Connect on the device is let run in the background and opened.
+
+RECONNECT_WAIT_SEC = 10
+IPV4 = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
+
+
+def device_address(serial, run=None):
+    """The device's address on the network, from its adb serial (Wi-Fi) or
+    from the device (USB); "" when it has none."""
+    m = IPV4.match(serial or "")
+    if m:
+        return m.group(1)
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args))
+    code, out = run(["ip", "-o", "-4", "addr", "show", "wlan0"])
+    m = re.search(r"inet (\d{1,3}(?:\.\d{1,3}){3})/", out or "") if code == 0 else None
+    return m.group(1) if m else ""
+
+
+def with_address(current, added_before, address):
+    """KDE Connect's custom devices with this device's address: the one this
+    plugin added before goes (its address changed), the user's own stay."""
+    out = [a for a in current if a != added_before or a == address]
+    if address and address not in out:
+        out.append(address)
+    return out
+
+
+def wait_reachable(device_id, conn, wait=RECONNECT_WAIT_SEC, sleep=time.sleep):
+    for _ in range(int(wait * 2)):
+        p = props(conn, device_path(device_id), IFACE + ".device") or {}
+        if p.get("isReachable"):
+            return True
+        sleep(0.5)
+    return False
+
+
+def adb_reach(device_id):
+    """The device's adb serial when the screen link reaches it now, else ""."""
+    status = screen_status(device_id)
+    return status["serial"] if status["state"] == "ready" else ""
+
+
+def reconnect(device_id, conn=None):
+    conn = conn or bus()
+    serial = adb_reach(device_id)
+    if not serial:
+        return say("Not reachable over adb either: on the same Wi-Fi, with Wireless debugging on", EXIT_FAILED)
+    address = device_address(serial)
+    if not address:
+        return say("adb reaches it, but not over the network: on a USB cable only", EXIT_FAILED)
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    before = screen_record(device_id).get("kdeAddress", "")
+    wanted = with_address(current, before, address)
+    try:
+        if wanted != current:
+            call(conn, ROOT, "org.freedesktop.DBus.Properties", "Set",
+                 (IFACE + ".daemon", "customDevices", GLib.Variant("as", wanted)), "(ssv)")
+        screen_record(device_id, {"kdeAddress": address})
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    if wait_reachable(device_id, conn):
+        return say("Connected again")
+    return say("KDE Connect knows where it is now, but it did not answer", EXIT_FAILED)
+
+
+def wake(device_id, conn=None):
+    conn = conn or bus()
+    serial = adb_reach(device_id)
+    if not serial:
+        return say("Not reachable over adb", EXIT_FAILED)
+    # Not put to sleep by the battery saver again, then opened once.
+    adb(["-s", serial, "shell", "cmd", "deviceidle", "whitelist", "+" + KDECONNECT_ANDROID])
+    code, out = adb(["-s", serial, "shell", "monkey", "-p", KDECONNECT_ANDROID, "-c", "android.intent.category.LAUNCHER", "1"])
+    if code != 0:
+        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED)
+    try:
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error:
+        pass
+    if wait_reachable(device_id, conn):
+        return say("Connected again")
+    return say("KDE Connect is open on it, but it did not connect", EXIT_FAILED)
+
+
 def device_fix(what, device_id, arg=""):
     """The fixes that act on one device, each a click's: a KDE Connect
     plugin, a permission (granted over adb, or its screen opened there), a
@@ -1849,6 +1945,10 @@ def device_fix(what, device_id, arg=""):
         time.sleep(1)
         code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
         return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED)
+    if what == "reconnect":
+        return reconnect(device_id)
+    if what == "wake":
+        return wake(device_id)
     if what == "wireless":
         # Over a USB cable adb works without Wireless debugging, and can turn
         # it back on (Android turns it off after a restart).

@@ -1224,14 +1224,24 @@ function setupItem(key, ctx) {
   var item = { key: key, scope: "device", label: "", state: "ok", detail: "", steps: [] }
   function is(state, detail) { item.state = state; item.detail = detail || ""; return item }
   function check(k) { return (ctx.checks || []).filter(function(c) { return c.key === k })[0] || null }
-  // KDE Connect's link: everything it carries waits on it.
+  // The screen link reaches the device now (adb), whatever KDE Connect says.
+  var adbHere = !!ctx.screen && ctx.screen.state === "ready"
+  // KDE Connect's link: everything it carries waits on it. Lost while the
+  // screen link still reaches the device, it is not away: KDE Connect is.
   function linked() {
     if (!report) return is("unknown", "Looking…")
-    if (!report.reachable) return is("away", "When " + name + " connects")
+    if (!report.reachable) return is(adbHere ? "unknown" : "away", "When " + name + " connects")
     return null
   }
   if (kind === "link") {
     item.gateway = "kdeconnect"; item.label = "the link to " + name
+    if (report && !report.reachable && adbHere) {
+      // adb knows where it is: KDE Connect pointed there; else KDE Connect
+      // on the device let run in the background and opened.
+      item.steps.push({ kind: "auto", label: "Point KDE Connect at " + name + "'s address on this network", fix: { verb: "device", what: "reconnect" } })
+      item.steps.push({ kind: "auto", label: "Let KDE Connect run on " + name + " and open it", fix: { verb: "device", what: "wake" }, fallback: true })
+      return is("broken", "KDE Connect lost " + name + "; its screen link still reaches it")
+    }
     return linked() || is("ok", (report.links || []).join(", "))
   }
   if (kind === "plugin") {
@@ -2179,7 +2189,9 @@ function settingsProblems(checks, ignored, devices) {
       affects.forEach(function(r) { shown[r.key] = true })
       var gateway = GATEWAYS.filter(function(g) { return g.key === it.gateway })[0]
       var tried = affects.map(function(r) { return r.pending && r.pending.tried ? r.pending.tried : "" }).filter(function(t) { return t })[0] || ""
-      out.push({ where: String(d.id), whereLabel: d.title, key: it.key, label: affects.map(function(r) { return r.label }).join(", "),
+      // Many features behind one item (KDE Connect's link): the gateway's name.
+      out.push({ where: String(d.id), whereLabel: d.title, key: it.key,
+                 label: affects.length > 2 && gateway ? gateway.label : affects.map(function(r) { return r.label }).join(", "),
                  gateway: gateway ? gateway.label : "", detail: it.detail, steps: it.steps, tried: tried,
                  affects: affects.map(function(r) { return r.key }) })
     })

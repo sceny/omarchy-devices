@@ -1112,6 +1112,22 @@ test("setup items: one item serves several features and shows once; gateways say
   assert.ok(none.features.every(r => r.state === "setup" && r.detail === "Looking…"))
 })
 
+test("KDE Connect away while the screen link reaches the device: one problem, fixed through adb, never 'away'", () => {
+  const report = Object.assign(M.demoFeatures(), { reachable: false })
+  const setup = M.deviceSetup({ report, screen: { state: "ready", line: "Ready over Wi-Fi" }, name: "Pixel 8" })
+  const by = k => setup.features.find(r => r.key === k)
+  assert.equal(by("screen").state, "on", "its screen and apps work")
+  assert.equal(by("notifications").state, "attention", "what KDE Connect carries waits for it, as a problem")
+  const link = setup.items.find(it => it.key === "link")
+  assert.deepEqual([link.state, link.steps.map(st => st.fix.what), link.steps.map(st => !!st.fallback)], ["broken", ["reconnect", "wake"], [false, true]])
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.label]), [["link", "KDE Connect"]], "once, by its gateway's name")
+  assert.deepEqual(M.problemsPlan(problems).map(st => st.fix.what), ["reconnect", "wake"])
+  // Nothing reaches it: away, as before, and no problem.
+  const gone = M.deviceSetup({ report, screen: { state: "away", line: "" }, name: "Pixel 8" })
+  assert.equal(gone.features.find(r => r.key === "notifications").state, "away")
+})
+
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
   const device = { notifications: [
     { id: "a", app: "System UI", title: "1 more notification", ticker: "1 more notification", text: "", actions: [], replyId: "", dismissable: true },
