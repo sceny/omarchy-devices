@@ -1199,9 +1199,11 @@ function featureState(f, report, screen, deviceName) {
               switchable: !!(f.plugins && f.plugins.length), on: true }
   var name = deviceName || "the device"
   function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
+  // Its switch is the plugin's own (screenFeature), not KDE Connect's.
   if (f.screen) {
-    row.switchable = false
+    row.switchable = true
     var st = screen ? screen.state : "checking"
+    if (st === "disabled") { row.on = false; return done("off", "") }
     if (st === "ready") return done("on", screen.line || "")
     if (st === "checking") return done("setup", "Looking…")
     if (st === "tools") {
@@ -1685,6 +1687,9 @@ var PROFILE_SETTINGS = {
   showCalls: function(v) { return layoutFlag(v) },
   // The screen's window: docked by the bar (Omarchy's pop-out), or tiled.
   screenDocked: function(v) { return layoutFlag(v) },
+  // Screen and apps as a feature: off, no screen, no apps, nothing read
+  // over adb, and nothing about it to fix.
+  screenFeature: function(v) { return layoutFlag(v) },
   // Experimental, off unless chosen: a tiled screen's tile takes the
   // device's width (Hyprland has no such thing; the plugin moves the edge).
   screenFitTile: function(v) { return v === true || v === "true" },

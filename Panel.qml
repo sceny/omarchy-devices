@@ -445,6 +445,19 @@ Panel {
   property var screenWaitApp: null
   // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
   // the flat keys).
+  // Screen and apps turned on for the device (its switch on its page).
+  function screenOnFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenFeature !== false
+    return true
+  }
+  // Off: its window closes; on again: as it was set up.
+  function setScreenFeature(id, on) {
+    if (singleDevice) persistSettings({ screenFeature: on ? undefined : false })
+    else persistDeviceProfile(String(id), { screenFeature: on ? null : false })
+    if (!on && phone && phone.screenIsOpen(String(id))) phone.closeScreen(String(id))
+    if (on && phone) phone.readScreen(String(id))
+  }
   function screenDockedFor(id) {
     for (var i = 0; i < pairedDevices.length; i++)
       if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenDocked
@@ -667,6 +680,7 @@ Panel {
   // ---- What a device can do (docs/design/setup.md): its features from
   //      its sources, a state each, one action that just works ----
   function screenBrief(id) {
+    if (!screenOnFor(id)) return { state: "disabled", line: "" }
     var st = phone ? phone.screenOf(String(id)) : null
     if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
     // This computer's checks not in yet (just started): still looking.
@@ -755,6 +769,7 @@ Panel {
   function featureSwitch(row, on) {
     var d = featureDevice()
     if (!d || !phone || !row) return
+    if (row.key === "screen") { setScreenFeature(String(d.id), on); return }
     if (on) { featureAction(row); return }
     var f = Model.FEATURES.filter(function(x) { return x.key === row.key })[0]
     if (!f || !f.plugins) return
@@ -927,7 +942,7 @@ Panel {
     targetScope = scope
     settingsIndex = 0
     // A device's page: what it can do and where its screen stands, read now.
-    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled) phone.readScreen(scope) }
+    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled && screenOnFor(scope)) phone.readScreen(scope) }
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1407,7 +1422,8 @@ Panel {
     phone.report("Unpair " + row.name + "? Do it again to confirm", false)
   }
 
-  readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
+  // Screen and apps turned off: no Screen shortcut.
+  readonly property var actions: Model.shortcutTiles(device && !screenOnFor(device.id) ? shortcutOrder.filter(function(k) { return k !== "screen" }) : shortcutOrder, can)
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // The sections drawn under the header, in the chosen order: switched on
@@ -1441,7 +1457,7 @@ Panel {
   // ---- Apps (#116): the device's apps, each in a window here. The list is
   //      read only for a device whose screen is set up (screen.json) ----
   readonly property var appList: phone && device ? phone.appsOf(String(device.id)) : null
-  readonly property var allApps: appList && appList.apps ? appList.apps : []
+  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id) ? appList.apps : []
   readonly property var pinnedApps: profile.pinnedApps || []
   readonly property int appColumns: 5
   // The section: PINNED (every pinned app, wrapping), then RECENT (one row,
@@ -1485,7 +1501,7 @@ Panel {
     return out
   }
   function appsSetUp(id) {
-    if (!phone) return false
+    if (!phone || !screenOnFor(id)) return false
     if (phone.demo) return true
     var kept = phone.screenKept[String(id)]
     return !!kept && !!kept.paired
@@ -2272,6 +2288,18 @@ Panel {
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
     function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
     function appsInfo(): string { return root.appsInfo() }
+    // A feature's switch on the device page shown (as a click on it), and
+    // what the main page then has of the screen.
+    function switchFeature(key: string, on: bool): string {
+      var i = root.settingsRows.findIndex(function(r) { return r.kind === "feature" && r.key === key })
+      if (i < 0) return "no such row here"
+      root.featureSwitch(root.settingsRows[i], on)
+      return "ok"
+    }
+    function screenFeatureInfo(): string {
+      return JSON.stringify({ on: !!root.device && root.screenOnFor(root.device.id), apps: root.allApps.length,
+                              screenShortcut: root.actions.some(function(a) { return a.key === "screen" }) })
+    }
     function pressHeaderButton(): string { root.headerButton(); return root.targetPage }
     // For checks: the card a password fix shows first (nothing runs until
     // Continue); cancelRoot puts it away.

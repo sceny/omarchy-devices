@@ -27,7 +27,8 @@ GitHub release with these notes.
   page says what it can do, a row per feature, and one click does every
   step the plugin can (KDE Connect's part, a permission on the phone over
   adb), then says the one left to you. Features can be turned
-  off per device. Connection is now *This computer*, with *Fix all*.
+  off per device, Screen and apps too (no screen, no apps, nothing to fix
+  about it). Connection is now *This computer*, with *Fix all*.
   KDE Connect's own settings window is no longer needed.
 - **Settings, organized:** the same shape with one device or many. It starts
   with whether everything works, listing each problem once with *Fix all*

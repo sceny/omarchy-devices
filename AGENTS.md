@@ -331,7 +331,10 @@ Keep them; change one only with the owner.
   device, Away), what is missing, one action that runs every step the
   plugin can do (`featurePlan`) and stops at the first only the user can
   do, and a switch where its KDE Connect plugins can be turned off for that
-  device. Screen and apps keeps its own page.
+  device. Screen and apps keeps its own page; its switch is the plugin's
+  (`screenFeature`, per device like `screenDocked`): off, there is no Apps
+  section, no Screen shortcut, no app button on a notification, nothing read
+  over adb, its window closes, and nothing about it counts as a problem.
 - **A password only for what was shown.** A fix that needs root (packages,
   the firewall) is described first (`fix <what> --describe`: why, every
   package pacman would install, the firewall's rules as written) on a card

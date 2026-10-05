@@ -1072,6 +1072,19 @@ test("settings: a device's page lists what it can do; This computer", () => {
   assert.equal(M.settingsPageRows({ scope: "root", single: true, devices: [] }).find(r => r.kind === "connection").label, "This computer")
 })
 
+test("screen and apps can be turned off per device: its switch, no problem, read from the profile", () => {
+  const off = M.featureRows(M.demoFeatures(), { state: "disabled", line: "" }, "Pixel 8").find(r => r.key === "screen")
+  assert.deepEqual([off.state, off.on, off.switchable], ["off", false, true])
+  const on = M.featureRows(M.demoFeatures(), { state: "off", line: "Wireless debugging is off" }, "Pixel 8").find(r => r.key === "screen")
+  assert.deepEqual([on.state, on.switchable], ["attention", true], "on, it can be turned off too")
+  assert.equal(M.fixAllPlan([off]).length, 0, "turned off: nothing to fix")
+  const one = M.resolveProfile(M.readSettings({ screenFeature: false }), null, true)
+  assert.equal(one.screenFeature, false, "one device: the flat key")
+  const two = M.readSettings({ devices: { t1: { screenFeature: false } } })
+  assert.equal(M.resolveProfile(two, tablet(), false).screenFeature, false)
+  assert.equal(M.resolveProfile(two, phone(), true).screenFeature, true, "on unless turned off")
+})
+
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
   const device = { notifications: [
     { id: "a", app: "System UI", title: "1 more notification", ticker: "1 more notification", text: "", actions: [], replyId: "", dismissable: true },
