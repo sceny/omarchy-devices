@@ -47,7 +47,8 @@ Item {
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
-  signal activated()
+  // pop: Shift held (open it as Omarchy's pop-out, not tiled).
+  signal activated(bool pop)
   signal pinToggled()
   signal forgetRequested()
   signal dragStarted()
@@ -62,9 +63,14 @@ Item {
   // the cursor's highlight sits around it, as a header's button holds its
   // glyph: an 18 px icon in a 22 px box, a section header's height
   // (FoldToggle.headerHeight).
+  // Whole pixels, the same margin on every side: a half pixel left over
+  // put the icon (snapped to the pixel grid) off the middle of the
+  // cursor's square (drawn where the tile is, fractions and all).
   property bool compact: false
-  implicitWidth: compact ? iconSize + Style.space(4) : Style.space(76)
-  implicitHeight: compact ? iconSize + Style.space(4) : column.implicitHeight + Style.space(12)
+  readonly property int iconPx: Math.round(iconSize)
+  readonly property int margin: Math.round(Style.space(2))
+  implicitWidth: compact ? iconPx + 2 * margin : Style.space(76)
+  implicitHeight: compact ? iconPx + 2 * margin : column.implicitHeight + Style.space(12)
 
   CursorStop { here: tile.here; glide: tile.glide }
 
@@ -78,8 +84,8 @@ Item {
 
     Item {
       anchors.horizontalCenter: parent.horizontalCenter
-      width: tile.iconSize
-      height: tile.iconSize
+      width: tile.iconPx
+      height: tile.iconPx
 
       // No icon: a letter (or the demo's glyph) in a circle, in the
       // theme's colours.
@@ -167,7 +173,7 @@ Item {
     // Where it was let go, read before the tile goes back to its place.
     onReleased: function(m) { if (dragging) { var at = mapToItem(null, m.x, m.y); dragging = false; tile.dragEnded(at) } }
     onCanceled: if (dragging) { dragging = false; tile.dragEnded(Qt.point(-1e6, -1e6)) }
-    onClicked: if (!dragged) tile.activated()
+    onClicked: function(ev) { if (!dragged) tile.activated((ev.modifiers & Qt.ShiftModifier) !== 0) }
   }
 
   // Kept in the Apps section, or not: shown while hovered (and always for a
@@ -200,7 +206,9 @@ Item {
 
   PanelToolTip {
     visible: mouse.containsMouse && !mouse.dragging
-    text: tile.working ? "Opening " + (tile.app.name || "") + "…" : "Open " + (tile.app.name || "") + " in a window"
+    // An app (not All apps): Shift opens it popped out.
+    text: tile.working ? "Opening " + (tile.app.name || "") + "…"
+      : "Open " + (tile.app.name || "") + " in a window" + (tile.app.package ? " · Shift+click: popped out" : "")
     fontFamily: tile.fontFamily
   }
 }

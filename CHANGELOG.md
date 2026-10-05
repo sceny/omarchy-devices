@@ -19,7 +19,51 @@ GitHub release with these notes.
   icons. An Apps section with Pinned and Recent rows (drag an app into
   Pinned to pin it, drag to reorder, drag out to unpin), an All apps page
   with a search, and a notification's window button that opens its app.
-  An app's sound plays here or stays on the phone.
+  An app's sound plays here or stays on the phone. Shift+Enter or
+  Shift+click opens an app popped out (floating, pinned) instead of tiled.
+  Opening an app never takes music playing in your headset: its sound
+  stays on the phone then. On a locked phone, the phone wakes and the app
+  opens once you unlock it (it was an empty window).
+
+- **Setup that just works** ([#126](https://github.com/sceny/omarchy-devices/issues/126),
+  [#121](https://github.com/sceny/omarchy-devices/issues/121),
+  [#63](https://github.com/sceny/omarchy-devices/issues/63)): a device's
+  page says what it can do, a row per feature, and one click does every
+  step the plugin can (KDE Connect's part, a permission on the phone over
+  adb), then says the one left to you. Features can be turned
+  off per device, Screen and apps too (no screen, no apps, nothing to fix
+  about it). One switch gets a feature working: it installs what this
+  computer needs (a card first), sets up KDE Connect and the phone, and
+  carries on by itself after the one step left to you. A device KDE
+  Connect lost while its screen link still reaches it keeps its screen and
+  apps, and one *Fix* reconnects KDE Connect through what adb knows. Connection is now *This computer*, with *Fix all*.
+  KDE Connect's own settings window is no longer needed.
+- **Settings, organized:** the same shape with one device or many. It starts
+  with whether everything works, listing each problem once with *Fix all*
+  and *Fix with AI*; then My devices (each with its own page, tabs to the
+  next), *For all devices* (with two or more) and This computer, which now
+  holds only this computer. A red line on the main page says when
+  something needs you; close it and it stays closed until something new
+  does (the cog's dot stays).
+- **A password only for what is shown:** a card says why and lists every
+  package and firewall rule before the prompt; nothing else runs with it,
+  and nothing installed is ever downgraded.
+- **Recovers by itself:** the gallery after a phone restart
+  ([#99](https://github.com/sceny/omarchy-devices/issues/99)), notifications
+  dismissed while a device was away
+  ([#4](https://github.com/sceny/omarchy-devices/issues/4)) and ones that
+  stopped after pairing again ([#95](https://github.com/sceny/omarchy-devices/issues/95));
+  the screen re-docks at once after Super+O. The screen's state reads in
+  half a second (it took five), and the apps show from the first opening.
+- **What the phone hides stays hidden:** One UI's "1 more notification"
+  ([#52](https://github.com/sceny/omarchy-devices/issues/52)) and a player
+  paused long enough for Android to hide it
+  ([#33](https://github.com/sceny/omarchy-devices/issues/33)).
+- **Fix with AI** ([#101](https://github.com/sceny/omarchy-devices/issues/101)):
+  beside every problem, and for all of them in *What it can do*'s title
+  next to *Fix all*: your default coding agent opens on it, as Omarchy
+  opens it, with the plugin's guide; what it fixes that the plugin's own
+  fix missed, it offers to report (nothing private in it).
 
 ## 0.7.0 — 2026-10-02
 

@@ -155,8 +155,8 @@ Panel {
   property bool showMessages: false
   property bool showAppsPage: false
   readonly property bool showMain: !showSettings && !showMessages && !showAppsPage
-  // Each page of Settings (the list, Connection, Add a device, a device's
-  // page) is a page of its own, so moving between them animates too: the
+  // Each page of Settings (the list, This computer, Add a device, a
+  // device's page) is a page of its own, so moving between them animates too: the
   // scope opened is the target (targetScope), and the one shown
   // (settingsScope) changes with the page, at the change's midpoint.
   readonly property string targetPage: messagesOpen ? "messages" : appsOpen ? "apps" : (settingsOpen ? "settings/" + targetScope : "main")
@@ -165,6 +165,12 @@ Panel {
   // list from one of its pages; forward otherwise.
   function directionTo(target) {
     if (target === "main") return -1
+    // From one device's page to another's (the tabs): the way the tabs go.
+    // Back from Screen and apps to its device's page.
+    var from = shownPage.indexOf("settings/") === 0 ? shownPage.slice(9) : "", to = target.indexOf("settings/") === 0 ? target.slice(9) : ""
+    var ids = tabDevices.map(function(d) { return String(d.id) })
+    if (ids.indexOf(from) >= 0 && ids.indexOf(to) >= 0) return ids.indexOf(to) >= ids.indexOf(from) ? 1 : -1
+    if (from === "screen:" + to) return -1
     return target === "settings/root" && shownPage.indexOf("settings/") === 0 ? -1 : 1
   }
   // +1 moves forward (the new page comes in from the right), -1 goes back.
@@ -342,6 +348,9 @@ Panel {
     if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
     else {
       screenWaitOpen = ""   // closed: no longer waiting to open the screen
+      // A password card not answered goes with the last panel: nothing
+      // runs (another monitor's panel may still show it).
+      if (phone && phone.rootAsk && phone.openPanels <= 1) phone.cancelRoot()
       if (screenOpening) openingGone.restart()
     }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
@@ -394,22 +403,22 @@ Panel {
   property int settingsIndex: 0
 
   // ---- Settings for devices ----
-  // What the settings page edits: "root" (the device list, or with one
-  // device the whole flat page), "defaults", or a device's id (its page).
+  // What the settings page is: "root" (the status, My devices, This
+  // computer), "defaults" (For all devices), "connection" (This computer),
+  // "addDevice", "screen:<id>", or a device's id (its page).
   property string settingsScope: "root"
   property string targetScope: "root"
   readonly property var pairedDevices: phone ? phone.ordered : []
   readonly property bool singleDevice: pairedDevices.length <= 1
   readonly property var scopeDevice: {
-    var id = settingsScope === "root" && singleDevice && pairedDevices.length === 1 ? String(pairedDevices[0].id) : settingsScope
-    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === id) return pairedDevices[i]
+    for (var i = 0; i < pairedDevices.length; i++) if (String(pairedDevices[i].id) === settingsScope) return pairedDevices[i]
     return null
   }
   readonly property int scopeIndex: {
     for (var i = 0; i < pairedDevices.length; i++) if (scopeDevice && pairedDevices[i].id === scopeDevice.id) return i
     return -1
   }
-  readonly property bool editingDevice: settingsScope !== "root" && settingsScope !== "defaults" && !!scopeDevice
+  readonly property bool editingDevice: !!scopeDevice
   readonly property var profilesRead: phone ? phone.profiles : Model.readSettings(settings)
   readonly property var scopeProfile: scopeDevice ? Model.resolveProfile(profilesRead, scopeDevice, scopeIndex === 0) : null
   // The profile the page's groups edit: the device's own on its page, else
@@ -436,6 +445,19 @@ Panel {
   property var screenWaitApp: null
   // Opens under the bar (docked) or as a window, for a device: its profile (with one device,
   // the flat keys).
+  // Screen and apps turned on for the device (its switch on its page).
+  function screenOnFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenFeature !== false
+    return true
+  }
+  // Off: its window closes; on again: as it was set up.
+  function setScreenFeature(id, on) {
+    if (singleDevice) persistSettings({ screenFeature: on ? undefined : false })
+    else persistDeviceProfile(String(id), { screenFeature: on ? null : false })
+    if (!on && phone && phone.screenIsOpen(String(id))) phone.closeScreen(String(id))
+    if (on && phone) phone.readScreen(String(id))
+  }
   function screenDockedFor(id) {
     for (var i = 0; i < pairedDevices.length; i++)
       if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenDocked
@@ -463,32 +485,30 @@ Panel {
     else persistDeviceProfile(String(id), { screenDocked: next })
     if (phone) phone.dockScreen(id, next, { rect: dockRectFor(id), ctx: dockCtx() })
   }
-  // The viewed device's screen works: the Screen pill and row are on. Read
-  // when Settings opens, once scrcpy is here (about a second; never in a demo
-  // of the checks).
-  readonly property bool screenReady: {
-    var st = phone && device ? phone.screenOf(String(device.id)) : null
-    return !!st && st.state === "ready"
+  // The screen link reaches the device now (adb), whatever KDE Connect says.
+  function screenReaches(id) {
+    var st = phone ? phone.screenOf(String(id)) : null
+    return !!st && st.state === "ready" && screenOnFor(id)
+  }
+  // Here by one gateway or another: KDE Connect, or the screen link alone
+  // (its screen and apps work; what KDE Connect carries waits for it).
+  readonly property bool screenHere: !!device && !reachable && screenReaches(device.id)
+  readonly property bool deviceHere: reachable || screenHere
+  readonly property var screenOnlyIds: {
+    var out = {}
+    pairedDevices.forEach(function(d) { if (d.reachable !== true && screenReaches(d.id)) out[String(d.id)] = true })
+    return out
   }
   readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
-  function readScreenForPills() {
-    if (phone && device && opened && showSettings && screenInstalled) phone.readScreen(String(device.id))
-  }
-  onShowSettingsChanged: readScreenForPills()
-  onScreenInstalledChanged: readScreenForPills()
   function openScreenSetup(id) {
     if (!id) return
     if (!settingsOpen) openSettings()
     openScope("screen:" + id)
     if (phone) phone.readScreen(id)
   }
-  // A Connection row's button: its fix, or for Screen and apps once
-  // installed, the viewed device's setup page.
-  function fixRequested(what) {
-    if (!phone) return
-    if (what === "setup") openScreenSetup(device ? String(device.id) : "")
-    else phone.fixSetup(what)
-  }
+  // A This computer row's button: its fix (a card first when it needs a
+  // password).
+  function fixRequested(what) { if (phone) phone.fixSetup(what) }
   // Wireless debugging seen on the device while its page shows: the code
   // shows by itself, once per visit (Stop, or a failure, leaves it to the
   // button). Showing a code pairs nothing until the device scans it.
@@ -657,9 +677,9 @@ Panel {
   // reload tears the panel down.
   readonly property var editedProfile: editProfile || ({ showShortcuts: true, showMedia: true, showNotifications: true, showPhotos: true, showReceived: true,
     shortcuts: [], sectionOrder: [], barIndicators: [], batteryLowOnly: true, custom: {} })
-  // ---- Connection (a settings scope): this computer, pairing, adding ----
+  // ---- This computer (settings scope "connection"), Add a device ----
   // Checks the user chose not to fix (a firewall on a Bluetooth-only
-  // machine): they no longer light the gear's dot.
+  // machine): they no longer count as problems.
   // The phone the app's QR code is for on Add a device: "android" (the
   // default; the key is left out) or "ios". Kept, so the next device added
   // starts on the same choice.
@@ -671,13 +691,186 @@ Panel {
   }
   readonly property var setupChecks: phone ? phone.setupChecks : []
   readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
+  // ---- What a device can do (docs/design/setup.md, #128): its gateways,
+  //      their setup items, and its features from them; one action each ----
+  function screenBrief(id) {
+    var st = phone ? phone.screenOf(String(id)) : null
+    if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
+    // This computer's checks not in yet (just started): still looking.
+    return screenInstalled || setupChecks.length === 0 ? null : { state: "tools", line: "Needs scrcpy and adb here" }
+  }
+  // Every paired device's setup (Model.deviceSetup: items, features,
+  // gateways), worked out once per change and only while the panel is open
+  // (each panel has its own; the rest read from here). Each feature row
+  // carries what a fix left (pending: a step for the user, waiting or to
+  // check again; or it did not work) and whether it is a problem (Fix and
+  // Fix with AI show on every problem, always).
+  readonly property var setupById: {
+    var out = {}
+    if (!opened || !phone) return out
+    var pend = phone.featurePending
+    pairedDevices.forEach(function(d) {
+      var id = String(d.id)
+      var setup = Model.deviceSetup({ report: phone.featureReports[id] || null, screen: screenBrief(id), name: Model.deviceLabel(d),
+                                      checks: setupChecks, own: { screenFeature: screenOnFor(id) } })
+      setup.features = setup.features.map(function(r) {
+        var p = pend[id + ":" + r.key] || null
+        if (p && r.state === "on") p = null   // done: nothing pending
+        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed) })
+      })
+      out[id] = setup
+    })
+    return out
+  }
+  readonly property var featureRowsById: {
+    var out = {}
+    Object.keys(setupById).forEach(function(id) { out[id] = setupById[id].features })
+    return out
+  }
+  function featureRowsFor(d) { return d ? (featureRowsById[String(d.id)] || []) : [] }
+  // Pending steps that are done go, every device's: the feature is on, or
+  // the user's step it waited for is done, and then the rest runs by itself
+  // (one switch gets it working).
+  onFeatureRowsByIdChanged: {
+    if (!phone) return
+    Object.keys(featureRowsById).forEach(function(id) {
+      featureRowsById[id].forEach(function(r) {
+        var p = phone.pendingFor(id, r.key)
+        if (!p) return
+        if (r.state === "on") { phone.setPending(id, r.key, null); return }
+        if (p.wait && p.waitFor && !(r.steps || []).some(function(s) { return s.item === p.waitFor })) {
+          phone.setPending(id, r.key, null)
+          var d = phone.findDevice(id)
+          if (d) Qt.callLater(function() { root.featureAction(r, d) })
+        }
+      })
+    })
+  }
+  // Fix with AI: what is wrong, and what the plugin's own fix did.
+  function aiProblem(r) { return { label: r.label, detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
+  function fixWithAi(what, index) {
+    if (!phone) return
+    var list = []
+    if (what === "features") list = featureRowsFor(featureDevice()).filter(function(r) { return r.problem || r.state === "setup" }).map(aiProblem)
+    else if (what === "feature") list = [aiProblem(settingsRows[index])]
+    else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
+    else if (what === "all") list = allProblems.map(function(p) {
+      return { label: p.label + (p.gateway ? " via " + p.gateway : "") + " (" + p.whereLabel + ")", detail: p.detail, tried: p.tried || "" }
+    })
+    else if (what === "gallery") list = [{ label: "Gallery", detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
+    if (list.length === 0) return
+    phone.fixWithAi(list)
+    root.close()
+  }
+  // What needs the user, each problem once where its cause is: this
+  // computer's, then every connected device's (Model.settingsProblems).
+  // Settings' status lists them; the gear's dot and the main page's line
+  // count them.
+  readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
+    pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) }).map(function(d) {
+      return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
+    }))
+  readonly property int settingsIssues: allProblems.length
+  // The main page's banner, closed: the problems it showed then stay out of
+  // it, and a new one brings it back. The gear's dot and Settings' status
+  // keep every problem. Kept with the settings, written on the close only.
+  readonly property var closedProblems: {
+    var v = setting("closedProblems", [])
+    return Array.isArray(v) ? v : []
+  }
+  function problemId(p) { return String(p.where) + ":" + String(p.key) }
+  readonly property bool bannerShown: allProblems.some(function(p) { return closedProblems.indexOf(problemId(p)) < 0 })
+  function closeProblemsBanner() { persistSettings({ closedProblems: allProblems.map(problemId) }) }
+  // Every connected device's features, read when the panel opens (the
+  // status counts them all, not only the viewed one's).
+  // The viewed device's screen too, once it was set up here (adb pairs
+  // kept): Wireless debugging off after a restart is a problem to say.
+  function readAllFeatures() {
+    if (!phone) return
+    pairedDevices.forEach(function(d) { if (d.reachable === true || screenReaches(d.id)) phone.readFeatures(String(d.id)) })
+    // KDE Connect away too: the screen link may still reach it.
+    if (device && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
+  }
+  function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
+  // A feature's one action: every step the plugin can do, then the one only
+  // the user can do (said in the row, or as the result).
+  // `d`: the device (else the page's).
+  function featureAction(row, d) {
+    d = d || featureDevice()
+    if (!d || !phone || !row) return
+    var plan = Model.featurePlan(row)
+    var rest = (row.steps || [])[plan.length]
+    var id = String(d.id)
+    // A step on a page of its own (the screen link's pairing): that page,
+    // once every step before it is done.
+    if (rest && rest.page) {
+      if (plan.length === 0) openStepPage(rest.page, id)
+      else phone.runSteps(id, plan, "feature:" + row.key, null, function(ok) { if (ok && root.opened) root.openStepPage(rest.page, id) })
+      return
+    }
+    // What is left after them: the step only the user can do, shown in the
+    // row (waiting for it where it can be seen, else Check again).
+    var left = rest ? { text: rest.orAsk || rest.label, wait: false } : null
+    if (plan.length > 0) phone.runSteps(id, plan, "feature:" + row.key, left)
+    else if (left) phone.setPending(id, row.key, Object.assign({ at: Date.now(), failed: false, tried: "" }, left))
+  }
+  function openStepPage(page, id) {
+    if (page === "connection") openConnection()
+    else if (page === "screen") openScreenSetup(id)
+  }
+  // A feature's switch: its own items only (Model.FEATURES' switch). KDE
+  // Connect's plugins on or off for this device (it stops sending it), or
+  // the plugin's own flag (Screen and apps).
+  function featureSwitch(row, on) {
+    var d = featureDevice()
+    if (!d || !phone || !row) return
+    var f = Model.FEATURES.filter(function(x) { return x.key === row.key })[0]
+    if (!f) return
+    if (f.switch.indexOf("own:screen") >= 0) setScreenFeature(String(d.id), on)
+    var plugins = f.switch.filter(function(k) { return k.indexOf("plugin:") === 0 }).map(function(k) { return k.slice(7) })
+    if (plugins.length === 0) return
+    if (on) { featureAction(row); return }
+    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
+                   "feature:" + row.key)
+  }
+  // Fix all, for what the page is about: Settings' status everything (this
+  // computer first, its password asked once), This computer its checks, a
+  // device's page that device's features.
+  // A check ignored is not fixed either.
+  function computerFixSteps() {
+    return Model.connectionRows(setupChecks, ignoredChecks)
+      .filter(function(c) { return !c.ok && !c.optional && !c.ignored && ["install", "start", "firewall"].indexOf(c.fix) >= 0 })
+      .map(function(c) { return { kind: "auto", fix: { verb: "fix", what: c.fix } } })
+  }
+  // The status fixes what it lists (the problems), nothing it did not show;
+  // a device's page every feature on it.
+  function fixAllPlans() {
+    var connected = pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) })
+    if (editingDevice && scopeDevice) return [{ id: String(scopeDevice.id), steps: Model.fixAllPlan(featureRowsFor(scopeDevice)) }]
+    var computer = computerFixSteps()
+    // No device to read again after: "this computer" runs it.
+    if (settingsScope === "connection") return [{ id: "computer", steps: computer }]
+    var plans = connected.map(function(d) {
+      return { id: String(d.id), steps: Model.problemsPlan(allProblems.filter(function(p) { return p.where === String(d.id) })) }
+    })
+    return [{ id: "computer", steps: computer }].concat(plans)
+  }
+  // One after another: one password card at a time, this computer first.
+  function fixAll() {
+    if (!phone) return
+    var plans = fixAllPlans().filter(function(p) { return p.steps.length > 0 })
+    if (plans.length === 0) { phone.report("Nothing to fix here", false); return }
+    function run(i) { if (i < plans.length) phone.runSteps(plans[i].id, plans[i].steps, "fixAll", null, function() { run(i + 1) }) }
+    run(0)
+  }
+  readonly property int fixAllCount: fixAllPlans().reduce(function(n, p) { return n + p.steps.length }, 0)
   function ignoreCheck(key, on) {
     var next = ignoredChecks.filter(function(k) { return k !== key })
     if (on) next.push(key)
     persistSettings({ ignoredChecks: next.length > 0 ? next : undefined })
   }
   // Nothing to show on the main page without them: KDE Connect down (the
-  // panel opens on Connection, what is broken), or nothing paired (it opens
+  // panel opens on This computer, what is broken), or nothing paired (it opens
   // on Add a device, what to do next).
   readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? "connection" : (pairedDevices.length === 0 ? "addDevice" : ""))
   // The viewed device away: where it was and what Reconnect found.
@@ -770,8 +963,10 @@ Panel {
       var p = root.justPaired
       root.justPaired = null
       if (!p || !root.opened || !root.showSettings || root.settingsScope !== "addDevice") return
+      // Paired: on to what it can do (its page), each feature one click away.
       if (root.phone) root.phone.view(p.id)
-      root.closeSettings()
+      root.openScope(String(p.id))
+      if (root.phone) root.phone.readFeatures(p.id)
     }
   }
   // While Add a device shows, it looks for new devices.
@@ -784,23 +979,27 @@ Panel {
   }
 
   readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
-    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks, screenReady)
+    : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
-    connection: Model.connectionSummary(setupChecks, ignoredChecks, screenReady),
-    connectionPills: Model.connectionPills(setupChecks, ignoredChecks, screenReady),
-    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent),
+    connection: Model.connectionSummary(setupChecks, ignoredChecks),
+    connectionPills: Model.connectionPills(setupChecks, ignoredChecks),
+    problems: allProblems,
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, screenOnlyIds),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
-    can: scopeDevice ? scopeDevice.can : (device ? device.can : null)
+    can: scopeDevice ? scopeDevice.can : (device ? device.can : null),
+    features: editingDevice ? featureRowsFor(scopeDevice) : null
   })
 
   function openScope(scope) {
     targetScope = scope
     settingsIndex = 0
+    // A device's page: what it can do and where its screen stands, read now.
+    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled && screenOnFor(scope)) phone.readScreen(scope) }
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -913,8 +1112,8 @@ Panel {
       pairing: s.pairingNote, qr: s.showQr, actions: s.actions.map(function(a) { return a.key }) } : { scope: settingsScope })
   }
   function settingsBack() {
-    // Screen and apps goes back to its device's page (with one device, root).
-    if (screenId !== "") { openScope(manyDevices ? screenId : "root"); return true }
+    // Screen and apps goes back to its device's page.
+    if (screenId !== "") { openScope(screenId); return true }
     if (settingsScope !== "root") { openScope("root"); return true }
     return false
   }
@@ -957,13 +1156,10 @@ Panel {
     setIdentity({ bar: order[(at + 1) % order.length] })
   }
   property bool iconPicking: false
-  // The header names the device a settings page edits, else the viewed one.
-  // A page about no one device names none: Connection, Add a device, and
-  // with several devices the list and the defaults. The header then reads
-  // Devices, with the plugin's own glyph. A device's page, and with one
-  // device all of Settings (its settings), name the device.
-  readonly property bool heroNeutral: showSettings
-    && (settingsScope === "connection" || settingsScope === "addDevice" || (manyDevices && !editingDevice))
+  // The header names the device a settings page is about (its page, its
+  // Screen and apps), else none: Settings, For all devices, This computer
+  // and Add a device read Devices, with the plugin's own glyph.
+  readonly property bool heroNeutral: showSettings && screenId === "" && !editingDevice
   readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : (showSettings && editingDevice ? scopeDevice : device))
   readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
@@ -1262,10 +1458,17 @@ Panel {
     var entry = Model.withDeviceOrder(root.settings, snapshot, next)
     persistSettings({ deviceOrder: entry.deviceOrder, devices: entry.devices || {} })
   }
-  function tabAt(i) { if (i >= 0 && i < tabDevices.length) switchDevice(tabDevices[i].id) }
+  // On a device's settings page, the tabs go to the other devices' pages.
+  readonly property bool tabsOnSettings: showSettings && editingDevice && screenId === ""
+  function tabAt(i) {
+    if (i < 0 || i >= tabDevices.length) return
+    if (tabsOnSettings) openScope(String(tabDevices[i].id))
+    else switchDevice(tabDevices[i].id)
+  }
   function tabStep(delta) {
+    var on = tabsOnSettings ? scopeDevice : device
     for (var i = 0; i < tabDevices.length; i++)
-      if (device && tabDevices[i].id === device.id) { tabAt(Math.max(0, Math.min(tabDevices.length - 1, i + delta))); return }
+      if (on && tabDevices[i].id === on.id) { tabAt(Math.max(0, Math.min(tabDevices.length - 1, i + delta))); return }
   }
 
   function armOrUnpair(row) {
@@ -1276,7 +1479,10 @@ Panel {
     phone.report("Unpair " + row.name + "? Do it again to confirm", false)
   }
 
-  readonly property var actions: Model.shortcutTiles(shortcutOrder, can)
+  // Screen and apps turned off: no Screen shortcut.
+  // KDE Connect away with the screen link here: only what works without it.
+  readonly property var actions: Model.shortcutTiles(device && !screenOnFor(device.id) ? shortcutOrder.filter(function(k) { return k !== "screen" }) : shortcutOrder, can)
+    .filter(function(t) { return root.reachable || Model.shortcutByKey(t.key).needs === "" })
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // The sections drawn under the header, in the chosen order: switched on
@@ -1290,7 +1496,7 @@ Panel {
       // The Devices section is gone: tabs switch, the pairing card and
       // Settings' device list pair and unpair.
       if (key === "devices") continue
-      else if (!reachable) continue
+      else if (!reachable && !(screenHere && (key === "actions" || key === "apps"))) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "apps" && showApps && allApps.length > 0) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -1310,7 +1516,7 @@ Panel {
   // ---- Apps (#116): the device's apps, each in a window here. The list is
   //      read only for a device whose screen is set up (screen.json) ----
   readonly property var appList: phone && device ? phone.appsOf(String(device.id)) : null
-  readonly property var allApps: appList && appList.apps ? appList.apps : []
+  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id) ? appList.apps : []
   readonly property var pinnedApps: profile.pinnedApps || []
   readonly property int appColumns: 5
   // The section: PINNED (every pinned app, wrapping), then RECENT (one row,
@@ -1354,7 +1560,7 @@ Panel {
     return out
   }
   function appsSetUp(id) {
-    if (!phone) return false
+    if (!phone || !screenOnFor(id)) return false
     if (phone.demo) return true
     var kept = phone.screenKept[String(id)]
     return !!kept && !!kept.paired
@@ -1365,9 +1571,15 @@ Panel {
       if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).appSound
     return "here"
   }
-  function openApp(app) {
+  // Tiled, always the default; `pop` (Shift+Enter, Shift+click): as
+  // Omarchy's pop-out instead.
+  // Its sound stays on the device, quietly, while something else plays
+  // there (Model.appSound): scrcpy would take the device's whole sound.
+  function openApp(app, pop) {
     if (!phone || !device || !app) return
-    phone.pressApp(String(device.id), app, appSoundFor(String(device.id)))
+    var id = String(device.id)
+    var st = phone.deviceStates[id] || {}
+    phone.pressApp(id, app, Model.appSound(appSoundFor(id), st.playingApps || [], app.name).sound, pop === true)
   }
   function appWorking(app) { return !!phone && !!device && !!app && phone.isBusy("screen:" + device.id + ":" + app.package) }
   function forgetApp(app) {
@@ -1408,13 +1620,12 @@ Panel {
                             sound: device ? appSoundFor(String(device.id)) : "",
                             folded: { width: Math.round(appsFoldedWidth), room: foldedRoom, pinned: foldedPinned, recent: foldedRecent } })
   }
-  // The header's button: back from a page, else Settings (Connection while
-  // this computer has something to fix).
+  // The header's button: back from a page, else Settings (its status says
+  // what needs the user).
   function headerButton() {
     if (messagesOpen) closeMessagesView()
     else if (appsOpen) closeAppsView()
     else if (settingsOpen) { if (!settingsBack()) closeSettings() }
-    else if (computerIssues > 0) openConnection()
     else openSettings()
   }
   function closeAppsView() {
@@ -1509,8 +1720,10 @@ Panel {
     if (row.kind === "layout") return !isCollapsed("layout")
     if (row.kind === "shortcut") return !isCollapsed("shortcuts")
     if (row.kind === "bar" || row.kind === "barFlag") return !isCollapsed("bar")
-    if (row.kind === "device" || row.kind === "request" || row.kind === "available") return !isCollapsed("devicesList")
+    // My devices folds at root only; Add a device lists its rows unfolded.
+    if (settingsScope === "root" && ["device", "request", "addDevice"].indexOf(row.kind) >= 0) return !isCollapsed("devicesList")
     if (["nickname", "icon", "barPlace", "showInPanel"].indexOf(row.kind) >= 0) return !isCollapsed("identity")
+    if (row.kind === "feature") return !isCollapsed("features")
     return true
   }
   function nextSettingsRow(from, dy) {
@@ -1541,13 +1754,13 @@ Panel {
     else if (row.kind === "barPlace") cycleBarPlace()
     else if (row.kind === "showInPanel") setIdentity({ showInPanel: !scopeProfile.showInPanel })
     else if (row.kind === "resetGroup") resetGroup(row.key)
-    else if (row.kind === "editPage") { if (editingDevice && scopeDevice) phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
+    else if (row.kind === "editPage" && scopeDevice) { phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
-    else if (row.kind === "kdeconnect" && phone) { phone.openKdeConnect(); root.close() }
     else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
-    else if (row.kind === "check" && phone && row.fix !== "" && (!row.ok || row.optional)) fixRequested(row.fix)
-    else if (row.kind === "screen") openScreenSetup(String(editingDevice && scopeDevice ? scopeDevice.id : (device ? device.id : "")))
+    else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
+    else if (row.kind === "feature") featureAction(row)
+    else if (row.kind === "problem") openScope(row.where === "computer" ? "connection" : row.where)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -1646,6 +1859,7 @@ Panel {
     settingsIndex = 0
     targetScope = "root"
     iconPicking = false
+    readAllFeatures()
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -1815,7 +2029,8 @@ Panel {
     scrollToCursor()
   }
 
-  function activateCursor() {
+  // `pop`: Shift+Enter (an app opens as Omarchy's pop-out).
+  function activateCursor(pop) {
     ensureCursor()
     // Editing: Enter shows or hides the section under the cursor.
     if (editing) { toggleSectionShown(focusSection); return }
@@ -1834,7 +2049,7 @@ Panel {
     } else if (focusSection === "notifications") {
       openReply(notifications[notifIndex])
     } else if (focusSection === "apps") {
-      if (appIndex < sectionApps.length) openApp(sectionApps[appIndex])
+      if (appIndex < sectionApps.length) openApp(sectionApps[appIndex], pop === true)
       else openAppsView()
     } else if (focusSection === "photos") {
       openPhoto(photos[photoIndex])
@@ -1906,7 +2121,9 @@ Panel {
     messagesOpen = false
     appsOpen = false
     if (device) readAppsFor(String(device.id))
-    // Nothing paired, or KDE Connect down: straight to Connection.
+    readAllFeatures()
+    // Nothing paired, or KDE Connect down: straight to Add a device, or This
+    // computer.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
     else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = resume.scope; settingsIndex = 0 }
     else if (resume && resume.messagesOpen) openMessagesView(-1)
@@ -2096,6 +2313,13 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
+    // What needs the user (the status, the gear's dot, the main page's
+    // line), and whether that line shows now.
+    function closeBanner(): string { root.closeProblemsBanner(); return "closed" }
+    function problems(): string {
+      return JSON.stringify({ count: root.settingsIssues, hint: problemsHint.open, closed: root.closedProblems.length, line: Model.problemsLine(root.allProblems),
+                              problems: root.allProblems.map(function(p) { return { where: p.where === "computer" ? "computer" : "device", key: p.key, label: p.label } }) })
+    }
     // Demo only: a made-up caller ringing, or a call missed, on the viewed
     // device; "none" ends it.
     function demoCall(kind: string): string {
@@ -2131,7 +2355,24 @@ Panel {
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
     function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
     function appsInfo(): string { return root.appsInfo() }
+    // A feature's switch on the device page shown (as a click on it), and
+    // what the main page then has of the screen.
+    function switchFeature(key: string, on: bool): string {
+      var i = root.settingsRows.findIndex(function(r) { return r.kind === "feature" && r.key === key })
+      if (i < 0) return "no such row here"
+      root.featureSwitch(root.settingsRows[i], on)
+      return "ok"
+    }
+    function screenFeatureInfo(): string {
+      return JSON.stringify({ on: !!root.device && root.screenOnFor(root.device.id), apps: root.allApps.length,
+                              screenShortcut: root.actions.some(function(a) { return a.key === "screen" }) })
+    }
     function pressHeaderButton(): string { root.headerButton(); return root.targetPage }
+    // For checks: the card a password fix shows first (nothing runs until
+    // Continue); cancelRoot puts it away.
+    function askRoot(what: string): string { if (root.phone) root.phone.askRoot(what, null); return "asked" }
+    function cancelRoot(): string { if (root.phone) root.phone.cancelRoot(); return "cancelled" }
+    function rootAsk(): string { return JSON.stringify(root.phone ? root.phone.rootAsk : null) }
     function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
     function pressDelete(): string { keyCatcher.deleteRequested(); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
@@ -2332,6 +2573,17 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut,
+      // so it comes before the catcher, whose Enter carries no modifiers.
+      Shortcut {
+        sequences: ["Shift+Return", "Shift+Enter"]
+        enabled: root.opened && !keyCatcher.blocked && root.cursorActive
+          && (root.appsOpen || (root.mainView && root.focusSection === "apps"))
+        onActivated: {
+          if (root.appsOpen) appsView.activate(true)
+          else root.activateCursor(true)
+        }
+      }
       blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
         || (root.appsOpen && !!appsView && appsView.searchFocused)
 
@@ -2356,6 +2608,7 @@ Panel {
         root.moveCursor(dx, dy)
       }
       onActivateRequested: {
+        if (root.phone && root.phone.rootAsk) { root.phone.confirmRoot(); return }
         if (root.messagesOpen) { messagesView.activateCursor(); return }
         if (!root.cursorActive) return
         if (root.appsOpen) { appsView.activate(); return }
@@ -2379,7 +2632,8 @@ Panel {
         }
       }
       onCloseRequested: {
-        if (root.pageMenuOpen) root.closePageMenu()
+        if (root.phone && root.phone.rootAsk) root.phone.cancelRoot()
+        else if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
         else if (root.appsOpen) { if (!appsView.goBack()) root.closeAppsView() }
@@ -2439,6 +2693,9 @@ Panel {
           if (root.cursorActive && row && (t === "K" || t === "J")
               && (row.kind === "device" || row.kind === "layout" || ((row.kind === "shortcut" || row.kind === "bar") && row.on)))
             settingsView.glideMove(row.kind, row.pos, t === "K" ? -1 : 1)
+          // A device's page: its tabs, as on the main page.
+          else if (root.manyDevices && root.tabsOnSettings && t >= "1" && t <= "9") root.tabAt(Number(t) - 1)
+          else if (root.manyDevices && root.tabsOnSettings && (t === "H" || t === "L")) root.tabStep(t === "H" ? -1 : 1)
           return
         }
         if (t === "s") { root.openSettings(); return }
@@ -2525,6 +2782,111 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+        }
+      }
+
+      // While it shows, the rest of the panel takes no click (another fix
+      // started meanwhile would ask over it).
+      Rectangle {
+        anchors.fill: parent
+        z: 11
+        visible: rootCard.visible
+        radius: Style.cornerRadius
+        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * rootCard.opacity)
+        MouseArea {
+          anchors.fill: parent
+          hoverEnabled: true
+          acceptedButtons: Qt.AllButtons
+          onWheel: function(wheel) { wheel.accepted = true }
+        }
+      }
+      // ---- A password, only for what is shown: why, and every action that
+      //      runs with it; Continue brings the prompt, Cancel or Esc does not ----
+      BorderSurface {
+        id: rootCard
+        readonly property var plan: root.phone ? root.phone.rootAsk : null
+        property var shown: null
+        onPlanChanged: if (plan) shown = plan
+        z: 12
+        anchors.centerIn: parent
+        width: Math.min(parent.width - Style.space(32), Style.space(440))
+        height: rootColumn.implicitHeight + Style.space(28)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        opacity: plan ? 1 : 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: (rootCard.plan ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        MouseArea { anchors.fill: parent }   // the panel under it takes no click
+
+        Column {
+          id: rootColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.space(14)
+          spacing: Style.space(8)
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            text: "Your password, for this only"
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: rootCard.shown ? rootCard.shown.why : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          Repeater {
+            model: rootCard.shown ? rootCard.shown.actions : []
+            Text {
+              required property string modelData
+              width: rootColumn.width
+              textFormat: Text.PlainText
+              wrapMode: Text.Wrap
+              text: "• " + modelData
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: "Nothing else runs with it. The system asks for the password next."
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Row {
+            anchors.right: parent.right
+            spacing: Style.space(6)
+            Button {
+              text: "Cancel"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: if (root.phone) root.phone.cancelRoot()
+            }
+            Button {
+              text: "Continue"
+              bordered: true
+              selected: true
+              tooltipText: "Asks for your password, for the actions above only"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: if (root.phone) root.phone.confirmRoot()
+            }
           }
         }
       }
@@ -2985,11 +3347,13 @@ Panel {
             }
           }
 
-          // ---- Tabs: one per device, only with two or more. Main page and
-          //      messages; settings has its own device list ----
+          // ---- Tabs: one per device, only with two or more. Main page,
+          //      messages, and a device's settings page (to the next
+          //      device's, without going back) ----
           Item {
             id: tabBox
-            visible: root.manyDevices && !root.showSettings
+            readonly property bool onSettings: root.tabsOnSettings
+            visible: root.manyDevices && (!root.showSettings || onSettings)
             width: parent.width
             height: visible ? tabRow.implicitHeight : 0
 
@@ -3003,11 +3367,11 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings"
+            tooltipText: root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings"
             foreground: root.foreground
             fontFamily: root.fontFamily
-            onClicked: root.computerIssues > 0 ? root.openConnection() : root.openSettings()
-            GearDot { visible: root.computerIssues > 0 }
+            onClicked: root.openSettings()
+            GearDot { visible: root.settingsIssues > 0 }
           }
 
           Flickable {
@@ -3066,7 +3430,8 @@ Panel {
                   readonly property var tabProfile: root.phone ? Model.resolveProfile(root.phone.profiles, modelData, deviceIndex === 0) : null
                   readonly property var st: root.phone && root.phone.deviceStates[modelData.id] ? root.phone.deviceStates[modelData.id] : ({})
                   readonly property var news: Model.attention(modelData, tabProfile, st)
-                  readonly property bool current: !!root.device && root.device.id === modelData.id
+                  readonly property bool current: tabBox.onSettings ? !!root.scopeDevice && root.scopeDevice.id === modelData.id
+                    : !!root.device && root.device.id === modelData.id
                   iconText: Model.deviceIcon(modelData, tabProfile)
                   // Its marks, in its own glyphs: the count, a low battery.
                   text: Model.deviceTitle(modelData, tabProfile)
@@ -3084,7 +3449,7 @@ Panel {
                   iconSize: Style.font.body
                   tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + " has no text messages"
                     : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
-                  onClicked: root.switchDevice(modelData.id)
+                  onClicked: tabBox.onSettings ? root.openScope(String(modelData.id)) : root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
                   // Drag a tab sideways to move its device in the order (a
@@ -3183,14 +3548,17 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Connection" : root.settingsScope === "addDevice" ? "Add a device"
-                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · Defaults for all devices" : "Settings")
+            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "This computer" : root.settingsScope === "addDevice" ? "Add a device"
+                : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
+                : root.editingDevice ? "Settings · This device"
+                : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices") + " · " + Model.problemsLine(root.allProblems).toLowerCase())
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
+              : root.screenHere ? "Screen and apps only"
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.heroNeutral || (root.heroDevice && root.heroDevice.reachable === true) ? 1.0 : 0.45
+            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || root.screenReaches(root.heroDevice.id))) ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
@@ -3222,11 +3590,11 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices)
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? "Back" : (root.computerIssues > 0 ? "Settings · Connection: " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Settings")
+                  tooltipText: !root.showMain ? "Back" : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
-                  GearDot { visible: root.showMain && root.computerIssues > 0 }
+                  GearDot { visible: root.showMain && root.settingsIssues > 0 }
                 }
               }
             }
@@ -3258,6 +3626,46 @@ Panel {
               x: pageHost.slide
               width: parent.width
               spacing: Style.space(12)
+              // ---- Something needs the user (Model.settingsProblems): one
+              //      line at the top of the main page, to Settings' status,
+              //      which lists them and fixes them ----
+              // It folds in at the plugin's pace: the first reading comes a
+              // moment after the panel opens.
+              FoldBody {
+                id: problemsHint
+                open: root.showMain && !root.editing && root.bannerShown
+                motion: root.motion
+                animate: root.settled
+              Item {
+                width: pageColumn.width
+                height: bannerButton.implicitHeight
+                Button {
+                  id: bannerButton
+                  anchors.fill: parent
+                  iconText: Model.GLYPH.alert
+                  text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
+                  tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
+                  bordered: true
+                  foreground: root.urgent
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.openSettings()
+                }
+                // Inside it, top right: closed until something new needs you;
+                // the gear's dot stays.
+                PanelActionButton {
+                  anchors.top: parent.top
+                  anchors.right: parent.right
+                  anchors.topMargin: Style.space(2)
+                  anchors.rightMargin: Style.space(4)
+                  iconText: Model.GLYPH.close
+                  tooltipText: "Close (it comes back when something new needs you; the cog's dot stays)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.closeProblemsBanner()
+                }
+              }
+              }
               // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag
               //      the chosen ones, click to add or take one away. The pill
               //      in the bar changes as they do: it is the preview ----
@@ -3729,7 +4137,7 @@ Panel {
                           motion: root.motion
                           foreground: root.foreground
                           fontFamily: root.fontFamily
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
                         }
                       }
@@ -3759,7 +4167,7 @@ Panel {
                           motion: root.motion
                           foreground: root.foreground
                           fontFamily: root.fontFamily
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
                         }
                       }
@@ -3843,7 +4251,7 @@ Panel {
                       isWorking: function(app) { return root.appWorking(app) }
                       foreground: root.foreground
                       fontFamily: root.fontFamily
-                      onActivated: function(app) { root.openApp(app) }
+                      onActivated: function(app, pop) { root.openApp(app, pop) }
                       onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
@@ -3896,7 +4304,7 @@ Panel {
                           followsPointer: true
                           onDragMoved: function(dx, dy, at) { sectionPins.externalMove(modelData, at) }
                           onDragEnded: function(at) { sectionPins.externalDrop(modelData, at) }
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true
                           onForgetRequested: root.forgetApp(modelData)
@@ -4244,8 +4652,13 @@ Panel {
                         Layout.fillWidth: true
                         textFormat: Text.PlainText
                         wrapMode: Text.WordWrap
+                        // What went wrong, in its own words: sshfs missing, a
+                        // mount left behind, or what KDE Connect said.
                         text: root.photoInfo && root.photoInfo.missing === "sshfs"
                           ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
+                          : root.photoInfo && root.photoInfo.dead ? root.photoInfo.error
+                          : root.photoInfo && root.photoInfo.error && !/allow|permission|denied/i.test(root.photoInfo.error)
+                            ? "The gallery could not read " + Model.deviceLabel(root.device) + ": " + root.photoInfo.error
                           : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
                         color: root.dim
                         font.family: root.fontFamily
@@ -4265,6 +4678,26 @@ Panel {
                           if (root.photoInfo && root.photoInfo.missing === "sshfs") root.phone.fixSetup("sshfs")
                           else root.phone.refreshPhotos(true)
                         }
+                      }
+                      Button {
+                        visible: !!root.photoInfo && root.photoInfo.ok === false && root.photoInfo.missing !== "sshfs"
+                        text: "Fix with AI"
+                        tooltipText: root.phone && root.phone.agentName ? "Opens " + root.phone.agentName + ", your default coding agent, in a terminal" : "Choose your coding agent first (Omarchy's own choice)"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: root.fixWithAi("gallery", -1)
+                      }
+                      // A mount left behind clears with KDE Connect's restart
+                      // (#98): on a click, no password.
+                      Button {
+                        visible: !!root.photoInfo && root.photoInfo.dead === true
+                        text: root.phone && root.phone.isBusy("fix:restart") ? "Restarting…" : "Restart KDE Connect"
+                        tooltipText: "Its devices reconnect in a few seconds"
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        fontSize: Style.font.bodySmall
+                        onClicked: if (root.phone && root.device) root.phone.runSteps(String(root.device.id), [{ kind: "auto", fix: { verb: "fix", what: "restart" } }], "fix:restart")
                       }
                     }
 
@@ -4483,10 +4916,10 @@ Panel {
               // ---- Away, not paired, or KDE Connect down ----
               // Away: where it was last seen, and Reconnect, in place (the
               // search runs here and the result lands here). Nothing paired
-              // or KDE Connect down: the way to Connection.
+              // or KDE Connect down: the way to This computer.
               Column {
                 id: awayColumn
-                visible: root.showMain && !root.reachable
+                visible: root.showMain && !root.deviceHere
                 width: parent.width
                 spacing: Style.space(8)
                 readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon
@@ -4538,7 +4971,7 @@ Panel {
                   Button {
                     visible: !!root.snapshot && (!awayColumn.away || root.computerIssues > 0)
                     readonly property bool adding: root.computerIssues === 0 && root.openingScope === "addDevice"
-                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "Connection · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks, root.screenReady) : "Connection")
+                    text: adding ? "Add a device" : (root.computerIssues > 0 ? "This computer · " + Model.connectionSummary(root.setupChecks, root.ignoredChecks) : "This computer")
                     iconText: Model.GLYPH.chevronRight
                     bordered: true
                     foreground: root.computerIssues > 0 ? root.urgent : root.foreground
@@ -4604,7 +5037,7 @@ Panel {
                 animate: root.settled
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                onOpenRequested: function(app) { root.openApp(app) }
+                onOpenRequested: function(app, pop) { root.openApp(app, pop) }
                 onPinRequested: function(app, on) { root.pinApp(app, on) }
                 onPinAtRequested: function(app, at) { root.pinAppAt(app, at) }
                 onPinMoved: function(a, b) { root.movePinned(a, b) }
@@ -4641,7 +5074,6 @@ Panel {
                 onScreenPlaceChosen: function(docked) { if (root.screenDockedFor(root.screenId) !== docked) root.toggleScreenDocked(root.screenId) }
                 onScreenCloseRequested: if (root.phone) root.phone.closeScreen(root.screenId)
                 onAppSoundChosen: function(sound) { root.setAppSound(root.screenId, sound) }
-                custom: root.editingDevice ? root.editedProfile.custom : ({})
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""
@@ -4672,6 +5104,13 @@ Panel {
                 onAppPlatformSet: function(p) { root.setAppPlatform(p) }
                 justPaired: root.justPaired
                 onFixRequested: function(what) { root.fixRequested(what) }
+                onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
+                onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
+                onFixAllRequested: root.fixAll()
+                onFixWithAiRequested: function(what, index) { root.fixWithAi(what, index) }
+                onCheckAgainRequested: if (root.phone && root.featureDevice()) root.phone.readFeatures(String(root.featureDevice().id), true)
+                agentName: root.phone ? root.phone.agentName : ""
+                fixAllCount: root.fixAllCount
                 onIgnoreRequested: function(key, on) { root.ignoreCheck(key, on) }
                 canPreview: root.canPreview
                 onPreviewRequested: root.startPreview()
@@ -4859,8 +5298,8 @@ Panel {
     }
   }
 
-  // A failing check on this computer: a dot on the gear, until it is fixed
-  // or ignored (Connection).
+  // Something needs the user (Model.settingsProblems): a dot on the gear,
+  // until it is fixed (a check ignored on This computer no longer counts).
   component GearDot: Rectangle {
     anchors.right: parent.right
     anchors.top: parent.top

@@ -17,13 +17,17 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
   `o`). It opens the app, not that message: KDE Connect cannot open a
   notification yet.
 - The window tiles like any other, and the app fills it as you resize it.
+  **Shift+Enter** (or Shift+click) opens it popped out instead: floating,
+  pinned, at the top right.
   Type with your keyboard: the phone's on-screen keyboard never shows.
 - **Sound**: here, or left on the phone (*Screen and apps* page). The
-  phone gives its sound to one window at a time.
+  phone gives its sound to one window at a time. While something else plays
+  on the phone (music in your headset), an app's sound stays there.
 
 ## Good to know
 
 - An app that protects its screen (many banks) shows black.
+- Locked, the phone wakes and the app opens once you unlock it.
 - Android 10 or newer: older phones open only the whole screen.
 - The list and the icons are read from the phone once a day and once per
   app version, and kept in `~/.cache/sceny.devices/`. ↻ on All apps reads

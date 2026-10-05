@@ -28,7 +28,7 @@ Item {
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
-  signal activated(var app)
+  signal activated(var app, bool pop)
   signal hovered(int index)
   signal reordered(int from, int to)
   signal pinRequested(var app, int at)
@@ -173,7 +173,7 @@ Item {
       foreground: row.foreground
       fontFamily: row.fontFamily
       dragEnabled: true
-      onActivated: row.activated(modelData)
+      onActivated: function(pop) { row.activated(modelData, pop) }
       onPinToggled: row.unpinRequested(modelData)
       onHovered: row.hovered(index)
       onDragStarted: { row.outside = false; pinOrder.begin(index, row.cellWidth) }

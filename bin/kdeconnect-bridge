@@ -41,7 +41,8 @@ not re-printed, so the shell only wakes when something moved.
                                               or one app, in a window here (scrcpy),
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
-                                              an app tiled, no on-screen keyboard (--sound phone: its sound
+                                              an app tiled (--pop: Omarchy's pop-out), no
+                                              on-screen keyboard (--sound phone: its sound
                                               stays on the device); returns once the
                                               window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
@@ -51,6 +52,17 @@ not re-printed, so the shell only wakes when something moved.
                                               (refit: turn or morph; revealed)
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
+  kdeconnect-bridge features <device> [--adb]      what it can do: KDE Connect's
+                                              plugins, its link, files; with --adb,
+                                              KDE Connect's permissions on it
+  kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
+                                              plugin <name>=on|off, grant <permission>,
+                                              open-permission <permission>, remount,
+                                              reload, wireless (over a USB cable),
+                                              renotify, relisten, reconnect (KDE
+                                              Connect pointed at the address adb
+                                              knows), wake (KDE Connect on it let
+                                              run in the background, and opened)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
   kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
@@ -848,6 +860,19 @@ def make_thumb(src, dst, video=False):
         return False
 
 
+def mount_alive(path, run=None):
+    """A mount that answers (a timed stat): a dead sshfs left behind (KDE
+    Connect #98) hangs whoever reads it, so it is asked in a child, with a
+    limit, never by this process."""
+    run = run or subprocess.run
+    if not path:
+        return False
+    try:
+        return run(["timeout", "3", "stat", "-c", "%i", path], capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def photos(device_id, count=PHOTO_COUNT):
     """The device's newest photos and videos as JSON: {ok, photos, albums}
     or {ok: false, missing: "sshfs"} or {ok: false, error}."""
@@ -863,6 +888,14 @@ def photos(device_id, count=PHOTO_COUNT):
             error = call(conn, path, iface, "getMountError")[0]
             return {"ok": False, "error": error or "The device did not allow its storage"}
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
+        point = call(conn, path, iface, "mountPoint")[0]
+        # Mounted, but not answering (the phone restarted under it): mounted
+        # again once, before giving up; never listed while dead.
+        if not mount_alive(point):
+            if not remount(device_id, conn) or not mount_alive(call(conn, path, iface, "mountPoint")[0]):
+                return {"ok": False, "dead": True,
+                        "error": "Its storage stopped answering (a mount left behind): try again, or restart KDE Connect"}
+            roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
     cache = photos_cache(device_id)
@@ -1417,11 +1450,19 @@ def doctor():
     # Optional: only the screen and apps need it, so it never lights the
     # gear's dot.
     tools = screen_tools()
-    checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen and apps",
+    checks.append({"key": "screen", "ok": tools["ok"], "optional": True, "label": "Screen tools",
                    "status": ("scrcpy " + tools["version"]) if tools["ok"] else "Not installed",
                    "detail": "" if tools["ok"] else "Mirror a device and open its apps in windows here: scrcpy and adb",
-                   # Installed: the next step is on a device, so it leads there.
-                   "fix": "setup" if tools["ok"] else "screen", "fixLabel": "Set up a device" if tools["ok"] else "Install"})
+                   # Installed is all this computer does: the rest is each
+                   # device's, on its page.
+                   "fix": "" if tools["ok"] else "screen", "fixLabel": "" if tools["ok"] else "Install"})
+    # Optional too: only the gallery needs it (KDE Connect's sftp mounts
+    # through sshfs).
+    sshfs = shutil.which("sshfs") is not None
+    checks.append({"key": "sshfs", "ok": sshfs, "optional": True, "label": "Gallery tools",
+                   "status": "Installed" if sshfs else "Not installed",
+                   "detail": "" if sshfs else "A device's photos and videos here: sshfs",
+                   "fix": "" if sshfs else "sshfs", "fixLabel": "" if sshfs else "Install"})
     return {"checks": checks, "network": lan, "firewall": fw}
 
 
@@ -1436,7 +1477,112 @@ def pkg_add(packages):
             os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
 
 
-def fix(what):
+# ---- Root, only for what was shown ----------------------------------------
+# A fix that needs root (packages, the firewall) is shown first: why the
+# password is asked and every action, the packages by name (what pacman
+# would install, dependencies included) and the firewall's rules as written.
+# The panel asks for the password only after Continue, and the bridge runs
+# only that plan: it is built again at the run, and a plan that differs from
+# the one shown (its hash) does not run.
+
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall")
+
+
+def pacman_will_install(packages, run=None):
+    """What `pacman -S --needed` would install for these packages (their
+    dependencies included), without root: ["name version"]. None when
+    pacman cannot tell."""
+    run = run or subprocess.run
+    try:
+        out = run(["pacman", "-Sp", "--needed", "--print-format", "%n %v"] + list(packages),
+                  capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        # Nothing to do is an error to pacman when every one is installed.
+        return [] if "there is nothing to do" in (out.stderr or "") else None
+    return [l.strip() for l in (out.stdout or "").splitlines() if l.strip() and not l.startswith("::")]
+
+
+def package_installed(name, run=None):
+    run = run or subprocess.run
+    try:
+        return run(["pacman", "-Q", name], capture_output=True, text=True, timeout=20).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def root_plan(what, run=None, lan=None):
+    """{what, why, actions, commands, hash} for a fix that needs root, or
+    None for one that does not. `commands` is exactly what runs."""
+    keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
+    if keys:
+        wanted = [p for k in keys for p in (fix_packages(k) or [])]
+        if not wanted:
+            return None
+        # Only the ones not installed at any version: one installed already
+        # (even newer than the repository's) is never touched, as pacman's
+        # --needed alone would downgrade it.
+        packages = [p for p in wanted if not package_installed(p, run)]
+        will = pacman_will_install(packages, run) if packages else []
+        why = {"install": "KDE Connect, which the plugin needs", "sshfs": "sshfs, so the gallery can read the device's storage",
+               "screen": "scrcpy and adb, for the device's screen and apps"}
+        reason = "To install " + "; ".join(why.get(k, k) for k in keys)
+        if will == []:
+            actions = ["Nothing to install: " + ", ".join(wanted) + " already here"]
+        else:
+            actions = ["Install with pacman (Omarchy's omarchy-pkg-add): " + ", ".join(will if will else packages)]
+            if will and len(will) > len(packages):
+                actions.append("Those include what " + ", ".join(packages) + " need to run")
+        commands = [] if will == [] else [pkg_add(packages)]
+    elif what == "firewall":
+        lan = lan if lan is not None else local_network()
+        if not lan:
+            return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
+        rules = ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
+        reason = "To let your devices reach KDE Connect through the firewall, from this network only"
+        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(rules)]]
+    else:
+        return None
+    plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
+    plan["hash"] = hashlib.sha256(json.dumps([commands, actions]).encode()).hexdigest()[:16]
+    return plan
+
+
+def run_root(what, confirm):
+    """Runs a root fix's plan, only the one shown (`confirm`: its hash)."""
+    plan = root_plan(what)
+    if not plan:
+        return say("Unknown fix %s" % what, EXIT_FAILED)
+    if plan.get("error"):
+        return say(plan["error"], EXIT_FAILED)
+    if not confirm or confirm != plan["hash"]:
+        return say("What would run is not what was shown: look at it again", EXIT_FAILED)
+    for cmd in plan["commands"]:
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return say(str(error), EXIT_FAILED)
+        if out.returncode in (126, 127):
+            return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
+        if out.returncode != 0:
+            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+    if what == "firewall":
+        return say("Firewall now allows KDE Connect from %s" % local_network())
+    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
+                "screen": "scrcpy and adb installed: set up a device's screen and apps"}.get(what, "Installed"))
+
+
+# What each install fix puts on this computer, so several go in one prompt
+# (`fix packages sshfs,screen`: Fix all).
+def fix_packages(key):
+    return {"install": ["kdeconnect"], "sshfs": ["sshfs"], "screen": SCREEN_PACKAGES}.get(key)
+
+
+def fix(what, confirm=""):
+    if what.startswith("packages") or what in ROOT_FIXES:
+        return run_root(what, confirm)
     if what == "search":
         # What `kdeconnect-cli --refresh` does: the daemon announces itself on
         # every network, and a device that hears it connects back. Nothing on
@@ -1446,8 +1592,12 @@ def fix(what):
         except GLib.Error as error:
             return say(error.message, EXIT_FAILED)
         return say("Looking for devices on the network")
-    if what == "install":
-        cmd = pkg_add(["kdeconnect"])
+    if what == "restart":
+        # Every device reconnects; what a stuck daemon needs (a dead mount,
+        # notifications that stopped), on a click.
+        if subprocess.run(["systemctl", "--user", "restart", DAEMON_UNIT], timeout=30).returncode == 0:
+            return say("KDE Connect restarted")
+        return say("Could not restart KDE Connect", EXIT_FAILED)
     elif what == "start":
         if subprocess.run(["systemctl", "--user", "start", DAEMON_UNIT], timeout=15).returncode == 0:
             return say("KDE Connect started")
@@ -1457,35 +1607,360 @@ def fix(what):
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return say("KDE Connect started")
         return say("Could not start KDE Connect", EXIT_FAILED)
-    elif what == "sshfs":
-        # KDE Connect mounts a device's storage with it (photos).
-        cmd = pkg_add(["sshfs"])
-    elif what == "screen":
-        # The device's screen and apps here (scrcpy over adb); android-udev
-        # lets adb reach a device on a USB cable.
-        cmd = pkg_add(SCREEN_PACKAGES)
-    elif what == "firewall":
-        lan = local_network()
-        if not lan:
-            return say("Could not tell which network this computer is on", EXIT_FAILED)
-        rules = " && ".join(
-            "/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto)
-            for proto in ("tcp", "udp"))
-        cmd = ["pkexec", "/bin/sh", "-c", rules]
-    else:
-        return say("Unknown fix %s" % what, EXIT_FAILED)
+    return say("Unknown fix %s" % what, EXIT_FAILED)
+
+
+# ---- Features: what a device can do, and the steps to it -----------------
+# (docs/design/setup.md.) Per device: KDE Connect's plugins (on here for this
+# device, offered by the device), the link it is on, and, when adb reaches
+# the device (its screen is set up), KDE Connect's own permissions there,
+# read exactly. Without adb a missing permission is only a likely cause the
+# panel words as such. Every change here (a plugin switched, a permission
+# granted) is a click's, never a check's.
+
+KDECONNECT_ANDROID = "org.kde.kdeconnect_tp"
+LISTENER = KDECONNECT_ANDROID + "/org.kde.kdeconnect.plugins.notifications.NotificationReceiver"
+
+# A permission the panel names (Model.FEATURES needs them) and what grants it
+# over adb: runtime permissions (`pm grant`), the notification listener
+# (`cmd notification allow_listener`), all files access (`appops`).
+PERMISSIONS = {
+    "notifications": {"listener": True},
+    # Reading and sending: KDE Connect needs no more for Messages.
+    "sms": {"runtime": ["android.permission.READ_SMS", "android.permission.SEND_SMS"]},
+    "contacts": {"runtime": ["android.permission.READ_CONTACTS"]},
+    "phone": {"runtime": ["android.permission.READ_PHONE_STATE", "android.permission.READ_CALL_LOG"]},
+    "storage": {"appop": "MANAGE_EXTERNAL_STORAGE"},
+}
+# Where each one is turned on by hand, on the device (opened over adb when
+# it can be, said otherwise).
+PERMISSION_SCREENS = {
+    "notifications": ["am", "start", "-a", "android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"],
+    "storage": ["am", "start", "-a", "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", "-d", "package:" + KDECONNECT_ANDROID],
+}
+
+
+def parse_runtime_permissions(text, user=0):
+    """`dumpsys package <pkg>`'s runtime permissions for one user (a phone
+    with a work profile lists each user): {permission: granted}."""
+    out, current, runtime = {}, None, False
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        m = re.match(r"^User (\d+):", line)
+        if m:
+            current, runtime = int(m.group(1)), False
+            continue
+        if line.startswith("runtime permissions:"):
+            runtime = True
+            continue
+        if runtime and current == user:
+            m = re.match(r"^(android\.permission\.\w+): granted=(true|false)", line)
+            if m:
+                out[m.group(1)] = m.group(2) == "true"
+            elif line and not line.startswith("android.permission") and ":" in line and "granted=" not in line:
+                runtime = False
+    return out
+
+
+def device_permissions(serial, run=None):
+    """KDE Connect's permissions on the device, read over adb:
+    {key: true|false} for PERMISSIONS, or None when adb cannot tell."""
+    run = run or (lambda args, timeout=10: adb(["-s", serial, "shell"] + args, timeout=timeout))
+    code, user = run(["am", "get-current-user"])
+    user = int(user.strip()) if code == 0 and user.strip().isdigit() else 0
+    code, dump = run(["dumpsys", "package", KDECONNECT_ANDROID], timeout=20)
+    if code != 0 or "runtime permissions:" not in dump:
+        return None
+    runtime = parse_runtime_permissions(dump, user)
+    _, listeners = run(["settings", "--user", str(user), "get", "secure", "enabled_notification_listeners"])
+    _, appop = run(["appops", "get", "--user", str(user), KDECONNECT_ANDROID, "MANAGE_EXTERNAL_STORAGE"])
+    out = {}
+    for key, need in PERMISSIONS.items():
+        if need.get("listener"):
+            out[key] = LISTENER in (listeners or "")
+        elif need.get("appop"):
+            out[key] = bool(re.search(r"MANAGE_EXTERNAL_STORAGE: allow", appop or ""))
+        else:
+            out[key] = all(runtime.get(p) is True for p in need["runtime"])
+    return out
+
+
+def device_features(device_id, conn=None, with_adb=False, status=None):
+    """What a device can do here, for the panel's model: its KDE Connect
+    plugins, the link it is on, its permissions (with adb), files."""
+    conn = conn or bus()
+    path = device_path(device_id)
+    p = props(conn, path, IFACE + ".device") or {}
+    offered = set(p.get("supportedPlugins") or [])
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        return say(str(error), EXIT_FAILED)
-    if out.returncode in (126, 127):
-        return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
-    if out.returncode != 0:
-        return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
-    if what == "firewall":
-        return say("Firewall now allows KDE Connect from %s" % local_network())
-    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "screen": "scrcpy and adb installed: set up a device's screen and apps"}[what])
+        loaded = set(call(conn, path, IFACE + ".device", "loadedPlugins")[0])
+    except GLib.Error:
+        loaded = set()
+    plugins = {}
+    for name in sorted(offered | loaded):
+        short = name.replace("kdeconnect_", "")
+        try:
+            on = bool(call(conn, path, IFACE + ".device", "isPluginEnabled", (name,), "(s)")[0])
+        except GLib.Error:
+            on = name in loaded
+        plugins[short] = {"on": on, "offered": name in offered, "loaded": name in loaded}
+    out = {"device": device_id, "paired": bool(p.get("isPaired")), "reachable": bool(p.get("isReachable")),
+           "links": list(p.get("activeProviderNames") or []), "plugins": plugins,
+           "permissions": None, "files": {"sshfs": shutil.which("sshfs") is not None}}
+    if "sftp" in plugins and plugins["sftp"]["loaded"]:
+        try:
+            sftp = path + "/sftp"
+            out["files"]["mounted"] = bool(call(conn, sftp, IFACE + ".device.sftp", "isMounted")[0])
+            out["files"]["error"] = str(call(conn, sftp, IFACE + ".device.sftp", "getMountError")[0] or "")
+        except GLib.Error:
+            pass
+    # How many notifications are here, and (with adb) how many the device
+    # holds: none here while it holds several is KDE Connect's listener gone
+    # quiet (#94, our #95).
+    try:
+        here = len(call(conn, path + "/notifications", IFACE + ".device.notifications", "activeNotifications")[0])
+    except GLib.Error:
+        here = None
+    out["notifications"] = {"here": here, "device": None}
+    if with_adb:
+        status = status or screen_status(device_id)
+        if status.get("state") == "ready" and status.get("serial"):
+            out["permissions"] = device_permissions(status["serial"])
+            out["notifications"]["device"] = device_notification_count(status["serial"])
+    return out
+
+
+def device_notification_count(serial, run=None):
+    """How many notifications other apps have posted on the device (a count
+    only, read over adb; KDE Connect's own and System UI's left out)."""
+    run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
+    code, out = run(["dumpsys", "notification"])
+    if code != 0:
+        return None
+    pkgs = re.findall(r"NotificationRecord\([^)]*pkg=([\w.]+)", out or "")
+    return len([p for p in pkgs if p not in (KDECONNECT_ANDROID, "com.android.systemui", "android")])
+
+
+def plugin_on(device_id, plugin, conn=None):
+    """Whether one of KDE Connect's plugins is on for a device."""
+    conn = conn or bus()
+    name = plugin if plugin.startswith("kdeconnect_") else "kdeconnect_" + plugin
+    return bool(call(conn, device_path(device_id), IFACE + ".device", "isPluginEnabled", (name,), "(s)")[0])
+
+
+def set_plugin(device_id, plugin, on, conn=None):
+    """Turns one of KDE Connect's plugins on or off for a device (what its
+    own app does): the device stops or starts sending it."""
+    conn = conn or bus()
+    name = plugin if plugin.startswith("kdeconnect_") else "kdeconnect_" + plugin
+    call(conn, device_path(device_id), IFACE + ".device", "setPluginEnabled", (name, bool(on)), "(sb)")
+    return name
+
+
+def grant_permission(serial, key, run=None):
+    """Grants KDE Connect a permission on the device over adb (a click's):
+    True when it is granted after."""
+    run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
+    need = PERMISSIONS.get(key)
+    if not need:
+        return False
+    code, user = run(["am", "get-current-user"])
+    user = user.strip() if code == 0 and user.strip().isdigit() else "0"
+    if need.get("listener"):
+        run(["cmd", "notification", "allow_listener", LISTENER, user])
+    elif need.get("appop"):
+        run(["appops", "set", "--user", user, KDECONNECT_ANDROID, need["appop"], "allow"])
+    else:
+        for perm in need["runtime"]:
+            run(["pm", "grant", "--user", user, KDECONNECT_ANDROID, perm])
+    granted = device_permissions(serial, run)
+    return bool(granted and granted.get(key))
+
+
+def remount(device_id, conn=None):
+    """A fresh mount of the device's storage: unmount (a dead sshfs left
+    behind, KDE Connect #98), then mount and wait. True when mounted."""
+    conn = conn or bus()
+    sftp = device_path(device_id) + "/sftp"
+    try:
+        call(conn, sftp, IFACE + ".device.sftp", "unmount")
+    except GLib.Error:
+        pass
+    try:
+        return bool(call(conn, sftp, IFACE + ".device.sftp", "mountAndWait")[0])
+    except GLib.Error:
+        return False
+
+
+# ---- KDE Connect's link, fixed through the screen link (adb) ----------------
+#
+# KDE Connect finds a device by broadcast; a network that drops it, or a
+# device that put KDE Connect to sleep, leaves the device away though adb
+# still reaches it. adb then knows where it is: KDE Connect is pointed at that
+# address (its custom devices, as its own settings do), and failing that,
+# KDE Connect on the device is let run in the background and opened.
+
+RECONNECT_WAIT_SEC = 10
+IPV4 = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
+
+
+def device_address(serial, run=None):
+    """The device's address on the network, from its adb serial (Wi-Fi) or
+    from the device (USB); "" when it has none."""
+    m = IPV4.match(serial or "")
+    if m:
+        return m.group(1)
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args))
+    code, out = run(["ip", "-o", "-4", "addr", "show", "wlan0"])
+    m = re.search(r"inet (\d{1,3}(?:\.\d{1,3}){3})/", out or "") if code == 0 else None
+    return m.group(1) if m else ""
+
+
+def with_address(current, added_before, address):
+    """KDE Connect's custom devices with this device's address: the one this
+    plugin added before goes (its address changed), the user's own stay."""
+    out = [a for a in current if a != added_before or a == address]
+    if address and address not in out:
+        out.append(address)
+    return out
+
+
+def wait_reachable(device_id, conn, wait=RECONNECT_WAIT_SEC, sleep=time.sleep):
+    for _ in range(int(wait * 2)):
+        p = props(conn, device_path(device_id), IFACE + ".device") or {}
+        if p.get("isReachable"):
+            return True
+        sleep(0.5)
+    return False
+
+
+def adb_reach(device_id):
+    """The device's adb serial when the screen link reaches it now, else ""."""
+    status = screen_status(device_id)
+    return status["serial"] if status["state"] == "ready" else ""
+
+
+def reconnect(device_id, conn=None):
+    conn = conn or bus()
+    serial = adb_reach(device_id)
+    if not serial:
+        return say("Not reachable over adb either: on the same Wi-Fi, with Wireless debugging on", EXIT_FAILED)
+    address = device_address(serial)
+    if not address:
+        return say("adb reaches it, but not over the network: on a USB cable only", EXIT_FAILED)
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    before = screen_record(device_id).get("kdeAddress", "")
+    wanted = with_address(current, before, address)
+    try:
+        if wanted != current:
+            call(conn, ROOT, "org.freedesktop.DBus.Properties", "Set",
+                 (IFACE + ".daemon", "customDevices", GLib.Variant("as", wanted)), "(ssv)")
+        screen_record(device_id, {"kdeAddress": address})
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    if wait_reachable(device_id, conn):
+        return say("Connected again")
+    return say("KDE Connect knows where it is now, but it did not answer", EXIT_FAILED)
+
+
+def wake(device_id, conn=None):
+    conn = conn or bus()
+    serial = adb_reach(device_id)
+    if not serial:
+        return say("Not reachable over adb", EXIT_FAILED)
+    # Not put to sleep by the battery saver again, then opened once.
+    adb(["-s", serial, "shell", "cmd", "deviceidle", "whitelist", "+" + KDECONNECT_ANDROID])
+    code, out = adb(["-s", serial, "shell", "monkey", "-p", KDECONNECT_ANDROID, "-c", "android.intent.category.LAUNCHER", "1"])
+    if code != 0:
+        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED)
+    try:
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error:
+        pass
+    if wait_reachable(device_id, conn):
+        return say("Connected again")
+    return say("KDE Connect is open on it, but it did not connect", EXIT_FAILED)
+
+
+def device_fix(what, device_id, arg=""):
+    """The fixes that act on one device, each a click's: a KDE Connect
+    plugin, a permission (granted over adb, or its screen opened there), a
+    fresh mount, the plugins reloaded, Wireless debugging on over USB."""
+    if what == "plugin":
+        # One or several: "sms=on,telephony=on".
+        done = []
+        for part in [x for x in arg.split(",") if x]:
+            name, _, state = part.partition("=")
+            try:
+                set_plugin(device_id, name, state != "off")
+            except GLib.Error as error:
+                return say(error.message, EXIT_FAILED)
+            done.append(name)
+        on = not arg.endswith("=off")
+        return say("Turned %s for this device" % ("on" if on else "off"))
+    if what == "renotify":
+        # The notifications plugin off and on: made again, it asks the
+        # device for every notification it holds, so one dismissed there
+        # while its cancel was lost goes here too (#4). Turned off for this
+        # device, it stays off: nothing to read again.
+        try:
+            if not plugin_on(device_id, "notifications"):
+                return say("Its notifications are turned off for this device")
+            set_plugin(device_id, "notifications", False)
+            time.sleep(0.5)
+            set_plugin(device_id, "notifications", True)
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Its notifications read again")
+    if what == "reload":
+        try:
+            call(bus(), device_path(device_id), IFACE + ".device", "reloadPlugins")
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return say("Reloaded its KDE Connect plugins")
+    if what == "remount":
+        return say("Its storage is mounted again") if remount(device_id) else say("The storage did not mount", EXIT_FAILED)
+    status = screen_status(device_id)
+    serial = status.get("serial") if status.get("state") == "ready" else ""
+    if what == "grant":
+        if not serial:
+            return say("Not reachable over adb: turn it on on the device", EXIT_FAILED)
+        return say("Allowed") if grant_permission(serial, arg) else say("Not allowed: turn it on on the device", EXIT_FAILED)
+    if what == "open-permission":
+        screen = PERMISSION_SCREENS.get(arg) or ["am", "start", "-a", "android.settings.APPLICATION_DETAILS_SETTINGS",
+                                                 "-d", "package:" + KDECONNECT_ANDROID]
+        if not serial:
+            return say("Not reachable over adb", EXIT_FAILED)
+        code, out = adb(["-s", serial, "shell"] + screen)
+        return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED)
+    if what == "relisten":
+        # KDE Connect's notification listener on the device, unbound and bound
+        # again: what a restart of the device does for it (#94, our #95).
+        if not serial:
+            return say("Not reachable over adb: restart the device instead", EXIT_FAILED)
+        code, user = adb(["-s", serial, "shell", "am", "get-current-user"])
+        user = user.strip() if code == 0 and user.strip().isdigit() else "0"
+        adb(["-s", serial, "shell", "cmd", "notification", "disallow_listener", LISTENER, user])
+        time.sleep(1)
+        code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
+        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED)
+    if what == "reconnect":
+        return reconnect(device_id)
+    if what == "wake":
+        return wake(device_id)
+    if what == "wireless":
+        # Over a USB cable adb works without Wireless debugging, and can turn
+        # it back on (Android turns it off after a restart).
+        usb = [d for d in parse_adb_devices(adb(["devices", "-l"])[1]) if d["usb"] and d["state"] == "device"]
+        known = screen_record(device_id).get("serial", "")
+        usb = [d for d in usb if not known or d["serial"] == known]
+        if not usb:
+            return say("Plug it in with a USB cable to turn Wireless debugging on from here", EXIT_FAILED)
+        code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
+        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED)
+    return say("Unknown fix %s" % what, EXIT_FAILED)
 
 
 # ---- Screen and apps (scrcpy over adb) -------------------------------------
@@ -1727,28 +2202,52 @@ def bound_keys(binds):
     return found
 
 
-def screen_status(device_id):
-    """Where a device stands for its screen and apps, as JSON:
+UNLOCK_WAIT_SEC = 60
 
-    state: tools (scrcpy or adb missing), away (not reachable on Wi-Fi or
-           USB), pair (never set up), off (paired before; Wireless debugging
-           is off now), unauthorized (USB: allow it on the device), ready.
-    """
-    tools = screen_tools()
-    status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
-              "apps": False, "wireless": True, "seen": False, "display": [0, 0]}
-    if not tools["ok"]:
-        return status
-    device = screen_device(device_id) or {"id": device_id}
-    adb(["start-server"], timeout=15)
+
+def keyguard_showing(text):
+    """Whether the lock screen shows, from `dumpsys window policy`: its
+    KeyguardStateMonitor says (mIsShowing). An app does not start on a
+    display of its own behind it: the window stays empty."""
+    block = False
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s.startswith("KeyguardStateMonitor"):
+            block = True
+        elif block and s.startswith("mIsShowing="):
+            return s.split("=", 1)[1].strip() == "true"
+    return False
+
+
+def device_locked(serial, run=None):
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args, timeout=10))
+    code, out = run(["dumpsys", "window", "policy"])
+    return code == 0 and keyguard_showing(out)
+
+
+def fast_adb_match(device, devices, known, ask=None):
+    """The device among adb's connections now, asked for its own serial
+    directly: (serial, via, state), or (None, "", "") when adb is not
+    connected to it. The usual case, and fast: no network browse (avahi
+    resolving every announced service takes seconds)."""
+    if not known:
+        return None, "", ""
+    ask = ask or (lambda serial: adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip())
+    identities = {d["serial"]: ask(d["serial"]) for d in devices if not d["usb"] and d["state"] == "device"}
+    serial, via, state = match_adb(device, devices, [], serial=known, identities=identities)
+    return (serial, via, state) if serial and state == "device" else (None, "", "")
+
+
+def browse_adb_match(device, devices, known, status):
+    """The device found on the network (mDNS) or by USB, when adb is not
+    connected to it yet: (serial, via, state, mdns, devices). Sets
+    status["seen"]: Wireless debugging announced before pairing."""
     mdns = mdns_services()
     addresses = set(device.get("addresses") or [])
-    known = screen_record(device_id).get("serial", "")
     ours = lambda s: (known and serial_of_service(s["name"]) == known) or s["host"] in addresses
     # Wireless debugging on, seen before pairing: the steps on the device
     # before the code are done.
     status["seen"] = any(ours(s) for s in mdns)
-    devices = parse_adb_devices(adb(["devices", "-l"])[1])
     # A Wi-Fi entry mDNS does not name (its port changed): ask the device.
     identities = {d["serial"]: adb(["-s", d["serial"], "shell", "getprop", "ro.serialno"])[1].strip()
                   for d in devices if known and not d["usb"] and d["state"] == "device" and not adb_identity(d, mdns)}
@@ -1769,6 +2268,30 @@ def screen_status(device_id):
         serial, via, state = match_adb(device, devices, mdns, names)
         if not serial and any(d["state"] == "unauthorized" for d in usb):
             serial, via, state = next(d["serial"] for d in usb if d["state"] == "unauthorized"), "usb", "unauthorized"
+    return serial, via, state, mdns, devices
+
+
+def screen_status(device_id):
+    """Where a device stands for its screen and apps, as JSON:
+
+    state: tools (scrcpy or adb missing), away (not reachable on Wi-Fi or
+           USB), pair (never set up), off (paired before; Wireless debugging
+           is off now), unauthorized (USB: allow it on the device), ready.
+    """
+    tools = screen_tools()
+    status = {"tools": tools, "state": "tools", "serial": "", "via": "", "sdk": 0, "android": "",
+              "apps": False, "wireless": True, "seen": False, "display": [0, 0]}
+    if not tools["ok"]:
+        return status
+    device = screen_device(device_id) or {"id": device_id}
+    adb(["start-server"], timeout=15)
+    known = screen_record(device_id).get("serial", "")
+    devices = parse_adb_devices(adb(["devices", "-l"])[1])
+    serial, via, state = fast_adb_match(device, devices, known)
+    if serial:
+        mdns = []
+    else:
+        serial, via, state, mdns, devices = browse_adb_match(device, devices, known, status)
     if not serial:
         status["state"] = "away" if not device.get("reachable") else \
             ("off" if screen_record(device_id).get("paired") else "pair")
@@ -1793,6 +2316,9 @@ def screen_status(device_id):
         screen_record(device_id, {"display": status["display"]})
     status["apps"] = tools["apps"] and status["sdk"] >= APPS_MIN_SDK
     status["wireless"] = status["sdk"] >= WIRELESS_MIN_SDK or status["sdk"] == 0
+    # Locked: an app waits for it to be unlocked (the screen itself shows the
+    # lock screen, to unlock from here).
+    status["locked"] = device_locked(serial)
     status["state"] = "ready"
     return status
 
@@ -2255,6 +2781,27 @@ def watch_running(lock):
         return False
 
 
+def hypr_events():
+    """Hyprland's event socket (socket2), read without blocking, or None."""
+    import socket
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "hypr",
+                        os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", ""), ".socket2.sock")
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.connect(path)
+        sock.setblocking(False)
+        return sock
+    except OSError:
+        return None
+
+
+def pinned_event(lines, address):
+    """Whether Hyprland's events pin (or unpin) the window at `address`:
+    `pin>>ADDRESS,1` (the address without 0x)."""
+    ours = str(address or "").lower().replace("0x", "")
+    return any(l.startswith("pin>>") and l[5:].split(",")[0].lower().replace("0x", "") == ours for l in lines)
+
+
 def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time.time, fit=False):
     """Keeps the device's docked window in its shape, until the window
     closes. JSON lines: refit {kind, angle, from, to, monitor, device},
@@ -2281,6 +2828,10 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
         if not win:
             return EXIT_OK
         looked = asked = clock()
+        # Omarchy's toggle (Super+O) pins the window at its own size first:
+        # the pin event brings the next look now, not at its quarter second,
+        # so that size barely shows.
+        events, events_buf = hypr_events(), b""
         settled = resting(win, mons, border)
         was_pinned = bool(win.get("pinned"))
         pending = None   # a turn under way: {to, since, picture}
@@ -2387,6 +2938,17 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             if log and not pending and log.tell() > LOG_MAX:
                 os.truncate(screen_log(title), 0)
                 log.seek(0)
+            if events is not None:
+                try:
+                    events_buf += events.recv(65536)
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    events = None
+                if b"\n" in events_buf:
+                    lines, _, events_buf = events_buf.rpartition(b"\n")
+                    if win and pinned_event(lines.decode("utf-8", "replace").splitlines(), win.get("address")):
+                        looked = 0
             if now - looked >= WATCH_LOOK_SEC and not pending:
                 looked = now
                 win = find_window(title)
@@ -2424,6 +2986,8 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             os.remove(lock)
         except OSError:
             pass
+        if locals().get("events") is not None:
+            events.close()
 
 
 def screen_title(name, label=""):
@@ -2475,12 +3039,15 @@ def launch_or_focus(title, cmd):
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
-                sound="here"):
+                sound="here", popout=False):
     """Opens the device's screen, docked or tiled, or one of its apps,
-    always tiled, in a window here, and returns once the window is there
-    (the click waits meanwhile). Already open: brought forward instead of a
-    second one."""
-    docked = docked and not package
+    tiled (or, `popout`, Omarchy's pop-out: floating and pinned at the top
+    right, the device's shape), in a window here, and returns once the
+    window is there (the click waits meanwhile). Already open: brought
+    forward instead of a second one."""
+    docked = (docked and not package) or (bool(package) and popout)
+    if package:
+        rect = None   # an app's pop-out is not the panel's card journey
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
@@ -2493,6 +3060,16 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
         return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
     if package and not status["apps"]:
         return say("Apps in a window need Android 10 and scrcpy 3", EXIT_FAILED)
+    # Locked, an app would open on an empty display: its screen is woken,
+    # and the app opens once the user unlocks it.
+    if package and status.get("locked"):
+        adb(["-s", status["serial"], "shell", "input", "keyevent", "KEYCODE_WAKEUP"])
+        for _ in range(UNLOCK_WAIT_SEC * 2):
+            sleep(0.5)
+            if not device_locked(status["serial"]):
+                break
+        else:
+            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED)
     top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
@@ -3880,7 +4457,26 @@ def main(argv):
         print(json.dumps(doctor()))
         return EXIT_OK
     if argv[0] == "fix":
-        return fix(argv[1] if len(argv) > 1 else "")
+        words = [a for i, a in enumerate(argv[1:], 1) if a not in ("--describe", "--confirm") and argv[i - 1] != "--confirm"]
+        what = " ".join(words)
+        if "--describe" in argv:
+            # What it will do, before any password: shown by the panel.
+            print(json.dumps(root_plan(what) or {"what": what, "why": "", "actions": [], "commands": [], "hash": ""}))
+            return EXIT_OK
+        confirm = next((argv[i + 1] for i, a in enumerate(argv) if a == "--confirm" and i + 1 < len(argv)), "")
+        return fix(what, confirm)
+    if argv[0] == "features":
+        if len(argv) < 2:
+            return say("features needs a device id", EXIT_FAILED)
+        try:
+            print(json.dumps(device_features(argv[1], with_adb="--adb" in argv)))
+        except GLib.Error as error:
+            return say(error.message, EXIT_FAILED)
+        return EXIT_OK
+    if argv[0] == "device-fix":
+        if len(argv) < 3:
+            return say("device-fix needs what and a device id", EXIT_FAILED)
+        return device_fix(argv[1], argv[2], argv[3] if len(argv) > 3 else "")
     if argv[0] == "screen-watch":
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         if len(argv) < 3 or ctx is None:
@@ -3948,10 +4544,10 @@ def main(argv):
                 skip = False
             elif a in ("--at", "--ctx", "--sound"):
                 skip = True
-            elif a not in ("--tiled", "--docked", "--fit"):
+            elif a not in ("--tiled", "--docked", "--fit", "--pop"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv,
+                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv,
                            sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))

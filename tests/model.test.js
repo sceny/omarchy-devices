@@ -169,7 +169,7 @@ test("settings rows: layout switches, chosen shortcuts in order, then the rest",
   assert.equal(s[0].first, true)
   assert.equal(s[1].last, true)
   assert.equal(s.find(r => r.key === "ping").available, false)
-  assert.deepEqual(rows.slice(-2).map(r => r.kind), ["reset", "kdeconnect"])
+  assert.equal(rows[rows.length - 1].kind, "reset")
 })
 
 test("notifications: silent empties and media-session duplicates are hidden", () => {
@@ -486,7 +486,7 @@ test("demo: several devices, and one asking to pair", () => {
   assert.deepEqual(pill.chips.map(c => c.id), ["demo", "demo-tab"], "the tablet shows: news and a low battery; the away laptop does not")
 })
 
-test("settings rows: one device is one flat page with its nickname and icon; several get a device list", () => {
+test("settings rows: one shape whatever the count: My devices, For all devices with two or more, This computer", () => {
   const s = M.readSettings({})
   const one = snap(phone())
   const edit = M.resolveProfile(s, phone(), true)
@@ -494,11 +494,12 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
     identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
-  assert.deepEqual(kinds.slice(0, 2), ["nickname", "icon"])
-  assert.ok(kinds.includes("editPage") && kinds.includes("kdeconnect"))
-  assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset"].some(k => kinds.includes(k)), "sections, shortcuts and the bar are edited on the page")
-  assert.ok(!kinds.includes("device") && !kinds.includes("barPlace"), "one device: no list, no bar place")
-  assert.ok(!flat.some(r => r.kind === "layout" && r.section === "devices"), "the Devices section is gone")
+  assert.deepEqual(kinds, ["device", "addDevice", "connection"], "one device is in the list too; its own layout is the defaults")
+  assert.ok(!kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
+  const page = M.settingsPageRows(ctx({ scope: "device" })).map(r => r.kind)
+  assert.deepEqual(page.slice(0, 2), ["nickname", "icon"])
+  assert.ok(page.includes("editPage") && !page.includes("barPlace") && !page.includes("showInPanel"), "one device: nothing to choose about where it shows")
+  assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset", "resetGroup"].some(k => page.includes(k)), "sections, shortcuts and the bar are edited on the page")
   const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A3506" }), device({ id: "a", name: "Near", paired: false }))
   const list = M.devicesListRows(two, s, 15)
   assert.deepEqual(list.map(r => [r.kind, r.id]), [["device", "p1"], ["device", "t1"], ["request", "n"], ["available", "a"]])
@@ -507,7 +508,25 @@ test("settings rows: one device is one flat page with its nickname and icon; sev
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "available", "defaults", "connection", "addDevice", "kdeconnect"])
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults", "connection"], "in reach: on Add a device")
+})
+
+test("settings status: each problem once, where its cause is; a device's line and This computer say so", () => {
+  const checks = [{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed", fix: "firewall" },
+    { key: "network", ok: true }, { key: "screen", ok: false, optional: true, status: "Not installed" }]
+  const setup = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { files: { sshfs: true, mounted: false, error: "gone" } }), screen: { state: "ready", line: "" },
+                                name: "Pixel 8", checks })
+  const problems = M.settingsProblems(checks, [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }])
+  assert.deepEqual(problems.map(p => [p.where, p.key]), [["computer", "firewall"], ["p1", "health:mount"]], "an optional package missing is not a problem")
+  assert.deepEqual([problems[1].label, problems[1].gateway, problems[1].affects], ["Gallery", "Storage link", ["gallery"]], "the item, its gateway, what it affects")
+  assert.equal(M.settingsProblems(checks, ["firewall"], []).length, 0, "an ignored check is not either")
+  assert.equal(M.problemsLine(problems), "2 things need you")
+  assert.equal(M.problemsLine([]), "Everything works")
+  const list = M.devicesListRows(snap(phone()), M.readSettings({}), 15)
+  const root = M.settingsPageRows({ scope: "root", single: true, devices: list, problems })
+  assert.deepEqual(root.filter(r => r.kind === "problem").map(r => r.key), ["firewall", "health:mount"], "the status leads")
+  assert.equal(root.find(r => r.kind === "device").issues, 1)
+  assert.match(root.find(r => r.kind === "device").status, /1 needs attention$/)
 })
 
 test("settings rows: a device's page has identity, its groups, a reset per changed group, and Unpair", () => {
@@ -809,7 +828,7 @@ test("screen and apps: an optional check never lights the gear's dot", () => {
     { key: "screen", ok: false, optional: true, status: "Not installed", detail: "scrcpy and adb", fix: "screen", fixLabel: "Install" }]
   const rows = M.connectionRows(checks, [])
   const screen = rows.find(r => r.key === "screen")
-  assert.deepEqual([screen.label, screen.optional, screen.fix, screen.ignored], ["Screen and apps", true, "screen", false])
+  assert.deepEqual([screen.label, screen.optional, screen.fix, screen.ignored], ["Screen tools", true, "screen", false])
   assert.equal(M.connectionIssues(checks, []), 0)
   assert.equal(M.connectionSummary(checks, []), "1 more to set up", "optional and off: more can be done, nothing to fix")
 })
@@ -818,20 +837,17 @@ test("connection pills: on, off (more can be set up) and failing", () => {
   const base = [{ key: "installed", ok: true, status: "Installed" }, { key: "running", ok: true, status: "Running" },
     { key: "firewall", ok: false, status: "Closed", fix: "firewall" }, { key: "network", ok: true }]
   const installed = base.concat([{ key: "screen", ok: true, optional: true, status: "scrcpy 4.1", fix: "setup" }])
-  const states = (checks, ignored, ready) => M.connectionPills(checks, ignored, ready).map(p => p.label + ":" + p.state)
-  assert.deepEqual(states(installed, [], false), ["KDE Connect:on", "Firewall:fail", "Network:on", "Screen:off"],
-    "installed, not set up on the device: off, not on")
-  assert.deepEqual(states(installed, ["firewall"], true), ["KDE Connect:on", "Firewall:off", "Network:on", "Screen:on"], "ignored reads off")
-  assert.equal(M.connectionSummary(installed, [], false), "1 to fix", "a fix comes first")
-  assert.equal(M.connectionSummary(installed, ["firewall"], false), "2 more to set up")
-  assert.equal(M.connectionSummary(installed, ["firewall"], true), "1 more to set up")
+  const states = (checks, ignored) => M.connectionPills(checks, ignored).map(p => p.label + ":" + p.state)
+  assert.deepEqual(states(installed, []), ["KDE Connect:on", "Firewall:fail", "Network:on", "Screen tools:on"],
+    "installed is all this computer does: a device's screen is that device's business")
+  assert.deepEqual(states(installed, ["firewall"]), ["KDE Connect:on", "Firewall:off", "Network:on", "Screen tools:on"], "ignored reads off")
+  assert.equal(M.connectionSummary(installed, []), "1 to fix", "a fix comes first")
+  assert.equal(M.connectionSummary(installed, ["firewall"]), "1 more to set up")
   const allOn = base.map(c => c.key === "firewall" ? Object.assign({}, c, { ok: true }) : c).concat([installed[4]])
-  assert.equal(M.connectionSummary(allOn, [], true), "Everything on")
-  const row = M.connectionRows(installed, [], false).find(r => r.key === "screen")
-  assert.deepEqual([row.ok, row.status, row.fix], [false, "Not set up on the device", "setup"])
-  const on = M.connectionRows(installed, [], true).find(r => r.key === "screen")
-  assert.deepEqual([on.ok, on.status, on.fix], [true, "On", ""])
-  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, [], false) })
+  assert.equal(M.connectionSummary(allOn, []), "Everything on")
+  const row = M.connectionRows(installed, []).find(r => r.key === "screen")
+  assert.deepEqual([row.ok, row.status, row.fix], [true, "Installed", ""], "never a device's own step here")
+  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, []) })
     .find(r => r.kind === "connection").pills
   assert.equal(pills.length, 4)
 })
@@ -915,8 +931,9 @@ test("screen opening: any device's shape, where the card is", () => {
 })
 
 test("screen and apps: a row on the device's page, and a Screen shortcut", () => {
-  const rows = M.settingsPageRows({ scope: "root", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" } })
-  assert.ok(rows.some(r => r.kind === "screen"), "the one-device page")
+  const features = M.featureRows(null, null, "Pixel 8")
+  const rows = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "", glyph: "" }, features })
+  assert.ok(rows.some(r => r.kind === "feature" && r.key === "screen"), "the device's page: one of its features")
   assert.ok(!M.settingsPageRows({ scope: "defaults", single: false, devices: [] }).some(r => r.kind === "screen"), "not the defaults: it is a device's")
   assert.equal(M.shortcutByKey("screen").needs, "", "scrcpy, not KDE Connect: shown whatever the device offers")
 })
@@ -1015,4 +1032,130 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   const demo = M.demoApps(10 * 3600000)
   assert.ok(demo.every(a => a.package.startsWith("com.example.") && a.glyph && a.icon === ""), "made up, drawn with glyphs")
   assert.ok(demo.some(a => a.system) && demo.some(a => a.opened > 0))
+})
+
+test("features: each state from the report, the steps one click runs, Fix all", () => {
+  const report = M.demoFeatures()
+  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8")
+  const by = k => rows.find(r => r.key === k)
+  assert.equal(by("notifications").state, "on")
+  assert.deepEqual([by("clipboard").state, by("clipboard").on, by("clipboard").steps[0].fix], ["off", false, { verb: "device", what: "plugin", arg: "clipboard=on" }],
+                   "turned off here: one click turns it on")
+  assert.equal(by("names").state, "setup", "contacts not allowed on the device")
+  assert.deepEqual(by("names").steps[0].fix, { verb: "device", what: "grant", arg: "contacts" })
+  assert.match(by("names").steps[0].orAsk, /KDE Connect › Permissions › contacts/)
+  assert.equal(by("screen").state, "on")
+  const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
+  assert.ok(away.filter(r => r.key !== "screen").every(r => r.state === "away"))
+  const noSim = Object.assign({}, report, { plugins: Object.assign({}, report.plugins, { sms: { on: true, offered: false } }) })
+  assert.equal(M.featureRows(noSim, null, "Tab").find(r => r.key === "messages").state, "unavailable")
+  const dead = Object.assign({}, report, { files: { sshfs: true, mounted: false, error: "sshfs finished with exit code 1" } })
+  const gallery = M.featureRows(dead, null, "Pixel 8").find(r => r.key === "gallery")
+  assert.deepEqual([gallery.state, gallery.steps.map(s => s.fix.what), gallery.steps.map(s => !!s.fallback)], ["attention", ["remount", "restart"], [false, true]],
+                   "#99: mount again; KDE Connect restarted only when that did not work")
+  const noSshfs = M.featureRows(Object.assign({}, report, { files: { sshfs: false } }), null, "Pixel 8").find(r => r.key === "gallery")
+  assert.deepEqual([noSshfs.state, noSshfs.steps[0].fix, noSshfs.detail], ["setup", { verb: "fix", what: "sshfs" }, "Needs sshfs on this computer"],
+                   "one click installs it (its card first), the same item This computer shows")
+  assert.deepEqual(M.featurePlan({ steps: [{ kind: "auto", fix: { what: "a" } }, { kind: "ask" }, { kind: "auto", fix: { what: "b" } }] }).map(s => s.fix.what), ["a"],
+                   "up to the first step only the user can do")
+  const all = M.fixAllPlan(M.featureRows(Object.assign({}, dead, { files: { sshfs: false, mounted: false, error: "x" } }), { state: "tools", line: "" }, "Pixel 8"))
+  assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
+  assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
+  assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
+  assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
+})
+
+test("settings: a device's page lists what it can do; This computer", () => {
+  const features = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, "Pixel 8")
+  const rows = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features })
+  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length)
+  assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
+  assert.equal(M.settingsPageRows({ scope: "root", single: true, devices: [] }).find(r => r.kind === "connection").label, "This computer")
+})
+
+test("screen and apps can be turned off per device: its switch, no problem, read from the profile", () => {
+  const offSetup = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "off", line: "Wireless debugging is off" }, name: "Pixel 8", own: { screenFeature: false } })
+  const off = offSetup.features.find(r => r.key === "screen")
+  assert.deepEqual([off.state, off.on, off.switchable], ["off", false, true])
+  assert.equal(M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: offSetup, rows: offSetup.features }]).length, 0,
+               "its link broken while it is turned off: not a problem")
+  const on = M.featureRows(M.demoFeatures(), { state: "off", line: "Wireless debugging is off" }, "Pixel 8").find(r => r.key === "screen")
+  assert.deepEqual([on.state, on.switchable], ["attention", true], "on, it can be turned off too")
+  assert.equal(M.fixAllPlan([off]).length, 0, "turned off: nothing to fix")
+  const one = M.resolveProfile(M.readSettings({ screenFeature: false }), null, true)
+  assert.equal(one.screenFeature, false, "one device: the flat key")
+  const two = M.readSettings({ devices: { t1: { screenFeature: false } } })
+  assert.equal(M.resolveProfile(two, tablet(), false).screenFeature, false)
+  assert.equal(M.resolveProfile(two, phone(), true).screenFeature, true, "on unless turned off")
+})
+
+test("setup items: one item serves several features and shows once; gateways say what uses them", () => {
+  const report = Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } })
+  const setup = M.deviceSetup({ report, screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const by = k => setup.features.find(r => r.key === k)
+  assert.deepEqual([by("notifications").state, by("media").state], ["setup", "setup"], "notification access serves both")
+  assert.equal(setup.items.filter(it => it.key === "permission:notifications").length, 1, "checked once")
+  assert.deepEqual(M.fixAllPlan(setup.features).filter(s => s.fix.what === "grant").length, 1, "allowed once")
+  assert.equal(by("notifications").steps[0].item, "permission:notifications", "a step knows its item: a wait on it ends when it is done")
+  const android = setup.gateways.find(g => g.key === "android")
+  assert.deepEqual(android.usedBy, ["notifications", "messages", "names", "media", "calls", "gallery"])
+  assert.deepEqual(by("gallery").gateways, ["kdeconnect", "storage", "android"], "a feature names the gateways it goes through")
+  assert.deepEqual(by("screen").gateways, ["screen"])
+  assert.ok(setup.gateways.find(g => g.key === "bluetooth").planned)
+  // A broken shared item: once, with every feature it affects.
+  const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: quiet, rows: quiet.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.affects.join()]), [["health:notifications", "notifications"]])
+  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["renotify", "relisten"])
+  // Before anything is read: looking, never a problem.
+  const none = M.deviceSetup({ report: null, screen: null, name: "Pixel 8" })
+  assert.ok(none.features.every(r => r.state === "setup" && r.detail === "Looking…"))
+})
+
+test("KDE Connect away while the screen link reaches the device: one problem, fixed through adb, never 'away'", () => {
+  const report = Object.assign(M.demoFeatures(), { reachable: false })
+  const setup = M.deviceSetup({ report, screen: { state: "ready", line: "Ready over Wi-Fi" }, name: "Pixel 8" })
+  const by = k => setup.features.find(r => r.key === k)
+  assert.equal(by("screen").state, "on", "its screen and apps work")
+  assert.equal(by("notifications").state, "attention", "what KDE Connect carries waits for it, as a problem")
+  const link = setup.items.find(it => it.key === "link")
+  assert.deepEqual([link.state, link.steps.map(st => st.fix.what), link.steps.map(st => !!st.fallback)], ["broken", ["reconnect", "wake"], [false, true]])
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.label]), [["link", "KDE Connect"]], "once, by its gateway's name")
+  assert.deepEqual(M.problemsPlan(problems).map(st => st.fix.what), ["reconnect", "wake"])
+  // Nothing reaches it: away, as before, and no problem.
+  const gone = M.deviceSetup({ report, screen: { state: "away", line: "" }, name: "Pixel 8" })
+  assert.equal(gone.features.find(r => r.key === "notifications").state, "away")
+})
+
+test("an app's sound: here unless something else plays on the device; the playing app keeps it", () => {
+  assert.deepEqual(M.appSound("here", [], "Maps"), { sound: "here", kept: false })
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "music in its headset stays there")
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Spotify"), { sound: "here", kept: false }, "the app playing: its sound comes with it")
+  assert.deepEqual(M.appSound("phone", [], "Maps"), { sound: "phone", kept: false }, "the device's own choice")
+})
+
+test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
+  const device = { notifications: [
+    { id: "a", app: "System UI", title: "1 more notification", ticker: "1 more notification", text: "", actions: [], replyId: "", dismissable: true },
+    { id: "b", app: "System UI", title: "USB debugging connected", text: "Tap to turn off", actions: [], dismissable: true },
+    { id: "c", app: "Messages", title: "Alex Rivera", text: "On my way", actions: ["Reply"], dismissable: true }
+  ] }
+  assert.deepEqual(M.visibleNotifications(device, []).map(n => n.id), ["b", "c"])
+})
+
+test("players: one paused as long as Android hides it is hidden (#33); a seek's pause never", () => {
+  assert.equal(M.playerHidden(0, 1e9), false, "playing")
+  assert.equal(M.playerHidden(1000, 1000 + 1500), false, "a seek's pause")
+  assert.equal(M.playerHidden(1000, 1000 + 9 * 60000), false)
+  assert.equal(M.playerHidden(1000, 1000 + 10 * 60000), true)
+})
+
+test("features: notifications gone quiet (#95) need attention, with the remedies in order", () => {
+  const report = Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 7 } })
+  const row = M.featureRows(report, null, "Pixel 8").find(r => r.key === "notifications")
+  assert.deepEqual([row.state, row.steps.map(s => s.fix.what)], ["attention", ["renotify", "relisten"]])
+  assert.match(row.steps[1].orAsk, /^Restart Pixel 8/)
+  const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
+  assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
 })

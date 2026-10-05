@@ -956,6 +956,17 @@ class Screen(unittest.TestCase):
         mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
         self.assertEqual(bridge.match_adb(self.PHONE, devices, mdns)[1], "wifi")
 
+    def test_a_connected_device_is_found_without_browsing_the_network(self):
+        devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
+                   {"serial": "192.168.1.20:41234", "state": "device", "usb": False, "model": ""}]
+        asked = []
+        ask = lambda serial: asked.append(serial) or ("0A1B2C3D" if serial.endswith(":41234") else "OTHER")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "0A1B2C3D", ask=ask), ("192.168.1.20:41234", "wifi", "device"),
+                         "its own serial, asked directly: a new port is still it")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "", ask=ask), (None, "", ""), "never set up: the browse finds it")
+        offline = [dict(devices[1], state="offline")]
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, offline, "0A1B2C3D", ask=ask), (None, "", ""), "not connected: the browse")
+
     def test_usb_matches_by_name_and_another_device_does_not(self):
         devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
@@ -1166,15 +1177,24 @@ class Screen(unittest.TestCase):
     def test_install_asks_for_the_packages_through_pkexec(self):
         ran = []
         saved = bridge.subprocess.run
-        bridge.subprocess.run = lambda cmd, **kw: ran.append(cmd) or subprocess.CompletedProcess(cmd, 0, "", "")
+        def fake(cmd, **kw):
+            # Nothing installed yet; pacman would install the three.
+            if cmd[:2] == ["pacman", "-Q"]:
+                return subprocess.CompletedProcess(cmd, 1, "", "")
+            if cmd[:2] == ["pacman", "-Sp"]:
+                return subprocess.CompletedProcess(cmd, 0, "\n".join(p + " 1.0" for p in cmd[5:]), "")
+            ran.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        bridge.subprocess.run = fake
         try:
             with contextlib.redirect_stdout(open(os.devnull, "w")):
-                self.assertEqual(bridge.fix("screen"), bridge.EXIT_OK)
+                shown = bridge.root_plan("screen")
+                self.assertEqual(bridge.fix("screen", shown["hash"]), bridge.EXIT_OK)
         finally:
             bridge.subprocess.run = saved
         self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
                                 os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
-                         "Omarchy's pkg add, as root; Avahi is Omarchy's already")
+                         "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
 
     def test_avahi_finds_the_device(self):
         text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"

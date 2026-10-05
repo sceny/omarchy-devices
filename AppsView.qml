@@ -25,7 +25,8 @@ Item {
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
-  signal openRequested(var app)
+  // pop: as Omarchy's pop-out (Shift+Enter, Shift+click), else tiled.
+  signal openRequested(var app, bool pop)
   signal pinRequested(var app, bool on)
   signal pinAtRequested(var app, int at)
   signal pinMoved(int from, int to)
@@ -67,9 +68,9 @@ Item {
     pinRow.step(cursor, delta)
     cursor = Math.max(0, Math.min(pinnedApps.length - 1, cursor + delta))
   }
-  function activate() {
+  function activate(pop) {
     var app = stops[cursor]
-    if (app) openRequested(app)
+    if (app) openRequested(app, pop === true)
   }
   // x: a recent app under the cursor leaves the recent ones.
   function forget() {
@@ -107,7 +108,7 @@ Item {
         font.family: view.fontFamily
         escapeStep: "clear"
         onSteppedOut: focus = false
-        onAccepted: { if (view.page.all.length > 0) view.openRequested(view.page.all[0]) }
+        onAccepted: { if (view.page.all.length > 0) view.openRequested(view.page.all[0], false) }
         onTextChanged: view.cursor = 0
         Keys.onDownPressed: { focus = false; view.cursor = 0 }
       }
@@ -179,7 +180,7 @@ Item {
       isWorking: view.isWorking
       foreground: view.foreground
       fontFamily: view.fontFamily
-      onActivated: function(app) { view.openRequested(app) }
+      onActivated: function(app, pop) { view.openRequested(app, pop) }
       onHovered: function(i) { view.cursor = i; view.hovered() }
       onReordered: function(a, b) { view.pinMoved(a, b) }
       onPinRequested: function(app, at) { view.pinAtRequested(app, at) }
@@ -232,7 +233,7 @@ Item {
           motion: view.motion
           foreground: view.foreground
           fontFamily: view.fontFamily
-          onActivated: view.openRequested(modelData)
+          onActivated: function(pop) { view.openRequested(modelData, pop) }
           onPinToggled: view.pinRequested(modelData, !pinned)
           canForget: true
           onForgetRequested: view.forgetRequested(modelData)
@@ -279,7 +280,7 @@ Item {
           motion: view.motion
           foreground: view.foreground
           fontFamily: view.fontFamily
-          onActivated: view.openRequested(modelData)
+          onActivated: function(pop) { view.openRequested(modelData, pop) }
           onPinToggled: view.pinRequested(modelData, !pinned)
           onHovered: { view.cursor = view.allBase + index; view.hovered() }
         }

@@ -384,40 +384,40 @@ one's.
 
 *(Decided: settings manage devices.)*
 
-### 8.1 One device: one flat page
+### 8.1 One device: the same shape
 
-With one device, Settings is today's page: its groups apply to that device,
-with no *Defaults*, no *Custom* marks and no device list. *Nickname* and
-*Icon* join the top, and *Connection* and *Add a device* the bottom.
+With one device, Settings has the same shape as with several
+([setup.md](setup.md), section 6): the device is the one row of My
+devices, and its page holds its nickname, icon and what it can do. Its
+layout is the defaults (the flat keys), so there is no *For all devices*,
+no *Custom* mark, and no bar place or tab to choose.
 
 ### 8.2 Two or more devices
 
+The same shape as with one ([setup.md](setup.md), section 6), with *For
+all devices* and each device's place in the bar and tab:
+
 ```
- SETTINGS                                                    ←
- DEVICES
-   󰄜 S23      Galaxy S23 Ultra · Connected                    ›
-   󰓶 Tab      Galaxy Tab S9 · Away 2 h                        ›
+ SETTINGS · 2 devices · everything works                     ←
+ ✓ Everything works
+ MY DEVICES
+   󰄜 S23      Galaxy S23 Ultra · 86% · Wi-Fi                 ›
+   󰓶 Tab      Galaxy Tab S9 · Away                           ›
    ＋ Add a device                                            ›
- DEFAULTS FOR NEW DEVICES AND UNCHANGED SETTINGS              ›
- GENERAL
-   Low battery     15 %
-   Connection                                      1 to fix   ›
+ For all devices                                             ›
+ This computer   ✓ KDE Connect ✓ Firewall ✓ Network           ›
 ```
 
-A device's row opens its page:
+A device's row opens its page, with the tabs to the others:
 
 ```
- SETTINGS › S23                                              ←
-   Nickname        S23                  Short names keep the tabs narrow
-   Icon            󰄜  [ choose ]
-   In the bar      Always
-   Show in panel   On
-   Indicators      Bubble · Battery when low
-   Sections        Shortcuts, Now playing, Notifications     Custom  ↺
-   Shortcuts       Ring, Send files, Clipboard, Messages
-   Calls           On
-   Status          Connected · Wi-Fi · 86%        [Check]   (away: [Reconnect])
-   Unpair
+ S23 · Galaxy S23 Ultra                                      ←
+ [ S23 ] [ Tab ]
+ THIS DEVICE      Nickname · Icon · In the bar · Show in panel
+ WHAT IT CAN DO   a row per feature
+ Sections, shortcuts and bar      Its own · edited on its page ›
+   Shortcuts: use the defaults                                ↺
+ Unpair
 ```
 
 - **Order:** drag a device row by its grip, or Shift+K / Shift+J on it (no
@@ -425,15 +425,15 @@ A device's row opens its page:
   it too. The order is the tabs' and the chips'. Every other order in
   Settings (sections, bar indicators, shortcuts) drags the same way.
 - **Identity is never inherited:** nickname, icon, *In the bar* and *Show in
-  panel* belong to the device only; the rest may be *Custom* or default.
-- **Custom** marks a changed setting; ↺ on it goes back to the default.
-  *Reset all to defaults* (at the bottom) asks twice and never touches
-  identity.
+  panel* belong to the device only; the rest is its own or the defaults.
+- **Its own:** the device's *Sections, shortcuts and bar* row says so, and
+  each group it changed has *use the defaults* (↺); identity is never
+  touched.
 - **Lists merge with releases:** a device's custom section or shortcut list
   still gains a section or shortcut added in a later release, at its
   default place (as `normalizeSections` already does).
 - **Going from one device to two:** the one device's settings become the
-  defaults, and the new device starts from them; nothing is marked Custom.
+  defaults, and the new device starts from them; nothing is its own yet.
 - **Unpair** asks twice. Unpairing keeps the profile (pairing again brings
   it back); the profile goes when the user removes it from the device list.
 
@@ -546,7 +546,7 @@ what differs; identity lives only in the profile:
 | `Service.qml` | From `device` to `devices`: per-device notifications, players, calls, message readers when needed, last seen (cached). |
 | `BarWidget.qml` | Draws chips (and later own pills) from `Model.chips`; never empty. |
 | `Panel.qml` | The viewed device and its profile; the header (tabs from two devices); the pairing card; the gear's dot; the Devices section removed; pages: main, messages, settings, connection. |
-| `SettingsView.qml` | One device: the flat page. Several: the device list, a device's page, Defaults, General. |
+| `SettingsView.qml` | The status, My devices, a device's page, For all devices, This computer, Add a device, Screen and apps. |
 | `ConnectionPage.qml` | Replaces `SetupChecks.qml`. |
 | `AGENTS.md` | Rewrite: the Devices section rule, *the battery is a detail* (per chip), *UI state persists* (per device), *settings are written only by the panel* (and never on upgrade), *a section shows when…* (per device). |
 
