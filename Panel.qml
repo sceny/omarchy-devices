@@ -771,6 +771,16 @@ Panel {
       return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
   readonly property int settingsIssues: allProblems.length
+  // The main page's banner, closed: the problems it showed then stay out of
+  // it, and a new one brings it back. The gear's dot and Settings' status
+  // keep every problem. Kept with the settings, written on the close only.
+  readonly property var closedProblems: {
+    var v = setting("closedProblems", [])
+    return Array.isArray(v) ? v : []
+  }
+  function problemId(p) { return String(p.where) + ":" + String(p.key) }
+  readonly property bool bannerShown: allProblems.some(function(p) { return closedProblems.indexOf(problemId(p)) < 0 })
+  function closeProblemsBanner() { persistSettings({ closedProblems: allProblems.map(problemId) }) }
   // Every connected device's features, read when the panel opens (the
   // status counts them all, not only the viewed one's).
   // The viewed device's screen too, once it was set up here (adb pairs
@@ -2298,8 +2308,9 @@ Panel {
     function settingsRowsInfo(): string { return root.settingsInfo() }
     // What needs the user (the status, the gear's dot, the main page's
     // line), and whether that line shows now.
+    function closeBanner(): string { root.closeProblemsBanner(); return "closed" }
     function problems(): string {
-      return JSON.stringify({ count: root.settingsIssues, hint: problemsHint.open, line: Model.problemsLine(root.allProblems),
+      return JSON.stringify({ count: root.settingsIssues, hint: problemsHint.open, closed: root.closedProblems.length, line: Model.problemsLine(root.allProblems),
                               problems: root.allProblems.map(function(p) { return { where: p.where === "computer" ? "computer" : "device", key: p.key, label: p.label } }) })
     }
     // Demo only: a made-up caller ringing, or a call missed, on the viewed
@@ -3604,19 +3615,31 @@ Panel {
               // moment after the panel opens.
               FoldBody {
                 id: problemsHint
-                open: root.showMain && !root.editing && root.settingsIssues > 0
+                open: root.showMain && !root.editing && root.bannerShown
                 motion: root.motion
                 animate: root.settled
-              Button {
+              RowLayout {
                 width: pageColumn.width
-                iconText: Model.GLYPH.alert
-                text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
-                tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
-                bordered: true
-                foreground: root.urgent
-                fontFamily: root.fontFamily
-                fontSize: Style.font.bodySmall
-                onClicked: root.openSettings()
+                spacing: Style.space(4)
+                Button {
+                  Layout.fillWidth: true
+                  iconText: Model.GLYPH.alert
+                  text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
+                  tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
+                  bordered: true
+                  foreground: root.urgent
+                  fontFamily: root.fontFamily
+                  fontSize: Style.font.bodySmall
+                  onClicked: root.openSettings()
+                }
+                // Closed until something new needs you; the gear's dot stays.
+                PanelActionButton {
+                  iconText: Model.GLYPH.close
+                  tooltipText: "Close (it comes back when something new needs you; the cog's dot stays)"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.closeProblemsBanner()
+                }
               }
               }
               // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag

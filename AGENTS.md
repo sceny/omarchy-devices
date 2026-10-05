@@ -252,7 +252,9 @@ Keep them; change one only with the owner.
   worked and stopped), each once with the features it affects (none
   turned off), and fixes that did not work. Settings' status lists them;
   the gear's dot and a line at the top of the main page (folding in)
-  count them. This computer holds only this computer; a package installed
+  count them. The main page's line closes (✕): the problems it showed then
+  stay out of it (`closedProblems`, written on the close only), a new one
+  brings it back; the dot and the status keep every problem. This computer holds only this computer; a package installed
   is all it says of the screen or the gallery. *Fix all* runs what its
   page is about: the status what it lists, This computer its checks, a
   device's page that device.

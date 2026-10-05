@@ -39,7 +39,8 @@ GitHub release with these notes.
   and *Fix with AI*; then My devices (each with its own page, tabs to the
   next), *For all devices* (with two or more) and This computer, which now
   holds only this computer. A red line on the main page says when
-  something needs you.
+  something needs you; close it and it stays closed until something new
+  does (the cog's dot stays).
 - **A password only for what is shown:** a card says why and lists every
   package and firewall rule before the prompt; nothing else runs with it,
   and nothing installed is ever downgraded.
