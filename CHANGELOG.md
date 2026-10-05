@@ -49,7 +49,8 @@ GitHub release with these notes.
   dismissed while a device was away
   ([#4](https://github.com/sceny/omarchy-devices/issues/4)) and ones that
   stopped after pairing again ([#95](https://github.com/sceny/omarchy-devices/issues/95));
-  the screen re-docks at once after Super+O.
+  the screen re-docks at once after Super+O. The screen's state reads in
+  half a second (it took five), and the apps show from the first opening.
 - **What the phone hides stays hidden:** One UI's "1 more notification"
   ([#52](https://github.com/sceny/omarchy-devices/issues/52)) and a player
   paused long enough for Android to hide it
