@@ -68,7 +68,7 @@ var GLYPH = {
   callEnd: "\u{F03F5}",      // phone-hangup
   callHold: "\u{F03FC}",     // phone-paused
   callSwap: "\u{F04E1}",     // swap-horizontal
-  callMerge: "\u{F0099}",    // call-merge
+  callMerge: "\u{F00F8}",    // call-merge
   mic: "\u{F036C}",          // microphone
   micOff: "\u{F036D}",       // microphone-off
   keypad: "\u{F061C}",       // dialpad
@@ -711,7 +711,7 @@ function handsfreeCall(device, hf, kde) {
     var sw = callWho(second, kde)
     other = { id: second.id, state: second.state, who: sw.who, number: String(second.number || "") }
   }
-  var conference = active.length > 1 || (main.multiparty === true && active.length > 0)
+  var conference = active.length > 1
   return {
     state: state, id: String(main.id || ""), at: Number(main.seen || main.since || (kde && kde.at) || 0),
     number: String(main.number || ""), hold: false, device: String(device.id), here: true,
@@ -865,6 +865,7 @@ function demoCallAfter(hf, verb, nowMs) {
     h.audio = verb === "answer" ? "active" : "idle"
   } else if (verb === "decline") { c = find(["incoming"]); if (c) { calls.splice(calls.indexOf(c), 1); h.ended = null } }
   else if (verb === "hangup") { c = find(["active", "dialing", "alerting", "held"]); if (c) end(c) }
+  else if (verb === "hangupAll") calls.filter(function(x) { return x.state === "active" || x.state === "held" }).forEach(end)
   else if (verb === "holdAnswer") {
     c = find(["waiting"])
     calls.forEach(function(x) { if (x.state === "active") x.state = "held" })

@@ -176,6 +176,9 @@ Item {
                   declineOther: ["decline", c.other ? c.other.id : ""], swap: ["swap"], merge: ["merge"],
                   audioHere: ["audio-here"], tones: ["tones", String(arg || "")], volume: ["volume", String(arg)],
                   mute: ["mute", isCallMuted(id) ? "off" : "on"] }
+    // A conference ends whole.
+    if (key === "hangup" && c.conference) key = "hangupAll"
+    verbs.hangupAll = ["hangup-all"]
     var v = verbs[key]
     if (!v) return
     if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }

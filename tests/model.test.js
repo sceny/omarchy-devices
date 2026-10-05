@@ -1221,6 +1221,8 @@ test("demo calls: the card's clicks move the flow along", () => {
   assert.deepEqual(w.calls.map(c => c.state).sort(), ["active", "held"])
   w = M.demoCallAfter(w, "merge", now)
   assert.ok(M.callState(btDevice(w, null), now, 0, true).conference)
+  w = M.demoCallAfter(w, "hangupAll", now)
+  assert.deepEqual([w.calls.length, w.audio], [0, "idle"], "a conference ends whole")
 })
 
 test("calls here as a feature: Bluetooth here, then the device paired, confirmed by the click, connected", () => {
