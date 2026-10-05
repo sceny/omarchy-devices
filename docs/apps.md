@@ -21,7 +21,8 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
   pinned, at the top right.
   Type with your keyboard: the phone's on-screen keyboard never shows.
 - **Sound**: here, or left on the phone (*Screen and apps* page). The
-  phone gives its sound to one window at a time.
+  phone gives its sound to one window at a time. While something else plays
+  on the phone (music in your headset), an app's sound stays there.
 
 ## Good to know
 

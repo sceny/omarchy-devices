@@ -303,7 +303,9 @@ Keep them; change one only with the owner.
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
 - **Apps are windows of their own, tiled by default** (no setting;
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
-  floating and pinned at the top right in the device's shape): one
+  floating and pinned at the top right in the device's shape; its sound
+  stays on the device while another app plays there, `Model.appSound`,
+  since scrcpy takes the device's whole output): one
   virtual display per app, following its window (`--flex-display`), and
   never the device's on-screen keyboard (`--display-ime-policy=hide`):
   typing is this computer's keyboard. All apps shows every app, the

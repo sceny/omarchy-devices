@@ -714,6 +714,22 @@ function playerApp(identity, deviceName) {
   return dash > 0 ? id.slice(0, dash) : id
 }
 
+// Where an app window's sound goes. scrcpy takes the device's whole sound
+// output (not the app's alone), and the device goes quiet meanwhile: with
+// something else playing there (music in its headset), an app's sound stays
+// on the device; the app that is playing keeps its sound here. `chosen`:
+// the device's setting ("here" or "phone"); `playing`: the apps playing on
+// it now (players' names).
+function appSound(chosen, playing, appName) {
+  if (chosen === "phone") return { sound: "phone", kept: false }
+  var name = String(appName || "").toLowerCase()
+  var others = (playing || []).filter(function(p) {
+    var n = String(p || "").toLowerCase()
+    return !(n && name && (n === name || n.indexOf(name) >= 0 || name.indexOf(n) >= 0))
+  })
+  return others.length > 0 ? { sound: "phone", kept: true, playing: others[0] } : { sound: "here", kept: false }
+}
+
 // A player belongs to this phone when KDE Connect exported it and its
 // identity ends with the phone's name. With no name to match, any KDE Connect
 // player counts.

@@ -227,17 +227,18 @@ Item {
     var out = {}
     for (var i = 0; i < ordered.length; i++) {
       var d = ordered[i]
-      var media = [], playing = false
+      var media = [], playing = false, playingApps = []
       for (var j = 0; j < all.length; j++) {
         var p = all[j]
         if (!p || !Model.isPhonePlayer(p.dbusName, p.identity, String(d.name || ""))) continue
         media.push({ app: Model.playerApp(p.identity, d.name), title: p.trackTitle })
-        if (p.isPlaying) playing = true
+        if (p.isPlaying) { playing = true; playingApps.push(Model.playerApp(p.identity, d.name)) }
       }
       out[d.id] = {
         notifications: Model.visibleNotifications(d, media).length,
         messages: smsService.deviceId === String(d.id) ? smsService.unreadCount : 0,
         playing: playing,
+        playingApps: playingApps,
         lowPercent: lowPercent,
         call: calls[d.id] ? { state: calls[d.id].state } : null
       }

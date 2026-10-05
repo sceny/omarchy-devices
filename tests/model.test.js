@@ -1128,6 +1128,13 @@ test("KDE Connect away while the screen link reaches the device: one problem, fi
   assert.equal(gone.features.find(r => r.key === "notifications").state, "away")
 })
 
+test("an app's sound: here unless something else plays on the device; the playing app keeps it", () => {
+  assert.deepEqual(M.appSound("here", [], "Maps"), { sound: "here", kept: false })
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "music in its headset stays there")
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Spotify"), { sound: "here", kept: false }, "the app playing: its sound comes with it")
+  assert.deepEqual(M.appSound("phone", [], "Maps"), { sound: "phone", kept: false }, "the device's own choice")
+})
+
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
   const device = { notifications: [
     { id: "a", app: "System UI", title: "1 more notification", ticker: "1 more notification", text: "", actions: [], replyId: "", dismissable: true },
