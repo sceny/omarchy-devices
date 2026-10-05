@@ -47,7 +47,8 @@ Item {
   property color foreground: Color.foreground
   property string fontFamily: Style.font.family
 
-  signal activated()
+  // pop: Shift held (open it as Omarchy's pop-out, not tiled).
+  signal activated(bool pop)
   signal pinToggled()
   signal forgetRequested()
   signal dragStarted()
@@ -172,7 +173,7 @@ Item {
     // Where it was let go, read before the tile goes back to its place.
     onReleased: function(m) { if (dragging) { var at = mapToItem(null, m.x, m.y); dragging = false; tile.dragEnded(at) } }
     onCanceled: if (dragging) { dragging = false; tile.dragEnded(Qt.point(-1e6, -1e6)) }
-    onClicked: if (!dragged) tile.activated()
+    onClicked: function(ev) { if (!dragged) tile.activated((ev.modifiers & Qt.ShiftModifier) !== 0) }
   }
 
   // Kept in the Apps section, or not: shown while hovered (and always for a
@@ -205,7 +206,9 @@ Item {
 
   PanelToolTip {
     visible: mouse.containsMouse && !mouse.dragging
-    text: tile.working ? "Opening " + (tile.app.name || "") + "…" : "Open " + (tile.app.name || "") + " in a window"
+    // An app (not All apps): Shift opens it popped out.
+    text: tile.working ? "Opening " + (tile.app.name || "") + "…"
+      : "Open " + (tile.app.name || "") + " in a window" + (tile.app.package ? " · Shift+click: popped out" : "")
     fontFamily: tile.fontFamily
   }
 }

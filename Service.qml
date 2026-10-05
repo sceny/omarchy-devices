@@ -904,7 +904,7 @@ Item {
   property bool screenThenDocked: true
   property var screenThenPlace: null       // where the docked window goes: a function, read at launch
   property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
-  property var screenThenApp: null         // an app to open once read, instead of the screen ({ package, name, sound })
+  property var screenThenApp: null         // an app to open once read, instead of the screen ({ package, name, sound, pop })
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id, var app)
   // Its window is there (a place: the panel closes), or it did not open.
@@ -961,8 +961,8 @@ Item {
       screenThenApp = null
       if (app) {
         var key = "screen:" + id + ":" + app.package
-        if (status && status.state === "ready" && !demo) { launchScreen(id, app.package, app.name, false, null, false, app.sound); return }
-        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open in a window here", false); return }
+        if (status && status.state === "ready" && !demo) { launchScreen(id, app.package, app.name, false, null, false, app.sound, app.pop); return }
+        if (status && status.state === "ready") { setBusy(key, false); report("Demo: " + app.name + " would open " + (app.pop ? "popped out" : "in a window") + " here", false); return }
         setBusy(key, false)
         screenSetupNeeded(String(id), app)
         return
@@ -1003,13 +1003,14 @@ Item {
   // An app's tile: its window, tiled, once the state is read (as the
   // Screen shortcut), else the screen's setup page. `sound`: "phone" leaves
   // its sound on the device.
-  function pressApp(id, app, sound) {
+  // `pop`: as Omarchy's pop-out (Shift+Enter, Shift+click), else tiled.
+  function pressApp(id, app, sound, pop) {
     if (!id || !app) return
     var key = "screen:" + id + ":" + app.package
     if (isBusy(key) || isBusy("screen")) return
     setBusy(key, true)
     screenThen = String(id)
-    screenThenApp = { package: app.package, name: app.name, sound: sound || "here" }
+    screenThenApp = { package: app.package, name: app.name, sound: sound || "here", pop: pop === true }
     readScreen(id)
   }
   function openScreen(id, pkg, label, docked) {
@@ -1028,10 +1029,10 @@ Item {
     if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
     return out
   }
-  function launchScreen(id, pkg, label, docked, place, fit, sound) {
+  function launchScreen(id, pkg, label, docked, place, fit, sound, pop) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
-    if (pkg) { cmd.push("--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
+    if (pkg) { cmd.push(pop ? "--pop" : "--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
     else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })

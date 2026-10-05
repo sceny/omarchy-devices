@@ -17,6 +17,8 @@ screen stays free. It needs the [screen set up](screen-and-apps.md) once.
   `o`). It opens the app, not that message: KDE Connect cannot open a
   notification yet.
 - The window tiles like any other, and the app fills it as you resize it.
+  **Shift+Enter** (or Shift+click) opens it popped out instead: floating,
+  pinned, at the top right.
   Type with your keyboard: the phone's on-screen keyboard never shows.
 - **Sound**: here, or left on the phone (*Screen and apps* page). The
   phone gives its sound to one window at a time.

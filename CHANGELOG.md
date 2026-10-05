@@ -19,7 +19,8 @@ GitHub release with these notes.
   icons. An Apps section with Pinned and Recent rows (drag an app into
   Pinned to pin it, drag to reorder, drag out to unpin), an All apps page
   with a search, and a notification's window button that opens its app.
-  An app's sound plays here or stays on the phone.
+  An app's sound plays here or stays on the phone. Shift+Enter or
+  Shift+click opens an app popped out (floating, pinned) instead of tiled.
 
 - **Setup that just works** ([#126](https://github.com/sceny/omarchy-devices/issues/126),
   [#121](https://github.com/sceny/omarchy-devices/issues/121),

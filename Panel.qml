@@ -1571,9 +1571,11 @@ Panel {
       if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).appSound
     return "here"
   }
-  function openApp(app) {
+  // Tiled, always the default; `pop` (Shift+Enter, Shift+click): as
+  // Omarchy's pop-out instead.
+  function openApp(app, pop) {
     if (!phone || !device || !app) return
-    phone.pressApp(String(device.id), app, appSoundFor(String(device.id)))
+    phone.pressApp(String(device.id), app, appSoundFor(String(device.id)), pop === true)
   }
   function appWorking(app) { return !!phone && !!device && !!app && phone.isBusy("screen:" + device.id + ":" + app.package) }
   function forgetApp(app) {
@@ -2023,7 +2025,8 @@ Panel {
     scrollToCursor()
   }
 
-  function activateCursor() {
+  // `pop`: Shift+Enter (an app opens as Omarchy's pop-out).
+  function activateCursor(pop) {
     ensureCursor()
     // Editing: Enter shows or hides the section under the cursor.
     if (editing) { toggleSectionShown(focusSection); return }
@@ -2042,7 +2045,7 @@ Panel {
     } else if (focusSection === "notifications") {
       openReply(notifications[notifIndex])
     } else if (focusSection === "apps") {
-      if (appIndex < sectionApps.length) openApp(sectionApps[appIndex])
+      if (appIndex < sectionApps.length) openApp(sectionApps[appIndex], pop === true)
       else openAppsView()
     } else if (focusSection === "photos") {
       openPhoto(photos[photoIndex])
@@ -2563,6 +2566,17 @@ Panel {
     contentWidth: root.cardWidth
     contentHeight: root.cardHeight
 
+    // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut, so
+    // it comes before the catcher, whose Enter carries no modifiers.
+    Shortcut {
+      sequences: ["Shift+Return", "Shift+Enter"]
+      enabled: root.opened && !keyCatcher.blocked && root.cursorActive
+        && (root.appsOpen || (root.mainView && root.focusSection === "apps"))
+      onActivated: {
+        if (root.appsOpen) appsView.activate(true)
+        else root.activateCursor(true)
+      }
+    }
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
@@ -4119,7 +4133,7 @@ Panel {
                           motion: root.motion
                           foreground: root.foreground
                           fontFamily: root.fontFamily
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
                         }
                       }
@@ -4149,7 +4163,7 @@ Panel {
                           motion: root.motion
                           foreground: root.foreground
                           fontFamily: root.fontFamily
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
                         }
                       }
@@ -4233,7 +4247,7 @@ Panel {
                       isWorking: function(app) { return root.appWorking(app) }
                       foreground: root.foreground
                       fontFamily: root.fontFamily
-                      onActivated: function(app) { root.openApp(app) }
+                      onActivated: function(app, pop) { root.openApp(app, pop) }
                       onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
@@ -4286,7 +4300,7 @@ Panel {
                           followsPointer: true
                           onDragMoved: function(dx, dy, at) { sectionPins.externalMove(modelData, at) }
                           onDragEnded: function(at) { sectionPins.externalDrop(modelData, at) }
-                          onActivated: root.openApp(modelData)
+                          onActivated: function(pop) { root.openApp(modelData, pop) }
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true
                           onForgetRequested: root.forgetApp(modelData)
@@ -5019,7 +5033,7 @@ Panel {
                 animate: root.settled
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                onOpenRequested: function(app) { root.openApp(app) }
+                onOpenRequested: function(app, pop) { root.openApp(app, pop) }
                 onPinRequested: function(app, on) { root.pinApp(app, on) }
                 onPinAtRequested: function(app, at) { root.pinAppAt(app, at) }
                 onPinMoved: function(a, b) { root.movePinned(a, b) }

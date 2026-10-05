@@ -41,7 +41,8 @@ not re-printed, so the shell only wakes when something moved.
                                               or one app, in a window here (scrcpy),
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
-                                              an app tiled, no on-screen keyboard (--sound phone: its sound
+                                              an app tiled (--pop: Omarchy's pop-out), no
+                                              on-screen keyboard (--sound phone: its sound
                                               stays on the device); returns once the
                                               window is there
   kdeconnect-bridge screen-focus <device>          bring its open window forward
@@ -3012,12 +3013,15 @@ def launch_or_focus(title, cmd):
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
-                sound="here"):
+                sound="here", popout=False):
     """Opens the device's screen, docked or tiled, or one of its apps,
-    always tiled, in a window here, and returns once the window is there
-    (the click waits meanwhile). Already open: brought forward instead of a
-    second one."""
-    docked = docked and not package
+    tiled (or, `popout`, Omarchy's pop-out: floating and pinned at the top
+    right, the device's shape), in a window here, and returns once the
+    window is there (the click waits meanwhile). Already open: brought
+    forward instead of a second one."""
+    docked = (docked and not package) or (bool(package) and popout)
+    if package:
+        rect = None   # an app's pop-out is not the panel's card journey
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
@@ -4504,10 +4508,10 @@ def main(argv):
                 skip = False
             elif a in ("--at", "--ctx", "--sound"):
                 skip = True
-            elif a not in ("--tiled", "--docked", "--fit"):
+            elif a not in ("--tiled", "--docked", "--fit", "--pop"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv,
+                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv,
                            sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
     if argv[0] == "snapshot":
         print(json.dumps(with_seen(snapshot(bus()), load_seen(seen_path())), indent=2, sort_keys=True, ensure_ascii=False))

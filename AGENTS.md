@@ -301,7 +301,9 @@ Keep them; change one only with the owner.
   (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
-- **Apps are windows of their own, always tiled** (no setting): one
+- **Apps are windows of their own, tiled by default** (no setting;
+  Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
+  floating and pinned at the top right in the device's shape): one
   virtual display per app, following its window (`--flex-display`), and
   never the device's on-screen keyboard (`--display-ime-policy=hide`):
   typing is this computer's keyboard. All apps shows every app, the
