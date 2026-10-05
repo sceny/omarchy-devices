@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# A made-up app screen, for the user guide's pictures of apps in windows:
+# a status bar, an app bar with the app's name, a body (a list of cards, or
+# a map with a pin) and a bottom bar. Generated, so nothing in it comes
+# from a real device or a real app. docs/internals/screenshots.md says
+# where it is used.
+#
+#   tools/app-screen OUT.png WIDTHxHEIGHT NAME ACCENT [list|map] [TIME]
+set -euo pipefail
+
+out=$1 size=$2 name=$3 accent=$4 kind=${5:-list} clock=${6:-18:40}
+w=${size%x*} h=${size#*x}
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+BG='#F6F4EF' CARD='#FFFFFF' FG='#1F2420' DIM='#7A817C' LINE='#E3E0D8'
+BOLD=JetBrainsMono-NF-Bold REGULAR=JetBrainsMono-NF-Regular
+u=$(( (w < h ? w : h) / 36 ))
+bar=$(( u * 4 )) status=$(( u * 3 / 2 ))
+
+# The ground, the status bar and the app bar.
+magick -size "${w}x${h}" "xc:$BG" \
+  -fill "$accent" -draw "rectangle 0,0 $w,$(( status + bar ))" \
+  -fill white -font "$REGULAR" -pointsize $(( u )) -gravity NorthEast -annotate +$(( u ))+$(( u / 3 )) "$clock  "$'\U000F0928  \U000F0079' \
+  -font "$BOLD" -pointsize $(( u * 2 )) -gravity NorthWest -annotate +$(( u * 2 ))+$(( status + u )) "$name" \
+  -font "$REGULAR" -gravity NorthEast -annotate +$(( u * 2 ))+$(( status + u )) $'\U000F01D9' \
+  "$tmp/base.png"
+
+if [ "$kind" = map ]; then
+  # A map: soft land, a river, roads, a pin and a search box.
+  top=$(( status + bar ))
+  magick "$tmp/base.png" \
+    -fill '#E8EFE3' -draw "rectangle 0,$top $w,$h" \
+    -fill '#CFE3F2' -draw "roundrectangle $(( w / 3 )),$top $(( w / 3 + u * 5 )),$h $(( u * 3 )),$(( u * 3 ))" \
+    -stroke '#FFFFFF' -strokewidth $(( u / 2 )) -fill none \
+    -draw "line 0,$(( top + h / 3 )) $w,$(( top + h / 4 ))" \
+    -draw "line $(( w / 5 )),$top $(( w / 4 )),$h" \
+    -draw "line $(( w * 3 / 5 )),$top $(( w * 4 / 5 )),$h" \
+    -stroke none -fill "$accent" \
+    -draw "circle $(( w / 2 )),$(( top + h / 2 )) $(( w / 2 )),$(( top + h / 2 + u * 2 ))" \
+    -fill white -draw "circle $(( w / 2 )),$(( top + h / 2 )) $(( w / 2 )),$(( top + h / 2 + u * 2 / 3 ))" \
+    -fill "$CARD" -draw "roundrectangle $(( u * 2 )),$(( top + u * 2 )) $(( w - u * 2 )),$(( top + u * 6 )) $(( u * 2 )),$(( u * 2 ))" \
+    -fill "$DIM" -font "$REGULAR" -pointsize $(( u * 3 / 2 )) -gravity NorthWest -annotate +$(( u * 4 ))+$(( top + u * 3 )) "Search here" \
+    "$tmp/body.png"
+else
+  # A list of cards: a title line and two lines of text each.
+  cp "$tmp/base.png" "$tmp/body.png"
+  y=$(( status + bar + u * 2 ))
+  card=$(( u * 7 ))
+  while (( y + card < h - u * 6 )); do
+    magick "$tmp/body.png" \
+      -fill "$CARD" -draw "roundrectangle $(( u * 2 )),$y $(( w - u * 2 )),$(( y + card )) $(( u )),$(( u ))" \
+      -fill "$accent" -draw "circle $(( u * 5 )),$(( y + card / 2 )) $(( u * 5 )),$(( y + card / 2 + u * 2 ))" \
+      -fill "$LINE" -draw "roundrectangle $(( u * 9 )),$(( y + u * 3 / 2 )) $(( w / 2 )),$(( y + u * 5 / 2 )) $(( u / 2 )),$(( u / 2 ))" \
+      -draw "roundrectangle $(( u * 9 )),$(( y + u * 7 / 2 )) $(( w - u * 5 )),$(( y + u * 9 / 2 )) $(( u / 2 )),$(( u / 2 ))" \
+      -draw "roundrectangle $(( u * 9 )),$(( y + u * 5 )) $(( w * 2 / 3 )),$(( y + u * 6 )) $(( u / 2 )),$(( u / 2 ))" \
+      "$tmp/body.png"
+    y=$(( y + card + u ))
+  done
+fi
+
+# The bottom bar with four marks, and a round action button.
+magick "$tmp/body.png" \
+  -fill "$CARD" -draw "rectangle 0,$(( h - u * 5 )) $w,$h" \
+  -fill "$LINE" -draw "rectangle 0,$(( h - u * 5 )) $w,$(( h - u * 5 + 2 ))" \
+  -fill "$accent" -font "$REGULAR" -pointsize $(( u * 2 )) -gravity South \
+  -annotate -$(( w * 3 / 8 ))+$(( u * 3 / 2 )) $'\U000F02DC' \
+  -fill "$DIM" -annotate -$(( w / 8 ))+$(( u * 3 / 2 )) $'\U000F0349' \
+  -annotate +$(( w / 8 ))+$(( u * 3 / 2 )) $'\U000F00ED' \
+  -annotate +$(( w * 3 / 8 ))+$(( u * 3 / 2 )) $'\U000F0004' \
+  -fill "$accent" -draw "circle $(( w - u * 5 )),$(( h - u * 9 )) $(( w - u * 5 )),$(( h - u * 7 ))" \
+  -fill white -gravity NorthWest -pointsize $(( u * 2 )) -annotate +$(( w - u * 6 ))+$(( h - u * 10 )) "+" \
+  -depth 8 -strip "$out"

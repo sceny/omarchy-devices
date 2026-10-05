@@ -48,6 +48,14 @@ with the panel closed: at `Model.dockRect`'s place and size for the pill
 (470x1008 under it, turned 1152x537), framed 2 px in the accent colour as
 Hyprland frames a window; then cropped around it and scaled down.
 
+## The apps' picture
+
+`apps-windows.png` is two made-up app screens (`tools/app-screen`: a map
+and a list, each with its app bar) placed as Omarchy tiles two windows
+(gaps 10 out, 5 in, under the bar: 1261x1381 each at (10,45) and
+(1285,45), a 2 px border) on a demo desktop shot with the panel closed,
+then scaled to half.
+
 ## The user guide's pictures
 
 One topic per picture, cropped to the panel's card alone (`cardRect` gives

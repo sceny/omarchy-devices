@@ -7,6 +7,10 @@ with its own icon, while the phone's screen stays free: a map beside your
 browser, a chat beside your editor. Type with your keyboard; the phone's
 on-screen keyboard never shows.
 
+![Two of the phone's apps in tiled windows on the desktop, each with its own app bar (made-up app screens)](../images/apps-windows.png)
+
+Pick them from the Apps section of the panel, or from **All apps**:
+
 ![All apps: search, the recently opened, then A to Z (demo data)](../images/apps.png)
 
 - **Apps** on the main page: two rows, **Pinned** and **Recent**.
