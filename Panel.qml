@@ -3618,11 +3618,12 @@ Panel {
                 open: root.showMain && !root.editing && root.bannerShown
                 motion: root.motion
                 animate: root.settled
-              RowLayout {
+              Item {
                 width: pageColumn.width
-                spacing: Style.space(4)
+                height: bannerButton.implicitHeight
                 Button {
-                  Layout.fillWidth: true
+                  id: bannerButton
+                  anchors.fill: parent
                   iconText: Model.GLYPH.alert
                   text: Model.problemsLine(root.allProblems) + (root.allProblems.length === 1 ? ": " + root.allProblems[0].label : "")
                   tooltipText: root.allProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
@@ -3632,8 +3633,13 @@ Panel {
                   fontSize: Style.font.bodySmall
                   onClicked: root.openSettings()
                 }
-                // Closed until something new needs you; the gear's dot stays.
+                // Inside it, top right: closed until something new needs you;
+                // the gear's dot stays.
                 PanelActionButton {
+                  anchors.top: parent.top
+                  anchors.right: parent.right
+                  anchors.topMargin: Style.space(2)
+                  anchors.rightMargin: Style.space(4)
                   iconText: Model.GLYPH.close
                   tooltipText: "Close (it comes back when something new needs you; the cog's dot stays)"
                   foreground: root.foreground
