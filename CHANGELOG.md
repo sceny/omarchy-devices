@@ -6,64 +6,77 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
-## Unreleased
+## 0.8.0 — 2026-10-05
 
-- **Screen** ([#2](https://github.com/sceny/omarchy-devices/issues/2)): the
-  phone's screen in a window here (scrcpy). Set up from the panel: install
-  on a click, the steps on the phone, and pairing by scanning a QR code.
-  It opens docked by the bar, phone-shaped, or as a window like any other.
-  After a phone restart turns Wireless debugging off, its page says so and
-  the screen opens by itself once it is on again.
-- **Apps** ([#116](https://github.com/sceny/omarchy-devices/issues/116)):
-  the phone's apps, each in a window of its own, tiled, with their real
-  icons. An Apps section with Pinned and Recent rows (drag an app into
-  Pinned to pin it, drag to reorder, drag out to unpin), an All apps page
-  with a search, and a notification's window button that opens its app.
-  An app's sound plays here or stays on the phone. Shift+Enter or
-  Shift+click opens an app popped out (floating, pinned) instead of tiled.
-  Opening an app never takes music playing in your headset: its sound
-  stays on the phone then. On a locked phone, the phone wakes and the app
-  opens once you unlock it (it was an empty window).
+### Highlights
 
-- **Setup that just works** ([#126](https://github.com/sceny/omarchy-devices/issues/126),
-  [#121](https://github.com/sceny/omarchy-devices/issues/121),
-  [#63](https://github.com/sceny/omarchy-devices/issues/63)): a device's
-  page says what it can do, a row per feature, and one click does every
-  step the plugin can (KDE Connect's part, a permission on the phone over
-  adb), then says the one left to you. Features can be turned
-  off per device, Screen and apps too (no screen, no apps, nothing to fix
-  about it). One switch gets a feature working: it installs what this
-  computer needs (a card first), sets up KDE Connect and the phone, and
-  carries on by itself after the one step left to you. A device KDE
-  Connect lost while its screen link still reaches it keeps its screen and
-  apps, and one *Fix* reconnects KDE Connect through what adb knows. Connection is now *This computer*, with *Fix all*.
-  KDE Connect's own settings window is no longer needed.
-- **Settings, organized:** the same shape with one device or many. It starts
-  with whether everything works, listing each problem once with *Fix all*
-  and *Fix with AI*; then My devices (each with its own page, tabs to the
-  next), *For all devices* (with two or more) and This computer, which now
-  holds only this computer. A red line on the main page says when
-  something needs you; close it and it stays closed until something new
-  does (the cog's dot stays).
-- **A password only for what is shown:** a card says why and lists every
-  package and firewall rule before the prompt; nothing else runs with it,
-  and nothing installed is ever downgraded.
-- **Recovers by itself:** the gallery after a phone restart
-  ([#99](https://github.com/sceny/omarchy-devices/issues/99)), notifications
-  dismissed while a device was away
-  ([#4](https://github.com/sceny/omarchy-devices/issues/4)) and ones that
-  stopped after pairing again ([#95](https://github.com/sceny/omarchy-devices/issues/95));
-  the screen re-docks at once after Super+O. The screen's state reads in
-  half a second (it took five), and the apps show from the first opening.
-- **What the phone hides stays hidden:** One UI's "1 more notification"
-  ([#52](https://github.com/sceny/omarchy-devices/issues/52)) and a player
-  paused long enough for Android to hide it
-  ([#33](https://github.com/sceny/omarchy-devices/issues/33)).
-- **Fix with AI** ([#101](https://github.com/sceny/omarchy-devices/issues/101)):
-  beside every problem, and for all of them in *What it can do*'s title
-  next to *Fix all*: your default coding agent opens on it, as Omarchy
-  opens it, with the plugin's guide; what it fixes that the plugin's own
-  fix missed, it offers to report (nothing private in it).
+- **Screen**: the phone's screen on your desktop, docked under its chip in
+  the phone's own shape and turning as you turn it, or as a window; your
+  mouse and keyboard, the clipboard both ways, files dropped on it. Set up
+  from the panel, once.
+- **Apps**: each of the phone's apps in a window of its own, tiled with
+  the rest, with its icon; pinned and recent rows, All apps with search,
+  a notification's app opened in a window; Shift+Enter pops one out.
+- **Setup that just works**: a device's page says what it can do, and
+  one switch per feature does every step the plugin can, here and on the
+  phone, then carries on by itself after the one step left to you. The
+  panel installs what the computer is missing; KDE Connect's own app is
+  no longer needed.
+- **Settings in one shape**: it starts with whether everything works and
+  lists each problem once, where its cause is, with *Fix all* and *Fix
+  with AI*; My devices, For all devices, This computer. A red line on the
+  main page says when something needs you.
+- **A password only for what is shown**: a card says why and lists every
+  package and firewall rule before the prompt; only that runs.
+- **Repairs by itself**: the gallery after a phone restart, notifications
+  dismissed while the device was away or gone quiet after pairing again,
+  the screen once the phone is back; a device the phone's link lost while
+  its screen still answers keeps its screen and apps, and one *Fix* finds
+  it again.
+- **Fix with AI**: your default coding agent opens on a problem, as
+  Omarchy opens it, with the plugin's guide; what it fixes that the
+  plugin's fix missed, it offers to report, with nothing private in it.
+- **Docs**: one page per feature, a Setup section, Security and privacy.
+
+### Issues
+
+- [#2](https://github.com/sceny/omarchy-devices/issues/2) Screen mirroring with scrcpy
+- [#116](https://github.com/sceny/omarchy-devices/issues/116) Phone apps in their own windows
+- [#126](https://github.com/sceny/omarchy-devices/issues/126) Setup that just works: one model of sources and features, Settings for it
+- [#128](https://github.com/sceny/omarchy-devices/issues/128) Setup items: features from the items they need, sources as modules
+- [#121](https://github.com/sceny/omarchy-devices/issues/121) Troubleshooting that fixes itself, for every capability
+- [#63](https://github.com/sceny/omarchy-devices/issues/63) Setup checks name the phone permission a feature is missing
+- [#101](https://github.com/sceny/omarchy-devices/issues/101) Fix with AI: Omarchy's agent on the plugin's errors
+- [#99](https://github.com/sceny/omarchy-devices/issues/99) Photos could not read the phone, and KDE Connect's mount error popped up again and again
+- [#4](https://github.com/sceny/omarchy-devices/issues/4) Notifications dismissed on the device stayed in the panel
+- [#95](https://github.com/sceny/omarchy-devices/issues/95) No notifications after unpairing from the computer and pairing again
+- [#52](https://github.com/sceny/omarchy-devices/issues/52) A hidden System UI "1 more notification" showed in the panel
+- [#33](https://github.com/sceny/omarchy-devices/issues/33) Now playing kept a player the phone had hidden
+- [#31](https://github.com/sceny/omarchy-devices/issues/31) The messages resync after a KDE Connect restart, checked
+
+### Pull requests without an issue
+
+- [#125](https://github.com/sceny/omarchy-devices/pull/125) Sections: one header height, folds that fade alike; Apps polish
+- [#130](https://github.com/sceny/omarchy-devices/pull/130) Docs for 0.8, and found by what it does
+- [#132](https://github.com/sceny/omarchy-devices/pull/132) Docs: features for show, setup as its own section, security and privacy
+- [#133](https://github.com/sceny/omarchy-devices/pull/133) Docs: features as features; Built on at the README's end
+
+### Upgrading
+
+- **Settings has one shape** with one device or many: the status, My
+  devices (your device is in the list; its own settings are on its page),
+  For all devices with two or more, This computer (once Connection). The
+  KDE Connect settings row is gone. Nothing in your settings is
+  rewritten; new keys appear on your next change.
+- **Apps** joins your saved order of sections, switched on, and shows
+  once a device's screen is set up. **Screen** joins the device's
+  shortcuts when its screen is first set up, once.
+- **New, per device:** *Opens under the bar* for the screen, an app's
+  sound here or on the phone, and the Screen and apps switch; all on in
+  the ways they were.
+- **New optional packages**, installed from the panel on a click, after a
+  card: scrcpy, android-tools and android-udev for the screen and apps;
+  sshfs for the gallery.
 
 ## 0.7.0 — 2026-10-02
 
