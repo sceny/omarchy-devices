@@ -18,9 +18,13 @@ trap 'rm -rf "$tmp"' EXIT
 
 FG='#F4F1E8' DIM='#D9D3C2'
 BOLD=JetBrainsMono-NF-Bold REGULAR=JetBrainsMono-NF-Regular
-# Sizes follow the width, so a tablet or a landscape screen reads the same.
-u=$(( w / 36 ))                       # one unit: 30 px on a 1080 px phone
-tile=$(( u * 6 )) gap=$(( u * 3 )) cols=4
+# Sizes follow the shorter side, so a tablet or a turned phone reads the
+# same; turned (wider than tall), six columns and no dock, as Android lays
+# out a landscape home screen.
+short=$(( w < h ? w : h ))
+u=$(( short / 36 ))                   # one unit: 30 px on a 1080 px phone
+landscape=$(( w > h ))
+tile=$(( u * 6 )) gap=$(( u * 3 )) cols=$(( landscape ? 6 : 4 ))
 left=$(( (w - cols * tile - (cols - 1) * gap) / 2 ))
 
 # The wallpaper: dusk teal into deep green, with a soft light top left.
@@ -34,8 +38,8 @@ magick -size "${w}x${h}" gradient:'#2E6B5E'-'#0E1E1A' \
 magick "$tmp/wall.png" -fill "$FG" \
   -font "$BOLD" -pointsize $(( u * 13 / 10 )) -gravity NorthWest -annotate +$(( u * 2 ))+$(( u ))  "$clock" \
   -font "$REGULAR" -gravity NorthEast -annotate +$(( u * 2 ))+$(( u ))  $'\U000F0928  \U000F0079  85%' \
-  -font "$BOLD" -pointsize $(( u * 6 )) -gravity North -annotate +0+$(( u * 6 ))  "$clock" \
-  -font "$REGULAR" -pointsize $(( u * 3 / 2 )) -fill "$DIM" -annotate +0+$(( u * 14 )) "$day" \
+  -font "$BOLD" -pointsize $(( landscape ? u * 5 : u * 6 )) -gravity North -annotate +0+$(( landscape ? u * 3 : u * 6 ))  "$clock" \
+  -font "$REGULAR" -pointsize $(( u * 3 / 2 )) -fill "$DIM" -annotate +0+$(( landscape ? u * 10 : u * 14 )) "$day" \
   "$tmp/base.png"
 
 # App tiles: a colour, a glyph, a name. Generic apps only, no brand.
@@ -60,7 +64,7 @@ draw_tile() {   # x y colour glyph [label]
 }
 
 cp "$tmp/base.png" "$tmp/screen.png"
-top=$(( u * 22 ))
+top=$(( landscape ? u * 14 : u * 22 ))
 for i in "${!apps[@]}"; do
   IFS='|' read -r colour glyph label <<< "${apps[$i]}"
   eval "glyph=$glyph"
@@ -68,6 +72,7 @@ for i in "${!apps[@]}"; do
 done
 
 # The dock: a frosted strip with four tiles, above the gesture bar.
+if (( ! landscape )); then
 dock_y=$(( h - tile - u * 7 ))
 magick "$tmp/screen.png" -fill 'rgba(255,255,255,0.14)' \
   -draw "roundrectangle $(( left - u )),$(( dock_y - u )) $(( w - left + u )),$(( dock_y + tile + u )) $(( u * 3 )),$(( u * 3 ))" \
@@ -78,5 +83,6 @@ for i in "${!dock[@]}"; do
   eval "glyph=$glyph"
   draw_tile $(( left + i * (tile + gap) )) "$dock_y" "$colour" "$glyph"
 done
+fi
 
 magick "$tmp/screen.png" -depth 8 -strip "$out"

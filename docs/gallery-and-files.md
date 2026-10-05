@@ -11,8 +11,8 @@ open in Files.
 
 ![Gallery: two rows of photos, a video marked with play, and album links (demo data)](images/gallery.png)
 
-The Gallery needs `sshfs` (the section offers to install it) and storage
-access in the app. A ring by its title means the phone is being read.
+A ring by its title means the phone is being read. Set up once:
+[Setup › Your devices](setup/devices.md).
 
 ## Received
 

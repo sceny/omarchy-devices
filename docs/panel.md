@@ -20,7 +20,7 @@ The phone's active player: seek, skip, volume. The others are a swipe or
 ![Now playing: cover, seek bar and volume (demo data)](images/now-playing.png)
 
 When something needs you, a red line at the top says what and opens
-[Settings](settings.md); ✕ closes it until something new does.
+[Settings](setup/settings.md); ✕ closes it until something new does.
 
 ## Shortcuts
 
@@ -32,6 +32,13 @@ Messages, send files, the clipboard, ring it, send a text or a link, its
 ## Apps
 
 Its pinned and recent [apps](apps.md); one opens in a window here.
+
+## Several devices
+
+Each device gets a tab in the panel and a chip in the bar, its news on it.
+`1`–`9` switch tabs.
+
+![Tabs for a phone, a tablet and a laptop (demo data)](images/devices.png)
 
 ## Make it yours
 

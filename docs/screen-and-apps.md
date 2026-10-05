@@ -2,46 +2,37 @@
 
 # Screen and apps
 
-The phone's screen in a window here, with your mouse and keyboard (the
-**Screen** shortcut), and its [apps](apps.md) each in a window. It comes
-from [scrcpy](https://github.com/Genymobile/scrcpy), not KDE Connect, and
-is set up once per device.
+The phone's screen on your desktop, and each of its apps in a window of its
+own: use them with your mouse and keyboard while the phone stays in your
+pocket.
 
-![Screen and apps: the steps on the phone and the pairing QR code (demo data)](images/screen-setup.png)
+![The phone's screen docked under its chip in the bar (a made-up phone screen)](images/screen-docked.png)
+
+## Its screen
+
+The **Screen** shortcut opens it **docked**: under its chip in the bar, in
+the phone's own shape, on every workspace. Or as a window like any other.
+
+- **It turns with the phone.** Sideways, or a foldable opened: the window
+  takes the new shape as the phone does.
+- **Your keyboard and mouse.** Type, scroll; right-click is Back,
+  middle-click is Home. Copy on one side, paste on the other; drop a file
+  on it to send it to the phone's Downloads.
+- **Full screen:** Omarchy's pop-out key, then its full screen key (the
+  panel shows your keys).
+- **Back by itself.** After the phone restarts, it opens again as soon as
+  Wireless debugging is back.
+
+![The same phone turned sideways, its window turned with it (a made-up phone screen)](images/screen-turned.png)
+
+## Its apps
+
+Each app in a window of its own, tiled, with its icon, while the phone's
+screen stays free: a map beside your browser, a chat beside your editor.
+Shift+Enter or Shift+click opens one popped out instead.
+[More on apps](apps.md).
 
 ## Set it up
 
-**Settings › Screen and apps** on the device's page walks you through it:
-
-1. **Install** scrcpy and adb (a card says what, then your password).
-2. On the phone, turn on **Developer options**: tap *Build number* seven
-   times (*Settings › About phone*).
-3. Turn on **Wireless debugging** in *Developer options*, on this Wi-Fi.
-4. **Show the code** here; on the phone, *Wireless debugging › Pair device
-   with QR code*, and scan it.
-
-The **Screen** shortcut then joins the device's shortcuts. It opens
-**docked**, in the phone's shape under its chip, on every workspace, or
-*as a window* (its Screen and apps page). Full screen: Omarchy's pop-out
-key, then its full screen key; the page shows your keys.
-
-Android 10 and older: *USB debugging* and a cable instead.
-
-Not wanted? Its switch on the device's page turns it off: no screen, no
-apps, nothing about it to fix.
-
-## When it stops working
-
-- *Wireless debugging is off*: Android turns it off after a restart or on
-  another Wi-Fi. Turn it on; the screen (or the app) then opens by
-  itself. A *Quick settings developer tile* makes that one tap.
-- *Allow USB debugging*: answer the prompt on the phone, with *Always
-  allow from this computer*.
-- KDE Connect lost the phone but the screen still opens: see
-  [Away](calls-and-devices.md#away).
-
-## Privacy
-
-Only a computer that scanned your code can control the phone; take that
-back on the phone: *Developer options › Revoke USB debugging
-authorizations*.
+Once per phone, from the panel: [Setup › Screen and apps](setup/screen-and-apps.md).
+What Wireless debugging allows: [Security](security.md#the-screen-and-apps-what-wireless-debugging-allows).

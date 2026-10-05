@@ -14,7 +14,7 @@ without picking it up. An iPhone or iPad shares files and the clipboard.
 - **[Notifications](docs/panel.md)**: reply, dismiss, the app's own buttons.
 - **[Messages](docs/messages.md)**: every conversation and picture; reply
   or start one from the keyboard.
-- **[Calls](docs/calls-and-devices.md)**: who is calling, and a missed call
+- **[Calls](docs/calls.md)**: who is calling, and a missed call
   to call or text back.
 - **[Now playing and shortcuts](docs/panel.md)**: the phone's player; ring
   it, send files, the clipboard, a link.
@@ -22,10 +22,7 @@ without picking it up. An iPhone or iPad shares files and the clipboard.
   videos, and the files it sent you.
 - **[Screen and apps](docs/screen-and-apps.md)**: its screen, and each of
   its [apps](docs/apps.md), in a window here, with your mouse and keyboard.
-- **[Several devices](docs/calls-and-devices.md)**: a tab and a chip each.
-- **[Setup](docs/getting-started.md)**: one switch per feature does every
-  step it can and says the one left to you; [Settings](docs/settings.md)
-  lists what needs you, with *Fix all* and *Fix with AI*.
+- **[Several devices](docs/panel.md#several-devices)**: a tab and a chip each.
 
 | Key | Action |
 |---|---|
@@ -35,32 +32,46 @@ without picking it up. An iPhone or iPad shares files and the clipboard.
 | `r` · `x` | Reply to · dismiss a notification |
 | `s` · `E` · Esc | Settings · edit the page · back |
 
-## Privacy and safety
+## Sets itself up
 
-- Everything stays between the computer and your phone, over your own
-  network. It never sends a text, rings or plays anything on its own.
-- The phone's screen needs Wireless debugging, which you turn on and pair
-  yourself; only a computer that scanned your code can use it.
-- A password only after a card shows what it is for; nothing else runs
-  with it. *Fix with AI* opens your own agent, and files an issue only with
-  your yes, never with your data.
-- Pictures from the phone are opened in a sandbox first: what you see is a
-  copy made from their pixels, never the phone's file.
-- It keeps only caches, in `~/.cache/sceny.devices/`. Drafts stay in
-  memory.
+- **One switch per feature:** it installs what this computer needs, turns
+  on KDE Connect's part, allows the phone's permission when it can, and
+  says the one step left to you; then it carries on by itself.
+- **Repairs by itself:** the gallery after a phone restart, notifications
+  dismissed while it was away, the screen once Wireless debugging is back.
+  KDE Connect lost the phone? One *Fix* finds it through the screen link.
+- **Every step shown first:** a password only after a card says exactly
+  what for, and only that runs. Settings lists each problem once, where it
+  is.
+- **[Fix with AI](docs/security.md#fix-with-ai):** your own coding agent
+  opens on what is wrong, with the plugin's guide.
+
+## Security and privacy
+
+Between you and your phone only, on your network: no account, no
+telemetry. Pictures from the phone are decoded in a sandbox. The screen
+needs Wireless debugging, which you pair and can revoke.
+[Security and privacy](docs/security.md).
 
 ## User guide
 
-[Getting started](docs/getting-started.md) ·
+**Use it:**
 [The panel](docs/panel.md) ·
 [Messages](docs/messages.md) ·
+[Calls](docs/calls.md) ·
 [Gallery and files](docs/gallery-and-files.md) ·
 [Screen and apps](docs/screen-and-apps.md) ·
 [Apps](docs/apps.md) ·
-[Calls and devices](docs/calls-and-devices.md) ·
-[Settings](docs/settings.md) ·
-[Troubleshooting](docs/troubleshooting.md) ·
 [What's new](CHANGELOG.md)
+
+**Set it up:**
+[Getting started](docs/setup/getting-started.md) ·
+[Your devices](docs/setup/devices.md) ·
+[Screen and apps](docs/setup/screen-and-apps.md) ·
+[Settings](docs/setup/settings.md) ·
+[Troubleshooting](docs/setup/troubleshooting.md) ·
+[What it cannot do](docs/setup/limits.md) ·
+[Security and privacy](docs/security.md)
 
 ## Internals
 

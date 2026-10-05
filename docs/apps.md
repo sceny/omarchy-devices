@@ -3,7 +3,8 @@
 # Apps
 
 The phone's apps, each in a window of its own here, while the phone's own
-screen stays free. It needs the [screen set up](screen-and-apps.md) once.
+screen stays free. Set up once with the screen:
+[Setup › Screen and apps](setup/screen-and-apps.md).
 
 ![All apps: search, the recently opened, then A to Z (demo data)](images/apps.png)
 
