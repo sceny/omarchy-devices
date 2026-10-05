@@ -62,9 +62,14 @@ Item {
   // the cursor's highlight sits around it, as a header's button holds its
   // glyph: an 18 px icon in a 22 px box, a section header's height
   // (FoldToggle.headerHeight).
+  // Whole pixels, the same margin on every side: a half pixel left over
+  // put the icon (snapped to the pixel grid) off the middle of the
+  // cursor's square (drawn where the tile is, fractions and all).
   property bool compact: false
-  implicitWidth: compact ? iconSize + Style.space(4) : Style.space(76)
-  implicitHeight: compact ? iconSize + Style.space(4) : column.implicitHeight + Style.space(12)
+  readonly property int iconPx: Math.round(iconSize)
+  readonly property int margin: Math.round(Style.space(2))
+  implicitWidth: compact ? iconPx + 2 * margin : Style.space(76)
+  implicitHeight: compact ? iconPx + 2 * margin : column.implicitHeight + Style.space(12)
 
   CursorStop { here: tile.here; glide: tile.glide }
 
@@ -78,8 +83,8 @@ Item {
 
     Item {
       anchors.horizontalCenter: parent.horizontalCenter
-      width: tile.iconSize
-      height: tile.iconSize
+      width: tile.iconPx
+      height: tile.iconPx
 
       // No icon: a letter (or the demo's glyph) in a circle, in the
       // theme's colours.
