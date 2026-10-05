@@ -1311,12 +1311,13 @@ function shortcutsSummary(order) {
 // page); its paired and connected checks are the devices' own pages'
 // business, and so is anything a device must do (Wireless debugging, a
 // permission): a problem shows once, where its cause is.
-var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen", "sshfs"]
+var COMPUTER_CHECKS = ["installed", "running", "firewall", "network", "screen", "sshfs", "bluetooth", "handsfree"]
 // Short names: the status beside each says the rest ("Running", "Closed").
 // One row per thing on this computer, named after it: a service's checks
 // (KDE Connect: installed, running) become one row that says which state it
 // is in, so other services (Bluetooth, scrcpy) can each have theirs.
-var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools" }
+var CHECK_NAMES = { kdeconnect: "KDE Connect", firewall: "Firewall", network: "Network", screen: "Screen tools", sshfs: "Gallery tools",
+                    bluetooth: "Bluetooth", handsfree: "Calls in this computer's audio" }
 
 function computerChecks(checks) {
   var list = (checks || []).filter(function(c) { return c && COMPUTER_CHECKS.indexOf(c.key) >= 0 })

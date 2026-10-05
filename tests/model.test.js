@@ -1255,3 +1255,9 @@ test("calls here as a feature: Bluetooth here, then the device paired, confirmed
   assert.equal(M.bluetoothCandidate("Pixel 8", two, []), null)
   assert.equal(M.bluetoothCandidate("Pixel 8", two, ["A"]).address, "B")
 })
+
+test("This computer lists Bluetooth and the calls audio, optional: they never light the dot", () => {
+  const rows = M.connectionRows([{ key: "bluetooth", ok: false, optional: true, status: "Off", fix: "bluetooth-on", fixLabel: "Turn on" }, { key: "handsfree", ok: true, optional: true, status: "Ready" }], [])
+  assert.deepEqual(rows.map(r => [r.label, r.optional]), [["Bluetooth", true], ["Calls in this computer's audio", true]])
+  assert.equal(M.settingsProblems([{ key: "bluetooth", ok: false, optional: true }], [], []).length, 0)
+})
