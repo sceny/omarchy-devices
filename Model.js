@@ -1793,7 +1793,7 @@ function reachSetup(report, device, checks, row, screen) {
   var actions = []
   var left = row ? (row.steps || []) : []
   if (!ready && left.length > 0 && !left[0].page)
-    actions.push({ key: "setup", label: "Set it up", hint: left.some(function(s) { return s.fix && s.fix.verb === "fix" })
+    actions.push({ key: "setup", label: row && row.state === "attention" ? "Fix" : "Set it up", hint: left.some(function(s) { return s.fix && s.fix.verb === "fix" })
       ? "Every step it can; a password only after saying what for" : "Every step it can, then what is left" })
   ;(net.candidates || []).forEach(function(c, i) {
     actions.push({ key: "pick:" + i, label: "This is " + name + ": " + c.name, address: c.address,

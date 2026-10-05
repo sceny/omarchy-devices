@@ -1234,3 +1234,11 @@ test("the network in words: links, addresses, where an away device was", () => {
   assert.ok(lines.some(l => /^Likely: this Wi-Fi keeps its devices apart/.test(l)))
   assert.ok(lines.some(l => l === "Tailscale sees it online: KDE Connect is trying its address"))
 })
+
+test("from anywhere's page: broken, its action is Fix", () => {
+  const checks = [M.demoMeshCheck("")]
+  const report = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const row = M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach")
+  const page = M.reachSetup(report, device(), checks, row)
+  assert.deepEqual([row.state, page.actions[0].key, page.actions[0].label], ["attention", "setup", "Fix"])
+})
