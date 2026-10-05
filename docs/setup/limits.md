@@ -12,8 +12,17 @@ The panel shows what KDE Connect sends. Today it does not:
 - on an **iPhone**, share notifications, texts or media: files and the
   clipboard only, while the app is open;
 - answer a call, carry its audio, or say when it was **answered or ended**:
-  a ringing card gives up after 45 s, and a call you decline shows as
-  missed ([#60](https://github.com/sceny/omarchy-devices/issues/60)).
+  [Calls here](calls-here.md) does, over Bluetooth. Without it, a ringing
+  card gives up after 45 s, and a call you decline shows as missed
+  ([#60](https://github.com/sceny/omarchy-devices/issues/60)).
+
+## Calls here
+
+- Once a call's audio is here, it goes back to the phone from the
+  **phone's** audio button: Bluetooth hands-free has no way to send it back
+  from the computer.
+- No **ringer mute** from the computer
+  ([#61](https://github.com/sceny/omarchy-devices/issues/61)).
 
 ## The screen and apps
 

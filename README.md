@@ -19,8 +19,8 @@ files and the clipboard.
   app's own buttons; a chat shows who said what.
 - **[Messages](docs/use/messages.md)**: every conversation, with pictures;
   reply or start one, all from the keyboard.
-- **[Calls](docs/use/calls.md)**: who is calling, by name; a missed call to
-  call or text back.
+- **[Calls](docs/use/calls.md)**: who is calling, by name; answer and talk
+  here over Bluetooth, hold, swap, call back or text back.
 - **[Now playing](docs/use/now-playing.md)**: cover, seek and volume;
   **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
   the clipboard.
@@ -79,6 +79,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Getting started](docs/setup/getting-started.md) ·
 [Your devices](docs/setup/devices.md) ·
 [Screen and apps](docs/setup/screen-and-apps.md) ·
+[Calls here](docs/setup/calls-here.md) ·
 [Settings](docs/setup/settings.md) ·
 [Troubleshooting](docs/setup/troubleshooting.md) ·
 [What it cannot do](docs/setup/limits.md) ·
@@ -97,6 +98,8 @@ needs Wireless debugging, which you pair and can revoke:
   notifications, texts, calls, media, files and clipboard.
 - [scrcpy](https://github.com/Genymobile/scrcpy) and
   [adb](https://developer.android.com/tools/adb): the screen and the apps.
+- [PipeWire](https://pipewire.org)'s Bluetooth hands-free and
+  [BlueZ](https://www.bluez.org): calls with their audio here.
 - [Omarchy](https://omarchy.org) and [Quickshell](https://quickshell.org):
   the bar and the panel.
 - [glycin](https://gitlab.gnome.org/GNOME/glycin), `ffmpegthumbnailer` and

@@ -20,7 +20,9 @@ The plugin holds no device state of its own. Each feature comes from its
 source: KDE Connect's daemon over D-Bus (through `bin/kdeconnect-bridge`) or
 the MPRIS players it exports (media); the screen and apps from scrcpy over
 adb; the gallery from KDE Connect's storage over sshfs; KDE Connect's
-permissions on the phone from adb. KDE Connect is one source among them, not
+permissions on the phone from adb; calls with their audio here from
+PipeWire's Bluetooth hands-free service (`org.pipewire.Telephony`, with
+BlueZ for what is paired). KDE Connect is one source among them, not
 the centre (`docs/design/setup.md`). The only files the plugin writes outside
 its folder are caches under `~/.cache/sceny.devices/`.
 
@@ -41,8 +43,11 @@ its folder are caches under `~/.cache/sceny.devices/`.
   plugin's handling goes when KDE Connect has its own fix.
 - **Second sources, one feature each, by the owner's decision.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
-  screen*`), which KDE Connect does not offer. Each second source serves
-  only its feature; everything else stays KDE Connect.
+  screen*`), which KDE Connect does not offer. Calls come from PipeWire's
+  Bluetooth hands-free service (`kdeconnect-bridge call*`, #59): a call's
+  state, answering, holding, hanging up, placing it and its audio here;
+  KDE Connect still names the caller and reports a missed call. Each second
+  source serves only its feature; everything else stays KDE Connect.
 - **Omarchy only: use what Omarchy provides.** Its commands
   (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
   `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
@@ -59,7 +64,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 
 | File | Holds |
 |---|---|
-| `bin/kdeconnect-bridge` | `watch` (device snapshots, event-driven), one-shot action verbs, and `sms` (JSON lines on stdin/stdout) |
+| `bin/kdeconnect-bridge` | `watch` (device snapshots, event-driven, with Bluetooth calls), one-shot action verbs, `sms` (JSON lines on stdin/stdout), `call` and `call-audio` (calls through Bluetooth) |
 | `Service.qml` | the watcher, the action runner, MPRIS players, and `SmsService` |
 | `SmsService.qml` | text messages: threads and the open conversation as ListModels, search, what was seen here |
 | `Model.js` | pure functions from data to what is drawn; no QML, checked with `node` |
@@ -86,6 +91,11 @@ Keep them; change one only with the owner.
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
   first real send to the owner.
+- **Never place, answer or end a call while testing.** Each reaches a real
+  person. Check the call path up to the D-Bus argument types
+  (`tests/test_calls.py`, the bus replaced) and in demo mode (`demoCall`,
+  `pressCall`); the first real call is the owner's. Pairing over Bluetooth
+  is the owner's act too.
 - **Nothing scripted focuses a text field.** IPC `openThread`, `newMessage`
   and the like never focus the composer: keystrokes meant for another window
   would land in a text, and Enter would send it. Only the user's own click or
@@ -472,6 +482,19 @@ Keep them; change one only with the owner.
   (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
   description or command; `bound_keys`), never assumed. An action with no
   key here says *no shortcut*, on the page and in the tips alike.
+- **Calls here: the audio stays on the device until the user brings it**
+  (#59). Between calls the plugin sets PipeWire's `RejectSCO` on the
+  device's gateway, so a call answered on the device is not taken over by
+  this computer; *Answer here*, a call placed here and *Audio here* bring
+  it. Once here, it goes back from the device's own audio button: hands-free
+  has no way to send it back (`docs/setup/limits.md`). Its voice plays
+  through two loopbacks the service runs while the audio is here
+  (`kdeconnect-bridge call-audio`, Communication streams following the
+  default output and input); the microphone mutes on the device's node.
+  The device's Bluetooth match is confirmed by the user's click (the phone
+  paired under its name, `Model.bluetoothCandidate`) and kept in the cache
+  (`bluetooth.json`), as the adb serial is; pairing is Omarchy's Bluetooth
+  menu's, which the step opens, and the row carries on once it is paired.
 - **Setting up the screen adds the Screen shortcut, once.** When a
   device's screen first reads ready with a panel open, Screen joins its
   shortcuts (the flat keys with one device, its profile with several) and
@@ -652,8 +675,9 @@ request included. Stop only when a check fails or the freeze check finds
 
 ## Never
 
-- Send a text, ring a device, or change the device's volume or playback in a
-  test without the owner's go.
+- Send a text, place, answer or end a call, ring a device, pair it over
+  Bluetooth, or change the device's volume or playback in a test without
+  the owner's go.
 - Leave a test's side effect behind: opening an unread thread marks it seen in
   `~/.cache/sceny.devices/sms-seen-<device>.json`; undo it.
 - Commit anything read from a real device.

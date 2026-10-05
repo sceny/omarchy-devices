@@ -34,8 +34,8 @@ listen. How messages and media work is on
 never by hand:
 
 - **Gateways** are how the plugin gets something from a device: KDE
-  Connect, Android's permissions, the storage link, the screen link
-  (Bluetooth is planned).
+  Connect, Android's permissions, the storage link, the screen link,
+  Bluetooth (calls here).
 - **Setup items** are what a gateway needs, each checked once where it
   lives (this computer or the device): a KDE Connect plugin on, a
   permission, a package, the mount, the link itself. Each has its state
@@ -55,14 +55,29 @@ working and KDE Connect's link is the one problem.
 
 | Command | Does |
 |---|---|
-| `doctor` | This computer: KDE Connect, the firewall, the network, the packages. |
+| `doctor` | This computer: KDE Connect, the firewall, the network, the packages, Bluetooth and PipeWire's hands-free service. |
 | `features <id> [--adb]` | One device: KDE Connect's plugins, its link, its storage; with adb, its permissions and notification count. |
-| `fix <what> [--describe \| --confirm H]` | This computer: install, firewall, sshfs, screen (root, as shown), start, restart, search. |
-| `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, reconnect, wake, wireless. |
+| `fix <what> [--describe \| --confirm H]` | This computer: install, firewall, sshfs, screen, bluetooth (root, as shown), start, restart, search, bluetooth-on, audio. |
+| `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, reconnect, wake, wireless, bluetooth (use=<address>, connect). |
+| `call <what> <id> [arg]` | A call through Bluetooth (PipeWire's `org.pipewire.Telephony`): answer, answer-phone, decline, hangup, dial, tones, swap, merge, audio-here, keep-on-phone, volume, mute. |
+| `call-audio <id>` | While a call's audio is here: two `pw-loopback`s, its voice to the default output and the microphone to the device. |
 | `screen <id>` | The screen link: tools, pair, off, away, unauthorized or ready, and whether it is locked. |
 | `screen-open <id> [package] [label]` | Its screen docked (or `--tiled`), or an app tiled (or `--pop`); waits for an unlock. |
 | `screen-watch`, `screen-pair`, `screen-dock` | The docked screen following turns; pairing by QR code; docking an open window. |
 | `apps <id>`, `icons <id>` | Its apps from the cache (from the device once a day); their icons, decoded in a sandbox. |
+
+## Calls through Bluetooth
+
+This computer is the device's hands-free unit, as a car kit is. PipeWire
+implements that side and offers it on the session bus: an audio gateway
+per device connected for calls (`/org/pipewire/Telephony/ag<n>`, its
+transport's state and `RejectSCO`) and a call object under it per call
+(`State`: incoming, waiting, dialing, alerting, active, held). `watch`
+listens to it and to BlueZ on the system bus, and adds to each matched
+device its `handsfree`: connected, where the audio is, every call with when
+it was answered, and the last call that ended. KDE Connect's `callReceived`
+still names the caller; while the device is connected for calls its
+ringing counts only until PipeWire says otherwise (`Model.callState`).
 
 ## Motion
 

@@ -6,6 +6,16 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+- **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
+  answer and make calls with the audio on this computer, over Bluetooth;
+  the card follows a call to its end, with the microphone, the keypad, the
+  volume, a second call held or joined, and music here paused meanwhile.
+  Call back or call from a conversation. Set up from the device's page:
+  Bluetooth here, the phone paired in Omarchy's Bluetooth, then it carries
+  on by itself.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights
