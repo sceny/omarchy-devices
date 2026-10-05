@@ -5,7 +5,7 @@
 | Symptom | Check |
 |---|---|
 | The pill is missing | `omarchy restart shell`; errors are in `journalctl --user -t omarchy-shell`. |
-| The device shows away | *Reconnect* on its page; Settings → This computer; on Samsung, battery use *Unrestricted*. |
+| The device shows away | *Reconnect* on its page; Settings → This computer; on Samsung, battery use *Unrestricted*. *Screen and apps only*: Settings' *Fix* reconnects KDE Connect. |
 | A feature is missing | Its row under *What it can do*, on the device's page: *Turn on* or *Fix*. |
 | No gallery | Its row, or the Gallery's *Try again*: its storage is mounted again, else KDE Connect restarted. |
 | A photo is missing | Gallery shows what the phone's gallery does; a folder marked hidden or `.nomedia` is left out. The first look takes up to a minute. |

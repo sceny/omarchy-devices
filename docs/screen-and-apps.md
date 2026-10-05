@@ -13,7 +13,7 @@ is set up once per device.
 
 **Settings › Screen and apps** on the device's page walks you through it:
 
-1. **Install** scrcpy and adb (it asks for your password).
+1. **Install** scrcpy and adb (a card says what, then your password).
 2. On the phone, turn on **Developer options**: tap *Build number* seven
    times (*Settings › About phone*).
 3. Turn on **Wireless debugging** in *Developer options*, on this Wi-Fi.
@@ -27,6 +27,9 @@ key, then its full screen key; the page shows your keys.
 
 Android 10 and older: *USB debugging* and a cable instead.
 
+Not wanted? Its switch on the device's page turns it off: no screen, no
+apps, nothing about it to fix.
+
 ## When it stops working
 
 - *Wireless debugging is off*: Android turns it off after a restart or on
@@ -34,6 +37,8 @@ Android 10 and older: *USB debugging* and a cable instead.
   itself. A *Quick settings developer tile* makes that one tap.
 - *Allow USB debugging*: answer the prompt on the phone, with *Always
   allow from this computer*.
+- KDE Connect lost the phone but the screen still opens: see
+  [Away](calls-and-devices.md#away).
 
 ## Privacy
 
