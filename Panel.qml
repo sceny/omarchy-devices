@@ -1573,15 +1573,13 @@ Panel {
   }
   // Tiled, always the default; `pop` (Shift+Enter, Shift+click): as
   // Omarchy's pop-out instead.
-  // Its sound stays on the device while something else plays there
-  // (Model.appSound): scrcpy would take the device's whole sound.
+  // Its sound stays on the device, quietly, while something else plays
+  // there (Model.appSound): scrcpy would take the device's whole sound.
   function openApp(app, pop) {
     if (!phone || !device || !app) return
     var id = String(device.id)
     var st = phone.deviceStates[id] || {}
-    var s = Model.appSound(appSoundFor(id), st.playingApps || [], app.name)
-    if (s.kept) phone.report(s.playing + " is playing on " + Model.deviceLabel(device) + ": " + app.name + "'s sound stays there", false)
-    phone.pressApp(id, app, s.sound, pop === true)
+    phone.pressApp(id, app, Model.appSound(appSoundFor(id), st.playingApps || [], app.name).sound, pop === true)
   }
   function appWorking(app) { return !!phone && !!device && !!app && phone.isBusy("screen:" + device.id + ":" + app.package) }
   function forgetApp(app) {
