@@ -951,7 +951,7 @@ Item {
   function setScreen(id, status) {
     // Ready now: its features again, with adb (permissions, notifications).
     var was = screenStates[String(id)]
-    if (status && status.state === "ready" && !(was && was.state === "ready") && openPanels > 0 && !demo) Qt.callLater(function() { root.readFeatures(String(id), true) })
+    if (status && status.state === "ready" && !(was && was.state === "ready") && openPanels > 0) Qt.callLater(function() { root.readFeatures(String(id), true) })
     var next = Object.assign({}, screenStates)
     next[String(id)] = status
     screenStates = next

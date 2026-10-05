@@ -772,7 +772,7 @@ Panel {
   // kept): Wireless debugging off after a restart is a problem to say.
   function readAllFeatures() {
     if (!phone) return
-    pairedDevices.forEach(function(d) { if (d.reachable === true) phone.readFeatures(String(d.id)) })
+    pairedDevices.forEach(function(d) { if (d.reachable === true || screenReaches(d.id)) phone.readFeatures(String(d.id)) })
     // KDE Connect away too: the screen link may still reach it.
     if (device && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
   }
@@ -3520,7 +3520,7 @@ Panel {
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices") + " · " + Model.problemsLine(root.allProblems).toLowerCase())
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
-              : root.screenHere ? "KDE Connect lost it · its screen and apps are here"
+              : root.screenHere ? "KDE Connect lost it · screen and apps here"
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
