@@ -18,7 +18,7 @@
 When a device is not in reach, its page says when it was last seen and
 offers *Reconnect*; *Why?* shows where it was and the likely causes.
 
-![An away device with Reconnect (demo data)](../images/away.png)
+![An away device: when it was last seen, Reconnect, and Why? (demo data)](../images/away.png)
 
 If KDE Connect lost it but its screen still opens, it is not away: the
 panel keeps its screen and apps (*Screen and apps only*), and Settings
