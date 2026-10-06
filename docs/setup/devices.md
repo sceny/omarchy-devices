@@ -2,34 +2,36 @@
 
 # Your devices
 
-Each paired device has its own page in Settings, with tabs to the next:
-its nickname and icon, where it shows (with two or more: always, only with
-news, or never; a tab or not), **what it can do**, and Unpair.
+Each paired device has its own page in Settings: its nickname and icon,
+where it shows (with two or more: always, only with news, or never; a tab
+or not), **what it shares with this computer**, and Unpair.
 
-![A tablet's own page: the tabs to the others, what it can do, and Unpair (demo data)](../images/device-page.png)
+## What it needs, asked where you use it
 
-## What it can do
+Nothing is set up ahead. A feature that needs something asks once, in the
+place it shows, and goes on by itself when it is done.
 
-A row per feature, *On* or what it still needs. One switch gets it working:
-it does every step the plugin can, here and on the device, this computer's
-packages first (a card says what before the password), and says the one
-left to you. It then carries on by itself once that is done. The switch
-also turns a feature off for that device.
-
-| Feature | What it needs |
+| Feature | Asked when |
 |---|---|
-| Notifications, Now playing | Notification access on the phone |
-| Messages · Names · Calls | SMS · contacts · phone and call log |
-| Gallery | All files access; `sshfs` here |
-| Screen and apps | scrcpy and adb here; [Wireless debugging](screen-and-apps.md) |
-| Files, Clipboard, Ring, Battery | KDE Connect alone |
+| Notifications, Now playing | Notifications: allow notification access |
+| Screen and apps | The first **Open** on a notification, the Screen shortcut: [Wireless debugging](screen-and-apps.md) |
+| Gallery | Its section: all files access |
+| Messages, contact names | The Messages page: SMS, contacts |
+| Calls | On the phone, when KDE Connect asks for the phone and call log |
+| Files, Clipboard, Ring, Battery | Never: they just work |
 
-With the screen set up, the plugin allows a permission over adb itself;
-without it, the row says where the switch is on the phone.
+With the screen set up, the panel sees what is missing and *Allow* grants
+it from here.
+
+When something that worked stops, it says so in its section, with *Fix*,
+*Details* and *Fix with AI*. A device that is not Android (an iPhone) shows
+only what it can do.
 
 ## Several devices
+
+![Settings with several devices: My devices and For all devices (demo data)](../images/several-devices.png)
 
 Drag a device by its grip in Settings' *My devices* to order them: the
 first opens with the panel. *For all devices* sets the sections, shortcuts
 and bar of devices that did not change their own. Unpair asks twice.
-New one: [Getting started](getting-started.md#add-your-phone).
+New one: [Getting started](getting-started.md#the-first-time).

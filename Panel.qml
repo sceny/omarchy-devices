@@ -969,6 +969,8 @@ Panel {
     if (changed) { pairingIds = next; pairingSince = since; pairingNotes = notes; pairingCancelled = cancelled; pairClock = Date.now() }
   }
   onPairedDevicesChanged: {
+    // Down to one device on the list: its page instead.
+    if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
       var d = pairedDevices[i], kind = pairingIds[String(d.id)]
@@ -1019,7 +1021,11 @@ Panel {
     features: editingDevice ? featureRowsFor(scopeDevice) : null
   })
 
+  // With one device Settings' first page is its page: the list is never
+  // shown for one (a resume, the demo's devices changing under it).
+  function settingsHome(scope) { return scope === "root" && pairedDevices.length === 1 ? String(pairedDevices[0].id) : scope }
   function openScope(scope) {
+    scope = settingsHome(scope)
     targetScope = scope
     settingsIndex = 0
     // A device's page: what it can do and where its screen stands, read now.
@@ -1519,7 +1525,8 @@ Panel {
   // (Model.sectionNote): what one needs, where it shows, or that it stopped.
   readonly property var sectionNotes: {
     var rows = device ? featureRowsFor(device) : []
-    return { notifications: Model.sectionNote(rows, "notifications"), apps: Model.sectionNote(rows, "apps") }
+    return { notifications: Model.sectionNote(rows, "notifications"), apps: Model.sectionNote(rows, "apps"),
+             messages: Model.sectionNote(rows, "messages") }
   }
   // The sections drawn under the header, in the chosen order: switched on
   // in Layout and with something in them (or something to say about it),
@@ -1910,7 +1917,7 @@ Panel {
     settingsOpen = true
     settingsIndex = 0
     // One device: Settings is its page (no list of one).
-    targetScope = pairedDevices.length === 1 ? String(pairedDevices[0].id) : "root"
+    targetScope = settingsHome("root")
     iconPicking = false
     readAllFeatures()
     if (panelFlick) panelFlick.contentY = 0
@@ -2179,7 +2186,7 @@ Panel {
     // Nothing paired, or KDE Connect missing or down: straight to Add a
     // device, or the first run's card.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
-    else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = resume.scope; settingsIndex = 0 }
+    else if (resume && resume.settingsOpen) { settingsOpen = true; targetScope = settingsHome(resume.scope); settingsIndex = 0 }
     else if (resume && resume.messagesOpen) openMessagesView(-1)
     else if (resume && resume.appsOpen) openAppsView()
     snapPage()
@@ -3615,7 +3622,7 @@ Panel {
                 : root.settingsScope === "ready" ? "Getting ready"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
                 : root.editingDevice ? (root.pairedDevices.length === 1 ? "Settings" : "Settings · This device")
-                : "Settings · " + root.pairedDevices.length + " devices")
+                : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices"))
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
               : root.screenHere ? "Screen and apps only"
@@ -5074,7 +5081,9 @@ Panel {
                 }
               }
 
-              // ---- Text messages, in place of everything above but the header ----
+              // ---- Text messages, in place of everything above but the header;
+              //      what they need (SMS, contacts), said above them ----
+              SectionNote { note: root.showMessages ? root.sectionNotes.messages : null; width: parent.width }
               MessagesView {
                 id: messagesView
                 Binding { target: root.sms; property: "viewing"; value: root.opened && root.messagesOpen; when: !!root.sms }

@@ -1097,6 +1097,11 @@ test("the main page says what a feature needs in its own section; the line at th
   const stopped = M.sectionNote(rows, "notifications")
   assert.deepEqual([stopped.kind, stopped.fix], ["problem", true])
   assert.match(stopped.text, /none arrive here/)
+  const sms = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: true, sms: false, contacts: true, phone: true, storage: true } }),
+                              screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
+  assert.deepEqual([M.sectionNote(sms, "messages").key, M.sectionNote(sms, "notifications")], ["messages", null], "SMS is asked on the Messages page")
+  assert.equal(M.sectionNote(M.featureRows(M.demoFeatures("stopped"), null, "Pixel 8").map(r => Object.assign({}, r, { problem: r.state === "attention" })), "notifications").kind,
+               "problem", "the demo's stopped state")
   const off = rows.map(r => r.key === "notifications" ? Object.assign({}, r, { on: false }) : r)
   assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
   const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],

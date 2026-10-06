@@ -2275,8 +2275,9 @@ function problemsLine(problems) {
 // (docs/design/setup.md): the one step only the user can do, or that it
 // stopped. A feature with no section of its own shows in the line at the top.
 // (Now playing's one need, notification access, is the Notifications
-// section's ask; the gallery says its own in its section.)
-var FEATURE_SECTIONS = { notifications: "notifications", gallery: "photos", screen: "apps" }
+// section's ask; the gallery says its own in its section. Messages and the
+// names in it: the Messages page.)
+var FEATURE_SECTIONS = { notifications: "notifications", gallery: "photos", screen: "apps", messages: "messages", names: "messages" }
 
 // What a section says about its features, or null. `rows`: the device's
 // feature rows (with `problem` and `pending`). A problem: it worked and
