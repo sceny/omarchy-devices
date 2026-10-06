@@ -2235,6 +2235,14 @@ Panel {
     function slowMotion(factor: real): string { root.motion = factor > 0 ? factor : 1; if (messagesView) messagesView.motion = root.motion; if (root.phone) root.phone.turnMotion = root.motion; return String(root.motion) }
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
+    // Demo: the demo device's features in a state, to look at what a section
+    // says ("ask", "stopped"; "" as set up). Kept until `live`.
+    function demoFeature(kind: string): string {
+      if (!root.phone || !root.phone.demo || !root.device) return "demo only"
+      root.phone.demoFeature = kind
+      root.phone.readFeatures(String(root.device.id), true)
+      return JSON.stringify({ notifications: root.sectionNotes.notifications, banner: root.bannerProblems.map(function(p) { return p.key }) })
+    }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).
     function demoSetup(): string {

@@ -59,6 +59,7 @@ Item {
     smsService.showLive()
     searchedAt = 0
     demoChecks = false
+    demoFeature = ""
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -693,7 +694,7 @@ Item {
     at[String(id)] = now
     featuresReadAt = at
     // A demo's report follows its device (away in the away demo).
-    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
@@ -719,6 +720,10 @@ Item {
   // described first (rootAsk, the panel's card: why and every action), and
   // runs only on Continue, only that plan (its hash).
   property var rootAsk: null               // { what, why, actions, hash }
+  // Demo: the made-up device's features in a state to look at ("ask":
+  // notification access missing; "stopped": its notifications stopped
+  // arriving), else as set up (Model.demoFeatures).
+  property string demoFeature: ""
   property var rootThen: null
   readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }

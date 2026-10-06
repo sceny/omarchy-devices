@@ -1469,15 +1469,18 @@ function featuresSummary(rows) {
   return parts.join(" · ")
 }
 
-// Demo: a made-up device's report, with one feature to set up and one off.
-function demoFeatures() {
+// Demo: a made-up device's report, with one feature to set up and one off;
+// `kind` "ask" leaves notification access to allow, "stopped" its
+// notifications stopped arriving.
+function demoFeatures(kind) {
   var plugins = {}
   ;["notifications", "sms", "contacts", "mprisremote", "telephony", "sftp", "share", "clipboard", "findmyphone", "battery", "ping"].forEach(function(k) {
     plugins[k] = { on: k !== "clipboard", offered: true, loaded: k !== "clipboard" }
   })
   return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
-           permissions: { notifications: true, sms: true, contacts: false, phone: true, storage: true },
-           files: { sshfs: true, mounted: true, error: "" } }
+           permissions: { notifications: kind !== "ask", sms: true, contacts: false, phone: true, storage: true },
+           files: { sshfs: true, mounted: true, error: "" },
+           notifications: kind === "stopped" ? { here: 0, device: 5 } : { here: null, device: null } }
 }
 
 // ---- Screen and apps: scrcpy over adb (kdeconnect-bridge screen) ----
