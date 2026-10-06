@@ -1201,7 +1201,7 @@ var FEATURES = [
     needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"] },
   { key: "messages", label: "Messages", glyph: GLYPH.messages, hint: "Every conversation, read and send",
     needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"] },
-  { key: "names", label: "Names", glyph: GLYPH.group, hint: "Its contacts' names for numbers",
+  { key: "names", label: "Contact names", glyph: GLYPH.group, hint: "Its contacts' names for numbers",
     needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"] },
   { key: "media", label: "Now playing", glyph: GLYPH.music, hint: "What it plays, with controls",
     needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"] },
@@ -1239,6 +1239,12 @@ function setupItem(key, ctx) {
   var parts = key.split(":"), kind = parts[0], what = parts[1] || ""
   var item = { key: key, scope: "device", label: "", state: "ok", detail: "", steps: [] }
   function is(state, detail) { item.state = state; item.detail = detail || ""; return item }
+  // The screen link is Android's (adb): another device never offers it, so
+  // nothing about it shows there.
+  if ((key === "own:screen" || key === "screen" || key === "package:screen") && !isAndroid(report)) {
+    item.gateway = "screen"; item.label = "the screen link"
+    return is("unavailable", name + " is not Android")
+  }
   function check(k) { return (ctx.checks || []).filter(function(c) { return c.key === k })[0] || null }
   // The screen link reaches the device now (adb), whatever KDE Connect says.
   var adbHere = !!ctx.screen && ctx.screen.state === "ready"
@@ -1332,6 +1338,14 @@ function setupItem(key, ctx) {
     return is(st === "off" || st === "away" ? "broken" : "missing", line)
   }
   return is("unknown", "")
+}
+
+// Android, or another kind (an iPhone, a computer): KDE Connect on Android
+// offers its texts, calls or storage; nothing else does. Not read yet:
+// Android, the common case, until the report says otherwise.
+function isAndroid(report) {
+  if (!report || !report.plugins || Object.keys(report.plugins).length === 0) return true
+  return ["sms", "telephony", "sftp"].some(function(k) { return !!report.plugins[k] && report.plugins[k].offered !== false })
 }
 
 // Every item a device's features need, once each.
@@ -1435,6 +1449,13 @@ function fixAllPlan(rows) {
     })
   })
   return installs.concat(rest)
+}
+
+// What it shares, folded: everything, or what is off.
+function sharesSummary(rows) {
+  var off = (rows || []).filter(function(r) { return r.on === false }).map(function(r) { return r.label })
+  if (off.length === 0) return "Everything"
+  return off.length > 2 ? "All but " + off.length : "All but " + off.join(" and ")
 }
 
 // One line for a device's features: what is on, and what is left.
@@ -1708,22 +1729,25 @@ function isSamsung(device) { return /galaxy|samsung|^sm-/i.test(String(device &&
 // network, and after a search that found nothing, what to try on it.
 // Causes are likely, never certain. `searchedAt`: when Reconnect last
 // started, 0 for never.
+// `lines`: what shows; `why`: the likely causes, behind Why? (the plugin
+// keeps looking meanwhile).
 function awayState(device, network, searchedAt, nowMs) {
   var seen = device && device.lastSeen
-  var lines = []
+  var lines = [], why = []
   if (seen && seen.at) {
     var how = seen.link === "Bluetooth" ? "Bluetooth" : (seen.link === "LAN" ? "Wi-Fi" : "the network")
-    lines.push("Last seen on " + how + (seen.address ? " at " + seen.address : "") + ", " + agoText(seen.at, nowMs))
+    lines.push("Last seen " + agoText(seen.at, nowMs))
+    why.push("Last seen on " + how + (seen.address ? " at " + seen.address : ""))
     if (inNetwork(seen.address, network) === false)
-      lines.push("Likely on another network: this computer is on " + network)
+      why.push("Likely on another network: this computer is on " + network)
   } else {
     lines.push("Not seen by this computer yet")
   }
   var searching = searchedAt > 0 && nowMs - searchedAt < SEARCH_MS
   if (searchedAt > 0 && !searching)
-    lines.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
+    why.push("Not found. On " + deviceLabel(device) + ": open KDE Connect, and join the same Wi-Fi"
       + (isSamsung(device) ? "; set the app's battery use to Unrestricted" : ""))
-  return { lines: lines, searching: searching }
+  return { lines: lines, why: why, searching: searching }
 }
 
 // ---- Installing the app: its store pages, and a QR code for the phone ----
@@ -2112,12 +2136,12 @@ function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
 //   scope: "root" | "defaults" | "device"
-//   single: one paired device or none (no For all devices, no bar place or tab)
-//   problems: settingsProblems(...)          (root: the status)
+//   single: one paired device or none (no For all devices, no bar place or
+//   tab; Settings is that device's page, with the status and Add a device)
+//   problems: settingsProblems(...)          (the status: root, or the one device's page)
 //   devices: devicesListRows(...)            (root)
-//   connection, connectionPills: This computer's line and pills (root)
 //   identity: { nickname, icon, glyph, bar, showInPanel } (device)
-//   features: the device's feature rows      (device)
+//   features: the device's feature rows      (device: what it shares)
 //   edit: the profile being edited (defaults, or the device's), with custom
 //   can: the device's capabilities, for shortcuts it cannot do
 function settingsPageRows(ctx) {
@@ -2125,10 +2149,10 @@ function settingsPageRows(ctx) {
   var scope = ctx.scope || "root"
   var problems = ctx.problems || []
   if (scope === "root") {
-    // One shape whatever the count: the status, My devices (every device,
-    // the one in view too; asking to pair; Add a device), For all devices
-    // (with two or more: with one, its own layout is the defaults), and
-    // This computer.
+    // Several devices: the status (only while something needs the user),
+    // My devices (every device, the one in view too; asking to pair; Add a
+    // device), For all devices. This computer is not here: its checks are
+    // reached from a problem they cause (docs/design/setup.md).
     problems.forEach(function(p) { rows.push(Object.assign({ kind: "problem" }, p)) })
     ;(ctx.devices || []).forEach(function(r) {
       if (r.kind === "available") return   // Add a device lists those
@@ -2136,16 +2160,16 @@ function settingsPageRows(ctx) {
       var n = problems.filter(function(p) { return p.where === r.id }).length
       rows.push(Object.assign({}, r, { issues: n, status: n > 0 ? r.status + " · " + n + (n === 1 ? " needs attention" : " need attention") : r.status }))
     })
-    rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair it, then turn on what it can do" })
+    rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
     if (!ctx.single)
       rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
-    rows.push({ kind: "connection", key: "connection", label: "This computer", hint: ctx.connection || "KDE Connect, the firewall, the packages",
-                pills: ctx.connectionPills || [] })
     return rows
   }
   // A panel torn down mid-reload can ask with nothing to edit.
   var e = ctx.edit || resolveProfile(readSettings({}), null, true)
   if (scope === "device") {
+    // One device: Settings is its page, so the status leads it.
+    if (ctx.single) problems.forEach(function(p) { rows.push(Object.assign({ kind: "problem" }, p)) })
     if (ctx.identity) {
       rows.push({ kind: "nickname", key: "nickname", label: "Nickname", hint: "In the bar and the tabs; short is best", value: ctx.identity.nickname })
       rows.push({ kind: "icon", key: "icon", label: "Icon", hint: "Its glyph in the bar and the tabs", glyph: ctx.identity.glyph, value: ctx.identity.icon })
@@ -2155,9 +2179,10 @@ function settingsPageRows(ctx) {
         rows.push({ kind: "showInPanel", key: "showInPanel", label: "Show in panel", hint: "A tab for it in the panel", on: ctx.identity.showInPanel !== false })
       }
     }
-    // What it can do (docs/design/setup.md): a row per feature, its state
-    // and its one action; Screen and apps' row opens its page.
-    ;(ctx.features || []).forEach(function(f) { rows.push(Object.assign({ kind: "feature" }, f)) })
+    // What it shares with this computer: a switch per feature it can do,
+    // no state (docs/design/setup.md). What one needs shows where it is
+    // used, the main page's section, or in the status when it stopped.
+    ;(ctx.features || []).forEach(function(f) { if (f.state !== "unavailable") rows.push(Object.assign({ kind: "feature" }, f)) })
     // Its sections, shortcuts and bar are edited on the page itself (edit
     // in place); here, whether they are the defaults, and the way there.
     var own = !ctx.single && ["layout", "bar", "shortcuts"].some(function(g) { return groupCustom(e.custom, g) })
@@ -2168,6 +2193,7 @@ function settingsPageRows(ctx) {
         rows.push({ kind: "resetGroup", key: g, label: { layout: "Layout", bar: "Bar", shortcuts: "Shortcuts" }[g] + ": use the defaults",
                     hint: "This device changed it; the defaults apply again" })
     })
+    if (ctx.single) rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
     rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
     return rows
   }
@@ -2239,6 +2265,58 @@ function problemsPlan(problems) {
 function problemsLine(problems) {
   var n = (problems || []).length
   return n === 0 ? "Everything works" : n === 1 ? "1 thing needs you" : n + " things need you"
+}
+
+// ---- Where a feature shows: an ask or a problem in its own section ----
+// The main page says what a feature needs where that feature shows
+// (docs/design/setup.md): the one step only the user can do, or that it
+// stopped. A feature with no section of its own shows in the line at the top.
+// (Now playing's one need, notification access, is the Notifications
+// section's ask; the gallery says its own in its section.)
+var FEATURE_SECTIONS = { notifications: "notifications", gallery: "photos", screen: "apps" }
+
+// What a section says about its features, or null. `rows`: the device's
+// feature rows (with `problem` and `pending`). A problem: it worked and
+// stopped (Fix runs the plugin's steps, when it has any). An ask: something
+// it needs that one click here does (a permission over adb), or the step
+// left on the device, waited for.
+function sectionNote(rows, section) {
+  var mine = (rows || []).filter(function(r) { return FEATURE_SECTIONS[r.key] === section && r.on !== false })
+  for (var i = 0; i < mine.length; i++) {
+    var r = mine[i]
+    if (r.problem) return { kind: "problem", key: r.key, label: r.label, text: r.pending && r.pending.failed ? r.pending.text : (r.detail || "It stopped working"),
+                            fix: featurePlan(r).length > 0, row: r }
+  }
+  for (var j = 0; j < mine.length; j++) {
+    var a = mine[j]
+    if (a.state !== "setup") continue
+    if (a.pending && !a.pending.failed) return { kind: "ask", key: a.key, label: a.label, text: a.pending.text, waiting: a.pending.wait === true, fix: false, row: a }
+    // Only an ask the plugin knows of (read over adb): never a guess.
+    var step = (a.steps || [])[0]
+    if (step && step.orAsk && step.fix && step.fix.what === "grant")
+      return { kind: "ask", key: a.key, label: a.label, text: a.detail, waiting: false, fix: true, row: a }
+  }
+  return null
+}
+
+// The problems the line at the top of the main page shows: those with no
+// section drawn to say them (this computer's, a link, a feature without a
+// section of its own).
+function bannerProblems(problems, drawn) {
+  return (problems || []).filter(function(p) {
+    return !(p.affects || []).some(function(k) { return !!FEATURE_SECTIONS[k] && (drawn || []).indexOf(FEATURE_SECTIONS[k]) >= 0 })
+  })
+}
+
+// ---- The first run: this computer made ready in one step ----
+// KDE Connect missing or stopped: one card, one password for everything any
+// feature needs here (bridge `fix ready`), then KDE Connect started.
+function readyRows(checks) {
+  var c = {}
+  ;(checks || []).forEach(function(x) { c[x.key] = x })
+  var waiting = !(checks || []).length
+  return [{ kind: "ready", key: "ready", checking: waiting,
+            installed: !!(c.installed && c.installed.ok), running: !!(c.running && c.running.ok) }]
 }
 
 // The entry with a new device order. A device whose place in the bar only

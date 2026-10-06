@@ -720,7 +720,7 @@ Item {
   // runs only on Continue, only that plan (its hash).
   property var rootAsk: null               // { what, why, actions, hash }
   property var rootThen: null
-  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall"]
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
   function askRoot(what, then) {
     if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }
