@@ -750,9 +750,9 @@ Column {
     Button {
       readonly property int rowIndex: root.firstIndex("unpair")
       visible: rowIndex >= 0
-      text: root.unpairArmed ? "Unpair? Again to confirm" : "Unpair"
+      text: root.unpairArmed ? "Unpair? Click again to confirm" : "Unpair"
       iconText: Model.GLYPH.close
-      tooltipText: "Forget this device; pair again from it to come back"
+      tooltipText: root.unpairArmed ? "" : "Forget it here; pair again from it to come back"
       foreground: root.unpairArmed ? Color.urgent : root.foreground
       fontFamily: root.fontFamily
       bordered: true

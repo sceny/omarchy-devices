@@ -969,8 +969,13 @@ Panel {
     if (changed) { pairingIds = next; pairingSince = since; pairingNotes = notes; pairingCancelled = cancelled; pairClock = Date.now() }
   }
   onPairedDevicesChanged: {
-    // Down to one device on the list: its page instead.
+    // Down to one device on the list: its page instead. The device whose
+    // page this was is gone (unpaired): the list, or Add a device when none
+    // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
+    else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0
+             && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0)
+      targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
       var d = pairedDevices[i], kind = pairingIds[String(d.id)]
@@ -1383,7 +1388,7 @@ Panel {
 
   // The device whose Unpair is armed (two presses on Unpair).
   property string unpairArmed: ""
-  Timer { id: unpairDisarm; interval: 3000; onTriggered: root.unpairArmed = "" }
+  Timer { id: unpairDisarm; interval: 6000; onTriggered: root.unpairArmed = "" }
 
   // Folded sections, from this widget's settings; folded on the user's click.
   // The main page's sections fold per device (the viewed device's profile);
@@ -1507,12 +1512,13 @@ Panel {
       if (on && tabDevices[i].id === on.id) { tabAt(Math.max(0, Math.min(tabDevices.length - 1, i + delta))); return }
   }
 
+  // Unpair asks twice, in place: the button itself says "again to confirm"
+  // (a toast floated over it and took the second click).
   function armOrUnpair(row) {
     if (!row || !row.paired || !phone) return
     if (unpairArmed === row.id) { unpairArmed = ""; unpairDisarm.stop(); phone.unpair(row.id); return }
     unpairArmed = row.id
     unpairDisarm.restart()
-    phone.report("Unpair " + row.name + "? Do it again to confirm", false)
   }
 
   // Screen and apps turned off: no Screen shortcut.
