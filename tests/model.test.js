@@ -1159,3 +1159,49 @@ test("features: notifications gone quiet (#95) need attention, with the remedies
   const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
   assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
 })
+
+test("contacts: the list by letter, a search by name and by digits", () => {
+  const list = M.demoContacts()
+  const rows = M.contactRows(list, "")
+  assert.deepEqual(rows.map(r => r.name),
+    ["Alex Rivera", "Dr. Moreau's office", "Jordan Lee", "Priya Anand", "Sam Chen", "Taylor Brooks"])
+  assert.deepEqual(rows.filter(r => r.first).map(r => r.letter), ["A", "D", "J", "P", "S", "T"],
+    "the first of each letter carries its header")
+  assert.equal(rows[0].line, "+1 514-555-0123", "the first number under the name")
+  assert.deepEqual(M.contactRows(list, "bakery").map(r => r.name), ["Taylor Brooks"], "where they work")
+  assert.deepEqual(M.contactRows(list, "5550188").map(r => r.name), ["Jordan Lee"], "digits, anywhere in a number")
+  assert.deepEqual(M.contactRows(list, "nobody"), [])
+  assert.equal(M.contactRows(list, "sam")[0].first, true, "a search starts its own letters")
+})
+
+test("contacts: a card's rows, in order, each with what it offers", () => {
+  const rows = M.contactDetails(M.demoContacts()[0])
+  assert.deepEqual(rows.map(r => r.kind), ["org", "phone", "phone", "email", "address", "birthday", "note"])
+  assert.deepEqual([rows[1].label, rows[1].value, rows[1].raw],
+    ["Mobile", "+1 514-555-0123", "+15145550123"], "shown formatted, sent as the device has it")
+  assert.deepEqual(rows[1].actions, ["message", "call", "copy"])
+  assert.deepEqual(rows[3].actions, ["copy"], "an email is copied, never sent from here")
+  assert.equal(rows[5].value, "May 2, 1990")
+  assert.equal(M.contactDetails({}).length, 0)
+  assert.equal(M.birthdayText("--11-19"), "November 19", "no year on the card, none shown")
+  assert.equal(M.birthdayText("19900502"), "May 2, 1990")
+  assert.equal(M.birthdayText("spring"), "spring", "anything else stays as it came")
+})
+
+test("contacts: a nameless card, and what an empty page says", () => {
+  const rows = M.contactRows([{ id: "x", phones: [{ label: "Mobile", value: "5145550123" }] }], "")
+  assert.deepEqual([rows[0].name, rows[0].initial], ["No name", "#"])
+  const phone = { name: "Pixel 8" }
+  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/)
+  assert.match(M.contactsEmpty("away", "", phone), /^Pixel 8 is away/)
+  assert.equal(M.contactsEmpty("ready", "zz", phone), "No contact matches.")
+})
+
+test("contacts: the shortcut needs the device's contacts, and the feature says what it gives", () => {
+  const tiles = M.shortcutTiles(["contacts"], { contacts: false })
+  assert.equal(tiles[0].enabled, false, "a device that does not share contacts cannot open the page")
+  assert.equal(M.shortcutTiles(["contacts"], { contacts: true })[0].enabled, true)
+  const feature = M.FEATURES.find(f => f.key === "names")
+  assert.equal(feature.label, "Contacts")
+  assert.deepEqual(feature.needs, ["link", "plugin:contacts", "permission:contacts"])
+})
