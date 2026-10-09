@@ -23,6 +23,16 @@ the top of the bridge's `sms` section.
 - Nothing scripted focuses the composer: keystrokes meant for another window
   must never become a sent text.
 
+## Contacts
+
+`kdeconnect-bridge contacts <device> [--sync]` reads the vCards KDE
+Connect's contacts plugin writes and prints every card as JSON (`--sync`
+asks the phone first); the names of text threads come from the same
+parser. A card's photo is decoded in the sandbox and cached; its own bytes
+never reach the shell. `contacts-app` opens the contacts web app Omarchy
+installs (`omarchy-launch-or-focus-webapp`) and says so when there is none.
+Nothing is written back: the phone is the truth for its cards.
+
 ## Media
 
 KDE Connect exports each phone player as

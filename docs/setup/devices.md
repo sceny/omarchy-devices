@@ -19,7 +19,7 @@ also turns a feature off for that device.
 | Feature | What it needs |
 |---|---|
 | Notifications, Now playing | Notification access on the phone |
-| Messages · Names · Calls | SMS · contacts · phone and call log |
+| Messages · Contacts · Calls | SMS · contacts · phone and call log |
 | Gallery | All files access; `sshfs` here |
 | Screen and apps | scrcpy and adb here; [Wireless debugging](screen-and-apps.md) |
 | Files, Clipboard, Ring, Battery | KDE Connect alone |
