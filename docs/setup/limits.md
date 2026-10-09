@@ -21,8 +21,11 @@ The panel shows what KDE Connect sends. Today it does not:
 - Apps in windows need **Android 10** or newer; older phones open only the
   whole screen.
 - An app that **protects its screen** (many banks) shows black.
-- A notification opens its **app**, not that message: the phone does not
-  offer it yet ([#122](https://github.com/sceny/omarchy-devices/issues/122)).
+- A notification opens its **app**, not the exact screen inside it:
+  KDE Connect does not forward the tap target
+  ([#122](https://github.com/sceny/omarchy-devices/issues/122)). A **text
+  message** is the exception — it opens its conversation in
+  [Messages](../use/messages.md), since the texts come from the phone too.
 
 ## What the phone hides
 
