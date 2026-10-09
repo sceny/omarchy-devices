@@ -813,6 +813,8 @@ test("the panel goes back where it was for five minutes, unless it must open els
   assert.equal(M.placeToResume(left, 2000, { requested: "p2" }), null, "another device's chip: that device")
   assert.equal(M.placeToResume(left, 2000, { requested: "p1" }), left, "the same device's chip: back where it was")
   assert.equal(M.placeToResume(Object.assign({}, left, { messagesOpen: false }), 2000, {}), null, "the main page at its top: nothing to go back to")
+  const onContacts = { at: 1000, messagesOpen: false, contactsOpen: true, scope: "root", device: "p1", y: 0 }
+  assert.equal(M.placeToResume(onContacts, 2000, {}), onContacts, "back to the contacts page too")
   assert.equal(M.placeToResume(null, 2000, {}), null)
 })
 

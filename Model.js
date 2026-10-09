@@ -2757,7 +2757,7 @@ function placeToResume(left, nowMs, ctx) {
   if (!left || !(nowMs - left.at >= 0 && nowMs - left.at < KEEP_PLACE_MS)) return null
   if (ctx && ctx.openingScope) return null
   if (ctx && ctx.requested && ctx.requested !== left.device) return null
-  if (!left.settingsOpen && !left.messagesOpen && !left.appsOpen && !(left.y > 0)) return null
+  if (!left.settingsOpen && !left.messagesOpen && !left.contactsOpen && !left.appsOpen && !(left.y > 0)) return null
   return left
 }
 
