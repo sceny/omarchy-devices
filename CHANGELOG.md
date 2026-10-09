@@ -8,6 +8,15 @@ GitHub release with these notes.
 
 ## Unreleased
 
+### Highlights
+
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list and the full card (numbers, emails,
+  addresses, birthday, note, photo). *Message* starts a text, *Call* opens
+  the dialer on the phone, *Copy* takes a detail; read-only. Add the
+  *Contacts* shortcut; the card last open comes back, per device. Texts
+  take their names from the same cards.
+
 - **Setup that gets out of the way**: Settings no longer shows the
   plumbing. With one device it is that device's page: what it shares with
   this computer, a switch each, and nothing about its state while all is

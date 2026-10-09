@@ -21,6 +21,8 @@ files and the clipboard.
   reply or start one, all from the keyboard.
 - **[Calls](docs/use/calls.md)**: who is calling, by name; a missed call to
   call or text back.
+- **[Contacts](docs/use/contacts.md)**: its address book, every card in
+  full, to message, call or copy from.
 - **[Now playing](docs/use/now-playing.md)**: cover, seek and volume;
   **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
   the clipboard.
@@ -64,6 +66,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Notifications](docs/use/notifications.md) ·
 [Messages](docs/use/messages.md) ·
 [Calls](docs/use/calls.md) ·
+[Contacts](docs/use/contacts.md) ·
 [Now playing](docs/use/now-playing.md) ·
 [Shortcuts](docs/use/shortcuts.md) ·
 [Gallery](docs/use/gallery.md) ·

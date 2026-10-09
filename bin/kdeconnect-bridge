@@ -70,6 +70,12 @@ not re-printed, so the shell only wakes when something moved.
                                               (those first): JSON lines {package, icon}
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
+  kdeconnect-bridge contacts <device> [--sync]     its contacts, as JSON (from the
+                                              vCards KDE Connect syncs; --sync asks
+                                              the device for them again first)
+  kdeconnect-bridge contacts-app                   Omarchy's contacts app, opened or
+                                              brought forward (nothing when this
+                                              computer has none)
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -251,6 +257,7 @@ def read_device(conn, device_id, calls=None):
             "clipboard": has("clipboard"),
             "share": has("share"),
             "sms": has("sms"),
+            "contacts": has("contacts"),
             "media": has("mprisremote"),
             "notifications": has("notifications"),
             "ping": has("ping"),
@@ -4051,48 +4058,306 @@ def vcard_qp(value, key):
         return raw.decode("utf-8", errors="replace")
 
 
-def read_contacts(device_id):
-    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
-    Returns ({digits_key: name}, [{"name", "number"}])."""
-    folder = os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
-    names = {}
-    entries = []
+# ---- Contacts --------------------------------------------------------------
+#
+# KDE Connect's contacts plugin writes the device's contacts as vCards in
+# ~/.local/share/kpeoplevcard/kdeconnect-<device>/, one file each, while the
+# device allows contacts. They are the only source: names for text messages
+# (read_contacts) and the Contacts page (contacts_list) read the same cards,
+# and nothing about a contact is kept anywhere else.
+
+# What a property's TYPE is called on the page; anything else is used as it
+# comes, capitalised.
+VCARD_LABELS = {
+    "CELL": "Mobile", "MOBILE": "Mobile", "HOME": "Home", "WORK": "Work",
+    "MAIN": "Main", "VOICE": "Phone", "FAX": "Fax", "PAGER": "Pager",
+    "IPHONE": "iPhone", "CAR": "Car", "OTHER": "Other", "SCHOOL": "School",
+    "INTERNET": "", "PREF": "", "X-OTHER": "Other",
+}
+CONTACT_PHOTO_BOX = 192
+CONTACTS_CACHE_MAX = 32 << 20
+
+
+def vcard_unescape(value):
+    """A vCard 3.0 value as text: \\n is a new line, and \\, \\; \\\\ are the
+    characters they escape."""
+    out, i, text = [], 0, str(value or "")
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            out.append("\n" if nxt in "nN" else nxt)
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def vcard_parts(value):
+    """A structured value (N, ADR, ORG) as its components, split on the
+    semicolons that are not escaped."""
+    return [vcard_unescape(p).strip() for p in re.split(r"(?<!\\);", str(value or ""))]
+
+
+def vcard_label(params, fallback):
+    """What to call a phone number or address, from its TYPE parameters."""
+    types = []
+    for p in params:
+        key, _, value = p.partition("=")
+        types += [t.strip().upper() for t in (value if key.upper() == "TYPE" else key).split(",")]
+    for t in types:
+        if t in ("", "PREF", "INTERNET", "VOICE") or t.startswith("ENCODING") or t.startswith("CHARSET"):
+            continue
+        named = VCARD_LABELS.get(t, t.replace("X-", "").replace("_", " ").capitalize())
+        if named:
+            return named
+    return fallback
+
+
+def parse_vcard(text):
+    """One vCard as {name, first, last, nickname, org, title, phones,
+    emails, addresses, birthday, note, photo}. Phones, emails and addresses
+    are [{label, value}] in the card's own order; `photo` is the picture's
+    bytes as the card holds them (nothing decodes them here)."""
+    card = {"name": "", "first": "", "last": "", "nickname": "", "org": "", "title": "",
+            "phones": [], "emails": [], "addresses": [], "birthday": "", "note": "", "photo": b""}
+    lines = re.sub(r"\n[ \t]", "", re.sub(r"\r\n|\r", "\n", str(text or ""))).split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        parts = key.upper().split(";")
+        name, params = parts[0].split(".")[-1], parts[1:]
+        joined = ";".join(params)
+        if "QUOTED-PRINTABLE" in joined:
+            # vCard 2.1: a soft break ends a line with "=".
+            while value.endswith("=") and i < len(lines):
+                value = value[:-1] + lines[i]
+                i += 1
+            value = vcard_qp(value, key.upper())
+        elif "BASE64" in joined or "ENCODING=B" in joined:
+            # vCard 2.1 ends a base64 value with a blank line; what folding
+            # left is already joined above.
+            while i < len(lines) and lines[i].strip() and ":" not in lines[i]:
+                value += lines[i].strip()
+                i += 1
+        value = value.strip()
+        if not value:
+            continue
+        if name == "FN":
+            card["name"] = vcard_unescape(value).strip()
+        elif name == "N":
+            bits = vcard_parts(value)
+            card["last"] = bits[0] if bits else ""
+            card["first"] = bits[1] if len(bits) > 1 else ""
+        elif name == "NICKNAME":
+            card["nickname"] = vcard_unescape(value).strip()
+        elif name == "TEL":
+            card["phones"].append({"label": vcard_label(params, "Phone"), "value": vcard_unescape(value).strip()})
+        elif name == "EMAIL":
+            card["emails"].append({"label": vcard_label(params, "Email"), "value": vcard_unescape(value).strip()})
+        elif name == "ADR":
+            where = ", ".join([p for p in vcard_parts(value)[2:] if p])
+            if where:
+                card["addresses"].append({"label": vcard_label(params, "Address"), "value": where})
+        elif name == "ORG":
+            card["org"] = ", ".join([p for p in vcard_parts(value) if p])
+        elif name in ("TITLE", "ROLE") and not card["title"]:
+            card["title"] = vcard_unescape(value).strip()
+        elif name == "BDAY":
+            card["birthday"] = value
+        elif name == "NOTE":
+            card["note"] = vcard_unescape(value).strip()
+        elif name == "PHOTO" and not card["photo"] and "://" not in value:
+            try:
+                card["photo"] = base64.b64decode(re.sub(r"\s", "", value), validate=False)
+            except (ValueError, TypeError):
+                card["photo"] = b""
+    if not card["name"]:
+        card["name"] = " ".join([p for p in (card["first"], card["last"]) if p]).strip()
+    return card
+
+
+def vcard_folder(device_id):
+    return os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
+
+
+def read_vcards(device_id):
+    """Every contact the device has synced, as (id, parse_vcard) pairs; the
+    id is the card's file name, which KDE Connect keeps per contact."""
+    folder = vcard_folder(device_id)
+    cards = []
     try:
-        files = os.listdir(folder)
+        files = sorted(os.listdir(folder))
     except OSError:
-        return names, entries
+        return cards
     for name in files:
         try:
             text = open(os.path.join(folder, name), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        # Unfold continuation lines, then read FN and every TEL.
-        text = re.sub(r"\r?\n[ \t]", "", text)
-        full = ""
-        tels = []
-        lines = text.splitlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            i += 1
-            key, _, value = line.partition(":")
-            key = key.upper()
-            if key == "FN" or key.startswith("FN;"):
-                if "QUOTED-PRINTABLE" in key:
-                    # vCard 2.1: a soft break ends a line with "=".
-                    while value.endswith("=") and i < len(lines):
-                        value = value[:-1] + lines[i]
-                        i += 1
-                    value = vcard_qp(value, key)
-                full = value.strip()
-            elif key == "TEL" or key.startswith("TEL;"):
-                tels.append(value.strip())
-        for tel in tels:
-            k = digits_key(tel)
-            if k and full:
+        cards.append((os.path.splitext(name)[0], parse_vcard(text)))
+    return cards
+
+
+def read_contacts(device_id):
+    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
+    Returns ({digits_key: name}, [{"name", "number"}])."""
+    names = {}
+    entries = []
+    for _cid, card in read_vcards(device_id):
+        full = card["name"]
+        if not full:
+            continue
+        for phone in card["phones"]:
+            k = digits_key(phone["value"])
+            if k:
                 names.setdefault(k, full)
-                entries.append({"name": full, "number": tel})
+                entries.append({"name": full, "number": phone["value"]})
     return names, entries
+
+
+def contacts_dir(device_id):
+    path = os.path.join(state_dir(), "contacts-" + re.sub(r"[^\w-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def contact_photo(device_id, data, folder=None):
+    """A contact's picture as a PNG made from its decoded pixels (fit_image,
+    in the sandbox), kept in the cache; "" when the card has none or it
+    cannot be read. The card's own bytes never reach the shell."""
+    if not data or len(data) > SAFE_SOURCE_MAX:
+        return ""
+    folder = folder or contacts_dir(device_id)
+    dst = os.path.join(folder, hashlib.sha1(data).hexdigest()[:24] + ".png")
+    if os.path.isfile(dst):
+        os.utime(dst)
+        return dst
+    raw = dst + ".raw"
+    ok = False
+    try:
+        with open(raw, "wb") as f:
+            f.write(data)
+        ok = fit_image(raw, dst, CONTACT_PHOTO_BOX)
+    except OSError:
+        ok = False
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
+    if not ok:
+        return ""
+    trim_files(folder, CONTACTS_CACHE_MAX, keep=dst)
+    return dst
+
+
+def contacts_sync(device_id, conn=None):
+    """Ask the device for its contacts again. KDE Connect syncs them when it
+    connects, so this is only for a panel opened on the page; the cards land
+    a moment later and the page reads them again."""
+    try:
+        conn = conn or bus()
+        call(conn, device_path(device_id) + "/contacts", IFACE + ".device.contacts",
+             "synchronizeRemoteWithLocal")
+        return True
+    except GLib.Error:
+        return False
+
+
+# Omarchy's own contacts tool, when this computer has one. Omarchy ships web
+# apps as desktop entries and copies them into the user's applications folder
+# (omarchy-refresh-applications); only an entry Omarchy ships counts, and only
+# while the user still has it.
+OMARCHY_APPS = "/usr/share/omarchy/applications"
+USER_APPS = "~/.local/share/applications"
+
+
+def desktop_webapp(path):
+    """A web app's name and address from its desktop entry (Omarchy's
+    `omarchy-launch-webapp <url>`); None for anything else."""
+    name = url = ""
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if key == "Name" and not name:
+            name = value
+        elif key == "Exec" and not url:
+            m = re.match(r"^omarchy-launch-webapp\s+(\S+)", value)
+            if m:
+                url = m.group(1)
+    return {"name": name, "url": url} if name and url else None
+
+
+def omarchy_contacts_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's contacts app as {"name", "url"}, or None when this computer
+    has no Omarchy contacts app."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "contact" not in name.lower():
+            continue
+        if not os.path.isfile(os.path.join(user, name)):
+            continue
+        app = desktop_webapp(os.path.join(user, name))
+        if app:
+            return app
+    return None
+
+
+def open_contacts_app(app=None, launch=None):
+    """Omarchy's contacts app, opened or brought forward exactly as Omarchy
+    opens a web app."""
+    app = app or omarchy_contacts_app()
+    if not app:
+        return say("This computer has no Omarchy contacts app", EXIT_FAILED)
+    (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
+    return say("Opening %s" % app["name"])
+
+
+def launch_detached(cmd):
+    subprocess.Popen(cmd, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def contacts_list(device_id, sync=False, conn=None):
+    """The device's contacts for the panel: {"state", "contacts", "app"}.
+    `state` is "ready" while there are cards and "empty" while there are
+    none (the device may not allow contacts, which its page says); `app` is
+    Omarchy's contacts app when this computer has one."""
+    if sync:
+        contacts_sync(device_id, conn)
+    out = []
+    for cid, card in read_vcards(device_id):
+        if not card["name"] and not card["phones"] and not card["emails"]:
+            continue
+        out.append({
+            "id": cid,
+            "name": card["name"],
+            "nickname": card["nickname"],
+            "org": card["org"],
+            "title": card["title"],
+            "phones": card["phones"],
+            "emails": card["emails"],
+            "addresses": card["addresses"],
+            "birthday": card["birthday"],
+            "note": card["note"],
+            "photo": contact_photo(device_id, card["photo"]),
+        })
+    out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
+    return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 
 
 class Sms:
@@ -4552,6 +4817,13 @@ def main(argv):
             return say("apps needs a device id", EXIT_FAILED)
         print(json.dumps(apps_list(argv[1], refresh="--refresh" in argv), ensure_ascii=False))
         return EXIT_OK
+    if argv[0] == "contacts":
+        if len(argv) < 2:
+            return say("contacts needs a device id", EXIT_FAILED)
+        print(json.dumps(contacts_list(argv[1], sync="--sync" in argv), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "contacts-app":
+        return open_contacts_app()
     if argv[0] == "app-forget":
         if len(argv) < 3:
             return say("app-forget needs a device id and a package", EXIT_FAILED)
