@@ -11,6 +11,7 @@ The panel shows what KDE Connect sends. Today it does not:
 - keep each player's **position**: only the playing one has a seek bar;
 - on an **iPhone**, share notifications, texts or media: files and the
   clipboard only, while the app is open;
+- edit a **contact**: cards are read-only, changed on the phone;
 - answer a call, carry its audio, or say when it was **answered or ended**:
   a ringing card gives up after 45 s, and a call you decline shows as
   missed ([#60](https://github.com/sceny/omarchy-devices/issues/60)).

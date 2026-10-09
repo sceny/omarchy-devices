@@ -6,6 +6,17 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+### Highlights
+
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list and the full card (numbers, emails,
+  addresses, birthday, note, photo). *Message* starts a text, *Call* opens
+  the dialer on the phone, *Copy* takes a detail; read-only. Add the
+  *Contacts* shortcut; the card last open comes back, per device. Texts
+  take their names from the same cards.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights

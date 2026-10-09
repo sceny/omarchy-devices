@@ -43,6 +43,7 @@ Item {
     demo = true
     snapshot = Model.demoSnapshot(liveSnapshot || snapshot, kind || "")
     smsService.showDemo()
+    contactsService.showDemo()
   }
 
   // A demo the user started from the panel, before any device is set up
@@ -57,6 +58,7 @@ Item {
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    contactsService.showLive()
     searchedAt = 0
     demoChecks = false
     runDoctor()
@@ -1414,6 +1416,17 @@ Item {
     reachable: root.reachable
     // Once started (start() on first use) it stays started.
     wanted: root.barCountsMessages
+  }
+
+  // Contacts: the viewed device's cards, read on first use of the page
+  // (contacts.opened()). The device is asked for its cards again only on the
+  // user's own Refresh (contacts.refresh()).
+  readonly property var contacts: contactsService
+  ContactsService {
+    id: contactsService
+    bridge: root.bridge
+    deviceId: root.device ? String(root.device.id) : ""
+    reachable: root.reachable
   }
 
   Timer {
