@@ -7,6 +7,8 @@ its numbers, emails, addresses, birthday and note, in two panes like
 [Messages](messages.md), with search. Read-only: a change is made on the
 phone.
 
+![Contacts: the list and a card with its details (demo data)](../images/contacts.png)
+
 Add the *Contacts* [shortcut](shortcuts.md) to open it. A card's *Message*
 starts a [text](messages.md) to that number; *Call* opens the dialer on
 the phone, and the call itself stays your tap there. *Copy* takes any
