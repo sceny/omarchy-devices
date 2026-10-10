@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell.Io
+import Quickshell.Widgets
 import qs.Commons
 import qs.Ui
 import "Model.js" as Model
@@ -516,18 +517,16 @@ Item {
 
           // The picture the bridge wrote from the decoded pixels, in its own
           // sandbox: a card's own bytes never reach the shell, and until one
-          // is ready the initial stands in its place. A picture is a
-          // rounded tile, as a photo and a track's cover are drawn here;
-          // the circle is for initials, which it covers to its corners.
-          Rectangle {
+          // is ready the initial stands in its place. Picture or initial,
+          // the face is one circle: the picture is clipped to it.
+          ClippingRectangle {
             id: face
             readonly property string photo: view.contacts ? view.contacts.openPhoto : ""
             readonly property bool shown: photo !== "" && faceImage.status === Image.Ready
             Layout.preferredWidth: Style.space(56)
             Layout.preferredHeight: Style.space(56)
-            radius: face.shown ? Style.cornerRadius : width / 2
+            radius: width / 2
             color: Style.selectedFillFor(view.foreground, Color.accent)
-            clip: true
 
             Text {
               anchors.centerIn: parent
@@ -671,18 +670,17 @@ Item {
       spacing: Style.space(10)
 
       // The face as the card draws it, smaller: the picture the bridge
-      // wrote from the decoded pixels, a rounded tile, the initial in its
-      // circle until it is ready or when there is none. Only the rows in
-      // view load one, at the size they show it.
-      Rectangle {
+      // wrote from the decoded pixels in its circle, the initial until it
+      // is ready or when there is none. Only the rows in view load one, at
+      // the size they show it.
+      ClippingRectangle {
         id: rowFace
         readonly property string photo: String(row.model.photo || "")
         readonly property bool shown: photo !== "" && rowFaceImage.status === Image.Ready
         Layout.preferredWidth: Style.space(32)
         Layout.preferredHeight: Style.space(32)
-        radius: rowFace.shown ? Style.cornerRadius : width / 2
+        radius: width / 2
         color: Style.selectedFillFor(view.foreground, Color.accent)
-        clip: true
         Text {
           anchors.centerIn: parent
           visible: !rowFace.shown
