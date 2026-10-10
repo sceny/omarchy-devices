@@ -57,6 +57,10 @@ GitHub release with these notes.
   Call back or call from a conversation. Set up from the device's page:
   Bluetooth here, the phone paired in Omarchy's Bluetooth, then it carries
   on by itself.
+- **The panel opens at once**: a click on the chip draws the main page on
+  the first frame from what is already in memory, with no wait. It took
+  about half a second every time, and several seconds the first time
+  after the shell started; it now takes no longer than the click itself.
 - **A hidden test rig** (`dev/rig`): a second shell in its own compositor
   and a small Android emulator as the phone, paired to a private KDE
   Connect, so changes are tried without touching the desktop or a real phone

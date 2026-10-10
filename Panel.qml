@@ -875,14 +875,16 @@ Panel {
     return screenInstalled || setupChecks.length === 0 ? null : { state: "tools", line: "Needs scrcpy and adb here" }
   }
   // Every paired device's setup (Model.deviceSetup: items, features,
-  // gateways), worked out once per change and only while the panel is open
-  // (each panel has its own; the rest read from here). Each feature row
+  // gateways), worked out once per change, closed or open, so the first
+  // frame of an opening draws from what is already there instead of
+  // rebuilding everything derived from it (each panel has its own; the rest
+  // read from here). Each feature row
   // carries what a fix left (pending: a step for the user, waiting or to
   // check again; or it did not work) and whether it is a problem (Fix and
   // Fix with AI show on every problem, always).
   readonly property var setupById: {
     var out = {}
-    if (!opened || !phone) return out
+    if (!phone) return out
     var pend = phone.featurePending
     pairedDevices.forEach(function(d) {
       var id = String(d.id)
@@ -909,8 +911,8 @@ Panel {
   // Pending steps that are done go, every device's: the feature is on, or
   // the user's step it waited for is done, and then the rest runs by itself
   // (one switch gets it working).
-  onFeatureRowsByIdChanged: {
-    if (!phone) return
+  function resolvePendingFeatures() {
+    if (!phone || !opened) return
     Object.keys(featureRowsById).forEach(function(id) {
       featureRowsById[id].forEach(function(r) {
         var p = phone.pendingFor(id, r.key)
@@ -926,6 +928,9 @@ Panel {
       })
     })
   }
+  // Only while the panel is open: nothing carries on by itself unseen, and
+  // opening resolves what changed meanwhile.
+  onFeatureRowsByIdChanged: resolvePendingFeatures()
   // Fix with AI: what is wrong, and what the plugin's own fix did.
   function aiProblem(r) { return { label: r.label, detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
   function fixWithAiOn(row) {
@@ -2641,6 +2646,7 @@ Panel {
     appsOpen = false
     if (device) readAppsFor(String(device.id))
     readAllFeatures()
+    resolvePendingFeatures()
     // Nothing paired, or KDE Connect missing or down: straight to Add a
     // device, or the first run's card.
     if (openingScope !== "") { settingsOpen = true; targetScope = openingScope; settingsIndex = 0 }
@@ -6002,7 +6008,7 @@ Panel {
                 id: settingsView
                 visible: root.showSettings
                 width: parent.width
-                rows: root.settingsRows
+                rows: root.showSettings ? root.settingsRows : []
                 cursorIndex: root.cursorActive ? root.settingsIndex : -1
                 cursorGlide: root.cursorGlide
                 // The groups show what the page edits: a device's own
