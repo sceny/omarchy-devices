@@ -110,21 +110,20 @@ class RootPlans(unittest.TestCase):
         self.assertEqual((plan["commands"], plan["actions"][0]), ([], "Nothing to install: kdeconnect already here"))
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24")
-        self.assertEqual(len(plan["actions"]), 2)
-        self.assertTrue(all("from 192.168.5.0/24" in a for a in plan["actions"]))
-        self.assertIn("192.168.5.0/24", plan["commands"][0][-1])
+        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=[])
+        self.assertTrue(plan["actions"] and all("192.168.5.0/24" not in a or "from 192.168.0.0/16" in a for a in plan["actions"]))
+        self.assertIn("from 192.168.0.0/16", plan["commands"][0][-1], "the private range around this network (test_network has the rest)")
 
     def test_first_run_is_one_password_for_everything(self):
         pacman = FakePacman(installed=["android-tools"], deps={})
-        plan = bridge.root_plan("ready", run=pacman, lan="192.168.5.0/24", fw={"present": True, "active": True, "allowed": False})
+        plan = bridge.root_plan("ready", run=pacman, lan="192.168.5.0/24", rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
         self.assertEqual(len(plan["commands"]), 1, "one prompt")
         script = plan["commands"][0][-1]
         self.assertEqual(plan["commands"][0][:3], ["pkexec", "/bin/sh", "-c"])
         self.assertIn("omarchy-pkg-add kdeconnect sshfs scrcpy android-udev", script)
         self.assertNotIn("android-tools", script, "installed at any version: never passed to pacman")
-        self.assertEqual(script.count("ufw allow from 192.168.5.0/24"), 2)
-        self.assertEqual(len(plan["actions"]), 3, "the packages, then each firewall rule")
+        self.assertEqual(script.count("ufw allow from 192.168.0.0/16"), 2, "every private network, not only this one")
+        self.assertEqual(len(plan["actions"]), 7, "the packages, then each firewall rule (3 ranges, TCP and UDP)")
 
     def test_first_run_with_everything_here_asks_nothing(self):
         installed = ["kdeconnect", "sshfs", "scrcpy", "android-tools", "android-udev"]

@@ -61,6 +61,7 @@ Item {
     contactsService.showLive()
     searchedAt = 0
     demoChecks = false
+    demoNetworkKind = ""
     demoFeature = ""
     runDoctor()
   }
@@ -684,6 +685,8 @@ Item {
   // ---- What a device can do (docs/design/setup.md): its report
   //      (kdeconnect-bridge features), and the steps one click runs ----
   property var featureReports: ({})        // device id -> the bridge's features report
+  // Demo: the made-up network From anywhere shows (Model.demoNetwork).
+  property string demoNetworkKind: ""
   // Read at most once in 3 s per device (an opening, Settings, a device's
   // page all ask), unless `force` (after a fix, a check again, the screen
   // turning ready, a wait).
@@ -696,7 +699,7 @@ Item {
     at[String(id)] = now
     featuresReadAt = at
     // A demo's report follows its device (away in the away demo).
-    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true }); featureReports = d; return }
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true, network: Model.demoNetwork(demoNetworkKind) }); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
@@ -727,10 +730,11 @@ Item {
   // arriving), else as set up (Model.demoFeatures).
   property string demoFeature: ""
   property var rootThen: null
-  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready"]
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready", "tailscale"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
+  // A demo shows the card too (describing changes nothing); Continue there
+  // runs nothing.
   function askRoot(what, then) {
-    if (demo) { report("Demo: nothing is installed", false); if (then) then(1); return }
     var proc = describeComponent.createObject(root, { what: what, then: then || null,
       command: [bridge, "fix"].concat(String(what).split(" ")).concat(["--describe"]) })
     proc.running = true
@@ -776,6 +780,7 @@ Item {
     if (then) then(1)
   }
   function runRoot(plan, then) {
+    if (demo) { report("Demo: nothing is changed", false); if (then) then(1); return }
     var key = "fix:" + plan.what
     var next = Object.assign({}, setupFixing)
     next[plan.what] = true
@@ -803,16 +808,20 @@ Item {
   // A step marked `fallback` runs only when the one before it failed.
   function runSteps(id, steps, key, left, then) {
     if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
+    // A demo device is made up: nothing reaches the system or a device.
+    if (demo) { report("Demo: nothing is changed", false); if (then) then(true); return }
     var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
     if (feature) setPending(id, feature, null)
     setBusy(key, true)
     var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
     var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
-    var packages = installs.filter(function(s) { return s.fix.what !== "firewall" }).map(function(s) { return s.fix.what })
-    var firewall = installs.some(function(s) { return s.fix.what === "firewall" })
+    // Packages in one prompt; the firewall, and Tailscale (Omarchy's
+    // installer, in its terminal), each a card of their own.
+    var own = ["firewall", "tailscale"]
+    var packages = installs.filter(function(s) { return own.indexOf(s.fix.what) < 0 }).map(function(s) { return s.fix.what })
     var queue = []
     if (packages.length > 0) queue.push({ root: packages.length === 1 ? packages[0] : "packages " + packages.join(",") })
-    if (firewall) queue.push({ root: "firewall" })
+    own.forEach(function(w) { if (installs.some(function(s) { return s.fix.what === w })) queue.push({ root: w }) })
     rest.forEach(function(s) { queue.push({ step: s }) })
     var stoppedAt = null, cancelled = false
     function finish() {

@@ -2,9 +2,10 @@
 
 # Setup that just works: design
 
-**Status:** built in 0.8.0 except where marked *planned*; sections 5 and 6
-reworked after a new user's first run (2026-10-06): the engine stays, what
-it shows changes.
+**Status:** built in 0.8.0 (the network, 0.9.0) except where marked *planned*;
+sections 5 and 6 reworked after a new user's first run (2026-10-06): the
+engine stays, what it shows changes.
+
 
 ## 1. The premise (the owner's)
 
@@ -27,7 +28,7 @@ it shows changes.
 
 - **Source:** where something comes from: KDE Connect, the screen link (adb
   and scrcpy), files (sshfs over KDE Connect), the phone's permissions;
-  *planned:* the network, Bluetooth. A source has a part on this computer
+  the network (0.9.0); *planned:* Bluetooth. A source has a part on this computer
   (packages, services, the firewall), a part on the device (pairing, a
   setting, a permission) and a live state.
 - **Feature:** what the user wants: Notifications, Messages, Names, Now
@@ -67,6 +68,7 @@ Three layers, read from the bridge's reports (`doctor`, `features`,
 | Android permissions | notification access, SMS, contacts, phone, all files access (device, over adb or a tap) | Notifications, Now playing, Messages, Names, Calls, Gallery |
 | Storage link | sshfs (this computer); its storage mounted (device, health) | Gallery |
 | Screen link | scrcpy and adb (this computer); Wireless debugging and adb pairing (device); Screen and apps on (the plugin's switch) | Screen and apps |
+| Network | a mesh on this computer, let through the firewall (`mesh`, this computer); the device's mesh address given to KDE Connect (`reach:mesh`, device) | From anywhere |
 | *planned:* Bluetooth | BlueZ and audio here; paired for calls | Calls with audio (#59) |
 
 A feature's state comes from its items the same way for every feature:
@@ -159,16 +161,25 @@ Settings (one device: its page)        Settings (several)
 | #29/#30 actions that open a screen on the phone | opened in the app's window (the screen, when set up) |
 | #60/#61 calls: ringing and missed only | stays as it is (no D-Bus for more); Bluetooth calls are #59 |
 
-## 8. Planned: connectivity (#119, #8) and Bluetooth (#59)
+## 8. The network (#119, #8), and planned: Bluetooth (#59)
 
-Not built in 0.8; their places are set so they do not drift, in section 5's
-shape (asked where used, nothing shown once it works):
+- **The network is a source** (0.9.0). Its firewall rule for every
+  private network and each mesh joins `fix ready` (and *Firewall*, a
+  diagnostic); *Mesh network* (Tailscale through Omarchy's installer, or
+  NordVPN Meshnet) is a diagnostic too, optional. A device out of reach
+  asks on its away card to be reached away from home: *From anywhere*,
+  a page with the steps, the mesh's phones to pick from and an address to
+  type (#8; an address KDE Connect keeps, `customDevices`; peers matched
+  silently when certain). It has no row among what the device shares, and the main page does not
+  show how a device is connected (its own page does); a Wi-Fi that keeps its devices
+  apart is among the likely causes behind *Why?*, and an address that
+  was given and lost is a problem under the Network gateway. On a network
+  change KDE Connect announces itself again; adb goes USB, then Wi-Fi,
+  then the mesh.
 
-- **The network is a source.** Its firewall rule for every local network
-  and VPN joins `fix ready`; a device out of reach asks on its away card
-  to be reached away from home (an address KDE Connect keeps,
-  `customDevices`; Tailscale peers, matched silently when certain). The
-  link a device is on is not shown.
+Not built yet; its place is set so it does not drift, in section 5's shape
+(asked where used, nothing shown once it works):
+
 - **Bluetooth is a source.** This computer: BlueZ and the audio profiles;
   the device: paired for calls, offered after a missed or ended call (a
   ringing call is too short to pair); then *Answer here* on the call

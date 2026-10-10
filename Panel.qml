@@ -238,7 +238,7 @@ Panel {
     if (key.indexOf("settings/") !== 0) return true
     var scope = key.slice(9)
     if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
-    return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope)
+    return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope.indexOf("reach:") === 0 ? scope.slice(6) : scope)
   }
   function navAsk(hint, open) {
     navHint = hint
@@ -569,6 +569,21 @@ Panel {
     return null
   }
   readonly property var screenPairing: phone && phone.screenPairing && phone.screenPairing.device === screenId ? phone.screenPairing : null
+  // From anywhere: a page for one device ("reach:<id>", #119), its mesh
+  // address and an address typed for it (Model.reachSetup); reached from
+  // its feature's row.
+  readonly property string reachId: settingsScope.indexOf("reach:") === 0 ? settingsScope.slice(6) : ""
+  readonly property var reachDevice: {
+    var list = snapshot && snapshot.devices ? snapshot.devices : []
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === reachId) return list[i]
+    return null
+  }
+  readonly property var reachSetup: reachId === "" ? null
+    : Model.reachSetup(phone ? phone.featureReports[reachId] || null : null, reachDevice, setupChecks,
+                       (featureRowsById[reachId] || []).filter(function(r) { return r.key === "reach" })[0] || null,
+                       phone ? phone.screenOf(reachId) : null)
+  // The address field has focus (typing goes to it, not to the keys).
+  property bool reachFieldFocused: false
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId),
                         screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId))
@@ -879,10 +894,12 @@ Panel {
         var p = phone.pendingFor(id, r.key)
         if (!p) return
         if (r.state === "on") { phone.setPending(id, r.key, null); return }
-        if (p.wait && p.waitFor && !(r.steps || []).some(function(s) { return s.item === p.waitFor })) {
+        // Done: no step for that item is left (or not that one step: the
+        // next step of the same item may follow it).
+        if (p.wait && p.waitFor && !(r.steps || []).some(function(s) { return s.item === p.waitFor && (!p.waitLabel || s.label === p.waitLabel) })) {
           phone.setPending(id, r.key, null)
           var d = phone.findDevice(id)
-          if (d) Qt.callLater(function() { root.featureAction(r, d) })
+          if (d) Qt.callLater(function() { root.featureAction(r, d, true) })
         }
       })
     })
@@ -943,9 +960,12 @@ Panel {
   // A feature's one action: every step the plugin can do, then the one only
   // the user can do (said in the row, or as the result).
   // `d`: the device (else the page's).
-  function featureAction(row, d) {
+  function featureAction(row, d, fromPage) {
     d = d || featureDevice()
     if (!d || !phone || !row) return
+    // A feature with a page of its own (From anywhere): its row opens it,
+    // where the choices are; the page's Set it up runs the steps.
+    if (row.page && !fromPage) { openStepPage(row.page, String(d.id)); return }
     var plan = Model.featurePlan(row)
     var rest = (row.steps || [])[plan.length]
     var id = String(d.id)
@@ -958,13 +978,47 @@ Panel {
     }
     // What is left after them: the step only the user can do, shown in the
     // row (waiting for it where it can be seen, else Check again).
-    var left = rest ? { text: rest.orAsk || rest.label, wait: false } : null
+    var left = rest ? { text: rest.orAsk || rest.label, wait: rest.wait === true, waitFor: rest.wait ? rest.item || "" : "", waitLabel: rest.wait ? rest.label : "" } : null
     if (plan.length > 0) phone.runSteps(id, plan, "feature:" + row.key, left)
     else if (left) phone.setPending(id, row.key, Object.assign({ at: Date.now(), failed: false, tried: "" }, left))
   }
   function openStepPage(page, id) {
     if (page === "connection") openConnection()
     else if (page === "screen") openScreenSetup(id)
+    else if (page === "reach") openReach(id)
+  }
+  function openReach(id) {
+    if (!id) return
+    if (!settingsOpen) openSettings()
+    openScope("reach:" + id)
+    if (phone) { phone.readFeatures(id, true); phone.runDoctor() }
+  }
+  // The From anywhere page's rows (Model.reachSetup's actions).
+  function reachAction(key, address) {
+    if (!phone || reachId === "") return
+    var id = reachId
+    var row = (featureRowsById[id] || []).filter(function(r) { return r.key === "reach" })[0]
+    if (key === "setup" && row) featureAction(row, phone.findDevice(id), true)
+    else if (key.indexOf("pick:") === 0 && address)
+      phone.runSteps(id, [{ kind: "auto", label: "Use " + address, fix: { verb: "device", what: "reach", arg: address } }], "feature:reach")
+    else if (key === "address") { if (settingsView) settingsView.editReachAddress() }
+    else if (key === "forget") phone.runSteps(id, [{ kind: "auto", label: "Forget its mesh address", fix: { verb: "device", what: "unreach", arg: "address" } }], "feature:reach")
+    else if (key === "forgetTyped") phone.runSteps(id, [{ kind: "auto", label: "Forget the address", fix: { verb: "device", what: "unreach", arg: "typed" } }], "feature:reach")
+    else if (key === "check") { phone.readFeatures(id, true); phone.runDoctor() }
+  }
+  // An address typed on the page (#8): KDE Connect tries it too.
+  function reachAddressSet(text) {
+    var t = String(text || "").trim()
+    if (!phone || reachId === "" || t === "") return
+    if (!Model.isIpAddress(t)) { phone.report("Not an IP address: type one such as 192.168.1.20", true); return }
+    phone.runSteps(reachId, [{ kind: "auto", label: "Use " + t, fix: { verb: "device", what: "reach", arg: t } }], "feature:reach")
+  }
+  // Read again while the page shows: a sign-in, the phone joining the mesh.
+  Timer {
+    interval: 5000
+    repeat: true
+    running: root.opened && root.showSettings && root.reachId !== ""
+    onTriggered: if (root.phone) { root.phone.readFeatures(root.reachId, true); root.phone.runDoctor() }
   }
   // A feature's switch: its own items only (Model.FEATURES' switch). KDE
   // Connect's plugins on or off for this device (it stops sending it), or
@@ -1039,7 +1093,8 @@ Panel {
   property bool awayWhy: false
   // The viewed device away: where it was and what Reconnect found.
   readonly property var awayInfo: Model.awayState(device, phone ? phone.setupNetwork : "", phone ? phone.searchedAt : 0,
-                                                  phone ? phone.awayClock : Date.now())
+                                                  phone ? phone.awayClock : Date.now(),
+                                                  phone && device && phone.featureReports[String(device.id)] ? phone.featureReports[String(device.id)].network : null)
   function openConnection() {
     if (!settingsOpen) openSettings()
     openScope("connection")
@@ -1112,7 +1167,7 @@ Panel {
     // page this was is gone (unpaired): the list, or Add a device when none
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
-    else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0
+    else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0 && settingsScope.indexOf("reach:") !== 0
              && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0)
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
@@ -1150,6 +1205,7 @@ Panel {
   }
 
   readonly property var settingsRows: screenId !== "" ? Model.screenRows(screenSetup)
+    : reachId !== "" ? Model.reachRows(reachSetup)
     : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "ready" ? Model.readyRows(setupChecks)
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
@@ -1283,6 +1339,12 @@ Panel {
     return JSON.stringify({ scope: editingDevice ? "device" : settingsScope, title: heroDevice ? Model.deviceTitle(heroDevice, heroProfile) : "",
       rows: settingsRows.map(function(r) { return r.kind + (r.key ? ":" + r.key : "") + (r.id ? ":" + r.id : "") }) })
   }
+  function reachInfo() {
+    var s = reachSetup
+    return JSON.stringify(s ? { state: s.state, line: s.line, now: s.now, notes: s.notes,
+      current: s.steps.filter(function(x) { return x.current }).map(function(x) { return x.key }),
+      actions: s.actions.map(function(a) { return a.key }) } : { scope: settingsScope })
+  }
   function screenInfo() {
     var s = screenSetup
     return JSON.stringify(s ? { state: s.state, line: s.line, current: s.steps.filter(function(x) { return x.current }).map(function(x) { return x.key }),
@@ -1329,8 +1391,9 @@ Panel {
   // The header names the device a settings page is about (its page, its
   // Screen and apps), else none: Settings, For all devices, This computer
   // and Add a device read Devices, with the plugin's own glyph.
-  readonly property bool heroNeutral: showSettings && screenId === "" && !editingDevice
-  readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : (showSettings && editingDevice ? scopeDevice : device))
+  readonly property bool heroNeutral: showSettings && screenId === "" && reachId === "" && !editingDevice
+  readonly property var heroDevice: heroNeutral ? null : (showSettings && screenDevice ? screenDevice : showSettings && reachDevice ? reachDevice
+    : (showSettings && editingDevice ? scopeDevice : device))
   readonly property var heroProfile: heroNeutral ? null : (showSettings && editingDevice ? scopeProfile : profile)
   // The nickname field has focus (typing goes to it, not to the keys).
   property bool nicknameFocused: false
@@ -2133,10 +2196,11 @@ Panel {
     else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
     else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
+    else if (row.kind === "reachAction") reachAction(row.key, row.address)
     // What it shares: Enter flips its switch, as a click on it would.
     else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.on === false)
     else if (row.kind === "ready") getReady()
-    else if (row.kind === "problem") openScope(row.where === "computer" ? "connection" : row.where)
+    else if (row.kind === "problem") openScope(row.opens ? row.opens : row.where === "computer" ? "connection" : row.where)
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
@@ -2613,6 +2677,26 @@ Panel {
     // (tools, pair, off, unauthorized, away, ready; demo only).
     function screen(): string { if (root.device) root.openScreenSetup(String(root.device.id)); return root.screenInfo() }
     function screenInfo(): string { return root.screenInfo() }
+    // From anywhere on the viewed device (#119): its page, as its row would
+    // open it; what the page shows. demoReach: a made-up network (ready,
+    // setup, pick, none, isolated; demo only). reachAddress: an address as
+    // typed and Entered on the page (demo only: nothing reaches KDE Connect).
+    function reach(): string { if (root.device) root.openReach(String(root.device.id)); return root.reachInfo() }
+    function reachInfo(): string { return root.reachInfo() }
+    function demoReach(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.phone.demoNetworkKind = kind === "ready" ? "" : kind
+      root.phone.demoChecks = true
+      var checks = root.phone.setupChecks.filter(function(c) { return c.key !== "mesh" })
+      root.phone.setupChecks = checks.concat([Model.demoMeshCheck(kind)])
+      if (root.device) root.phone.readFeatures(String(root.device.id), true)
+      return root.reachInfo()
+    }
+    function reachAddress(text: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.reachAddressSet(text)
+      return root.reachInfo()
+    }
     function demoScreen(kind: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       root.phone.demoScreenKind = kind || "pair"
@@ -3023,7 +3107,7 @@ Panel {
           else root.activateCursor(true)
         }
       }
-      blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
+      blocked: root.replyFocused || root.composerFocused || root.nicknameFocused || root.reachFieldFocused || (root.messagesOpen && !!messagesView && messagesView.composerFocused)
         || (root.contactsOpen && !!contactsView && contactsView.searchFocused)
         || (root.appsOpen && !!appsView && appsView.searchFocused)
 
@@ -3420,9 +3504,12 @@ Panel {
         property var shown: null
         onPlanChanged: if (plan) shown = plan
         z: 12
-        anchors.centerIn: parent
+        x: (parent.width - width) / 2
+        // Centred on the panel, but never above the top of the screen.
+        y: Math.max((parent.height - height) / 2, Style.space(8) - parent.mapToItem(null, 0, 0).y)
         width: Math.min(parent.width - Style.space(32), Style.space(440))
         height: rootColumn.implicitHeight + Style.space(28)
+        readonly property real listRoom: Math.max(Style.space(60), parent.height - Style.space(32) - Style.space(28) - rootColumn.fixedHeight)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
@@ -3433,12 +3520,16 @@ Panel {
 
         Column {
           id: rootColumn
+          // All but the list of actions: the heading, the reason and the
+          // buttons stay in view while a long list scrolls.
+          readonly property real fixedHeight: rootTitle.height + rootWhy.height + rootFooter.height + rootButtons.height + 4 * spacing
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.margins: Style.space(14)
           spacing: Style.space(8)
           Text {
+            id: rootTitle
             width: parent.width
             textFormat: Text.PlainText
             text: "Your password, for this only"
@@ -3448,6 +3539,7 @@ Panel {
             font.bold: true
           }
           Text {
+            id: rootWhy
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
@@ -3456,29 +3548,45 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }
-          Repeater {
-            model: rootCard.shown ? rootCard.shown.actions : []
-            Text {
-              required property string modelData
-              width: rootColumn.width
-              textFormat: Text.PlainText
-              wrapMode: Text.Wrap
-              text: "• " + modelData
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+          Flickable {
+            width: parent.width
+            height: Math.min(rootActions.implicitHeight, rootCard.listRoom)
+            contentHeight: rootActions.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            Column {
+              id: rootActions
+              width: parent.width
+              spacing: Style.space(8)
+              Repeater {
+                model: rootCard.shown ? rootCard.shown.actions : []
+                Text {
+                  required property string modelData
+                  width: rootActions.width
+                  textFormat: Text.PlainText
+                  wrapMode: Text.Wrap
+                  text: "• " + modelData
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
             }
           }
           Text {
+            id: rootFooter
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
-            text: "Nothing else runs with it. The system asks for the password next."
+            text: rootCard.shown && rootCard.shown.footer ? rootCard.shown.footer : "Nothing else runs with it. The system asks for the password next."
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
           Row {
+            id: rootButtons
             anchors.right: parent.right
             spacing: Style.space(6)
             Button {
@@ -4159,7 +4267,7 @@ Panel {
               return nick && nick !== root.heroDevice.name ? nick + " · " + root.heroDevice.name : String(root.heroDevice.name || "")
             }
             // On a device's page the title already names it.
-            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.settingsScope === "connection" ? "Diagnostics · this computer" : root.settingsScope === "addDevice" ? "Add a device"
+            meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.reachId !== "" ? "From anywhere" : root.settingsScope === "connection" ? "Diagnostics · this computer" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "ready" ? "Getting ready"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
                 : root.editingDevice ? (root.pairedDevices.length === 1 ? "Settings" : "Settings · This device")
@@ -5612,6 +5720,16 @@ Panel {
                     onClicked: root.awayWhy = !root.awayWhy
                   }
                   Button {
+                    visible: awayColumn.away
+                    text: "From anywhere"
+                    iconText: Model.GLYPH.anywhere
+                    tooltipText: "Reach it on any network, through a mesh such as Tailscale, or an address"
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    fontSize: Style.font.bodySmall
+                    onClicked: if (root.device) root.openReach(String(root.device.id))
+                  }
+                  Button {
                     visible: !!root.snapshot && !awayColumn.away && !!root.phone
                     readonly property bool ready: !!root.phone && root.phone.daemon
                     text: ready ? "Add a device" : "Get this computer ready"
@@ -5738,13 +5856,19 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.screenId !== "" ? "screen" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 screenSetup: root.screenSetup
                 screenQr: root.screenPairing ? root.screenPairing.qr : null
                 screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)
                 onScreenPlaceChosen: function(docked) { if (root.screenDockedFor(root.screenId) !== docked) root.toggleScreenDocked(root.screenId) }
                 onScreenCloseRequested: if (root.phone) root.phone.closeScreen(root.screenId)
                 onAppSoundChosen: function(sound) { root.setAppSound(root.screenId, sound) }
+                reachSetup: root.reachSetup
+                onReachAddressSet: function(text) { root.reachAddressSet(text); keyCatcher.forceActiveFocus() }
+                onReachFieldFocus: function(focused) {
+                  root.reachFieldFocused = focused
+                  if (!focused) Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+                }
                 iconPicking: root.iconPicking
                 unpairArmed: !!root.scopeDevice && root.unpairArmed === String(root.scopeDevice.id)
                 deviceName: root.scopeDevice ? Model.deviceLabel(root.scopeDevice) : ""

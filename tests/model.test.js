@@ -941,6 +941,7 @@ test("navigation: the back arrow names where it goes", () => {
   assert.equal(label(["settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
   assert.equal(label(["settings/root", "settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
   assert.equal(label(["settings/connection"], "settings/addDevice"), "Back to Add a device")
+  assert.equal(label(["settings/d1", "settings/reach:d1", "settings/connection"]), "Back to From anywhere")
 })
 
 test("navigation: the stack goes with the place for five minutes", () => {
@@ -1174,7 +1175,7 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
 
 test("features: each state from the report, the steps one click runs, Fix all", () => {
   const report = M.demoFeatures()
-  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8")
+  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8", [M.demoMeshCheck("")])
   const by = k => rows.find(r => r.key === k)
   assert.equal(by("notifications").state, "on")
   assert.deepEqual([by("clipboard").state, by("clipboard").on, by("clipboard").steps[0].fix], ["off", false, { verb: "device", what: "plugin", arg: "clipboard=on" }],
@@ -1184,7 +1185,8 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.match(by("names").steps[0].orAsk, /KDE Connect › Permissions › contacts/)
   assert.equal(by("screen").state, "on")
   const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
-  assert.ok(away.filter(r => r.key !== "screen").every(r => r.state === "away"))
+  // From anywhere is about reaching it away: its own setup, not away.
+  assert.ok(away.filter(r => r.key !== "screen" && r.key !== "reach").every(r => r.state === "away"))
   const noSim = Object.assign({}, report, { plugins: Object.assign({}, report.plugins, { sms: { on: true, offered: false } }) })
   assert.equal(M.featureRows(noSim, null, "Tab").find(r => r.key === "messages").state, "unavailable")
   const dead = Object.assign({}, report, { files: { sshfs: true, mounted: false, error: "sshfs finished with exit code 1" } })
@@ -1200,13 +1202,14 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
-  assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
+  assert.equal(M.featuresSummary(rows), "10 on · 1 to set up")
 })
 
 test("settings: a device's page lists what it shares, only what it can do", () => {
   const features = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, "Pixel 8")
   const rows = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features })
-  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length)
+  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length - 1)
+  assert.ok(!rows.some(r => r.key === "reach"), "From anywhere shares nothing: it is asked on the away card, not listed here")
   assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
   // Another kind of device (an iPhone): KDE Connect offers no texts, calls
   // or storage there, and nothing it cannot do is listed.
@@ -1375,6 +1378,89 @@ test("features: notifications gone quiet (#95) need attention, with the remedies
   assert.match(row.steps[1].orAsk, /^Restart Pixel 8/)
   const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
   assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
+})
+
+test("from anywhere (#119): a Network gateway, its items, its feature and its page", () => {
+  const net = kind => Object.assign(M.demoFeatures(), { network: M.demoNetwork(kind) })
+  const rowOf = (kind, checks) => M.deviceSetup({ report: net(kind), screen: null, name: "Pixel 8", checks }).features.find(r => r.key === "reach")
+  const setup = M.deviceSetup({ report: net(""), screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
+  const g = setup.gateways.find(x => x.key === "network")
+  assert.deepEqual([g.usedBy, g.items.map(it => it.key)], [["reach"], ["mesh", "reach:mesh"]], "a gateway with its items, used by its feature")
+  assert.equal(setup.items.find(it => it.key === "mesh").scope, "computer", "the mesh is this computer's, checked once")
+  const on = rowOf("", [M.demoMeshCheck("")])
+  assert.deepEqual([on.state, on.detail, on.page, on.switchable], ["on", "Tailscale · 100.101.102.103", "reach", false])
+  assert.equal(rowOf("", []).state, "setup", "this computer's checks not read yet: still looking")
+  // No mesh here: Omarchy's installer first (its card), then the sign-in
+  // and the phone, each waited for where it can be seen.
+  const none = rowOf("none", [M.demoMeshCheck("none")])
+  assert.deepEqual(none.steps.map(s => s.kind + ":" + (s.fix ? s.fix.what : s.wait)), ["auto:tailscale", "ask:true", "ask:true"])
+  assert.deepEqual(M.featurePlan(none).map(s => s.fix.what), ["tailscale"])
+  const later = rowOf("setup", [M.demoMeshCheck("")])
+  assert.deepEqual([later.state, later.steps[0].label], ["setup", "On Pixel 8: install Tailscale from its store and sign in, with the same account as this computer"])
+  const pick = rowOf("pick", [M.demoMeshCheck("")])
+  assert.equal(pick.steps[0].page, "reach", "not certainly it: picked on its page")
+  // Given before and gone: it worked and stopped.
+  const lost = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const broken = M.deviceSetup({ report: lost, screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
+  assert.equal(broken.features.find(r => r.key === "reach").state, "attention")
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: broken, rows: broken.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.gateway]), [["reach:mesh", "Network"]])
+  assert.equal(problems[0].opens, "reach:p1", "its problem opens its own page: no row among what the device shares")
+  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["reach"])
+  // Fix all leaves a feature with a page to the user, unless it broke.
+  assert.equal(M.fixAllPlan([none]).length, 0)
+  assert.deepEqual(M.fixAllPlan(broken.features).map(s => s.fix.what).filter(w => w === "reach"), ["reach"])
+  // A typed address (#8) does it too.
+  const typed = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork("setup"), { typed: "10.8.0.4", typedKept: true }) })
+  assert.deepEqual(M.featureRows(typed, null, "Pixel 8", [M.demoMeshCheck("")]).find(r => r.key === "reach").detail, "At 10.8.0.4")
+})
+
+test("from anywhere's page: steps, the mesh's phones to pick, an address field, what the network says", () => {
+  const dev = device({ reachable: true })
+  const page = kind => {
+    const checks = [M.demoMeshCheck(kind === "none" ? "none" : "")]
+    const report = Object.assign(M.demoFeatures(), { network: M.demoNetwork(kind) })
+    return M.reachSetup(report, dev, checks, M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach"))
+  }
+  const ready = page("")
+  assert.deepEqual([ready.state, ready.line, ready.now, ready.steps.length], ["ready", "Reaches Pixel 8 on any network, through Tailscale (100.101.102.103)", "Connected now over Wi-Fi", 0])
+  assert.deepEqual(ready.actions.map(a => a.key), ["address", "forget", "check"])
+  const none = page("none")
+  assert.deepEqual(none.steps.map(s => [s.key, s.done, s.current]), [["mesh", false, true], ["device", false, false], ["kde", false, false]])
+  assert.equal(none.actions[0].key, "setup")
+  const pick = page("pick")
+  assert.deepEqual(pick.actions.filter(a => a.key.startsWith("pick:")).map(a => [a.label, a.address]),
+                   [["This is Pixel 8: pixel-8", "100.101.102.103"], ["This is Pixel 8: old-phone", "100.101.102.104"]])
+  assert.match(pick.actions[1].hint, /offline now/)
+  const rows = M.reachRows(pick)
+  assert.deepEqual(rows.find(r => r.key === "address"), { kind: "reachAction", key: "address", label: "Its address", hint: pick.actions.find(a => a.key === "address").hint, field: true, value: "" })
+  const isolated = M.reachSetup(Object.assign(M.demoFeatures(), { network: M.demoNetwork("isolated") }), device({ reachable: false }), [M.demoMeshCheck("")], null,
+                                { state: "ready", via: "mesh" })
+  assert.match(isolated.notes[0], /^Likely: this Wi-Fi keeps its devices apart/)
+  assert.equal(isolated.now, "KDE Connect does not reach it now; its screen link does, over a mesh")
+  assert.equal(M.reachSetup(null, dev, [], null).state, "checking")
+})
+
+test("the network in words: links, addresses, where an away device was", () => {
+  assert.equal(M.linkText([{ kind: "lan" }, { kind: "bluetooth" }]), "Wi-Fi and Bluetooth")
+  assert.equal(M.linkText([{ kind: "tailscale" }, { kind: "tailscale" }]), "Tailscale")
+  assert.equal(M.linkText([]), "")
+  assert.ok(M.isIpAddress("192.168.1.20") && M.isIpAddress("100.101.102.103") && M.isIpAddress("fd7a::1"))
+  assert.ok(!M.isIpAddress("192.168.1.256") && !M.isIpAddress("pixel-8") && !M.isIpAddress(""))
+  const now = Date.UTC(2026, 9, 5, 12)
+  const over = device({ reachable: false, lastSeen: { at: now - 60000, link: "LAN", address: "100.101.102.103" } })
+  assert.match(M.awayState(over, "192.168.1.0/24", 0, now).why[0], /^Last seen on a mesh at 100\.101\.102\.103/)
+  const why = M.awayState(over, "192.168.1.0/24", 0, now, M.demoNetwork("isolated")).why
+  assert.ok(why.some(l => /^Likely: this Wi-Fi keeps its devices apart/.test(l)), "a likely cause, behind Why?")
+  assert.ok(why.some(l => l === "Tailscale sees it online: KDE Connect is trying its address"))
+})
+
+test("from anywhere's page: broken, its action is Fix", () => {
+  const checks = [M.demoMeshCheck("")]
+  const report = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const row = M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach")
+  const page = M.reachSetup(report, device(), checks, row)
+  assert.deepEqual([row.state, page.actions[0].key, page.actions[0].label], ["attention", "setup", "Fix"])
 })
 
 test("contacts: the list by letter, a search by name and by digits", () => {

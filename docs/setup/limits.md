@@ -33,6 +33,14 @@ The panel shows what KDE Connect sends. Today it does not:
   message** is the exception — it opens its conversation in
   [Messages](../use/messages.md), since the texts come from the phone too.
 
+## From anywhere
+
+- The **screen and apps** reach the phone over the mesh only while it is on
+  a Wi-Fi with Wireless debugging on: Android turns it off on mobile data.
+  Everything else works on any network.
+- Meshes other than Tailscale and NordVPN Meshnet (ZeroTier, your own
+  WireGuard): type the phone's address on its page.
+
 ## What the phone hides
 
 Like the phone, it hides what the phone hides: a paused player Android dropped

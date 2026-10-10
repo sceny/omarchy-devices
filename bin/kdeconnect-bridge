@@ -31,9 +31,11 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall|sshfs|screen|search   fix one
+  kdeconnect-bridge fix install|start|firewall|sshfs|screen|tailscale|search   fix one
                                               (install, firewall, sshfs and screen ask
-                                              for a password; search looks for devices again)
+                                              for a password; tailscale opens Omarchy's
+                                              installer in a terminal; search looks for
+                                              devices again); --describe: what it would do
   kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
   kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
                                               JSON lines (qr, found, paired, connected, error)
@@ -60,8 +62,9 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge features <device> [--adb]      what it can do: KDE Connect's
-                                              plugins, its link, files; with --adb,
-                                              KDE Connect's permissions on it
+                                              plugins, its link, files, its network
+                                              (meshes, its peer, how it is reached);
+                                              with --adb, KDE Connect's permissions on it
   kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
@@ -69,7 +72,10 @@ not re-printed, so the shell only wakes when something moved.
                                               renotify, relisten, reconnect (KDE
                                               Connect pointed at the address adb
                                               knows), wake (KDE Connect on it let
-                                              run in the background, and opened)
+                                              run in the background, and opened),
+                                              reach [address] (KDE Connect pointed at
+                                              its mesh address, or one typed), unreach
+                                              [address|typed] (taken back)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
   kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
@@ -1179,7 +1185,21 @@ def watch():
 
     def heartbeat():
         schedule()
+        if net.proc is None:
+            net.check()
         return True
+
+    def on_network():
+        # Another Wi-Fi, a cable, a mesh up or down: KDE Connect announces
+        # itself on every network again now, and a device that hears it
+        # connects back, instead of waiting for its next broadcast.
+        try:
+            call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+        except GLib.Error:
+            pass
+        schedule()
+
+    net = NetWatch(on_network)
 
     def on_call(_conn, _sender, path, _iface, _signal, params):
         # /modules/kdeconnect/devices/<id>/telephony
@@ -1389,6 +1409,15 @@ def act(argv):
 
 KDE_PORTS = "1714:1764"
 DAEMON_UNIT = "app-org.kde.kdeconnect.daemon@autostart.service"
+# Home and office networks: where the firewall lets devices in (as Omarchy
+# opens Sunshine's ports), never everyone.
+PRIVATE_LANS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+# Tailscale's and NordVPN Meshnet's addresses are in this range.
+MESH_RANGE = "100.64.0.0/10"
+# The meshes the plugin knows, in the order it offers them (Tailscale first:
+# Omarchy installs it, with a free plan), and the interface each adds here.
+MESHES = {"tailscale": {"label": "Tailscale", "iface": "tailscale0"},
+          "meshnet": {"label": "NordVPN Meshnet", "iface": "nordlynx"}}
 
 
 def local_network():
@@ -1405,23 +1434,99 @@ def local_network():
         return ""
 
 
+def kde_rules(text):
+    """KDE Connect's allow rules in ufw's user.rules, as [{proto, src,
+    iface}]. A rule's tuple: `### tuple ### allow tcp 1714:1764 0.0.0.0/0
+    any 192.168.1.0/24 in[_tailscale0] [comment=…]`."""
+    rules = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if not line.startswith("### tuple ###") or len(parts) < 10 or parts[3] != "allow" or parts[5] != KDE_PORTS:
+            continue
+        if parts[9] != "in" and not parts[9].startswith("in_"):
+            continue
+        rules.append({"proto": parts[4], "src": parts[8], "iface": parts[9][3:]})
+    return rules
+
+
+def covered(rules, source="", iface=""):
+    """The protocols (tcp, udp) KDE Connect's rules let in from `source` (a
+    network or one address), or on the interface `iface` from anywhere."""
+    protos = set()
+    want = ipaddress.ip_network(source, strict=False) if source else None
+    for r in rules:
+        try:
+            src = ipaddress.ip_network(r["src"], strict=False)
+        except ValueError:
+            continue
+        if want is not None:
+            ok = not r["iface"] and want.version == src.version and want.subnet_of(src)
+        else:
+            ok = (r["iface"] == iface or not r["iface"]) and src.prefixlen == 0
+        if ok:
+            protos |= {"tcp", "udp"} if r["proto"] == "any" else {r["proto"]}
+    return protos
+
+
+def mesh_open(rules, iface):
+    """Whether KDE Connect's ports are open to a mesh: on its interface, or
+    from its addresses (the whole range or one device's, as a hand-made rule
+    for one phone does)."""
+    if {"tcp", "udp"} <= covered(rules, iface=iface):
+        return True
+    mesh = ipaddress.ip_network(MESH_RANGE)
+    for r in rules:
+        try:
+            src = ipaddress.ip_network(r["src"], strict=False)
+        except ValueError:
+            continue
+        if not r["iface"] and src.version == 4 and src.subnet_of(mesh):
+            return True
+    return False
+
+
 def firewall_state():
-    """ufw on or off, and whether KDE Connect's ports are allowed (TCP and
-    UDP). ufw keeps its rules world-readable, so no root is needed to look."""
+    """ufw on or off, KDE Connect's rules, and whether they let this
+    network in (TCP and UDP). ufw keeps its rules world-readable, so no root
+    is needed to look."""
     try:
         enabled = any(line.strip() == "ENABLED=yes" for line in open("/etc/ufw/ufw.conf"))
     except OSError:
-        return {"present": False, "active": False, "allowed": True}
-    protos = set()
+        return {"present": False, "active": False, "allowed": True, "rules": []}
     try:
-        for line in open("/etc/ufw/user.rules"):
-            if line.startswith("### tuple ###") and " allow " in line and " %s " % KDE_PORTS in line:
-                parts = line.split()
-                if len(parts) > 5:
-                    protos.add(parts[4])
+        with open("/etc/ufw/user.rules") as f:
+            rules = kde_rules(f.read())
     except OSError:
+        rules = []
+    lan = local_network()
+    if lan:
+        allowed = {"tcp", "udp"} <= covered(rules, lan)
+    else:
+        allowed = {"tcp", "udp"} <= set(p for r in rules for p in (("tcp", "udp") if r["proto"] == "any" else (r["proto"],)))
+    return {"present": True, "active": enabled, "allowed": allowed, "rules": rules}
+
+
+def firewall_rules(rules, lan, ifaces):
+    """The ufw commands that open KDE Connect's ports to every private
+    network (home, office: as Omarchy opens Sunshine's) and on each mesh's
+    interface, only those not open yet. Never to everyone. A default
+    route's network outside the private ranges is added as itself."""
+    sources = list(PRIVATE_LANS)
+    try:
+        if lan and not any(ipaddress.ip_network(lan).subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS):
+            sources.append(lan)
+    except ValueError:
         pass
-    return {"present": True, "active": enabled, "allowed": {"tcp", "udp"} <= protos or "any" in protos}
+    out = []
+    for src in sources:
+        for proto in ("tcp", "udp"):
+            if proto not in covered(rules, src):
+                out.append("/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (src, KDE_PORTS, proto))
+    for iface in ifaces:
+        for proto in ("tcp", "udp"):
+            if proto not in covered(rules, iface=iface):
+                out.append("/usr/bin/ufw allow in on %s to any port %s proto %s comment 'KDE Connect'" % (iface, KDE_PORTS, proto))
+    return out
 
 
 def doctor():
@@ -1458,6 +1563,9 @@ def doctor():
                    "status": lan or "No network",
                    "detail": "" if lan else "Join the Wi-Fi your devices are on",
                    "fix": "", "fixLabel": ""})
+    # Optional: only reaching devices away from home needs a mesh.
+    meshes = mesh_status()
+    checks.append(mesh_check(meshes, fw, mesh_interfaces()))
     paired = [d for d in devices if d.get("paired")]
     reachable = [d for d in paired if d.get("reachable")]
     checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
@@ -1482,7 +1590,8 @@ def doctor():
                    "status": "Installed" if sshfs else "Not installed",
                    "detail": "" if sshfs else "A device's photos and videos here: sshfs",
                    "fix": "" if sshfs else "sshfs", "fixLabel": "" if sshfs else "Install"})
-    return {"checks": checks, "network": lan, "firewall": fw}
+    return {"checks": checks, "network": lan, "firewall": dict(fw, rules=len(fw.get("rules", []))),
+            "meshes": [{k: m[k] for k in ("mesh", "label", "on", "installed", "state")} for m in meshes]}
 
 
 OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
@@ -1504,7 +1613,7 @@ def pkg_add(packages):
 # only that plan: it is built again at the run, and a plan that differs from
 # the one shown (its hash) does not run.
 
-ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "ready")
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "ready", "tailscale")
 
 
 def pacman_will_install(packages, run=None):
@@ -1531,17 +1640,12 @@ def package_installed(name, run=None):
         return False
 
 
-def firewall_rules(lan):
-    """KDE Connect's ports from this network only, as ufw commands."""
-    return ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
-
-
 # Everything any feature needs on this computer (docs/design/setup.md): the
 # first run installs them together, so no package is asked for again.
 READY_FIXES = ("install", "sshfs", "screen")
 
 
-def root_plan(what, run=None, lan=None, fw=None):
+def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
@@ -1566,12 +1670,24 @@ def root_plan(what, run=None, lan=None, fw=None):
         commands = [] if will == [] else [pkg_add(packages)]
     elif what == "firewall":
         lan = lan if lan is not None else local_network()
-        if not lan:
-            return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
-        rules = firewall_rules(lan)
-        reason = "To let your devices reach KDE Connect through the firewall, from this network only"
-        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(rules)]]
+        existing = rules if rules is not None else firewall_state().get("rules", [])
+        ifaces = ifaces if ifaces is not None else mesh_interfaces()
+        wanted = firewall_rules(existing, lan, ifaces)
+        meshes = [m["label"] for m in MESHES.values() if m["iface"] in ifaces]
+        reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
+            + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
+        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted] or ["Nothing to change: the firewall already lets them in"]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(wanted)]] if wanted else []
+    elif what == "tailscale":
+        # Omarchy's own installer, as its Install menu runs it: in its
+        # terminal, which asks for the password itself.
+        reason = "To set up Tailscale with Omarchy's own installer, as its Install menu does"
+        actions = ["Opens Omarchy's Tailscale installer in a terminal; it asks for your password there",
+                   "Installs tailscale and starts it",
+                   "Signs this computer in to Tailscale: a page opens in your browser",
+                   "Lets you manage it without a password, receives Taildrop files in Downloads, and adds Tailscale to the bar"]
+        commands = [[os.path.join(OMARCHY_BIN, "omarchy-launch-floating-terminal-with-presentation"), "omarchy-install-service-tailscale"]]
+        footer = "Nothing else runs with it. Its terminal asks for the password, not this panel."
     elif what == "ready":
         # The first run: every package not installed at any version, and the
         # firewall's rule while it keeps devices out, under one password.
@@ -1579,12 +1695,11 @@ def root_plan(what, run=None, lan=None, fw=None):
         packages = [p for p in wanted if not package_installed(p, run)]
         will = pacman_will_install(packages, run) if packages else []
         fw = fw if fw is not None else firewall_state()
-        rules = []
+        wanted_rules = []
         if fw.get("active") and not fw.get("allowed"):
             lan = lan if lan is not None else local_network()
-            if not lan:
-                return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
-            rules = firewall_rules(lan)
+            existing = rules if rules is not None else fw.get("rules", [])
+            wanted_rules = firewall_rules(existing, lan, ifaces if ifaces is not None else mesh_interfaces())
         reason = "To get this computer ready for your devices"
         actions, parts = [], []
         if packages and will != []:
@@ -1592,14 +1707,16 @@ def root_plan(what, run=None, lan=None, fw=None):
             if will and len(will) > len(packages):
                 actions.append("Those include what " + ", ".join(packages) + " need to run")
             parts.append(" ".join(shlex.quote(a) for a in pkg_add(packages)[1:]))
-        actions += ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
-        parts += rules
+        actions += ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted_rules]
+        parts += wanted_rules
         if not actions:
             actions = ["Nothing to install: this computer has everything"]
         commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
+    if what == "tailscale":
+        plan["footer"] = footer
     plan["hash"] = hashlib.sha256(json.dumps([commands, actions]).encode()).hexdigest()[:16]
     return plan
 
@@ -1613,6 +1730,14 @@ def run_root(what, confirm):
         return say(plan["error"], EXIT_FAILED)
     if not confirm or confirm != plan["hash"]:
         return say("What would run is not what was shown: look at it again", EXIT_FAILED)
+    if what == "tailscale":
+        # A terminal of its own, left running: the user goes on there.
+        try:
+            subprocess.Popen(plan["commands"][0], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as error:
+            return say(str(error), EXIT_FAILED)
+        return say("Omarchy's Tailscale installer is open: sign in there")
     for cmd in plan["commands"]:
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
@@ -1623,7 +1748,7 @@ def run_root(what, confirm):
         if out.returncode != 0:
             return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
     if what == "firewall":
-        return say("Firewall now allows KDE Connect from %s" % local_network())
+        return say("The firewall lets your devices reach KDE Connect")
     if what == "ready":
         return say("This computer is ready")
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
@@ -1778,11 +1903,18 @@ def device_features(device_id, conn=None, with_adb=False, status=None):
     except GLib.Error:
         here = None
     out["notifications"] = {"here": here, "device": None}
+    serial = ""
     if with_adb:
         status = status or screen_status(device_id)
         if status.get("state") == "ready" and status.get("serial"):
-            out["permissions"] = device_permissions(status["serial"])
-            out["notifications"]["device"] = device_notification_count(status["serial"])
+            serial = status["serial"]
+            out["permissions"] = device_permissions(serial)
+            out["notifications"]["device"] = device_notification_count(serial)
+    # How it is reached, and its address away from home (#119).
+    try:
+        out["network"] = device_network(device_id, conn, p, serial)
+    except GLib.Error:
+        out["network"] = None
     return out
 
 
@@ -1864,7 +1996,7 @@ def device_address(serial, run=None):
     """The device's address on the network, from its adb serial (Wi-Fi) or
     from the device (USB); "" when it has none."""
     m = IPV4.match(serial or "")
-    if m:
+    if m and not inside(m.group(1), MESH_RANGE):
         return m.group(1)
     run = run or (lambda args: adb(["-s", serial, "shell"] + args))
     code, out = run(["ip", "-o", "-4", "addr", "show", "wlan0"])
@@ -1940,6 +2072,414 @@ def wake(device_id, conn=None):
     return say("KDE Connect is open on it, but it did not connect", EXIT_FAILED)
 
 
+# ---- The network: every path to a device, at home and away (#119) ---------
+#
+# KDE Connect finds a device by broadcast on the local network, which does
+# not cross another network or a VPN. A mesh gives each device an address
+# that reaches it anywhere: Tailscale first (Omarchy installs it, with a
+# free plan), NordVPN Meshnet the same way (Omarchy installs NordVPN too).
+# KDE Connect is pointed at the device's mesh address (its daemon's custom
+# devices, a D-Bus property, which its own settings write), and the
+# firewall lets KDE Connect's ports in on the mesh's interface. The mesh
+# peer is matched to the KDE Connect device by what is certain first (an
+# address KDE Connect or adb reaches it at), then by name; failing both,
+# the user picks it. A wrong address is harmless: KDE Connect only talks to
+# a device that shows its paired certificate. What was matched and added is
+# kept in the cache (network.json), so a later change is a fix, not a guess.
+
+NETWORK_FILE = "network.json"
+
+
+def norm_name(name):
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def parse_tailscale(text):
+    """`tailscale status --json` as a mesh: {mesh, label, on, state,
+    address, peers: [{name, host, os, address, online}]}; None when it is
+    not JSON (tailscaled not running)."""
+    try:
+        data = json.loads(text or "")
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    peers = []
+    for p in (data.get("Peer") or {}).values():
+        ips = [a for a in (p.get("TailscaleIPs") or []) if ":" not in a]
+        peers.append({"name": p.get("HostName") or "", "host": (p.get("DNSName") or "").split(".")[0],
+                      "os": str(p.get("OS") or "").lower(), "address": ips[0] if ips else "", "online": bool(p.get("Online"))})
+    mine = [a for a in ((data.get("Self") or {}).get("TailscaleIPs") or []) if ":" not in a]
+    state = str(data.get("BackendState") or "")
+    return {"mesh": "tailscale", "label": "Tailscale", "on": state == "Running", "state": state,
+            "address": mine[0] if mine else "", "peers": peers}
+
+
+def parse_meshnet(text):
+    """`nordvpn meshnet peer list` (blocks of `Key: value` under This
+    device, Local Peers, External Peers) as a mesh. Meshnet off prints no
+    blocks."""
+    mesh = {"mesh": "meshnet", "label": "NordVPN Meshnet", "on": False, "state": "Off", "address": "", "peers": []}
+    section, block = "", {}
+
+    def flush():
+        if not block:
+            return
+        if section == "This device:":
+            mesh["address"] = block.get("IP", "")
+        elif section:
+            mesh["peers"].append({"name": block.get("Nickname") or block.get("Hostname", ""),
+                                  "host": block.get("Hostname", "").split(".")[0], "os": block.get("OS", "").lower(),
+                                  "address": block.get("IP", ""), "online": block.get("Status", "") == "connected"})
+        block.clear()
+
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s in ("This device:", "Local Peers:", "External Peers:"):
+            flush()
+            section = s
+        elif not s:
+            flush()
+        elif ":" in s and section:
+            k, _, v = s.partition(":")
+            block[k.strip()] = v.strip()
+    flush()
+    if mesh["address"]:
+        mesh.update(on=True, state="Running")
+    return mesh
+
+
+def mesh_status(run=None, have=None):
+    """The meshes installed here, each with its peers (no root needed)."""
+    run = run or subprocess.run
+    have = have or shutil.which
+
+    def ask(cmd):
+        try:
+            out = run(cmd, capture_output=True, text=True, timeout=6)
+            return out.returncode, out.stdout or ""
+        except (OSError, subprocess.TimeoutExpired):
+            return 1, ""
+
+    out = []
+    if have("tailscale"):
+        mesh = parse_tailscale(ask(["tailscale", "status", "--json"])[1]) or \
+            {"mesh": "tailscale", "label": "Tailscale", "on": False, "state": "Stopped", "address": "", "peers": []}
+        out.append(dict(mesh, installed=True))
+    if have("nordvpn"):
+        code, text = ask(["nordvpn", "meshnet", "peer", "list"])
+        out.append(dict(parse_meshnet(text if code == 0 else ""), installed=True))
+    return out
+
+
+def mesh_interfaces(run=None):
+    """The meshes' interfaces present here (tailscale0, nordlynx)."""
+    run = run or subprocess.run
+    try:
+        links = json.loads(run(["ip", "-j", "link"], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+    names = set(l.get("ifname") for l in links)
+    return [m["iface"] for m in MESHES.values() if m["iface"] in names]
+
+
+def mesh_check(meshes, fw, ifaces):
+    """This computer's mesh, for This computer: optional (only reaching
+    devices away from home needs it). Its fix: Tailscale through Omarchy's
+    installer; on, but the firewall keeps it out: the firewall's fix."""
+    on = [m for m in meshes if m.get("on")]
+    closed = [m for m in on if fw.get("active") and MESHES[m["mesh"]]["iface"] in ifaces
+              and not mesh_open(fw.get("rules", []), MESHES[m["mesh"]]["iface"])]
+    tailscale = next((m for m in meshes if m["mesh"] == "tailscale"), None)
+    if on and not closed:
+        status, detail, fix, label = ", ".join(m["label"] for m in on), "", "", ""
+    elif closed:
+        status = ", ".join(m["label"] for m in on)
+        detail = "The firewall keeps %s out" % " and ".join(m["label"] for m in closed)
+        fix, label = "firewall", "Allow"
+    else:
+        status = "Signed out" if tailscale else "Not set up"
+        detail = "Reach your devices on any network: Tailscale, with Omarchy's installer" \
+            + ("; or turn Meshnet on in NordVPN" if any(m["mesh"] == "meshnet" for m in meshes) else "")
+        fix, label = "tailscale", "Set up"
+    return {"key": "mesh", "ok": bool(on) and not closed, "optional": True, "label": "Mesh network",
+            "status": status, "detail": detail, "fix": fix, "fixLabel": label,
+            "meshes": [m["mesh"] for m in on]}
+
+
+def link_kind(address, meshes):
+    """What an address of the device is: a mesh's (tailscale, meshnet, or
+    mesh for one this computer does not know), lan (a private network: the
+    device's Wi-Fi), or network."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return ""
+    for m in meshes:
+        if any(p.get("address") == address for p in m.get("peers", [])):
+            return m["mesh"]
+    if ip.version == 4 and ip in ipaddress.ip_network(MESH_RANGE):
+        return "mesh"
+    return "lan" if ip.is_private else "network"
+
+
+def match_peer(device, meshes, record=None, sure=()):
+    """The device among the meshes' peers, and how it was found: "address"
+    (KDE Connect or adb reaches it there: certain), "remembered" (picked or
+    found before), "name" (its name and the peer's are the same, ignoring
+    case and punctuation); (None, "") otherwise."""
+    record = record or {}
+    peers = [dict(p, mesh=m["mesh"], label=m["label"]) for m in meshes if m.get("on")
+             for p in m.get("peers", []) if p.get("address")]
+    sure = set(a for a in sure if a)
+    for p in peers:
+        if p["address"] in sure:
+            return p, "address"
+    if record.get("peer"):
+        for p in peers:
+            if p["mesh"] == record.get("mesh") and p["name"] == record["peer"]:
+                return p, "remembered"
+    name = norm_name(device.get("name"))
+    if name:
+        named = [p for p in peers if name in (norm_name(p["name"]), norm_name(p["host"]))]
+        if len(named) == 1:
+            return named[0], "name"
+    return None, ""
+
+
+def network_record(device_id, update=None):
+    """What this computer remembers of a device's network (the mesh peer
+    matched, the addresses this plugin gave KDE Connect), in the cache."""
+    path = os.path.join(state_dir(), NETWORK_FILE)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    if update is None:
+        return data.get(device_id, {})
+    entry = dict(data.get(device_id, {}), **update)
+    data[device_id] = {k: v for k, v in entry.items() if v not in ("", None)}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+    return data[device_id]
+
+
+def device_addresses(serial, run=None):
+    """Every IPv4 address the device has (adb), by interface: a mesh's VPN
+    (tun0) included, which makes the match certain."""
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args))
+    code, out = run(["ip", "-o", "-4", "addr"])
+    return re.findall(r"^\d+:\s+(\S+)\s+inet (\d{1,3}(?:\.\d{1,3}){3})/", out or "", re.M) if code == 0 else []
+
+
+def lan_answers(address, run=None):
+    run = run or subprocess.run
+    try:
+        return run(["ping", "-c", "1", "-W", "1", address], capture_output=True, timeout=4).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def reach_report(device, custom, meshes, record, adb_addresses=(), wifi=(), lan="", answers=None):
+    """A device's network, for its page (Model.reachSetup): the meshes here,
+    its peer and how it was matched, what KDE Connect has been given, how
+    KDE Connect and adb reach it now, and whether this Wi-Fi likely keeps
+    its devices apart."""
+    kde = [a for a in (device.get("addresses") or []) if a]
+    peer, how = match_peer(device, meshes, record, kde + list(adb_addresses))
+    links = [{"kind": link_kind(a, meshes), "address": a} for a in kde]
+    if "Bluetooth" in (device.get("links") or []):
+        links.append({"kind": "bluetooth", "address": ""})
+    phones = [dict(p, mesh=m["mesh"], label=m["label"]) for m in meshes if m.get("on") for p in m.get("peers", [])
+              if p.get("address") and p.get("os") in ("android", "ios")]
+    out = {
+        "meshes": [{k: m.get(k) for k in ("mesh", "label", "on", "installed", "state")} for m in meshes],
+        "peer": {k: peer[k] for k in ("name", "mesh", "label", "address", "online")} if peer else None,
+        "match": how,
+        "candidates": [] if peer else [{k: p[k] for k in ("name", "mesh", "label", "address", "online")} for p in phones],
+        "added": bool(peer) and peer["address"] in custom,
+        # What this plugin gave KDE Connect before (a mesh address, an
+        # address typed on the page), and whether it is still there.
+        "given": record.get("address", ""), "givenKept": bool(record.get("address")) and record.get("address") in custom,
+        "typed": record.get("typed", ""), "typedKept": bool(record.get("typed")) and record.get("typed") in custom,
+        "links": links, "isolated": False,
+    }
+    # KDE Connect lost it while adb reaches it (so it is awake), and its
+    # Wi-Fi address on this computer's network does not answer: this Wi-Fi
+    # likely keeps its devices apart (guest or office Wi-Fi). Said as
+    # likely, never as certain.
+    here = [a for a in wifi if lan and inside(a, lan)]
+    if not device.get("reachable") and here and not (answers or lan_answers)(here[0]):
+        out["isolated"] = True
+    return out
+
+
+def inside(address, network):
+    try:
+        return ipaddress.ip_address(address) in ipaddress.ip_network(network, strict=False)
+    except ValueError:
+        return False
+
+
+def valid_address(text):
+    try:
+        ipaddress.ip_address(text)
+        return True
+    except ValueError:
+        return False
+
+
+def device_network(device_id, conn, p, serial=""):
+    """The `network` part of a device's features report."""
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    custom = list(daemon.get("customDevices") or [])
+    by_iface = device_addresses(serial) if serial else []
+    device = {"name": p.get("name"), "addresses": list(p.get("reachableAddresses") or []),
+              "links": list(p.get("activeProviderNames") or []), "reachable": bool(p.get("isReachable"))}
+    return reach_report(device, custom, mesh_status(), network_record(device_id),
+                        adb_addresses=[a for _, a in by_iface], wifi=[a for n, a in by_iface if n.startswith("wlan")],
+                        lan=local_network())
+
+
+def set_custom(conn, wanted):
+    call(conn, ROOT, "org.freedesktop.DBus.Properties", "Set",
+         (IFACE + ".daemon", "customDevices", GLib.Variant("as", wanted)), "(ssv)")
+
+
+def reach(device_id, address="", conn=None, meshes=None):
+    """Points KDE Connect at the device's address away from home: its mesh
+    address (matched, or picked on its page: `address` a peer's), or one the
+    user typed (`address`, any IP: a VPN, another network). The address this
+    plugin gave before for the same kind goes; the user's own stay."""
+    conn = conn or bus()
+    record = network_record(device_id)
+    p = props(conn, device_path(device_id), IFACE + ".device") or {}
+    if not p.get("isPaired"):
+        return say("Not a paired device", EXIT_FAILED)
+    name = p.get("name") or "the device"
+    meshes = mesh_status() if meshes is None else meshes
+    if address and not valid_address(address):
+        return say("Not an IP address: type one such as 192.168.1.20 or 100.101.102.103", EXIT_FAILED)
+    peers = [dict(q, mesh=m["mesh"]) for m in meshes for q in m.get("peers", []) if q.get("address")]
+    picked = next((q for q in peers if address and q["address"] == address), None)
+    if not address:
+        peer, _how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
+        if not peer:
+            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED)
+        picked, address = peer, peer["address"]
+    kind = "address" if picked else "typed"
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    wanted = with_address(current, record.get(kind, ""), address)
+    try:
+        if wanted != current:
+            set_custom(conn, wanted)
+        update = {kind: address}
+        if picked:
+            update.update(mesh=picked["mesh"], peer=picked["name"])
+        network_record(device_id, update)
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    # Here already (at home): the address is for when it is not.
+    if p.get("isReachable"):
+        return say("KDE Connect knows where to find %s away from home: %s" % (name, address))
+    if wait_reachable(device_id, conn):
+        return say("Connected again, through %s" % address)
+    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name))
+
+
+def unreach(device_id, kind="", conn=None):
+    """Takes the addresses this plugin gave KDE Connect for a device back
+    (`kind`: address, typed, or both); the user's own stay."""
+    conn = conn or bus()
+    if not (props(conn, device_path(device_id), IFACE + ".device") or {}).get("isPaired"):
+        return say("Not a paired device", EXIT_FAILED)
+    record = network_record(device_id)
+    kinds = [kind] if kind in ("address", "typed") else ["address", "typed"]
+    gone = [record.get(k) for k in kinds if record.get(k)]
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    wanted = [a for a in current if a not in gone]
+    try:
+        if wanted != current:
+            set_custom(conn, wanted)
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    clear = {k: "" for k in kinds}
+    if "address" in kinds:
+        clear.update(mesh="", peer="")
+    network_record(device_id, clear)
+    return say("KDE Connect forgot that address")
+
+
+def network_signature(run=None):
+    """What KDE Connect's reach depends on here: this computer's addresses,
+    by interface (Wi-Fi joined or left, a cable, a mesh coming up). Docker's
+    and virtual bridges are left out: they come and go with containers."""
+    run = run or subprocess.run
+    try:
+        addrs = json.loads(run(["ip", "-j", "-4", "addr"], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
+    out = []
+    for a in addrs:
+        name = a.get("ifname") or ""
+        if name == "lo" or name.startswith(("docker", "br-", "veth", "virbr")):
+            continue
+        out.extend("%s %s/%s" % (name, i.get("local"), i.get("prefixlen")) for i in a.get("addr_info") or [])
+    return " ".join(sorted(out))
+
+
+class NetWatch:
+    """Watches this computer's addresses (`ip monitor address`): after a
+    network change settles, `on_change()` once. KDE Connect asks Qt whether
+    the network changed, which needs NetworkManager; Omarchy's network has
+    no NetworkManager, so KDE Connect would wait for its own next broadcast.
+    Best effort: without `ip monitor`, the heartbeat compares (`check`)."""
+
+    SETTLE_MS = 2000
+
+    def __init__(self, on_change, signature=network_signature):
+        self.on_change = on_change
+        self.signature = signature
+        self.last = signature()
+        self.pending = 0
+        self.proc = None
+        try:
+            self.proc = subprocess.Popen(["ip", "-o", "monitor", "address"], stdout=subprocess.PIPE,
+                                         stderr=subprocess.DEVNULL, text=True)
+            GLib.io_add_watch(self.proc.stdout.fileno(), GLib.IO_IN | GLib.IO_HUP, self._line)
+        except OSError:
+            self.proc = None
+
+    def _line(self, _fd, condition):
+        if condition & GLib.IO_HUP:
+            return False
+        self.proc.stdout.readline()
+        if self.pending:
+            GLib.source_remove(self.pending)
+        self.pending = GLib.timeout_add(self.SETTLE_MS, self._settled)
+        return True
+
+    def _settled(self):
+        self.pending = 0
+        self.check()
+        return False
+
+    def check(self):
+        now = self.signature()
+        if now and now != self.last:
+            self.last = now
+            self.on_change()
+            return True
+        return False
+
+
 def device_fix(what, device_id, arg=""):
     """The fixes that act on one device, each a click's: a KDE Connect
     plugin, a permission (granted over adb, or its screen opened there), a
@@ -1978,6 +2518,10 @@ def device_fix(what, device_id, arg=""):
         return say("Reloaded its KDE Connect plugins")
     if what == "remount":
         return say("Its storage is mounted again") if remount(device_id) else say("The storage did not mount", EXIT_FAILED)
+    if what == "reach":
+        return reach(device_id, arg)
+    if what == "unreach":
+        return unreach(device_id, arg)
     status = screen_status(device_id)
     serial = status.get("serial") if status.get("state") == "ready" else ""
     if what == "grant":
@@ -2165,6 +2709,15 @@ def adb_identity(d, mdns):
     return ""
 
 
+def adb_via(d):
+    """How adb reaches a device: usb, wifi, or mesh (its serial's address is
+    a mesh's: Tailscale, Meshnet)."""
+    if d["usb"]:
+        return "usb"
+    host = d["serial"].rpartition(":")[0]
+    return "mesh" if re.match(r"^[\d.]+$", host) and inside(host, MESH_RANGE) else "wifi"
+
+
 def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None):
     """The adb serial for a KDE Connect device, and how it is reached:
     (serial, "wifi" | "usb", state) or (None, "", ""). The device's own
@@ -2176,9 +2729,10 @@ def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None)
     ids = identities or {}
     if serial:
         mine = [d for d in adb_devices if (ids.get(d["serial"]) or adb_identity(d, mdns)) == serial]
-        mine.sort(key=lambda d: (d["state"] != "device", not d["usb"]))
+        # USB first, then Wi-Fi, then the mesh (the slowest path).
+        mine.sort(key=lambda d: (d["state"] != "device", ["usb", "wifi", "mesh"].index(adb_via(d))))
         if mine:
-            return mine[0]["serial"], "usb" if mine[0]["usb"] else "wifi", mine[0]["state"]
+            return mine[0]["serial"], adb_via(mine[0]), mine[0]["state"]
     addresses = set(device.get("addresses") or [])
     hosts = {s["name"]: s["host"] for s in mdns if s["kind"] == "connect"}
     for d in adb_devices:
@@ -2186,7 +2740,7 @@ def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None)
             continue
         host = d["serial"].rpartition(":")[0] if re.match(r"^[\d.]+:\d+$", d["serial"]) else hosts.get(d["serial"].split(".")[0], "")
         if host and host in addresses:
-            return d["serial"], "wifi", d["state"]
+            return d["serial"], adb_via(d), d["state"]
     name = (device.get("name") or "").strip().lower()
     for d in adb_devices:
         if d["usb"] and name and ((names or {}).get(d["serial"], "").strip().lower() == name
@@ -2317,6 +2871,20 @@ def browse_adb_match(device, devices, known, status):
                 devices = parse_adb_devices(adb(["devices", "-l"])[1])
                 serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
                 break
+    if not serial and known:
+        # Away from this Wi-Fi, mDNS does not reach it: its mesh address,
+        # at the port Wireless debugging had last (a new port after a
+        # restart of it is found here by mDNS only).
+        net = network_record(device.get("id", "")).get("address")
+        port = screen_record(device.get("id", "")).get("port")
+        if net and port:
+            target = "%s:%s" % (net, port)
+            adb(["connect", target], timeout=8)
+            devices = parse_adb_devices(adb(["devices", "-l"])[1])
+            for d in devices:
+                if d["serial"] == target and d["state"] == "device":
+                    identities[target] = adb(["-s", target, "shell", "getprop", "ro.serialno"])[1].strip()
+            serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
     if not serial:
         usb = [d for d in devices if d["usb"]]
         names = {d["serial"]: adb(["-s", d["serial"], "shell", "settings", "get", "global", "device_name"])[1].strip()
@@ -2353,6 +2921,10 @@ def screen_status(device_id):
             ("off" if screen_record(device_id).get("paired") else "pair")
         return status
     status.update(serial=serial, via=via)
+    # Wireless debugging's port, for the mesh when this Wi-Fi is not around.
+    port = serial.rpartition(":")[2] if via in ("wifi", "mesh") else ""
+    if port.isdigit() and state == "device" and screen_record(device_id).get("port") != port:
+        screen_record(device_id, {"port": port})
     # Found by address or name: remember its own serial from now on.
     if state == "device" and not known:
         own = adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip()
