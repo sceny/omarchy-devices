@@ -33,6 +33,10 @@ GitHub release with these notes.
   feature needs here; a new pairing lands on the phone's main page.
 - **An iPhone** shows only what it can do; the away card keeps the likely
   causes behind *Why?*.
+- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
+  an open app's tile and the Screen shortcut say where its sound plays;
+  click (or `v`) for Here, On the phone or Both, and its volume here. The
+  window reopens in its place; an app keeps its choice.
 
 ## 0.8.0 — 2026-10-05
 

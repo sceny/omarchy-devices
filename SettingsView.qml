@@ -1292,7 +1292,7 @@ Column {
 
   // Where the screen opens: one of two, as a choice is drawn in Settings
   // (the chosen one filled), with a line on the chosen one.
-  // Where an app's sound plays (#116): one of two, as where the screen opens.
+  // Where an app's sound plays when it opens (#116, #129): one of three.
   component ScreenSoundRow: Column {
     id: ssr
     property var row: ({})
@@ -1340,6 +1340,21 @@ Column {
           fontFamily: root.fontFamily
           fontSize: Style.font.bodySmall
           onClicked: root.appSoundChosen("phone")
+        }
+        // Both (#129): here and on the device, Android 13.
+        Button {
+          readonly property string limit: ssr.row.limits ? ssr.row.limits.both : ""
+          text: "Both"
+          iconText: Model.GLYPH.devices
+          selected: ssr.row.sound === "both"
+          enabled: limit === ""
+          opacity: enabled ? 1 : 0.45
+          tooltipText: limit || "Here and on " + (ssr.row.device || "the device")
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("both")
         }
       }
     }

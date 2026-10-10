@@ -42,9 +42,16 @@ not re-printed, so the shell only wakes when something moved.
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
                                               an app tiled (--pop: Omarchy's pop-out), no
-                                              on-screen keyboard (--sound phone: its sound
-                                              stays on the device); returns once the
+                                              on-screen keyboard (--sound here|phone|both:
+                                              where its sound plays); returns once the
                                               window is there
+  kdeconnect-bridge screen-sound <device> here|phone|both [package] [label]
+                                              where a window's sound plays: kept for
+                                              next time, and its open window opened
+                                              again in its place with it
+  kdeconnect-bridge screen-volume <device> [package] [label] [--set 0-1] [--mute on|off|toggle]
+                                              a window's sound here, as JSON
+                                              ({found, volume, muted, output})
   kdeconnect-bridge screen-focus <device>          bring its open window forward
   kdeconnect-bridge screen-close <device>          close its open window
   kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
@@ -3059,8 +3066,8 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4, and the
-    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`:
-    "phone" leaves an app's sound on the device."""
+    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`
+    (SOUND_PLACES): where its sound plays."""
     # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
     # back and came in a late batch, after the turn they told of. Appended,
     # so the watcher can empty the file without leaving a hole.
@@ -3073,9 +3080,46 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
             cmd += ["--flex-display", "--display-ime-policy=hide"]
-        if sound == "phone":
-            cmd += ["--no-audio"]
-    return cmd
+    return cmd + sound_args(sound)
+
+
+# Where a window's sound plays (#129), as Model.SOUND_PLACES: here
+# (scrcpy's default source: the device's whole output, the device quiet
+# meanwhile), on the device (none forwarded), or both (what apps play,
+# captured while the device keeps playing it; Android 13). scrcpy cannot
+# switch while running: a change opens the window again.
+SOUND_PLACES = ("here", "phone", "both")
+SCREEN_SOUND = "@screen"   # the screen's own window, beside its apps
+
+
+def sound_args(sound):
+    if sound == "phone":
+        return ["--no-audio"]
+    if sound == "both":
+        return ["--audio-source=playback", "--audio-dup"]
+    return []
+
+
+def window_sounds(device_id, key=None, sound=None):
+    """Where each window last chose its sound to play ({package or
+    SCREEN_SOUND: place}); with a key and a place, records it. In the
+    cache beside opened.json: usage, not a setting."""
+    path = os.path.join(apps_dir(device_id), "sound.json")
+    try:
+        with open(path) as f:
+            sounds = json.load(f)
+        if not isinstance(sounds, dict):
+            sounds = {}
+    except (OSError, ValueError):
+        sounds = {}
+    sounds = {k: v for k, v in sounds.items() if v in SOUND_PLACES}
+    if key and sound in SOUND_PLACES:
+        sounds[key] = sound
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(sounds, f)
+        os.replace(tmp, path)
+    return sounds
 
 
 def launch_or_focus(title, cmd):
@@ -3159,6 +3203,203 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     if win:
         dock_window(win, docked, disp, rect)
     return say("Opens under the bar" if docked else "Opens as a window")
+
+
+# ---- A window's sound (#129): where it plays, changed while it is open ----
+# scrcpy picks its sound source as it starts, so a change opens the window
+# again: closed, and opened where it was (a floating window by a rule at
+# its own rectangle; a tiled one moved back to the side its tile was on,
+# measured and corrected, since the layout splits the focused tile and
+# puts the new window on its right or below).
+
+REOPEN_WAIT_SEC = 3
+
+
+def hypr_dispatch(lua):
+    subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+
+
+def window_place(win, mons, border=0):
+    """Where an open window is, to open it again there."""
+    tags = [str(t).rstrip("*") for t in win.get("tags") or []]
+    return {"floating": bool(win.get("floating")), "pinned": bool(win.get("pinned")),
+            "rect": resting(win, mons, border), "at": list(win.get("at") or [0, 0]), "size": list(win.get("size") or [0, 0]),
+            "workspace": (win.get("workspace") or {}).get("id"), "pop": "pop" in tags}
+
+
+def side_of(win, place):
+    """The way from where `win` is to where the window was ("l", "r", "u",
+    "d"), or None when it is there (its middle within a quarter of a tile)."""
+    (x, y), (w, h) = win.get("at") or [0, 0], win.get("size") or [0, 0]
+    (ox, oy), (ow, oh) = place["at"], place["size"]
+    dx, dy = (ox + ow / 2) - (x + w / 2), (oy + oh / 2) - (y + h / 2)
+    if abs(dx) <= max(w, ow) / 4 and abs(dy) <= max(h, oh) / 4:
+        return None
+    if abs(dx) >= abs(dy):
+        return "r" if dx > 0 else "l"
+    return "d" if dy > 0 else "u"
+
+
+def tile_back(place, win, run=hypr_dispatch, look=None, sleep=time.sleep):
+    """A tiled window opened again, moved back to its workspace and to the
+    side its tile was on; True once it is there."""
+    look = look or (lambda: find_window(win.get("title", "")))
+    q = lua_string("address:" + win["address"])
+    ws = place.get("workspace")
+    if ws is not None and (win.get("workspace") or {}).get("id") != ws:
+        run('hl.dsp.window.move({ window = %s, workspace = "%s", follow = false })' % (q, ws))
+        sleep(0.12)
+        win = look() or win
+    for _ in range(2):
+        way = side_of(win, place)
+        if not way:
+            return True
+        run('hl.dsp.window.swap({ window = %s, direction = "%s" })' % (q, way))
+        sleep(0.12)
+        win = look() or win
+    return side_of(win, place) is None
+
+
+def same_window(a, b):
+    """Whether two looks are one window: by Hyprland's stable id, since a
+    new window can take a closed one's address (it is a pointer)."""
+    if a.get("stableId") is not None and b.get("stableId") is not None:
+        return a["stableId"] == b["stableId"]
+    return a.get("address") == b.get("address")
+
+
+def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=None, border=0):
+    """Closes an open window and opens it again in its place (`launch`
+    starts it; `look()` finds it by its title). True once it is back."""
+    place = window_place(win, mons if mons is not None else hypr_json("monitors"), border)
+    run("hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"]))
+    for _ in range(REOPEN_WAIT_SEC * 4):
+        now = look()
+        if not now or not same_window(now, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    launch()
+    for _ in range(WINDOW_WAIT_SEC * 4):
+        new = look()
+        if new and not same_window(new, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    q = lua_string("address:" + new["address"])
+    if place["floating"]:
+        if bool(new.get("pinned")) != place["pinned"]:
+            run("hl.dsp.window.pin({ window = %s })" % q)
+        if place["pop"]:
+            run('hl.dsp.window.tag({ window = %s, tag = "+pop" })' % q)
+        return True
+    sleep(0.12)   # tiled into its place first
+    return tile_back(place, look() or new, run, look, sleep)
+
+
+def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep):
+    """Where a window's sound plays: kept as its next default (the screen's,
+    or that app's), and, its window open, opened again in its place with
+    it."""
+    if sound not in SOUND_PLACES:
+        return say("A sound plays here, on the phone or both", EXIT_FAILED)
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name, label)
+    window_sounds(device_id, package or SCREEN_SOUND, sound)
+    what = label or name + "'s screen"
+    where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
+    win = find_window(title)
+    if not win:
+        return say("%s plays its sound %s next time" % (what, where))
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED)
+    border = border_size()
+    mons = hypr_json("monitors")
+    disp = status.get("display") or device_display(status["serial"])
+    aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
+    top = next(((m.get("reserved") or [0, 0])[1] for m in mons if m.get("focused")), 0)
+    # A floating window (docked, popped out) comes back exactly where it is
+    # now, by the rule; a tiled one goes where the layout puts it, then back.
+    floating = bool(win.get("floating"))
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, floating,
+                                                     resting(win, mons, border) if floating else None, border)],
+                   capture_output=True, timeout=5)
+    log = screen_log(title) if not package else ""
+
+    def start():
+        if log:
+            open(log, "w").close()   # a fresh log for the watcher
+        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
+        (launch or (lambda c: launch_or_focus(title, c)))(cmd)
+
+    if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED)
+    return say("%s plays its sound %s" % (what, where))
+
+
+# Its sound here: scrcpy's PipeWire stream, found by the window's process
+# (wpctl's volume, the same scale as Omarchy's own volume controls).
+
+def parse_wpctl_volume(text):
+    """(volume, muted) from `wpctl get-volume`: "Volume: 0.40 [MUTED]"."""
+    m = re.search(r"Volume:\s*([0-9.]+)", text or "")
+    return (float(m.group(1)) if m else 0.0), "[MUTED]" in (text or "")
+
+
+def window_stream(pid, dump):
+    """The id of the window's own sound stream (a PipeWire node of its
+    process, from pw-dump), and the name of this computer's output it
+    plays on. A lone scrcpy stream counts when no process matches (a
+    launcher in between)."""
+    props = lambda n: (n.get("info") or {}).get("props") or {}
+    nodes = [o for o in dump if o.get("type") == "PipeWire:Interface:Node"]
+    streams = [n for n in nodes if props(n).get("media.class") == "Stream/Output/Audio"]
+    # The process is the stream's client's (its node seldom says it).
+    clients = {o.get("id"): props(o) for o in dump if o.get("type") == "PipeWire:Interface:Client"}
+    of = lambda n, key: props(n).get(key) or clients.get(props(n).get("client.id"), {}).get(key)
+    mine = [n for n in streams if pid and str(of(n, "application.process.id")) == str(pid)]
+    if not mine:
+        scrcpy = [n for n in streams if "scrcpy" in str(of(n, "application.process.binary") or of(n, "application.name") or "").lower()]
+        mine = scrcpy if len(scrcpy) == 1 else []
+    sink = ""
+    for o in dump:
+        if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "default":
+            for e in o.get("metadata") or []:
+                if e.get("key") == "default.audio.sink":
+                    v = e.get("value")
+                    sink = v.get("name", "") if isinstance(v, dict) else str(v or "")
+    output = next((props(n).get("node.description") or props(n).get("node.nick") or ""
+                   for n in nodes if sink and props(n).get("node.name") == sink), "")
+    return (mine[0].get("id") if mine else None), output
+
+
+def screen_volume(device_id, package="", label="", level=None, mute=None, run=None, dump=None):
+    """A window's sound here: {found, volume, muted, output}; `level` (0–1)
+    and `mute` ("on", "off", "toggle") set it first. Never the device's
+    own volume: that is Now playing's."""
+    run = run or (lambda args: subprocess.run(args, capture_output=True, text=True, timeout=5).stdout)
+    device = screen_device(device_id) or {}
+    win = find_window(screen_title(device.get("name") or "Device", label))
+    if not win:
+        return {"found": False, "volume": 0, "muted": False, "output": ""}
+    if dump is None:
+        try:
+            dump = json.loads(run(["pw-dump"]) or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            dump = []
+    node, output = window_stream(win.get("pid"), dump)
+    if node is None:
+        return {"found": False, "volume": 0, "muted": False, "output": output}
+    if level is not None:
+        run(["wpctl", "set-volume", str(node), "%.2f" % max(0.0, min(1.0, level))])
+    if mute in ("on", "off", "toggle"):
+        run(["wpctl", "set-mute", str(node), {"on": "1", "off": "0"}.get(mute, "toggle")])
+    volume, muted = parse_wpctl_volume(run(["wpctl", "get-volume", str(node)]))
+    return {"found": True, "volume": volume, "muted": muted, "output": output}
 
 
 # ---- Apps: the device's apps and their icons -------------------------------
@@ -3277,7 +3518,7 @@ def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None)
         mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
         shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
                       "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
-    return {"state": state if not shown else "ready", "at": at, "apps": shown}
+    return {"state": state if not shown else "ready", "at": at, "apps": shown, "sounds": window_sounds(device_id)}
 
 
 class PhoneReader:
@@ -4921,6 +5162,29 @@ def main(argv):
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         return screen_dock(argv[1], argv[2] == "on", rect=at, ctx=ctx)
+    if argv[0] == "screen-sound":
+        if len(argv) < 3:
+            return say("screen-sound needs a device id and here, phone or both", EXIT_FAILED)
+        return screen_sound(argv[1], argv[2], argv[3] if len(argv) > 3 else "", argv[4] if len(argv) > 4 else "")
+    if argv[0] == "screen-volume":
+        if len(argv) < 2:
+            return say("screen-volume needs a device id", EXIT_FAILED)
+        opt = lambda flag: next((argv[i + 1] for i, a in enumerate(argv) if a == flag and i + 1 < len(argv)), None)
+        rest, skip = [], False
+        for a in argv[2:]:
+            if skip:
+                skip = False
+            elif a in ("--set", "--mute"):
+                skip = True
+            else:
+                rest.append(a)
+        try:
+            level = float(opt("--set")) if opt("--set") is not None else None
+        except ValueError:
+            return say("--set takes a level from 0 to 1", EXIT_FAILED)
+        print(json.dumps(screen_volume(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
+                                       level=level, mute=opt("--mute"))))
+        return EXIT_OK
     if argv[0] == "apps":
         if len(argv) < 2:
             return say("apps needs a device id", EXIT_FAILED)

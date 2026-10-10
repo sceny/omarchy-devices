@@ -341,6 +341,21 @@ Keep them; change one only with the owner.
   app (the package is in KDE Connect's id, Android's key), never the
   message itself (#122). Opening a real app in a check is the owner's
   go, as the screen is.
+- **Each window chooses where its sound plays** (#129): *Here*
+  (scrcpy's default: the device's whole output, the device quiet), *On
+  the phone* (`--no-audio`) or *Both* (`--audio-source=playback
+  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
+  the Screen shortcut's speaker for the screen), on a card over the
+  panel. scrcpy cannot switch while running, so a choice closes the
+  window and opens it again in its place (`screen-sound`: a floating one
+  by a rule at its own rectangle, a tiled one swapped back to its side,
+  measured). An app's choice is its next default (`sound.json`, in the
+  cache beside `opened.json`: usage, never `shell.json`); otherwise the
+  device's `appSound`, with the quiet rule; the screen keeps *Here* until
+  chosen. Its volume here is the window's own PipeWire stream
+  (`screen-volume`, `wpctl`), never this computer's whole output nor the
+  device's volume.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a

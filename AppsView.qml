@@ -31,6 +31,7 @@ Item {
   signal pinAtRequested(var app, int at)
   signal pinMoved(int from, int to)
   signal forgetRequested(var app)
+  signal soundRequested(var app)       // an open app's badge (#129)
   signal refreshRequested()
   signal hovered()
 
@@ -185,6 +186,7 @@ Item {
       onReordered: function(a, b) { view.pinMoved(a, b) }
       onPinRequested: function(app, at) { view.pinAtRequested(app, at) }
       onUnpinRequested: function(app) { view.pinRequested(app, false) }
+      onSoundRequested: function(app) { view.soundRequested(app) }
     }
 
     PanelSectionHeader {
@@ -234,6 +236,7 @@ Item {
           foreground: view.foreground
           fontFamily: view.fontFamily
           onActivated: function(pop) { view.openRequested(modelData, pop) }
+          onSoundRequested: view.soundRequested(modelData)
           onPinToggled: view.pinRequested(modelData, !pinned)
           canForget: true
           onForgetRequested: view.forgetRequested(modelData)
@@ -281,6 +284,7 @@ Item {
           foreground: view.foreground
           fontFamily: view.fontFamily
           onActivated: function(pop) { view.openRequested(modelData, pop) }
+          onSoundRequested: view.soundRequested(modelData)
           onPinToggled: view.pinRequested(modelData, !pinned)
           onHovered: { view.cursor = view.allBase + index; view.hovered() }
         }

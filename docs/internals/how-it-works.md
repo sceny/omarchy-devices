@@ -62,6 +62,8 @@ working and KDE Connect's link is the one problem.
 | `screen <id>` | The screen link: tools, pair, off, away, unauthorized or ready, and whether it is locked. |
 | `screen-open <id> [package] [label]` | Its screen docked (or `--tiled`), or an app tiled (or `--pop`); waits for an unlock. |
 | `screen-watch`, `screen-pair`, `screen-dock` | The docked screen following turns; pairing by QR code; docking an open window. |
+| `screen-sound <id> here\|phone\|both [package] [label]` | Where a window's sound plays: kept per app (`apps-<id>/sound.json`, the cache), and an open window closed and opened again in its place (floating: a rule at its rectangle; tiled: swapped back to its side, measured). scrcpy: nothing (the whole output, the device quiet), `--no-audio`, or `--audio-source=playback --audio-dup`. |
+| `screen-volume <id> [package] [label] [--set L] [--mute M]` | Its sound here: the window's own PipeWire stream (by its process, from `pw-dump`), set with `wpctl`; never the device's volume. |
 | `apps <id>`, `icons <id>` | Its apps from the cache (from the device once a day); their icons, decoded in a sandbox. |
 
 ## Motion

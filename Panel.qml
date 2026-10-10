@@ -358,6 +358,7 @@ Panel {
     if (opened) { openingGone.stop(); screenOpening = null; cardMorphing = false }
     else {
       screenWaitOpen = ""   // closed: no longer waiting to open the screen
+      soundTarget = null    // the sound card goes with the panel
       // A password card not answered goes with the last panel: nothing
       // runs (another monitor's panel may still show it).
       if (phone && phone.rootAsk && phone.openPanels <= 1) phone.cancelRoot()
@@ -631,7 +632,12 @@ Panel {
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "fitTile") toggleScreenFit(screenId)
-    else if (key === "appSound") setAppSound(screenId, appSoundFor(screenId) === "phone" ? "here" : "phone")
+    else if (key === "appSound") {
+      // Enter: the next of the three it can offer.
+      var limits = Model.soundLimits(phone.screenOf(screenId))
+      var places = Model.SOUND_PLACES.filter(function(p) { return limits[p] === "" })
+      setAppSound(screenId, places[(places.indexOf(appSoundFor(screenId)) + 1) % places.length])
+    }
   }
   // Read again while the page shows (a setting turned on, the cable
   // plugged in, the install done); a pairing on the page stops when it goes.
@@ -1616,7 +1622,12 @@ Panel {
   // ---- Apps (#116): the device's apps, each in a window here. The list is
   //      read only for a device whose screen is set up (screen.json) ----
   readonly property var appList: phone && device ? phone.appsOf(String(device.id)) : null
-  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id) ? appList.apps : []
+  // Each with its window when it is open here (`open`, and where its sound
+  // plays: the tile's badge, #129).
+  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id)
+    ? Model.withWindows(appList.apps, phone.appWindowsOf(String(device.id)),
+                        Object.assign({}, appList.sounds || {}, phone.windowSounds[String(device.id)] || {}), appSoundFor(device.id))
+    : []
   readonly property var pinnedApps: profile.pinnedApps || []
   readonly property int appColumns: 5
   // The section: PINNED (every pinned app, wrapping), then RECENT (one row,
@@ -1673,13 +1684,81 @@ Panel {
   }
   // Tiled, always the default; `pop` (Shift+Enter, Shift+click): as
   // Omarchy's pop-out instead.
-  // Its sound stays on the device, quietly, while something else plays
-  // there (Model.appSound): scrcpy would take the device's whole sound.
+  // Its sound: the app's own last choice; else it stays on the device,
+  // quietly, while something else plays there (Model.appSound): scrcpy
+  // would take the device's whole sound.
   function openApp(app, pop) {
     if (!phone || !device || !app) return
     var id = String(device.id)
     var st = phone.deviceStates[id] || {}
-    phone.pressApp(id, app, Model.appSound(appSoundFor(id), st.playingApps || [], app.name).sound, pop === true)
+    phone.pressApp(id, app, Model.appSound(appSoundFor(id), st.playingApps || [], app.name, phone.rememberedSound(id, app.package)).sound, pop === true)
+  }
+
+  // ---- A window's sound (#129): the card over the panel, for an open
+  //      app's window or the screen's; a choice opens it again in its place ----
+  property var soundTarget: null          // { id, pkg, label, device: its name } while the card shows
+  property int soundCursor: 0             // the keys' place among the three
+  readonly property var soundCard: soundTarget && phone
+    ? Model.windowSoundCard({ label: soundTarget.label },
+                            phone.windowSoundOf(soundTarget.id, soundTarget.pkg || Model.SCREEN_SOUND)
+                              || (soundTarget.pkg ? phone.rememberedSound(soundTarget.id, soundTarget.pkg) || appSoundFor(soundTarget.id)
+                                                  : Model.screenSound(phone.rememberedSound(soundTarget.id, Model.SCREEN_SOUND))),
+                            phone.windowStream && phone.windowStream.key === soundTarget.id + ":" + (soundTarget.pkg || Model.SCREEN_SOUND) ? phone.windowStream : null,
+                            soundTarget.device, phone.screenOf(soundTarget.id))
+    : null
+  // Where the viewed device's open screen plays its sound now.
+  readonly property string screenSoundNow: phone && device
+    ? (phone.windowSoundOf(String(device.id), Model.SCREEN_SOUND) || Model.screenSound(phone.rememberedSound(String(device.id), Model.SCREEN_SOUND)))
+    : "here"
+  // `app` null: the screen's window.
+  function openSoundCard(app) {
+    if (!phone || !device) return
+    var id = String(device.id)
+    soundTarget = { id: id, pkg: app ? app.package : "", label: app ? app.name : "", device: Model.deviceLabel(device) }
+    var sel = soundCard ? soundCard.options.findIndex(function(o) { return o.selected }) : 0
+    soundCursor = Math.max(0, sel)
+    phone.windowStream = null
+    phone.readWindowStream(id, soundTarget.pkg, soundTarget.label)
+    if (!phone.demo && phone.screenOf(id) === null) phone.readScreen(id)
+  }
+  function closeSoundCard() { soundTarget = null }
+  // For checks (IPC soundInfo).
+  function soundInfo() {
+    var c = soundCard
+    return JSON.stringify({ open: !!soundTarget, target: soundTarget, cursor: soundCursor,
+                            options: c ? c.options.map(function(o) { return o.key + (o.selected ? "*" : "") + (o.enabled ? "" : "(" + o.hint + ")") }) : [],
+                            line: c ? c.line : "", volume: c ? c.volume : false, level: c ? c.level : 0, muted: c ? c.muted : false,
+                            output: c ? c.output : "", screen: screenSoundNow })
+  }
+  function chooseSound(key) {
+    if (!soundTarget || !soundCard) return
+    var o = soundCard.options.filter(function(x) { return x.key === key })[0]
+    if (!o || !o.enabled) return
+    if (o.selected) return
+    var t = soundTarget
+    phone.setWindowSound(t.id, t.pkg, t.label, key)
+    // It opens again with it: the card goes, the toast says where it plays.
+    closeSoundCard()
+  }
+  function soundVolume(level) {
+    if (soundTarget && phone) phone.readWindowStream(soundTarget.id, soundTarget.pkg, soundTarget.label, { level: level })
+  }
+  function soundMute() {
+    if (soundTarget && phone) phone.readWindowStream(soundTarget.id, soundTarget.pkg, soundTarget.label, { mute: "toggle" })
+  }
+  // The key `v` on an open app's tile, or on the Screen shortcut while its
+  // window is open: its sound card.
+  function soundKey() {
+    if (!mainView || !cursorActive || !device) return false
+    if (focusSection === "apps") {
+      var app = sectionApps[appIndex]
+      if (app && app.open) { openSoundCard(app); return true }
+    }
+    if (focusSection === "actions") {
+      var a = actions[actionIndex]
+      if (a && a.key === "screen" && actionOn("screen")) { openSoundCard(null); return true }
+    }
+    return false
   }
   // The app a notification opens in a window here, or null. Before the
   // device's screen is set up, its package from the notification and the
@@ -2575,6 +2654,25 @@ Panel {
     function cancelRoot(): string { if (root.phone) root.phone.cancelRoot(); return "cancelled" }
     function rootAsk(): string { return JSON.stringify(root.phone ? root.phone.rootAsk : null) }
     function pinApp(pkg: string, on: bool): string { root.pinApp({ package: pkg }, on); return root.appsInfo() }
+    // A window's sound (#129), as its tile's badge and the card's clicks
+    // would: the card for an app (its package) or the screen (""); a place
+    // chosen (it opens again); the card's volume here; what it shows.
+    // demoWindow marks a demo app's window open (its badge), never a real one.
+    function soundCard(pkg: string): string {
+      var app = pkg === "" ? null : root.allApps.filter(function(a) { return a.package === pkg })[0]
+      if (pkg !== "" && !app) return "no such app"
+      root.openSoundCard(app)
+      return root.soundInfo()
+    }
+    function chooseSound(key: string): string { root.chooseSound(key); return root.soundInfo() }
+    function soundVolume(level: real): string { root.soundVolume(level); return "ok" }
+    function soundMute(): string { root.soundMute(); return "ok" }
+    function soundInfo(): string { return root.soundInfo() }
+    function demoWindow(name: string, open: bool): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.phone.setDemoWindow(name, open)
+      return JSON.stringify(root.allApps.filter(function(a) { return a.open }).map(function(a) { return a.name + ":" + a.sound }))
+    }
     function pressDelete(): string { keyCatcher.deleteRequested(); return root.appsInfo() }
     // The right-click menu, opened as a right-click at x, y would.
     function pageMenu(x: int, y: int): string { root.openPageMenu(x, y); return JSON.stringify({ open: root.pageMenuOpen }) }
@@ -2791,6 +2889,20 @@ Panel {
         || (root.appsOpen && !!appsView && appsView.searchFocused)
 
       onMoveRequested: function(dx, dy) {
+        // The sound card: ← → among its places, ↑ ↓ its volume here.
+        if (root.soundTarget) {
+          if (dx !== 0 && root.soundCard) {
+            var n = root.soundCard.options.length, i = root.soundCursor
+            for (var step = 0; step < n; step++) {
+              i = Math.max(0, Math.min(n - 1, i + dx))
+              if (root.soundCard.options[i].enabled) break
+            }
+            if (root.soundCard.options[i].enabled) root.soundCursor = i
+          }
+          if (dy !== 0 && root.soundCard && root.soundCard.volume)
+            root.soundVolume(Math.max(0, Math.min(1, root.soundCard.level - dy * 0.05)))
+          return
+        }
         if (root.messagesOpen) { messagesView.moveKey(dx, dy); return }
         if (root.contactsOpen) { contactsView.moveKey(dx, dy); return }
         // A key moved it: the cursor slides, and the page follows it.
@@ -2813,6 +2925,7 @@ Panel {
       }
       onActivateRequested: {
         if (root.phone && root.phone.rootAsk) { root.phone.confirmRoot(); return }
+        if (root.soundTarget) { if (root.soundCard) root.chooseSound(root.soundCard.options[root.soundCursor].key); return }
         if (root.messagesOpen) { messagesView.activateCursor(); return }
         if (root.contactsOpen) { contactsView.activateCursor(); return }
         if (!root.cursorActive) return
@@ -2838,6 +2951,7 @@ Panel {
       }
       onCloseRequested: {
         if (root.phone && root.phone.rootAsk) root.phone.cancelRoot()
+        else if (root.soundTarget) root.closeSoundCard()
         else if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
@@ -2883,6 +2997,7 @@ Panel {
         onActivated: if (contactsView) contactsView.pageCursor(-1)
       }
       onTextKey: function(t) {
+        if (root.soundTarget) { if (t === "m" && root.soundCard && root.soundCard.volume) root.soundMute(); return }
         if (root.contactsOpen) {
           if (!contactsView) return
           if (t === "/") contactsView.focusSearch()
@@ -2905,6 +3020,7 @@ Panel {
         if (root.appsOpen) {
           if (!appsView) return
           if (t === "/") appsView.focusSearch()
+          else if (t === "v" && root.cursorActive && (appsView.stops[appsView.cursor] || {}).open) root.openSoundCard(appsView.stops[appsView.cursor])
           else if (t === "p" && root.cursorActive) appsView.togglePin()
           else if ((t === "H" || t === "L") && root.cursorActive) appsView.movePinnedKey(t === "H" ? -1 : 1)
           else if (t === "m") root.openMessagesView(-1)
@@ -2912,6 +3028,7 @@ Panel {
         }
         if (t === "m") { root.openMessagesView(-1); return }
         if (t === "a" && root.mainView && root.allApps.length > 0) { root.openAppsView(); return }
+        if (t === "v" && root.soundKey()) return
         if (root.settingsOpen) {
           var row = root.settingsRows[root.settingsIndex]
           // Shift+K / Shift+J glide the row like its arrows (Reorder).
@@ -3016,16 +3133,144 @@ Panel {
       Rectangle {
         anchors.fill: parent
         z: 11
-        visible: rootCard.visible
+        visible: rootCard.visible || soundBox.visible
         radius: Style.cornerRadius
-        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * rootCard.opacity)
+        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * Math.max(rootCard.opacity, soundBox.opacity))
         MouseArea {
           anchors.fill: parent
           hoverEnabled: true
           acceptedButtons: Qt.AllButtons
           onWheel: function(wheel) { wheel.accepted = true }
+          // The sound card goes with a click beside it; the password card stays.
+          onClicked: if (root.soundTarget && !(root.phone && root.phone.rootAsk)) root.closeSoundCard()
         }
       }
+      // ---- A window's sound (#129): where an open window's sound plays,
+      //      chosen on its tile (the badge, v); its volume here while it
+      //      plays here (its own stream, never the device's volume) ----
+      BorderSurface {
+        id: soundBox
+        // Kept while it fades, so the text does not blank mid-fade.
+        property var shown: null
+        readonly property var card: root.soundCard
+        onCardChanged: if (card) shown = card
+        z: 12
+        anchors.centerIn: parent
+        width: Math.min(parent.width - Style.space(32), Style.space(420))
+        height: soundColumn.implicitHeight + Style.space(28)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+        opacity: root.soundTarget && !(root.phone && root.phone.rootAsk) ? 1 : 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: (root.soundTarget ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        MouseArea { anchors.fill: parent }   // the panel under it takes no click
+
+        Column {
+          id: soundColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.space(14)
+          spacing: Style.space(8)
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            elide: Text.ElideRight
+            text: soundBox.shown ? soundBox.shown.title : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.body
+            font.bold: true
+          }
+          Row {
+            spacing: Style.space(4)
+            Repeater {
+              model: soundBox.shown ? soundBox.shown.options : []
+              Button {
+                required property var modelData
+                required property int index
+                text: modelData.label
+                iconText: modelData.glyph
+                tooltipText: modelData.hint
+                selected: modelData.selected
+                hasCursor: root.soundCursor === index
+                enabled: modelData.enabled
+                opacity: modelData.enabled ? 1 : 0.45
+                bordered: true
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+                fontSize: Style.font.bodySmall
+                onHovered: function(on) { if (on && modelData.enabled) root.soundCursor = index }
+                onClicked: root.chooseSound(modelData.key)
+              }
+            }
+          }
+          Text {
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: soundBox.shown ? soundBox.shown.line : ""
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+          // Its volume here: the window's own stream, as Omarchy's volume
+          // controls set a stream.
+          RowLayout {
+            visible: !!soundBox.shown && soundBox.shown.volume
+            width: parent.width
+            spacing: Style.space(8)
+            PanelActionButton {
+              iconText: soundBox.shown && (soundBox.shown.muted || soundBox.shown.level <= 0.001) ? Model.GLYPH.volumeOff : Model.GLYPH.volume
+              tooltipText: soundBox.shown && soundBox.shown.muted ? "Unmute it here (m)" : "Mute it here (m)"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              onClicked: root.soundMute()
+            }
+            PanelSlider {
+              id: windowVolume
+              Layout.fillWidth: true
+              bar: root.bar
+              minimum: 0
+              maximum: 1
+              step: 0.05
+              value: soundBox.shown ? soundBox.shown.level : 0
+              onReleased: function(v) { root.soundVolume(v) }
+            }
+            Text {
+              textFormat: Text.PlainText
+              Layout.preferredWidth: Style.space(34)
+              horizontalAlignment: Text.AlignRight
+              text: Math.round((windowVolume.dragging ? windowVolume.liveValue : windowVolume.value) * 100) + "%"
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+          }
+          Text {
+            visible: text !== ""
+            width: parent.width
+            textFormat: Text.PlainText
+            wrapMode: Text.WordWrap
+            text: soundBox.shown ? [soundBox.shown.output, soundBox.shown.note].filter(function(s) { return s }).join(" · ") : ""
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+          Row {
+            anchors.right: parent.right
+            Button {
+              text: "Done"
+              foreground: root.foreground
+              fontFamily: root.fontFamily
+              fontSize: Style.font.bodySmall
+              onClicked: root.closeSoundCard()
+            }
+          }
+        }
+      }
+
       // ---- A password, only for what is shown: why, and every action that
       //      runs with it; Continue brings the prompt, Cancel or Esc does not ----
       BorderSurface {
@@ -4485,6 +4730,7 @@ Panel {
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
                       onUnpinRequested: function(app) { root.pinApp(app, false) }
+                      onSoundRequested: function(app) { root.openSoundCard(app) }
                       onAllRequested: root.openAppsView()
                     }
 
@@ -4534,6 +4780,7 @@ Panel {
                           onDragMoved: function(dx, dy, at) { sectionPins.externalMove(modelData, at) }
                           onDragEnded: function(at) { sectionPins.externalDrop(modelData, at) }
                           onActivated: function(pop) { root.openApp(modelData, pop) }
+                          onSoundRequested: root.openSoundCard(modelData)
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true
                           onForgetRequested: root.forgetApp(modelData)
@@ -5314,6 +5561,7 @@ Panel {
                 onPinAtRequested: function(app, at) { root.pinAppAt(app, at) }
                 onPinMoved: function(a, b) { root.movePinned(a, b) }
                 onForgetRequested: function(app) { root.forgetApp(app) }
+                onSoundRequested: function(app) { root.openSoundCard(app) }
                 onRefreshRequested: if (root.device) root.readAppsFor(String(root.device.id), true)
                 onHovered: root.cursorActive = true
                 onSearchFocusedChanged: {
@@ -6226,6 +6474,19 @@ Panel {
       foreground: root.foreground
       fontFamily: root.fontFamily
       onClicked: if (root.phone && root.device) root.phone.closeScreen(String(root.device.id))
+    }
+    // Where its sound plays (#129), at the other corner.
+    PanelActionButton {
+      visible: tile.isOn
+      anchors.top: parent.top
+      anchors.left: parent.left
+      anchors.margins: Style.space(2)
+      size: Style.space(18)
+      iconText: ({ phone: Model.GLYPH.phone, both: Model.GLYPH.devices })[root.screenSoundNow] || Model.GLYPH.volume
+      tooltipText: "Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it (v)"
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onClicked: root.openSoundCard(null)
     }
 
     PanelToolTip {
