@@ -11,8 +11,9 @@ GitHub release with these notes.
 ### Highlights
 
 - **Contacts**: the phone's address book in the panel, two panes like
-  Messages: a searchable list, each person with their photo, and the full
-  card (numbers, emails, addresses, websites, birthday, note, photo).
+  Messages: a searchable list, each person with their photo in a circle,
+  and the full card (numbers, emails, addresses, websites, birthday, note,
+  photo).
   *Message* starts a text, *Call* opens the dialer on the phone, an email
   opens the mail app, an address Omarchy's Google Maps, a website the
   browser, *Copy* takes a detail; read-only. Add the
