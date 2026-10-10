@@ -3,8 +3,10 @@
 Read this before changing, testing or diagnosing anything here. Two skills carry
 the procedures:
 
-- `.claude/skills/develop-panel/`: how to change it and see the change working.
+- `.claude/skills/develop-panel/`: how to change it and see the change working, in the rig.
 - `.claude/skills/diagnose-panel/`: something looks wrong in the bar or panel, and why.
+
+All development and testing happens in the hidden rig (`dev/rig`, *Workflow*).
 
 ## What this is
 
@@ -528,17 +530,26 @@ Keep them; change one only with the owner.
   unreviewed code to anyone who installs or updates, and shows the listing
   as *Update unverified*. `develop` is where work lands. Keep `main` the
   GitHub default branch.
+- **Develop and test in the rig, never on the owner's desktop or phone.**
+  `dev/rig up` starts a hidden second shell with the working tree installed
+  as the plugin and a small Android emulator paired to a private KDE Connect
+  daemon; `dev/rig sync`, `ipc`, `phone`, `screenshot`, `check` and `down`
+  do everything the checks in the skills need (`docs/internals/development.md`).
+  The owner's shell, Hyprland, `~/.config`, KDE Connect daemon, adb server
+  and phone are never driven, restarted or written to by an agent; the owner
+  is asked only to look at a finished result (`dev/rig show`). A rig is
+  always taken down (`dev/rig down`, then `dev/rig verify-clean`), and
+  nothing is ever killed by process name.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
-  green, the change checked in a running shell (check the branch out in the
-  installed clone), squash-merge, delete the branch. `Closes #n` in a pull
+  green, the change checked in the rig, squash-merge, delete the branch. `Closes #n` in a pull
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
-- **Without a running Omarchy shell** (a cloud session, a machine without
-  Omarchy), do the rest (code, tests, CI, the pull request), say in the pull
-  request that the change is not checked in a running shell, and leave the
-  merge until someone checks it there.
+- **Without the rig** (a cloud session, a machine without Omarchy, `labwc`
+  or an Android SDK), do the rest (code, tests, CI, the pull request), say in
+  the pull request that the change is not checked in a running shell, and
+  leave the merge until someone checks it there.
 - **Check the freeze before merging anything into `main`**, and whenever
   you look at the open issues. It takes two steps:
   each open `marketplace-review` issue here points to a marketplace issue,
@@ -559,11 +570,12 @@ Keep them; change one only with the owner.
     on our issue, and close it.
   - No output: nothing is under review.
 - **Keep the repository apart from the installed copy.** Work in your own
-  clone, outside the shell's plugin folder. The plugin folder holds an
-  installed copy following `develop`; update it with `git pull`
-  (`omarchy plugin update` reads `main` and does not bring `develop`
-  changes). To check a branch live, push it, `git switch` to it in the
-  installed copy, and switch back to `develop` afterwards.
+  clone, outside the shell's plugin folder. The plugin folder holds the
+  owner's installed copy following `develop`; the owner updates it with
+  `git pull` (`omarchy plugin update` reads `main` and does not bring
+  `develop` changes). The rig installs your working tree into its own
+  throwaway plugin folder (`dev/rig sync`), so a branch is checked without
+  touching the installed copy.
 - **An urgent fix for users** is a branch from `main` with a pull request
   into `main`, only while `main` is not frozen (*Releasing*, step 5);
   afterwards merge `main` into `develop`.
@@ -692,6 +704,8 @@ request included. Stop only when a check fails or the freeze check finds
 
 ## Never
 
+- Test against the owner's running shell, Hyprland, KDE Connect daemon, adb
+  server or phone: use the rig (`dev/rig`, *Workflow*).
 - Send a text, ring a device, or change the device's volume or playback in a
   test without the owner's go.
 - Leave a test's side effect behind: opening an unread thread marks it seen in

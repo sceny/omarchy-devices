@@ -38,6 +38,10 @@ GitHub release with these notes.
   an open app's tile and the Screen shortcut say where its sound plays;
   click (or `v`) for Here, On the phone or Both, and its volume here. The
   window reopens in its place; an app keeps its choice.
+- **A hidden test rig** (`dev/rig`): a second shell in its own compositor
+  and a small Android emulator as the phone, paired to a private KDE
+  Connect, so changes are tried without touching the desktop or a real phone
+  ([development](docs/internals/development.md#the-test-rig)).
 
 ## 0.8.0 — 2026-10-05
 

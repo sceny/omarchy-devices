@@ -94,6 +94,14 @@ needs Wireless debugging, which you pair and can revoke:
 [Development](docs/internals/development.md) ·
 [Screenshots](docs/internals/screenshots.md)
 
+## Testing the plugin
+
+Changes are tried in a hidden rig: a second shell in its own compositor and a
+small Android emulator for the phone, so your desktop and your phone stay
+untouched. `dev/rig up`, then `dev/rig show` to look at it, `dev/rig down` when
+done. Needs `labwc`, `wtype`, `socat` and an Android SDK with KVM;
+[the rig](docs/internals/development.md#the-test-rig).
+
 ## Built on
 
 - [KDE Connect](https://kdeconnect.kde.org/): the link to the phone, its
