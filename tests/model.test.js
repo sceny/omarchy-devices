@@ -1272,6 +1272,17 @@ test("screen and apps can be turned off per device: its switch, no problem, read
   assert.equal(M.resolveProfile(two, phone(), true).screenFeature, true, "on unless turned off")
 })
 
+test("screen and apps off: no Screen shortcut or Apps section, editing included", () => {
+  const order = ["screen", "contacts", "messages"]
+  assert.deepEqual(M.shortcutsShown(order, false), ["contacts", "messages"])
+  assert.deepEqual(M.shortcutsShown(order, true), order)
+  assert.deepEqual(M.sectionsShown(["actions", "apps", "media"], false), ["actions", "media"])
+  assert.deepEqual(M.sectionsShown(["actions", "apps", "media"], true), ["actions", "apps", "media"])
+  const keys = t => t.map(x => x.key)
+  assert.ok(!keys(M.editShortcutTiles(M.shortcutsShown(order, false), {}, false)).includes("screen"), "not offered to add either")
+  assert.ok(keys(M.editShortcutTiles(M.shortcutsShown(["contacts"], true), {}, true)).includes("screen"), "on: offered")
+})
+
 test("setup items: one item serves several features and shows once; gateways say what uses them", () => {
   const report = Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } })
   const setup = M.deviceSetup({ report, screen: { state: "ready", line: "" }, name: "Pixel 8" })

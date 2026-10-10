@@ -1832,7 +1832,9 @@ Panel {
 
   // Screen and apps turned off: no Screen shortcut.
   // KDE Connect away with the screen link here: only what works without it.
-  readonly property var actions: Model.shortcutTiles(device && !screenOnFor(device.id) ? shortcutOrder.filter(function(k) { return k !== "screen" }) : shortcutOrder, can)
+  readonly property bool screenOn: !device || screenOnFor(device.id)
+  readonly property var shownShortcutOrder: Model.shortcutsShown(shortcutOrder, screenOn)
+  readonly property var actions: Model.shortcutTiles(shownShortcutOrder, can)
     .filter(function(t) { return root.reachable || Model.shortcutByKey(t.key).needs === "" })
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
@@ -1848,7 +1850,7 @@ Panel {
   // while the device is here.
   readonly property var drawnSections: {
     // Editing: every section, on or off, with something in it or not.
-    if (editing) return Model.visibleSections(sectionOrder)
+    if (editing) return Model.sectionsShown(Model.visibleSections(sectionOrder), screenOn)
     var s = []
     for (var i = 0; i < sectionOrder.length; i++) {
       var key = sectionOrder[i]
@@ -1857,7 +1859,7 @@ Panel {
       if (key === "devices") continue
       else if (!reachable && !(screenHere && (key === "actions" || key === "apps"))) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
-      else if (key === "apps" && showApps && (allApps.length > 0 || !!sectionNotes.apps)) s.push(key)
+      else if (key === "apps" && showApps && screenOn && (allApps.length > 0 || !!sectionNotes.apps)) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
       else if (key === "notifications" && showNotifications && (notifications.length > 0 || !!sectionNotes.notifications)) s.push(key)
       else if (key === "photos" && showPhotos && hasPhotos) s.push(key)
@@ -2990,7 +2992,7 @@ Panel {
     function editSection(key: string): string { root.toggleSectionShown(key); return JSON.stringify({ media: root.profile.showMedia, actions: root.profile.showShortcuts, notifications: root.profile.showNotifications, photos: root.profile.showPhotos, received: root.profile.showReceived }) }
     function editShortcut(key: string): string { root.toggleShortcutOnPage(key); return JSON.stringify(root.shortcutOrder) }
     function editMoveSection(key: string, delta: int): string { sectionMove.step(root.drawnSections.indexOf(key), delta); return "ok" }
-    function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shortcutOrder.indexOf(key), delta); return "ok" }
+    function editMoveShortcut(key: string, delta: int): string { tileMove.step(root.shownShortcutOrder.indexOf(key), delta); return "ok" }
     // A right-click on a device's chip (id, nickname or name; "" the first).
     function rightClickChip(key: string): string {
       var d = key === "" ? null : (root.phone ? root.phone.findDevice(key) : null)
@@ -4759,7 +4761,7 @@ Panel {
                   extentOf: function(i) { var k = root.drawnSections[i]; return sectionsBox.items[k] ? sectionsBox.items[k].height : 0 }
                   onMoved: function(a, b) {
                     var key = root.drawnSections[a]
-                    root.persistProfile({ sectionOrder: Model.moveShortcut(Model.visibleSections(root.sectionOrder), key, b - a) })
+                    root.persistProfile({ sectionOrder: Model.moveTo(Model.visibleSections(root.sectionOrder), key, root.drawnSections[b]) })
                   }
                 }
                 height: {
@@ -4874,15 +4876,15 @@ Panel {
                         cellWidth: editGrid.cellWidth
                         cellHeight: editGrid.children.length > 1 ? editGrid.children[1].height : 0
                         gap: editGrid.spacing
-                        count: root.shortcutOrder.length
+                        count: root.shownShortcutOrder.length
                         motion: root.motion
                         onMoved: function(a, b) {
-                          root.persistProfile({ shortcuts: Model.moveShortcut(root.shortcutOrder, root.shortcutOrder[a], b - a) })
+                          root.persistProfile({ shortcuts: Model.moveTo(root.shortcutOrder, root.shownShortcutOrder[a], root.shownShortcutOrder[b]) })
                         }
                       }
 
                       Repeater {
-                        model: root.editing ? Model.editShortcutTiles(root.shortcutOrder, root.can) : []
+                        model: root.editing ? Model.editShortcutTiles(root.shownShortcutOrder, root.can, root.screenOn) : []
                         EditTile {
                           required property var modelData
                           width: editGrid.cellWidth
@@ -6109,7 +6111,7 @@ Panel {
     readonly property string flag: root.sectionFlag(section)
     readonly property bool on: flag !== "" && root.profile[flag] === true
     readonly property string title: section === "actions" ? "SHORTCUTS" : section === "apps" ? "APPS" : (section === "media" ? "NOW PLAYING" : (section === "photos" ? "GALLERY" : (section === "received" ? "RECEIVED" : "NOTIFICATIONS")))
-    readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shortcutOrder)
+    readonly property string now: section === "actions" ? Model.shortcutsSummary(root.shownShortcutOrder)
       : section === "apps" ? (root.allApps.length > 0 ? Model.appsSummary(root.allApps, root.pinnedApps) : "")
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
       : section === "photos" ? (root.photos.length > 0 ? Model.photosSummary(root.photos) : "")
