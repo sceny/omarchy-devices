@@ -70,6 +70,7 @@ GitHub release with these notes.
 
 - [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away
 - [#8](https://github.com/sceny/omarchy-devices/issues/8) Reach devices over Tailscale or a custom address
+- [#152](https://github.com/sceny/omarchy-devices/issues/152) Editing a device's page offered the Screen shortcut and the Apps section while Screen and apps was off
 
 ### Upgrading
 

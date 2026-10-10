@@ -1547,6 +1547,15 @@ function layoutSummary(flags, sections) {
   return on.join(", ")
 }
 
+// What the page offers while Screen and apps is off for the device: no Screen
+// shortcut and no Apps section (the stored order keeps them for when it is on).
+function shortcutsShown(order, screenOn) {
+  return screenOn === false ? order.filter(function(k) { return k !== "screen" }) : order
+}
+function sectionsShown(sections, screenOn) {
+  return screenOn === false ? sections.filter(function(k) { return k !== "apps" }) : sections
+}
+
 function shortcutsSummary(order) {
   var labels = []
   for (var i = 0; i < order.length; i++) {
@@ -3207,11 +3216,11 @@ function gridTarget(from, dx, dy, count, columns, cw, ch, gap) {
 
 // The shortcut tiles while editing: the chosen ones in their order (`pos`,
 // they move), then every other one dimmed, to be added (`pos` -1).
-function editShortcutTiles(order, can) {
+function editShortcutTiles(order, can, screenOn) {
   var chosen = shortcutTiles(order, can).map(function(t, i) { return Object.assign({ chosen: true, pos: i }, t) })
   var rest = []
   for (var i = 0; i < SHORTCUTS.length; i++)
-    if (order.indexOf(SHORTCUTS[i].key) < 0)
+    if (order.indexOf(SHORTCUTS[i].key) < 0 && shortcutsShown([SHORTCUTS[i].key], screenOn).length > 0)
       rest.push(Object.assign({ chosen: false, pos: -1 }, shortcutTiles([SHORTCUTS[i].key], can)[0]))
   return chosen.concat(rest)
 }
