@@ -1374,6 +1374,11 @@ Panel {
     openMessagesView(-1, false, true)
     Qt.callLater(function() { if (messagesView) messagesView.textTo(c.number, c.who, typeHere === true) })
   }
+  // A contact's Message: only the user's click or Enter passes typeHere.
+  function messageContact(number, who, typeHere) {
+    openMessagesView(-1, false, true)
+    Qt.callLater(function() { if (messagesView) messagesView.textTo(number, who, typeHere === true) })
+  }
   function callBack(c) {
     if (!c || !phone) return
     phone.closeCall()
@@ -2746,6 +2751,12 @@ Panel {
     function demoTextTo(number: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       root.textBack({ device: root.device ? String(root.device.id) : "", number: number, who: "" }, false)
+      return "ok"
+    }
+    // Demo only: a contact's Message, without focusing the composer (scripted).
+    function demoMessageContact(number: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      root.messageContact(number, "", false)
       return "ok"
     }
     // Esc on the panel (not in a text field), as the key would.
@@ -5665,11 +5676,7 @@ Panel {
                 bar: root.bar
                 motion: root.motion
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
-                onMessageContact: function(number, who) {
-                  // The user's own click or Enter: the composer may take focus.
-                  root.openMessagesView(-1, false, true)
-                  Qt.callLater(function() { if (messagesView) messagesView.textTo(number, who, true) })
-                }
+                onMessageContact: function(number, who) { root.messageContact(number, who, true) }
                 onCallContact: function(number, who) { if (root.device) root.callBack({ device: String(root.device.id), number: number, who: who }) }
                 onAppOpened: root.close()
                 // The search let go of the keyboard (Esc, a click away): the

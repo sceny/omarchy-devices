@@ -95,7 +95,7 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" showPlayer 1            # media carousel
 "${IPC[@]}" messages ; "${IPC[@]}" smsStatus ; "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" searchThreads <text> ; "${IPC[@]}" newMessage <digits>
-"${IPC[@]}" navInfo ; "${IPC[@]}" goBack ; "${IPC[@]}" goHome   # the page stack (base, stack, home shown, back tip); Esc / the arrow, and Home, as keys
+"${IPC[@]}" demoMessageContact 555-0199 ; "${IPC[@]}" navInfo ; "${IPC[@]}" goBack ; "${IPC[@]}" goHome   # the page stack (base, stack, home shown, back tip); Esc / the arrow, and Home, as keys
 "${IPC[@]}" fold actions ; "${IPC[@]}" moveSection media -1    # fold a section; move one in the order
 "${IPC[@]}" toggleBar <key> ; "${IPC[@]}" moveBar <key> -1      # bar indicators; toggleBar batteryLowOnly
 "${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
