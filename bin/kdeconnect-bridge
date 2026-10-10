@@ -1497,7 +1497,7 @@ def pkg_add(packages):
 # only that plan: it is built again at the run, and a plan that differs from
 # the one shown (its hash) does not run.
 
-ROOT_FIXES = ("install", "sshfs", "screen", "firewall")
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "ready")
 
 
 def pacman_will_install(packages, run=None):
@@ -1524,7 +1524,17 @@ def package_installed(name, run=None):
         return False
 
 
-def root_plan(what, run=None, lan=None):
+def firewall_rules(lan):
+    """KDE Connect's ports from this network only, as ufw commands."""
+    return ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
+
+
+# Everything any feature needs on this computer (docs/design/setup.md): the
+# first run installs them together, so no package is asked for again.
+READY_FIXES = ("install", "sshfs", "screen")
+
+
+def root_plan(what, run=None, lan=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
@@ -1551,10 +1561,35 @@ def root_plan(what, run=None, lan=None):
         lan = lan if lan is not None else local_network()
         if not lan:
             return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
-        rules = ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
+        rules = firewall_rules(lan)
         reason = "To let your devices reach KDE Connect through the firewall, from this network only"
         actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
         commands = [["pkexec", "/bin/sh", "-c", " && ".join(rules)]]
+    elif what == "ready":
+        # The first run: every package not installed at any version, and the
+        # firewall's rule while it keeps devices out, under one password.
+        wanted = [p for k in READY_FIXES for p in fix_packages(k)]
+        packages = [p for p in wanted if not package_installed(p, run)]
+        will = pacman_will_install(packages, run) if packages else []
+        fw = fw if fw is not None else firewall_state()
+        rules = []
+        if fw.get("active") and not fw.get("allowed"):
+            lan = lan if lan is not None else local_network()
+            if not lan:
+                return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
+            rules = firewall_rules(lan)
+        reason = "To get this computer ready for your devices"
+        actions, parts = [], []
+        if packages and will != []:
+            actions.append("Install with pacman (Omarchy's omarchy-pkg-add): " + ", ".join(will if will else packages))
+            if will and len(will) > len(packages):
+                actions.append("Those include what " + ", ".join(packages) + " need to run")
+            parts.append(" ".join(shlex.quote(a) for a in pkg_add(packages)[1:]))
+        actions += ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
+        parts += rules
+        if not actions:
+            actions = ["Nothing to install: this computer has everything"]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
@@ -1582,6 +1617,8 @@ def run_root(what, confirm):
             return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
     if what == "firewall":
         return say("Firewall now allows KDE Connect from %s" % local_network())
+    if what == "ready":
+        return say("This computer is ready")
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
                 "screen": "scrcpy and adb installed: set up a device's screen and apps"}.get(what, "Installed"))
 

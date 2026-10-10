@@ -486,7 +486,7 @@ test("demo: several devices, and one asking to pair", () => {
   assert.deepEqual(pill.chips.map(c => c.id), ["demo", "demo-tab"], "the tablet shows: news and a low battery; the away laptop does not")
 })
 
-test("settings rows: one shape whatever the count: My devices, For all devices with two or more, This computer", () => {
+test("settings rows: one device's Settings is its page; several: My devices and For all devices; never This computer", () => {
   const s = M.readSettings({})
   const one = snap(phone())
   const edit = M.resolveProfile(s, phone(), true)
@@ -494,10 +494,15 @@ test("settings rows: one shape whatever the count: My devices, For all devices w
     identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
-  assert.deepEqual(kinds, ["device", "addDevice", "connection"], "one device is in the list too; its own layout is the defaults")
+  assert.deepEqual(kinds, ["device", "addDevice"], "This computer is reached from a problem it causes, never listed")
   assert.ok(!kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
   const page = M.settingsPageRows(ctx({ scope: "device" })).map(r => r.kind)
   assert.deepEqual(page.slice(0, 2), ["nickname", "icon"])
+  assert.deepEqual(page.slice(-2), ["addDevice", "unpair"], "one device: Add a device on its page, which is Settings")
+  const broken = [{ where: "computer", whereLabel: "This computer", key: "firewall", label: "Firewall", detail: "Closed", steps: [] }]
+  assert.equal(M.settingsPageRows(ctx({ scope: "device", problems: broken }))[0].kind, "problem", "one device: the status leads its page")
+  assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false, problems: broken })).some(r => r.kind === "problem" || r.kind === "addDevice"),
+            "several: the status and Add a device are on Settings' first page")
   assert.ok(page.includes("editPage") && !page.includes("barPlace") && !page.includes("showInPanel"), "one device: nothing to choose about where it shows")
   assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset", "resetGroup"].some(k => page.includes(k)), "sections, shortcuts and the bar are edited on the page")
   const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A3506" }), device({ id: "a", name: "Near", paired: false }))
@@ -508,7 +513,7 @@ test("settings rows: one shape whatever the count: My devices, For all devices w
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults", "connection"], "in reach: on Add a device")
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults"], "in reach: on Add a device")
 })
 
 test("settings status: each problem once, where its cause is; a device's line and This computer say so", () => {
@@ -778,12 +783,13 @@ test("connection: this computer's checks, ignored ones, requests and devices to 
 test("reconnect: where it was last seen, another network, and what to try after a search", () => {
   const now = 10 * 3600 * 1000
   const away = device({ reachable: false, name: "Galaxy S23", lastSeen: { link: "LAN", address: "192.168.1.20", at: now - 12 * 60000 } })
-  assert.deepEqual(M.awayState(away, "192.168.1.0/24", 0, now), { lines: ["Last seen on Wi-Fi at 192.168.1.20, 12 min ago"], searching: false })
-  assert.match(M.awayState(away, "10.0.0.0/24", 0, now).lines[1], /Likely on another network/)
+  assert.deepEqual(M.awayState(away, "192.168.1.0/24", 0, now), { lines: ["Last seen 12 min ago"], why: ["Last seen on Wi-Fi at 192.168.1.20"], searching: false },
+                   "the causes wait behind Why?")
+  assert.match(M.awayState(away, "10.0.0.0/24", 0, now).why[1], /Likely on another network/)
   assert.equal(M.awayState(away, "192.168.1.0/24", now - 1000, now).searching, true, "looking for SEARCH_MS")
   const after = M.awayState(away, "192.168.1.0/24", now - M.SEARCH_MS, now)
-  assert.match(after.lines[1], /^Not found\. On Galaxy S23: open KDE Connect, and join the same Wi-Fi; set the app's battery use to Unrestricted$/)
-  assert.doesNotMatch(M.awayState(device({ reachable: false, name: "Pixel 8" }), "", 1, now).lines[1], /Unrestricted/, "Samsung advice only for Samsung")
+  assert.match(after.why[1], /^Not found\. On Galaxy S23: open KDE Connect, and join the same Wi-Fi; set the app's battery use to Unrestricted$/)
+  assert.doesNotMatch(M.awayState(device({ reachable: false, name: "Pixel 8" }), "", 1, now).why[0], /Unrestricted/, "Samsung advice only for Samsung")
   assert.equal(M.awayState(device({ reachable: false }), "", 0, now).lines[0], "Not seen by this computer yet")
   assert.equal(M.inNetwork("192.168.1.20", "192.168.1.0/24"), true)
   assert.equal(M.inNetwork("192.168.2.20", "192.168.1.0/24"), false)
@@ -849,9 +855,6 @@ test("connection pills: on, off (more can be set up) and failing", () => {
   assert.equal(M.connectionSummary(allOn, []), "Everything on")
   const row = M.connectionRows(installed, []).find(r => r.key === "screen")
   assert.deepEqual([row.ok, row.status, row.fix], [true, "Installed", ""], "never a device's own step here")
-  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, []) })
-    .find(r => r.kind === "connection").pills
-  assert.equal(pills.length, 4)
 })
 
 test("screen and apps: each state's line, current step and actions", () => {
@@ -1067,12 +1070,52 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.equal(M.featuresSummary(rows), "9 on · 1 to set up")
 })
 
-test("settings: a device's page lists what it can do; This computer", () => {
+test("settings: a device's page lists what it shares, only what it can do", () => {
   const features = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, "Pixel 8")
   const rows = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features })
   assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length)
   assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
-  assert.equal(M.settingsPageRows({ scope: "root", single: true, devices: [] }).find(r => r.kind === "connection").label, "This computer")
+  // Another kind of device (an iPhone): KDE Connect offers no texts, calls
+  // or storage there, and nothing it cannot do is listed.
+  const plugins = {}
+  ;["share", "clipboard", "findmyphone", "battery", "ping"].forEach(k => { plugins[k] = { on: true, offered: true, loaded: true } })
+  const other = M.featureRows({ reachable: true, paired: true, links: ["LAN"], plugins, permissions: null, files: {} }, null, "iPhone")
+  const shown = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features: other })
+    .filter(r => r.kind === "feature").map(r => r.key)
+  assert.deepEqual(shown, ["share", "clipboard", "ring", "battery"], "no screen, no Android steps")
+  assert.equal(M.isAndroid(null), true, "not read yet: Android")
+  assert.equal(M.sharesSummary(features), "All but Clipboard", "the demo's clipboard is off")
+  assert.equal(M.sharesSummary(features.map(r => Object.assign({}, r, { on: true }))), "Everything")
+})
+
+test("the main page says what a feature needs in its own section; the line at the top keeps the rest", () => {
+  const ask = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } }),
+                              screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
+  const note = M.sectionNote(ask, "notifications")
+  assert.deepEqual([note.kind, note.key, note.fix], ["ask", "notifications", true], "one click allows it over adb")
+  assert.equal(M.sectionNote(ask, "photos"), null)
+  const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
+  const rows = quiet.features.map(r => Object.assign({}, r, { problem: r.state === "attention" }))
+  const stopped = M.sectionNote(rows, "notifications")
+  assert.deepEqual([stopped.kind, stopped.fix], ["problem", true])
+  assert.match(stopped.text, /none arrive here/)
+  const sms = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: true, sms: false, contacts: true, phone: true, storage: true } }),
+                              screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
+  assert.deepEqual([M.sectionNote(sms, "messages").key, M.sectionNote(sms, "notifications")], ["messages", null], "SMS is asked on the Messages page")
+  assert.equal(M.sectionNote(M.featureRows(M.demoFeatures("stopped"), null, "Pixel 8").map(r => Object.assign({}, r, { problem: r.state === "attention" })), "notifications").kind,
+               "problem", "the demo's stopped state")
+  const off = rows.map(r => r.key === "notifications" ? Object.assign({}, r, { on: false }) : r)
+  assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
+  const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],
+                                      [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
+  assert.deepEqual(M.bannerProblems(problems, ["notifications"]).map(p => p.key), ["firewall"], "said in its section: not in the line")
+  assert.deepEqual(M.bannerProblems(problems, []).map(p => p.key), ["firewall", "health:notifications"], "no section drawn: the line says it")
+})
+
+test("first run: one card for this computer while KDE Connect is missing or stopped", () => {
+  assert.deepEqual(M.readyRows([]).map(r => [r.kind, r.checking]), [["ready", true]])
+  const r = M.readyRows([{ key: "installed", ok: true }, { key: "running", ok: false }])[0]
+  assert.deepEqual([r.installed, r.running, r.checking], [true, false, false])
 })
 
 test("screen and apps can be turned off per device: its switch, no problem, read from the profile", () => {

@@ -20,6 +20,20 @@ GitHub release with these notes.
   take their names from the same cards. A card synced with an account
   opens in Google Contacts; one kept on the phone only says so.
 
+- **Setup that gets out of the way**: Settings no longer shows the
+  plumbing. With one device it is that device's page: what it shares with
+  this computer, a switch each, and nothing about its state while all is
+  well. This computer's checks are diagnostics, reached from a problem
+  they cause.
+- **Asked where you use it**: notification access in Notifications, SMS
+  and contacts on the Messages page, the screen on the first *Open* of a
+  notification's app (it then opens by itself). A feature that stops says
+  so in its own section, with *Fix*, *Details* and *Fix with AI*.
+- **The first run is one card**: one password installs everything any
+  feature needs here; a new pairing lands on the phone's main page.
+- **An iPhone** shows only what it can do; the away card keeps the likely
+  causes behind *Why?*.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights

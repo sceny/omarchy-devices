@@ -115,6 +115,25 @@ class RootPlans(unittest.TestCase):
         self.assertTrue(all("from 192.168.5.0/24" in a for a in plan["actions"]))
         self.assertIn("192.168.5.0/24", plan["commands"][0][-1])
 
+    def test_first_run_is_one_password_for_everything(self):
+        pacman = FakePacman(installed=["android-tools"], deps={})
+        plan = bridge.root_plan("ready", run=pacman, lan="192.168.5.0/24", fw={"present": True, "active": True, "allowed": False})
+        self.assertEqual(len(plan["commands"]), 1, "one prompt")
+        script = plan["commands"][0][-1]
+        self.assertEqual(plan["commands"][0][:3], ["pkexec", "/bin/sh", "-c"])
+        self.assertIn("omarchy-pkg-add kdeconnect sshfs scrcpy android-udev", script)
+        self.assertNotIn("android-tools", script, "installed at any version: never passed to pacman")
+        self.assertEqual(script.count("ufw allow from 192.168.5.0/24"), 2)
+        self.assertEqual(len(plan["actions"]), 3, "the packages, then each firewall rule")
+
+    def test_first_run_with_everything_here_asks_nothing(self):
+        installed = ["kdeconnect", "sshfs", "scrcpy", "android-tools", "android-udev"]
+        plan = bridge.root_plan("ready", run=FakePacman(installed=installed, deps={}), fw={"present": True, "active": True, "allowed": True})
+        self.assertEqual(plan["commands"], [])
+        self.assertEqual(plan["actions"], ["Nothing to install: this computer has everything"])
+        open_fw = bridge.root_plan("ready", run=FakePacman(installed=installed, deps={}), fw={"present": False, "active": False, "allowed": True})
+        self.assertEqual(open_fw["commands"], [], "no firewall: no rule")
+
     def test_runs_only_the_plan_shown(self):
         self.assertEqual(bridge.run_root("sshfs", ""), bridge.EXIT_FAILED, "no hash: nothing runs")
         self.assertEqual(bridge.run_root("sshfs", "0123456789abcdef"), bridge.EXIT_FAILED, "another plan's hash: nothing runs")
