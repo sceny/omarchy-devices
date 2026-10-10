@@ -624,9 +624,13 @@ Keep them; change one only with the owner.
   - No output: nothing is under review.
 - **Keep the repository apart from the installed copy.** Work in your own
   clone, outside the shell's plugin folder. The plugin folder holds the
-  owner's installed copy following `develop`; the owner updates it with
-  `git pull` (`omarchy plugin update` reads `main` and does not bring
-  `develop` changes). The rig installs your working tree into its own
+  owner's installed copy following `develop`. A user timer
+  (`sceny-plugins-follow-develop`, every 5 minutes; script
+  `dev/follow-develop` in sceny/omarchy-paperclipai) fast-forwards it after
+  each merge into `develop` and rescans the shell, so nobody pulls by hand
+  (`omarchy plugin update` reads `main` and does not bring `develop`
+  changes). It skips a checkout that is dirty or off `develop`, so never leave
+  the installed copy on a feature branch. The rig installs your working tree into its own
   throwaway plugin folder (`dev/rig sync`), so a branch is checked without
   touching the installed copy.
 - **An urgent fix for users** is a branch from `main` with a pull request
