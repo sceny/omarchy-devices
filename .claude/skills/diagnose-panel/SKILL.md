@@ -8,12 +8,22 @@ description: Diagnose the Devices Omarchy plugin (sceny.devices) when the bar or
 Work down the layers. Each step says which layer is at fault; stop at the first
 that disagrees with what the device shows.
 
+**Reproduce it in the rig first** (`dev/rig up`, `docs/internals/development.md`):
+the commands below run there with `dev/rig exec -- <command>` (the rig's
+session bus, adb server and display) and `dev/rig ipc <function>` for the
+panel's IPC, against the rig's emulator (`dev/rig phone ...` makes the
+notification, text, call or battery change in question). Everything the
+owner's machine adds (a real phone, a firewall, Samsung's battery
+optimisation) is asked of the owner, never run against their desktop, daemon
+or phone by an agent. A fault that does not reproduce in the rig is a fact
+about their setup: say so and ask.
+
 ## 1. Is the plugin loaded?
 
 ```bash
-IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
+IPC=(dev/rig ipc)
 "${IPC[@]}" status
-journalctl --user -t omarchy-shell -n 120 -o cat | grep -F sceny.devices | grep -vE 'IpcHandler|Local plugin'
+dev/rig logs shell | grep -F sceny.devices | grep -vE 'IpcHandler|Local plugin'
 ```
 
 "Target not found", or a QML error in the log, is the shell layer: the widget
