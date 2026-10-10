@@ -115,6 +115,7 @@ bin/kdeconnect-bridge photos-cached <device>   # the last photo list, at once (t
 "${IPC[@]}" switchFeature screen false ; "${IPC[@]}" screenFeatureInfo   # a feature's switch on the device page shown
 "${IPC[@]}" demoScreen ready ; "${IPC[@]}" appsInfo   # demo only: the screen link's state; the Apps section
 "${IPC[@]}" askRoot firewall ; "${IPC[@]}" cancelRoot   # the password card (nothing runs until Continue)
+"${IPC[@]}" demoMessageContact 555-0199 ; "${IPC[@]}" navInfo ; "${IPC[@]}" goBack ; "${IPC[@]}" goHome   # the page stack (base, stack, home shown, back tip); Esc / the arrow, and Home, as keys
 "${IPC[@]}" slowMotion 10          # stretch every transition
 ```
 

@@ -71,6 +71,7 @@ Item {
     sms.start()
     sms.closeThread()
     newMode = true
+    arrived = false
     recipients = []
     toField.text = ""
     refreshSuggestions()
@@ -84,12 +85,16 @@ Item {
   // getting its conversations, the caller waits as the recipient and moves
   // into their conversation if it arrives.
   property string waitingCaller: ""
+  // A new message opened for someone from another page (a contact, a call):
+  // while nothing is typed, Esc goes back there at once, not to the list.
+  property bool arrived: false
   function textTo(number, who, typeHere) {
     if (!sms) return
     sms.start()
     var tid = sms.threadForAddress(number)
     if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); return }
     startNew(false)
+    arrived = true
     recipients = [{ title: who || Model.formatNumber(number), number: number }]
     refreshSuggestions()
     waitingCaller = sms.ready ? "" : number
@@ -307,6 +312,7 @@ Item {
   // when nothing is open here, so the panel closes messages.
   function goBack() {
     if (pane === "conversation") { pane = "list"; return true }
+    if (newMode && arrived && toField.text === "" && composer.text === "") { cancelNew(); arrived = false; return false }
     if (newMode && toField.text !== "") { toField.text = ""; return true }
     if (newMode) { cancelNew(); return true }
     if (searchField.text !== "") { searchField.text = ""; return true }
