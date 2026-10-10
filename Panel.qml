@@ -103,6 +103,10 @@ Panel {
   // phone's storage permission).
   readonly property bool photosHint: !!photoInfo && photoInfo.ok === false
   readonly property bool hasPhotos: photos.length > 0 || photosHint
+  // The gallery could not read the device (a problem: the card at the top
+  // has its Fix); anything else here is an ask, with its click in the section.
+  readonly property bool photosError: photosHint && photoInfo.missing !== "sshfs"
+    && (photoInfo.dead === true || (!!photoInfo.error && !/allow|permission|denied/i.test(photoInfo.error)))
   // The keyboard cursor in Files: the photos (a grid of four), then the
   // received files.
   property int photoIndex: 0
@@ -476,6 +480,7 @@ Panel {
     else {
       screenWaitOpen = ""   // closed: no longer waiting to open the screen
       soundTarget = null    // the sound card goes with the panel
+      fixAsk = null         // so does the ask to fix what stopped
       // A password card not answered goes with the last panel: nothing
       // runs (another monitor's panel may still show it).
       if (phone && phone.rootAsk && phone.openPanels <= 1) phone.cancelRoot()
@@ -933,11 +938,6 @@ Panel {
   onFeatureRowsByIdChanged: resolvePendingFeatures()
   // Fix with AI: what is wrong, and what the plugin's own fix did.
   function aiProblem(r) { return { label: r.label, detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
-  function fixWithAiOn(row) {
-    if (!phone || !row) return
-    phone.fixWithAi([aiProblem(row)])
-    root.close()
-  }
   function fixWithAi(what, index) {
     if (!phone) return
     var list = []
@@ -961,18 +961,75 @@ Panel {
       return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
   readonly property int settingsIssues: allProblems.length
-  // The main page's banner, closed: the problems it showed then stay out of
-  // it, and a new one brings it back. The gear's dot and Settings' status
-  // keep every problem. Kept with the settings, written on the close only.
+  // The card at the top of the main page, closed: the problems it showed
+  // then stay out of it, and a new one brings it back. The gear's dot, the
+  // dots on what a problem affects and Settings' status keep every problem.
+  // Kept with the settings, written on the close only.
   readonly property var closedProblems: {
     var v = setting("closedProblems", [])
     return Array.isArray(v) ? v : []
   }
-  function problemId(p) { return String(p.where) + ":" + String(p.key) }
-  // A problem a drawn section says in place is not in the line too.
-  readonly property var bannerProblems: Model.bannerProblems(allProblems, drawnSections)
-  readonly property bool bannerShown: bannerProblems.some(function(p) { return closedProblems.indexOf(problemId(p)) < 0 })
-  function closeProblemsBanner() { persistSettings({ closedProblems: allProblems.map(problemId) }) }
+  function problemId(p) { return Model.problemId(p) }
+  // The page open, as the entries name it (Model.FEATURES `entries`).
+  readonly property string pageKey: showSettings ? (screenId !== "" ? "screen" : reachId !== "" ? "reach" : "")
+    : showAppsPage ? "apps" : showContacts ? "contacts" : showMessages ? "messages" : ""
+  readonly property bool pageMarked: pageKey !== "" && marks.pages[pageKey] === true
+  readonly property string viewedId: device ? String(device.id) : ""
+  readonly property var problemCard: Model.problemCard(allProblems, closedProblems, viewedId)
+  readonly property bool cardShown: !!problemCard
+  // Held while it folds away, so its text does not blank.
+  property var shownProblemCard: null
+  onProblemCardChanged: if (problemCard) shownProblemCard = problemCard
+  function closeProblemCard() { persistSettings({ closedProblems: allProblems.map(problemId) }) }
+  // A dot on every way into what a problem affects (this device's), closed or not.
+  readonly property var marks: Model.problemMarks(allProblems, viewedId)
+  // Fix on a problem: the steps the plugin can do, then `then` (the action
+  // the user asked for, when this was asked before it). A step only the user
+  // can do opens where it is done (the feature's row does that).
+  function problemPlan(p) {
+    if (!p) return []
+    if (p.where !== "computer") return Model.problemsPlan([p])
+    var c = Model.connectionRows(setupChecks, ignoredChecks).filter(function(k) { return k.key === p.key })[0]
+    return c && ["install", "start", "firewall", "sshfs", "screen", "bluetooth"].indexOf(c.fix) >= 0 ? [{ kind: "auto", fix: { verb: "fix", what: c.fix } }] : []
+  }
+  function problemFixable(p) {
+    if (!p) return false
+    return problemPlan(p).length > 0 || (p.where !== "computer" && ((p.affects || []).length > 0 || !!p.opens))
+  }
+  function fixProblem(p, then) {
+    if (!phone || !p) return
+    var plan = problemPlan(p)
+    if (plan.length > 0) { phone.runSteps(p.where, plan, "problem:" + problemId(p), null, function(ok) { if (ok && then) then() }); return }
+    var row = featureRowsFor(phone.findDevice(p.where) || device).filter(function(r) { return (p.affects || []).indexOf(r.key) >= 0 })[0]
+    if (p.opens) openStepPage("reach", p.where)
+    else if (row) featureAction(row, phone.findDevice(p.where) || device)
+    else openSettings()
+  }
+  function fixProblemWithAi(p) {
+    if (!phone || !p) return
+    phone.fixWithAi([{ label: p.label + (p.gateway ? " via " + p.gateway : "") + " (" + p.whereLabel + ")", detail: p.detail, tried: p.tried || "" }])
+    root.close()
+  }
+  // Using an affected action asks to fix it first: the same card over the
+  // panel, with Not now. `go` is the action, carried on after a Fix.
+  property var fixAsk: null               // { problem, go } while the card shows
+  property int fixAskCursor: 0
+  function guarded(kind, key, go) {
+    var p = Model.problemForEntry(allProblems, kind, key, viewedId)
+    if (!p) { go(); return }
+    fixAsk = { problem: p, go: go, entry: kind + ":" + key }
+    fixAskCursor = 0
+  }
+  function closeFixAsk() { fixAsk = null }
+  function fixAskFix() {
+    var a = fixAsk
+    if (!a) return
+    fixAsk = null
+    fixProblem(a.problem, a.go)
+  }
+  function fixAskInfo() {
+    return JSON.stringify({ open: !!fixAsk, problem: fixAsk ? fixAsk.problem.key : "", entry: fixAsk ? fixAsk.entry : "" })
+  }
   // Every connected device's features, read when the panel opens (the
   // status counts them all, not only the viewed one's).
   // The viewed device's screen too, once it was set up here (adb pairs
@@ -1942,6 +1999,10 @@ Panel {
   // would take the device's whole sound.
   function openApp(app, pop) {
     if (!phone || !device || !app) return
+    guarded("section", "apps", function() { openAppNow(app, pop) })
+  }
+  function openAppNow(app, pop) {
+    if (!phone || !device || !app) return
     var id = String(device.id)
     var st = phone.deviceStates[id] || {}
     phone.pressApp(id, app, Model.appSound(appSoundFor(id), st.playingApps || [], app.name, phone.rememberedSound(id, app.package)).sound, pop === true)
@@ -2149,7 +2210,12 @@ Panel {
     return key === "screen" && !!phone && !!device && phone.screenIsOpen(String(device.id))
   }
 
+  // A shortcut, asking to fix first what stopped behind it.
   function runAction(key) {
+    if (!phone) return
+    guarded("shortcut", key, function() { runActionNow(key) })
+  }
+  function runActionNow(key) {
     if (!phone) return
     if (key === "ring") phone.ring()
     else if (key === "share") phone.sendFiles()
@@ -2730,7 +2796,7 @@ Panel {
       if (!root.phone || !root.phone.demo || !root.device) return "demo only"
       root.phone.demoFeature = kind
       root.phone.readFeatures(String(root.device.id), true)
-      return JSON.stringify({ notifications: root.sectionNotes.notifications, banner: root.bannerProblems.map(function(p) { return p.key }) })
+      return JSON.stringify({ notifications: root.sectionNotes.notifications, card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).
@@ -2743,7 +2809,8 @@ Panel {
         { key: "installed", ok: true, label: "KDE Connect installed", status: "Installed", detail: "", fix: "", fixLabel: "" },
         { key: "running", ok: true, label: "KDE Connect running", status: "Running", detail: "", fix: "", fixLabel: "" },
         { key: "firewall", ok: false, label: "Firewall lets devices in", status: "Closed", detail: "Ports 1714:1764 are closed; allow them from 192.168.1.0/24", fix: "firewall", fixLabel: "Allow" },
-        { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" }
+        { key: "network", ok: true, label: "On a network", status: "192.168.1.0/24", detail: "", fix: "", fixLabel: "" },
+        { key: "screen", ok: false, label: "scrcpy and adb", status: "Missing", detail: "Needed to open the phone's screen and apps", fix: "screen", fixLabel: "Install" }
       ]
       return JSON.stringify({ issues: root.computerIssues })
     }
@@ -2885,11 +2952,17 @@ Panel {
       return root.settingsInfo()
     }
     function settingsRowsInfo(): string { return root.settingsInfo() }
-    // What needs the user (the status, the gear's dot, the main page's
-    // line), and whether that line shows now.
-    function closeBanner(): string { root.closeProblemsBanner(); return "closed" }
+    // What needs the user (the status, the gear's dot, the main page's card
+    // and the dots on what it affects), whether the card shows now, and the
+    // ask a click on an affected action brings (askFix, pressShortcut).
+    function closeBanner(): string { root.closeProblemCard(); return "closed" }
+    function askInfo(): string { return root.fixAskInfo() }
+    function askNotNow(): string { root.closeFixAsk(); return root.fixAskInfo() }
+    function askFix(): string { root.fixAskFix(); return root.fixAskInfo() }
+    function pressShortcut(key: string): string { root.runAction(key); return root.fixAskInfo() }
     function problems(): string {
-      return JSON.stringify({ count: root.settingsIssues, hint: problemsHint.open, closed: root.closedProblems.length, line: Model.problemsLine(root.allProblems),
+      return JSON.stringify({ count: root.settingsIssues, card: problemCardBody.open, shown: root.problemCard ? root.problemCard.problem.key : "", more: root.problemCard ? root.problemCard.more : 0,
+                              marks: root.marks, closed: root.closedProblems.length, line: Model.problemsLine(root.allProblems),
                               problems: root.allProblems.map(function(p) { return { where: p.where === "computer" ? "computer" : "device", key: p.key, label: p.label } }) })
     }
     // Demo only: a made-up caller ringing, or a call missed, on the viewed
@@ -3197,6 +3270,7 @@ Panel {
         || (root.appsOpen && !!appsView && appsView.searchFocused)
 
       onMoveRequested: function(dx, dy) {
+        if (root.fixAsk) return
         // The sound card: ← → among its places, ↑ ↓ its volume here.
         if (root.soundTarget) {
           if (dx !== 0 && root.soundCard) {
@@ -3234,6 +3308,7 @@ Panel {
       onActivateRequested: {
         if (root.phone && root.phone.rootAsk) { root.phone.confirmRoot(); return }
         if (root.soundTarget) { if (root.soundCard) root.chooseSound(root.soundCard.options[root.soundCursor].key); return }
+        if (root.fixAsk) { root.fixAskFix(); return }
         if (root.messagesOpen) { messagesView.activateCursor(); return }
         if (root.contactsOpen) { contactsView.activateCursor(); return }
         if (!root.cursorActive) return
@@ -3260,6 +3335,7 @@ Panel {
       onCloseRequested: {
         if (root.phone && root.phone.rootAsk) root.phone.cancelRoot()
         else if (root.soundTarget) root.closeSoundCard()
+        else if (root.fixAsk) root.closeFixAsk()
         else if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.backOrClose() }
@@ -3306,6 +3382,7 @@ Panel {
       }
       onTextKey: function(t) {
         if (root.soundTarget) { if (t === "m" && root.soundCard && root.soundCard.volume) root.soundMute(); return }
+        if (root.fixAsk) return
         // Home: the start, from two pages deep. Esc never means Home.
         if (t === Model.HOME_KEY) { root.goHome(); return }
         if (root.contactsOpen) {
@@ -3443,16 +3520,51 @@ Panel {
       Rectangle {
         anchors.fill: parent
         z: 11
-        visible: rootCard.visible || soundBox.visible
+        visible: rootCard.visible || soundBox.visible || askBox.visible
         radius: Style.cornerRadius
-        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * Math.max(rootCard.opacity, soundBox.opacity))
+        color: Qt.alpha(root.bar ? root.bar.background : Color.background, 0.6 * Math.max(rootCard.opacity, soundBox.opacity, askBox.opacity))
         MouseArea {
           anchors.fill: parent
           hoverEnabled: true
           acceptedButtons: Qt.AllButtons
           onWheel: function(wheel) { wheel.accepted = true }
           // The sound card goes with a click beside it; the password card stays.
-          onClicked: if (root.soundTarget && !(root.phone && root.phone.rootAsk)) root.closeSoundCard()
+          onClicked: {
+            if (root.phone && root.phone.rootAsk) return
+            if (root.soundTarget) root.closeSoundCard()
+            else if (root.fixAsk) root.closeFixAsk()
+          }
+        }
+      }
+      // ---- A feature that stopped, used: the same card as the page's,
+      //      asking to fix it first; Fix carries on with what was asked,
+      //      Not now (or Esc) leaves it ----
+      BorderSurface {
+        id: askBox
+        property var shown: null
+        readonly property var ask: root.fixAsk
+        onAskChanged: if (ask) shown = { problem: ask.problem, more: 0 }
+        z: 12
+        anchors.centerIn: parent
+        width: Math.min(parent.width - Style.space(32), Style.space(420))
+        height: askColumn.implicitHeight + Style.space(28)
+        radius: Style.cornerRadius
+        color: root.bar ? root.bar.background : Color.background
+        borderSpec: Border.controlSpec("focus", root.urgent, Color.accent)
+        opacity: root.fixAsk && !(root.phone && root.phone.rootAsk) ? 1 : 0
+        visible: opacity > 0.01
+        Behavior on opacity { NumberAnimation { duration: (root.fixAsk ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+        MouseArea { anchors.fill: parent }   // the panel under it takes no click
+        ProblemBody {
+          id: askColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.space(14)
+          card: askBox.shown
+          notNow: true
+          onFix: root.fixAskFix()
+          onDismissed: root.closeFixAsk()
         }
       }
       // ---- A window's sound (#129): where an open window's sound plays,
@@ -4448,6 +4560,8 @@ Panel {
                 color: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.display
+                // The page open is one a problem affects.
+                GearDot { visible: root.pageMarked }
               }
             }
             // Edit this page (✎, then ✓ Done), and the gear (only while there
@@ -4523,44 +4637,47 @@ Panel {
               width: parent.width
               spacing: Style.space(12)
               // ---- Something needs the user (Model.settingsProblems): one
-              //      line at the top of the main page, to Settings' status,
-              //      which lists them and fixes them ----
+              //      card, always right under the header, whichever feature
+              //      failed. It closes (✕) until something new needs you;
+              //      the dots on what it affects stay ----
               // It folds in at the plugin's pace: the first reading comes a
               // moment after the panel opens.
               FoldBody {
-                id: problemsHint
-                open: root.showMain && !root.editing && root.bannerShown
+                id: problemCardBody
+                open: root.showMain && !root.editing && root.cardShown
                 motion: root.motion
                 animate: root.settled
-              Item {
-                width: pageColumn.width
-                height: bannerButton.implicitHeight
-                Button {
-                  id: bannerButton
-                  anchors.fill: parent
-                  iconText: Model.GLYPH.alert
-                  text: Model.problemsLine(root.bannerProblems) + (root.bannerProblems.length === 1 ? ": " + root.bannerProblems[0].label : "")
-                  tooltipText: root.bannerProblems.map(function(p) { return p.whereLabel + ": " + p.label }).join("\n")
-                  bordered: true
-                  foreground: root.urgent
-                  fontFamily: root.fontFamily
-                  fontSize: Style.font.bodySmall
-                  onClicked: root.openSettings()
+                Rectangle {
+                  width: pageColumn.width
+                  implicitHeight: cardContent.implicitHeight + Style.space(14)
+                  radius: Style.cornerRadius
+                  color: Qt.alpha(root.urgent, 0.06)
+                  border.width: 1
+                  border.color: Qt.alpha(root.urgent, 0.55)
+                  ProblemBody {
+                    id: cardContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.leftMargin: Style.space(8)
+                    anchors.rightMargin: Style.space(8)
+                    card: root.shownProblemCard
+                    // Room for the ✕ beside the first line.
+                    titleRoom: Style.space(26)
+                    onFix: root.fixProblem(card.problem, null)
+                  }
+                  PanelActionButton {
+                    anchors.top: parent.top
+                    anchors.right: parent.right
+                    anchors.topMargin: Style.space(2)
+                    anchors.rightMargin: Style.space(4)
+                    iconText: Model.GLYPH.close
+                    tooltipText: "Close (it comes back when something new needs you; the dots and the cog's dot stay)"
+                    foreground: root.foreground
+                    fontFamily: root.fontFamily
+                    onClicked: root.closeProblemCard()
+                  }
                 }
-                // Inside it, top right: closed until something new needs you;
-                // the gear's dot stays.
-                PanelActionButton {
-                  anchors.top: parent.top
-                  anchors.right: parent.right
-                  anchors.topMargin: Style.space(2)
-                  anchors.rightMargin: Style.space(4)
-                  iconText: Model.GLYPH.close
-                  tooltipText: "Close (it comes back when something new needs you; the cog's dot stays)"
-                  foreground: root.foreground
-                  fontFamily: root.fontFamily
-                  onClicked: root.closeProblemsBanner()
-                }
-              }
               }
               // ---- Editing: the device's chip in the Omarchy bar, as tiles: drag
               //      the chosen ones, click to add or take one away. The pill
@@ -4797,6 +4914,8 @@ Panel {
                       animate: root.settled
                       title: "SHORTCUTS"
                       folded: root.isCollapsed("actions")
+                      marked: root.isCollapsed("actions") && root.actions.some(function(t) { return root.marks.shortcuts[t.key] === true })
+                      urgent: root.urgent
                       onToggled: root.toggleCollapsed("actions")
                     }
 
@@ -4825,6 +4944,7 @@ Panel {
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
                           onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index } }
                           onClicked: root.runAction(modelData.key)
+                          GearDot { visible: root.marks.shortcuts[modelData.key] === true }
                         }
                       }
                     }
@@ -4999,6 +5119,8 @@ Panel {
                       animate: root.settled
                       title: "APPS"
                       folded: root.isCollapsed("apps")
+                      marked: root.marks.sections["apps"] === true
+                      urgent: root.urgent
                       // Folded, the icons say it (as folded Shortcuts); the
                       // count only while there are none to show.
                       summary: root.sectionApps.length > 0 ? "" : Model.appsSummary(root.allApps, root.pinnedApps)
@@ -5261,6 +5383,8 @@ Panel {
                       Layout.fillWidth: true
                       title: "NOW PLAYING"
                       folded: root.isCollapsed("media")
+                      marked: root.marks.sections["media"] === true
+                      urgent: root.urgent
                       summary: root.shownPlayerObject
                         ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist,
                             Model.playerApp(root.shownPlayerObject.identity, root.device ? root.device.name : ""))
@@ -5469,6 +5593,8 @@ Panel {
                     width: parent.width
                     title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
                     folded: root.isCollapsed("notifications")
+                    marked: root.marks.sections["notifications"] === true
+                    urgent: root.urgent
                     summary: Model.notificationsSummary(root.notifications)
                     onToggled: root.toggleCollapsed("notifications")
                   }
@@ -5535,6 +5661,8 @@ Panel {
                     refreshTip: "Look at the phone again"
                     onRefreshRequested: if (root.phone) root.phone.refreshPhotos(true)
                     folded: root.isCollapsed("photos")
+                    marked: root.marks.sections["photos"] === true
+                    urgent: root.urgent
                     summary: Model.photosSummary(root.photos)
                     onToggled: root.toggleCollapsed("photos")
                   }
@@ -5567,6 +5695,7 @@ Panel {
                         font.pixelSize: Style.font.caption
                       }
                       Button {
+                        visible: !root.photosError
                         readonly property bool installing: !!root.phone && root.phone.setupFixing["sshfs"] === true
                         text: root.photoInfo && root.photoInfo.missing === "sshfs" ? (installing ? "Installing…" : "Install") : "Try again"
                         enabled: !installing
@@ -5582,7 +5711,7 @@ Panel {
                         }
                       }
                       Button {
-                        visible: !!root.photoInfo && root.photoInfo.ok === false && root.photoInfo.missing !== "sshfs"
+                        visible: !root.photosError && !!root.photoInfo && root.photoInfo.ok === false && root.photoInfo.missing !== "sshfs"
                         text: "Fix with AI"
                         tooltipText: root.phone && root.phone.agentName ? "Opens " + root.phone.agentName + ", your default coding agent, in a terminal" : "Choose your coding agent first (Omarchy's own choice)"
                         foreground: root.foreground
@@ -5593,7 +5722,7 @@ Panel {
                       // A mount left behind clears with KDE Connect's restart
                       // (#98): on a click, no password.
                       Button {
-                        visible: !!root.photoInfo && root.photoInfo.dead === true
+                        visible: !root.photosError && !!root.photoInfo && root.photoInfo.dead === true
                         text: root.phone && root.phone.isBusy("fix:restart") ? "Restarting…" : "Restart KDE Connect"
                         tooltipText: "Its devices reconnect in a few seconds"
                         foreground: root.foreground
@@ -5786,6 +5915,8 @@ Panel {
                     width: parent.width
                     title: "RECEIVED"
                     folded: root.isCollapsed("received")
+                    marked: root.marks.sections["received"] === true
+                    urgent: root.urgent
                     summary: Model.receivedSummary(root.received)
                     onToggled: root.toggleCollapsed("received")
                   }
@@ -6901,6 +7032,9 @@ Panel {
       onClicked: root.runAction(tile.action.key)
     }
 
+    // What it needs has stopped: a dot, and a click asks to fix it.
+    GearDot { visible: root.marks.shortcuts[tile.action.key] === true && !tile.isOn }
+
     // Turns it off (closes its screen's window), over the tile's own click.
     PanelActionButton {
       visible: tile.isOn
@@ -6935,11 +7069,98 @@ Panel {
     }
   }
 
+  // A problem as the card says it, in the page's card and in the card over
+  // the panel: what stopped and where, then Fix (the plugin's steps; the
+  // page its step is on), Details (Settings' status), Fix with AI, and how
+  // many more wait. `card`: Model.problemCard's answer.
+  component ProblemBody: Column {
+    id: pb
+    property var card: null
+    property real titleRoom: 0
+    property bool notNow: false
+    readonly property var problem: card ? card.problem : null
+    readonly property bool fixable: root.problemFixable(problem)
+    readonly property bool working: !!root.phone && !!problem && root.phone.isBusy("problem:" + root.problemId(problem))
+    signal fix()
+    signal dismissed()
+    spacing: Style.space(6)
+    Text {
+      width: parent.width - pb.titleRoom
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: pb.problem ? pb.problem.label + (pb.problem.whereLabel ? " · " + pb.problem.whereLabel : "") : ""
+      color: root.urgent
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      font.bold: true
+    }
+    Text {
+      visible: text !== ""
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      maximumLineCount: 4
+      elide: Text.ElideRight
+      text: pb.problem ? pb.problem.detail || "" : ""
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+    }
+    Row {
+      spacing: Style.space(6)
+      Button {
+        visible: pb.fixable
+        text: pb.working ? "Working…" : "Fix"
+        enabled: !pb.working
+        tooltipText: "Does every step it can, then says what is left"
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        onClicked: pb.fix()
+      }
+      Button {
+        text: "Details"
+        tooltipText: "Settings, where what stopped and its causes show"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        onClicked: { pb.dismissed(); root.openSettings() }
+      }
+      Button {
+        text: "Fix with AI"
+        tooltipText: root.phone && root.phone.agentName !== "" ? "Opens " + root.phone.agentName + ", your default coding agent, on what stopped" : "Choose your coding agent first (Omarchy's own choice), then again"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        onClicked: root.fixProblemWithAi(pb.problem)
+      }
+      Button {
+        visible: !!pb.card && pb.card.more > 0
+        text: "+" + (pb.card ? pb.card.more : 0) + " more"
+        tooltipText: "Settings, where every one of them shows"
+        foreground: root.dim
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        onClicked: { pb.dismissed(); root.openSettings() }
+      }
+      Button {
+        visible: pb.notNow
+        text: "Not now"
+        tooltipText: "Leaves it, and does not do what you asked"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.caption
+        onClicked: pb.dismissed()
+      }
+    }
+  }
+
   // What a section says about its feature (Model.sectionNote), in place:
-  // the one thing it needs, or that it stopped. A problem: Fix (the
-  // plugin's steps, or the page its step is on), Details (Settings, where
-  // the status lists it and its causes are a click away) and Fix with AI.
-  // An ask: its one click here, or waiting for the step on the device.
+  // the one thing it needs, or that it stopped. A problem: one plain line
+  // (the card at the top of the main page has its Fix, Details and Fix with
+  // AI; the dot on the header says where it is). An ask: its one click here,
+  // or waiting for the step on the device.
   component SectionNote: Rectangle {
     id: sn
     property var note: null
@@ -6947,35 +7168,36 @@ Panel {
     readonly property bool acts: !!note && !!note.row && (note.row.steps || []).length > 0 && note.waiting !== true
     readonly property bool working: !!root.phone && !!note && root.phone.isBusy("feature:" + note.key)
     visible: !!note
-    implicitHeight: visible ? noteColumn.implicitHeight + Style.space(14) : 0
+    implicitHeight: visible ? noteColumn.implicitHeight + (problem ? Style.space(2) : Style.space(14)) : 0
     radius: Style.cornerRadius
-    color: Qt.alpha(problem ? root.urgent : root.foreground, 0.06)
-    border.width: 1
-    border.color: Qt.alpha(problem ? root.urgent : root.foreground, problem ? 0.55 : 0.25)
+    color: problem ? "transparent" : Qt.alpha(root.foreground, 0.06)
+    border.width: problem ? 0 : 1
+    border.color: Qt.alpha(root.foreground, 0.25)
     Column {
       id: noteColumn
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
-      anchors.leftMargin: Style.space(8)
-      anchors.rightMargin: Style.space(8)
+      anchors.leftMargin: sn.problem ? 0 : Style.space(8)
+      anchors.rightMargin: sn.problem ? 0 : Style.space(8)
       spacing: Style.space(6)
       Text {
         width: parent.width
         textFormat: Text.PlainText
         wrapMode: Text.WordWrap
         text: sn.note ? sn.note.text : ""
-        color: sn.problem ? root.urgent : root.foreground
+        color: sn.problem ? root.dim : root.foreground
         font.family: root.fontFamily
-        font.pixelSize: Style.font.bodySmall
+        font.pixelSize: sn.problem ? Style.font.caption : Style.font.bodySmall
       }
       Row {
+        visible: !sn.problem
         spacing: Style.space(6)
         Button {
           visible: sn.acts
-          text: sn.working ? "Working…" : (sn.problem ? "Fix" : (sn.note && sn.note.fix ? "Allow" : "Set up"))
+          text: sn.working ? "Working…" : (sn.note && sn.note.fix ? "Allow" : "Set up")
           enabled: !sn.working
-          tooltipText: sn.problem ? "Does every step it can, then says what is left" : "Allows it on " + Model.deviceLabel(root.device)
+          tooltipText: "Allows it on " + Model.deviceLabel(root.device)
           bordered: true
           foreground: root.foreground
           fontFamily: root.fontFamily
@@ -6997,24 +7219,6 @@ Panel {
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
-        }
-        Button {
-          visible: sn.problem
-          text: "Details"
-          tooltipText: "Settings, where what stopped and its causes show"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.caption
-          onClicked: root.openSettings()
-        }
-        Button {
-          visible: sn.problem
-          text: "Fix with AI"
-          tooltipText: root.phone && root.phone.agentName !== "" ? "Opens " + root.phone.agentName + ", your default coding agent, on what stopped" : "Choose your coding agent first (Omarchy's own choice), then again"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          fontSize: Style.font.caption
-          onClicked: root.fixWithAiOn(sn.note.row)
         }
       }
     }

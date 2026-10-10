@@ -14,6 +14,10 @@ Item {
   // A small picture beside the summary while folded (the media cover).
   property string thumb: ""
   property bool folded: false
+  // A problem on what this section holds: a dot beside the title. Its room
+  // is always there, so the title and the summary never move.
+  property bool marked: false
+  property color urgent: Color.accent
   // A section read from the device (Gallery): at the header's right, a
   // small ring while it is read, else a refresh button while the pointer
   // is on the header (no chrome at rest). Its place is kept, so the header
@@ -67,11 +71,26 @@ Item {
       Behavior on rotation { enabled: fold.animate; NumberAnimation { duration: Model.MOTION.inMs * fold.motion; easing.type: Easing.OutCubic } }
     }
     PanelSectionHeader {
-      Layout.rightMargin: Style.space(10)
       Layout.alignment: Qt.AlignVCenter
       text: fold.title
       foreground: fold.foreground
       fontFamily: fold.fontFamily
+    }
+    Item {
+      Layout.preferredWidth: Style.space(10)
+      Layout.preferredHeight: fold.headerHeight
+      Layout.alignment: Qt.AlignVCenter
+      Rectangle {
+        id: foldDot
+        anchors.verticalCenter: parent.verticalCenter
+        x: Style.space(4)
+        width: Math.max(5, Math.round(Style.font.caption * 0.55))
+        height: width
+        radius: width / 2
+        color: fold.urgent
+        opacity: fold.marked ? 1 : 0
+        Behavior on opacity { enabled: fold.animate; NumberAnimation { duration: (fold.marked ? Model.MOTION.inMs : Model.MOTION.outMs) * fold.motion; easing.type: Easing.OutCubic } }
+      }
     }
     Image {
       id: foldThumb

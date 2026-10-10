@@ -10,6 +10,13 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **One card for a problem, and it closes**: whatever failed shows in the
+  same place under the device header (*Fix*, *Details*, *Fix with AI*, *+N
+  more*), and ✕ folds it away for good until something new breaks. The
+  red dot stays on the gear, the section, the shortcut and the page it
+  affects. Using an affected action (the Screen shortcut, say) brings the
+  card over the panel; Fix, and the action carries on.
+
 - **Back goes where you came from**: the pages form one stack. Esc and the
   back arrow return to the page you left (a text started on a contact goes
   back to that contact, with its scroll and row), the arrow's tooltip says

@@ -1226,7 +1226,7 @@ test("settings: a device's page lists what it shares, only what it can do", () =
   assert.equal(M.sharesSummary(features.map(r => Object.assign({}, r, { on: true }))), "Everything")
 })
 
-test("the main page says what a feature needs in its own section; the line at the top keeps the rest", () => {
+test("the main page says what a feature needs where it is used", () => {
   const ask = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } }),
                               screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
   const note = M.sectionNote(ask, "notifications")
@@ -1246,8 +1246,55 @@ test("the main page says what a feature needs in its own section; the line at th
   assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
   const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],
                                       [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
-  assert.deepEqual(M.bannerProblems(problems, ["notifications"]).map(p => p.key), ["firewall"], "said in its section: not in the line")
-  assert.deepEqual(M.bannerProblems(problems, []).map(p => p.key), ["firewall", "health:notifications"], "no section drawn: the line says it")
+  // A problem is the card at the top, whichever section its feature is in.
+  assert.deepEqual(M.problemCard(problems, [], "p1").problem.key, "health:notifications", "the viewed device's first")
+  assert.deepEqual(M.problemCard(problems, [], "p9").problem.key, "firewall", "this computer's before another device's")
+})
+
+test("a problem: one card in one place, a dot on every entry point of the features it affects", () => {
+  const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
+  const rows = quiet.features.map(r => Object.assign({}, r, { problem: r.state === "attention" }))
+  const computer = [{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }]
+  const problems = M.settingsProblems(computer, [], [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
+  const stopped = problems.find(p => p.key === "health:notifications")
+  assert.deepEqual(stopped.affects, ["notifications"])
+  assert.equal(M.problemFor(problems, "notifications", "p1"), stopped)
+  assert.equal(M.problemFor(problems, "notifications", "p2"), null, "another device's problem is not this one's")
+  assert.equal(M.problemFor(problems, "gallery", "p1"), null)
+  const marks = M.problemMarks(problems, "p1")
+  assert.deepEqual(marks, { sections: { notifications: true }, shortcuts: {}, pages: {} }, "this computer's check marks no feature")
+  assert.equal(M.problemForEntry(problems, "section", "notifications", "p1"), stopped)
+  assert.equal(M.problemForEntry(problems, "section", "photos", "p1"), null)
+  // A missing package marks the entries of the features that need it.
+  const ready = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const tools = M.settingsProblems([{ key: "screen", ok: false, label: "scrcpy and adb", status: "Missing" }], [],
+                                   [{ id: "p1", title: "Pixel 8", setup: ready, rows: ready.features }])
+  assert.deepEqual(M.problemMarks(tools, "p1").shortcuts, { screen: true }, "the Screen shortcut")
+  assert.deepEqual(M.problemMarks(tools, "p1").sections, { apps: true }, "the Apps section")
+  // The card: the viewed device's first; closed stays closed; a new one brings it back.
+  const card = M.problemCard(problems, [], "p1")
+  assert.deepEqual([card.problem.key, card.more], ["health:notifications", 1])
+  const closed = problems.map(M.problemId)
+  assert.equal(M.problemCard(problems, closed, "p1"), null, "closed: no card, the dots stay")
+  assert.deepEqual(M.problemMarks(problems, "p1").sections, { notifications: true }, "closed or not")
+  const fresh = M.problemCard(problems, [M.problemId(stopped)], "p1")
+  assert.deepEqual([fresh.problem.key, fresh.more], ["firewall", 0], "a new problem shows again")
+})
+
+test("every feature lists its entry points, and a screen problem marks Apps, the Screen shortcut and its pages", () => {
+  M.FEATURES.forEach(f => {
+    assert.ok(f.entries && ["sections", "shortcuts", "pages"].every(k => Array.isArray(f.entries[k])), f.key + " lists its entries")
+    f.entries.shortcuts.forEach(k => assert.ok(M.shortcutByKey(k), f.key + ": " + k + " is a shortcut"))
+  })
+  assert.deepEqual(M.entryFeatures("shortcut", "screen"), ["screen"])
+  assert.deepEqual(M.entryFeatures("page", "messages"), ["messages", "names"])
+  const problem = { where: "p1", key: "screen", affects: ["screen"] }
+  assert.deepEqual(M.problemMarks([problem], "p1"), { sections: { apps: true }, shortcuts: { screen: true }, pages: { apps: true, screen: true } })
+  assert.equal(M.problemForEntry([problem], "shortcut", "screen", "p1"), problem)
+  assert.equal(M.problemForEntry([problem], "shortcut", "ring", "p1"), null)
+  const gallery = { where: "p1", key: "health:mount", affects: ["gallery"] }
+  assert.deepEqual(M.problemMarks([gallery], "p1").sections, { photos: true })
+  assert.deepEqual(M.problemMarks([problem, gallery], "p2"), { sections: {}, shortcuts: {}, pages: {} }, "another device")
 })
 
 test("first run: one card for this computer while KDE Connect is missing or stopped", () => {

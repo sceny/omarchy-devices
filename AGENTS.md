@@ -204,7 +204,7 @@ Keep them; change one only with the owner.
   for them. A separator goes between sections, never under the header.
 - **A section shows when its switch is on and it has something:** Now
   playing while a player exists, Notifications while there are any (no
-  empty state), or something to say about its feature (`sectionNotes`).
+  empty state), or something to say about its feature (`sectionNotes`: an ask, or a plain line on a problem).
 - **A device's page is edited in place** (✎, shown only while the pointer
   is on the device's header so the page has no chrome at rest; a
   right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
@@ -287,21 +287,31 @@ Keep them; change one only with the owner.
   step that needs a page of its own (the screen link's pairing) opens
   that page. Nothing advertises a feature: an ask sits only where the user
   already is.
-- **A problem shows where its effect is**, once, and is counted the same
-  everywhere (`Model.settingsProblems`): this computer's failing checks
-  (not optional, not ignored) and connected devices' broken items (they
-  worked and stopped), each once with the features it affects (none
-  turned off), and fixes that did not work. On the main page a problem
-  shows in the section of the feature it stopped (`Model.sectionNote`,
-  `FEATURE_SECTIONS`: *Fix*, *Details*, *Fix with AI*); the line at the
-  top (folding in) keeps the rest (`Model.bannerProblems`: this
-  computer's, a link, a feature with no section). Settings' status lists
-  them all and the gear's dot counts them. The main page's line closes
-  (✕): the problems it showed then stay out of it (`closedProblems`,
-  written on the close only), a new one brings it back. The diagnostics
-  page holds only this computer; a package installed is all it says of
-  the screen or the gallery. *Fix all* runs what its page is about: the
-  status what it lists, diagnostics this computer's checks.
+- **A problem has one card and a dot on every entry point of its
+  feature** (`Model.settingsProblems`, counted the same everywhere): this
+  computer's failing checks (not optional, not ignored) and connected
+  devices' broken items (they worked and stopped), each once with the
+  features it affects (none turned off), and fixes that did not work. The
+  card (*Fix*, *Details*, *Fix with AI*, *+N more* opening Settings'
+  status) sits in one place, right under the device header above the first
+  section, whichever feature failed (`Model.problemCard`: the viewed
+  device's first, then this computer's); no section carries a card of its
+  own, only a plain line saying what is wrong. Its ✕ folds it away at
+  `Model.MOTION` (`FoldBody`); a closed problem stays closed
+  (`closedProblems`, written on the close only) and a new one brings the
+  card back. The red dot stays where the effect is, closed or not: the
+  gear, the section header beside its title (inside
+  `FoldToggle.headerHeight`), the shortcut tile, the page header
+  (`Model.problemMarks`). Using an affected action (a shortcut, an app, a
+  notification's Open) brings the same card over the panel with *Not now*;
+  Fix runs the plugin's steps and then carries on with the action asked
+  (`Model.problemForEntry`, `guarded`). A feature's entry points are data,
+  `Model.FEATURES` `entries` (`sections`, `shortcuts`, `pages`): a new
+  feature gets its dots and its ask from them, with no branch of its own.
+  An ask (a permission to allow) stays in the feature's section. The
+  diagnostics page holds only this computer; a package installed is all it
+  says of the screen or the gallery. *Fix all* runs what its page is
+  about: the status what it lists, diagnostics this computer's checks.
 - **The gallery and received files are read, never kept beyond the cache**
   (two sections, Gallery and Received, each gone while it has nothing).
   The gallery is read from the device's storage (KDE Connect's sftp, which

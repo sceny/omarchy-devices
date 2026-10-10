@@ -136,11 +136,15 @@ Settings (one device: its page)        Settings (several)
 - **Nothing while all is well:** no *Everything works*, no state words,
   no tools by name. The status appears only when something stopped and
   the plugin could not fix it alone.
-- **A problem shows where its effect is.** On the main page, in the
-  section of the feature it stopped (*Fix*, *Details*, *Fix with AI*;
-  `Model.sectionNote`); a problem with no section (this computer, a link)
-  in the line at the top. Settings' status lists them all; the gear's dot
-  counts them.
+- **A problem has one card and a dot on every entry point of its
+  feature.** The card sits right under the device header on the main page,
+  the same place for every failure (*Fix*, *Details*, *Fix with AI*, *+N
+  more* for the rest); its ✕ closes it for good until a new problem
+  comes. The red dot stays on the gear, the section header, the shortcut
+  and the page header, closed or not. Using an affected action brings the
+  card over the panel; Fix, then the action carries on. Entry points are
+  data (`Model.FEATURES` `entries`), the marks and the card pure
+  functions (`problemMarks`, `problemFor`, `problemCard`).
 - **Diagnostics** (this computer's checks: KDE Connect, the firewall, the
   network, the packages) is a page reached from a problem it causes, not
   a place in Settings.
@@ -193,7 +197,7 @@ Settings (one device: its page)        Settings (several)
 - The boundary: each source is the truth for its feature; KDE Connect is
   one of them; KDE Connect's faults are handled here when met.
 - Setup never shows plumbing; using a feature gets it working; a problem
-  shows where its effect is; Settings is preferences, the device's page
+  has one card and a dot where its effect is; Settings is preferences, the device's page
   with one device (sections 5 and 6).
 - Fixes still change the system only on a click (one password prompt), and
   a change on the phone (a permission) only on a click too.
