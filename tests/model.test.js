@@ -1174,6 +1174,9 @@ test("contacts: the list by letter, a search by name and by digits", () => {
   assert.deepEqual(M.contactRows(list, "5550188").map(r => r.name), ["Jordan Lee"], "digits, anywhere in a number")
   assert.deepEqual(M.contactRows(list, "nobody"), [])
   assert.equal(M.contactRows(list, "sam")[0].first, true, "a search starts its own letters")
+  assert.equal(rows[0].photo, "", "no picture: the initial")
+  assert.equal(M.contactRows(M.demoContacts("/x/picture.jpg"), "alex")[0].photo, "/x/picture.jpg",
+    "a row carries its photo, so the list shows the face")
 })
 
 test("contacts: a card's rows, in order, each with what it offers", () => {
@@ -1201,6 +1204,19 @@ test("contacts: a nameless card, and what an empty page says", () => {
   assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/)
   assert.match(M.contactsEmpty("away", "", phone), /^Pixel 8 is away/)
   assert.equal(M.contactsEmpty("ready", "zz", phone), "No contact matches.")
+
+  const google = { name: "Google Contacts", url: "https://contacts.google.com/", find: "https://contacts.google.com/search/{}" }
+  const synced = { name: "Sam Chen", stored: "account" }, local = { name: "Dr. Moreau's office", stored: "phone" }
+  assert.equal(M.contactsAppHint(null, [synced]), "")
+  assert.equal(M.contactsAppHint(google, [synced]), "Open Google Contacts: its account's contacts")
+  assert.equal(M.contactsAppHint(google, [synced, local, local]), "Open Google Contacts: its account's contacts, not the 2 on the phone only")
+  assert.equal(M.contactsAppHint(google, [local]), "Open Google Contacts: these contacts are on the phone only, not there")
+  assert.deepEqual(M.contactFind(google, synced), { label: "Find in Google Contacts", note: "" })
+  assert.deepEqual(M.contactFind(google, local), { label: "", note: "On the phone only" })
+  assert.deepEqual(M.contactFind(Object.assign({}, google, { find: "" }), synced), { label: "", note: "" })
+  assert.deepEqual(M.contactFind(google, { name: "", stored: "account" }), { label: "", note: "" })
+  // An older bridge says nothing of where a card is: it is looked up.
+  assert.deepEqual(M.contactFind(google, { name: "Sam Chen" }), { label: "Find in Google Contacts", note: "" })
 })
 
 test("contacts: the shortcut needs the device's contacts, and the feature says what it gives", () => {

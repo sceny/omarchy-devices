@@ -189,6 +189,7 @@ Item {
   // Demo cards arrive after a device's usual delay, so the skeletons the
   // page shows meanwhile can be looked at too.
   readonly property int demoDelay: 900
+  property string demoPicture: ""
 
   function showDemo() {
     demo = true
@@ -205,7 +206,7 @@ Item {
     interval: contacts.demoDelay
     onTriggered: {
       if (!contacts.demo) return
-      contacts.cards = Model.demoContacts()
+      contacts.cards = Model.demoContacts(contacts.demoPicture)
       contacts.ready = true
       contacts.readAt = Date.now()
       contacts.listState = "ready"
@@ -227,10 +228,12 @@ Item {
   }
 
   // Omarchy's own contacts app, opened exactly as Omarchy opens a web app
-  // (the bridge's `contacts-app`). It says so itself when there is none.
-  function openApp() {
+  // (the bridge's `contacts-app`); with a name, its search for that person
+  // (Model.contactFind). It says so itself when there is none.
+  function openApp(name) {
     if (bridge === "") return false
-    Quickshell.execDetached([bridge, "contacts-app"])
+    var find = String(name || "").trim()
+    Quickshell.execDetached([bridge, "contacts-app"].concat(find !== "" ? ["--find", find] : []))
     return true
   }
 

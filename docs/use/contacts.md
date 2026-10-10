@@ -13,8 +13,11 @@ Add the *Contacts* [shortcut](shortcuts.md) to open it. A card's *Message*
 starts a [text](messages.md) to that number; *Call* opens the dialer on
 the phone, and the call itself stays your tap there. An email opens your
 mail app, an address Omarchy's Google Maps, a website your browser, and
-the panel closes behind it. *Copy* takes any detail. A button opens the contacts app Omarchy ships, while this computer
-still has it, and the panel closes behind it.
+the panel closes behind it. *Copy* takes any detail. A button opens the
+contacts app Omarchy ships (Google Contacts), while this computer still
+has it, and the panel closes behind it. It holds only your Google
+account's contacts: a card the phone keeps for itself says *On the phone
+only*; any other card has a button to find it there.
 
 The phone sends its cards when the panel opens on the page, at most every
 five minutes; `r` asks again. Away, the cards already here still read, and

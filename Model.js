@@ -1161,6 +1161,33 @@ function contactDetails(contact) {
   return rows
 }
 
+// This computer's contacts app (Omarchy's web app, `{ name, url, find }`)
+// holds the contacts of the one account it belongs to: Google Contacts has
+// those the phone syncs with Google, never those kept on the phone only
+// (`stored` "phone", from Android's lookup key) or in another account. The
+// cards tell only which ones are on the phone only, so that is what is said.
+function contactsAppHint(app, contacts) {
+  var name = app && app.name ? String(app.name) : ""
+  if (name === "") return ""
+  var list = contacts || []
+  var phoneOnly = 0
+  for (var i = 0; i < list.length; i++) if (list[i] && list[i].stored === "phone") phoneOnly++
+  if (phoneOnly > 0 && phoneOnly === list.length) return "Open " + name + ": these contacts are on the phone only, not there"
+  if (phoneOnly > 0) return "Open " + name + ": its account's contacts, not the " + phoneOnly + " on the phone only"
+  return "Open " + name + ": its account's contacts"
+}
+
+// One person in that app: its search for the name, where the app has one
+// known and the card is synced with an account. A card on the phone only
+// cannot be there, so it says that instead.
+function contactFind(app, contact) {
+  var name = contact ? String(contact.name || "").trim() : ""
+  if (!contact) return { label: "", note: "" }
+  if (contact.stored === "phone") return { label: "", note: "On the phone only" }
+  if (name === "" || !app || !app.find) return { label: "", note: "" }
+  return { label: "Find in " + String(app.name), note: "" }
+}
+
 // What the page says when it has nothing to show: the device decides whether
 // contacts leave it at all, so an empty page points at that, never at a
 // fault here.
@@ -1934,10 +1961,12 @@ function demoConversation(nowMs, picture) {
 
 // Made-up contacts, the people the demo conversations are with, for
 // screenshots and checks: a real phone's contacts never go in a picture.
-function demoContacts() {
+// `picture` is a local image for Alex's photo; without one Alex shows the
+// initial, as the others do.
+function demoContacts(picture) {
   function c(id, name, line) {
     return Object.assign({ id: id, name: name, nickname: "", org: "", title: "", phones: [], emails: [],
-                           addresses: [], websites: [], birthday: "", note: "", photo: "" }, line)
+                           addresses: [], websites: [], birthday: "", note: "", photo: "", stored: "account" }, line)
   }
   return [
     c("demo-1", "Alex Rivera", { nickname: "Al", org: "Northwind Press", title: "Editor",
@@ -1945,8 +1974,8 @@ function demoContacts() {
       emails: [{ label: "Home", value: "alex@example.invalid" }],
       addresses: [{ label: "Home", value: "12 Rue Example, Montreal, QC" }],
       websites: [{ label: "Website", value: "https://example.com/alex" }],
-      birthday: "1990-05-02", note: "Brings the board game" }),
-    c("demo-2", "Dr. Moreau's office", { phones: [{ label: "Work", value: "+15145550177" }],
+      birthday: "1990-05-02", note: "Brings the board game", photo: picture || "" }),
+    c("demo-2", "Dr. Moreau's office", { stored: "phone", phones: [{ label: "Work", value: "+15145550177" }],
       addresses: [{ label: "Work", value: "480 Avenue Example, Montreal, QC" }] }),
     c("demo-3", "Jordan Lee", { phones: [{ label: "Mobile", value: "+15145550188" }],
       emails: [{ label: "Work", value: "jordan@example.invalid" }] }),
