@@ -11,11 +11,14 @@ GitHub release with these notes.
 ### Highlights
 
 - **Contacts**: the phone's address book in the panel, two panes like
-  Messages: a searchable list and the full card (numbers, emails,
-  addresses, birthday, note, photo). *Message* starts a text, *Call* opens
-  the dialer on the phone, *Copy* takes a detail; read-only. Add the
+  Messages: a searchable list, each person with their photo, and the full
+  card (numbers, emails, addresses, websites, birthday, note, photo).
+  *Message* starts a text, *Call* opens the dialer on the phone, an email
+  opens the mail app, an address Omarchy's Google Maps, a website the
+  browser, *Copy* takes a detail; read-only. Add the
   *Contacts* shortcut; the card last open comes back, per device. Texts
-  take their names from the same cards.
+  take their names from the same cards. A card synced with an account
+  opens in Google Contacts; one kept on the phone only says so.
 
 - **Setup that gets out of the way**: Settings no longer shows the
   plumbing. With one device it is that device's page: what it shares with

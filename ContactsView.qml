@@ -15,6 +15,10 @@ import "Model.js" as Model
 // cross between the panes, r asks the device again. In the card, Enter runs
 // the row's first action, which is never a call: a call leaves this computer
 // for the phone, so it waits for a click.
+//
+// An email, an address and a website open where Omarchy opens them (the mail
+// app, the map, the browser): a window the user goes on in, so the panel
+// closes behind it, as it does for the contacts app.
 Item {
   id: view
 
@@ -79,9 +83,24 @@ Item {
                                      : "Reading the contacts already here")
   }
 
+  // A detail opened in its app: `kind` is web, map or mail.
+  function openDetail(kind, value) {
+    if (!contacts || !contacts.openDetail(kind, value)) return
+    appOpened()
+  }
+
   function openApp() {
     if (!contacts || !contacts.hasApp) return
-    if (!contacts.openApp()) return
+    if (!contacts.openApp("")) return
+    appOpened()
+  }
+
+  // The open card in this computer's contacts app, where it can be: a
+  // window the user goes on in (to change it), so the panel closes too.
+  readonly property var cardFind: contacts ? Model.contactFind(contacts.app, contacts.openCard) : ({ label: "", note: "" })
+  function findCard() {
+    if (!contacts || cardFind.label === "") return
+    if (!contacts.openApp(contacts.openTitle)) return
     appOpened()
   }
 
@@ -184,12 +203,16 @@ Item {
     cardReveal.restart()
   }
 
-  // Enter on a detail row: its first action, which is Message on a number and
-  // Copy on everything else. Never a call.
+  // Enter on a detail row: its first action, which is Message on a number,
+  // the mail app, the map or the browser on what opens there, and Copy on
+  // everything else. Never a call.
   function runFirstAction(i) {
     var row = contacts && i >= 0 && i < detailList.count ? contacts.details.get(i) : null
     if (!row) return
-    if (String(row.actions).indexOf("message") >= 0) { messageContact(row.raw, contacts.openTitle); return }
+    var actions = String(row.actions)
+    if (actions.indexOf("message") >= 0) { messageContact(row.raw, contacts.openTitle); return }
+    var open = ["mail", "map", "web"].filter(function(k) { return actions.indexOf(k) >= 0 })[0]
+    if (open) { openDetail(open, row.raw); return }
     copyText(row.raw)
   }
 
@@ -272,11 +295,12 @@ Item {
             fontFamily: view.fontFamily
           }
           // This computer's own contacts app, when it has one: the cards here
-          // are read-only, so a change is made there or on the device.
+          // are read-only, so a change is made there or on the device. It
+          // holds its account's contacts only, and its tooltip says so.
           PanelActionButton {
             visible: !!view.contacts && view.contacts.hasApp
             iconText: Model.GLYPH.openIn
-            tooltipText: view.contacts && view.contacts.hasApp ? "Open " + view.contacts.appName : ""
+            tooltipText: view.contacts ? Model.contactsAppHint(view.contacts.app, view.contacts.cards) : ""
             foreground: view.foreground
             fontFamily: view.fontFamily
             onClicked: view.openApp()
@@ -551,6 +575,28 @@ Item {
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
             }
+            // A card no account syncs: no contacts app has it, so this says
+            // why there is no button to find it there.
+            Text {
+              Layout.fillWidth: true
+              visible: text !== ""
+              textFormat: Text.PlainText
+              text: view.cardFind.note
+              color: view.faint
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+          }
+
+          PanelActionButton {
+            visible: view.cardFind.label !== ""
+            Layout.alignment: Qt.AlignTop
+            iconText: Model.GLYPH.openIn
+            tooltipText: view.cardFind.label
+            foreground: view.foreground
+            fontFamily: view.fontFamily
+            onClicked: view.findCard()
           }
         }
 
@@ -624,21 +670,39 @@ Item {
       anchors.rightMargin: Style.space(8)
       spacing: Style.space(10)
 
-      // The list keeps to the initial: a picture per row is a decode per
-      // row, and the card already shows the face.
+      // The face as the card draws it, smaller: the picture the bridge
+      // wrote from the decoded pixels, a rounded tile, the initial in its
+      // circle until it is ready or when there is none. Only the rows in
+      // view load one, at the size they show it.
       Rectangle {
+        id: rowFace
+        readonly property string photo: String(row.model.photo || "")
+        readonly property bool shown: photo !== "" && rowFaceImage.status === Image.Ready
         Layout.preferredWidth: Style.space(32)
         Layout.preferredHeight: Style.space(32)
-        radius: width / 2
+        radius: rowFace.shown ? Style.cornerRadius : width / 2
         color: Style.selectedFillFor(view.foreground, Color.accent)
+        clip: true
         Text {
           anchors.centerIn: parent
+          visible: !rowFace.shown
           textFormat: Text.PlainText
           text: row.model.initial
           color: view.foreground
           font.family: view.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
+        }
+        Image {
+          id: rowFaceImage
+          anchors.fill: parent
+          visible: rowFace.shown
+          source: rowFace.photo !== "" ? "file://" + encodeURI(rowFace.photo) : ""
+          fillMode: Image.PreserveAspectCrop
+          sourceSize.width: Style.space(32) * 2
+          sourceSize.height: Style.space(32) * 2
+          asynchronous: true
+          smooth: true
         }
       }
 
@@ -741,6 +805,36 @@ Item {
         foreground: view.foreground
         fontFamily: view.fontFamily
         onClicked: view.callContact(detail.model.raw, view.contacts ? view.contacts.openTitle : "")
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("mail") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.mail
+        tooltipText: "Write an email"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("mail", detail.model.raw)
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("map") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.map
+        tooltipText: "Show on the map"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("map", detail.model.raw)
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("web") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.web
+        tooltipText: "Open in the browser"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("web", detail.model.raw)
       }
 
       PanelActionButton {

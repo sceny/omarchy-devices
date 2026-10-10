@@ -73,9 +73,14 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge contacts <device> [--sync]     its contacts, as JSON (from the
                                               vCards KDE Connect syncs; --sync asks
                                               the device for them again first)
-  kdeconnect-bridge contacts-app                   Omarchy's contacts app, opened or
+  kdeconnect-bridge contacts-app [--find <name>]   Omarchy's contacts app, opened or
                                               brought forward (nothing when this
-                                              computer has none)
+                                              computer has none); --find opens
+                                              its search for that person
+  kdeconnect-bridge contact-open <web|map|mail> <value>
+                                              a contact's website in the browser,
+                                              address in Omarchy's maps, email in
+                                              the mail app
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -4115,13 +4120,33 @@ def vcard_label(params, fallback):
     return fallback
 
 
+def vcard_stored(lookup):
+    """Where the phone keeps a contact, from its Android lookup key (KDE
+    Connect's X-KDECONNECT-ID-DEV-<device>). The key has one part per
+    account the contact is in, each an account hash and a kind: `i` or `e`
+    when the account syncs it (it has the account's own id: Google, the
+    phone maker's cloud, work mail), `r` when it has none (on the phone
+    only, or the SIM). "account" when any part is synced, "phone" when none
+    is, "" when the key says neither (not an Android key)."""
+    kinds = set()
+    for part in str(lookup or "").strip().split("."):
+        m = re.match(r"^-?\d+([a-z])", part)
+        if m:
+            kinds.add(m.group(1))
+    if kinds & {"i", "e"}:
+        return "account"
+    return "phone" if "r" in kinds else ""
+
+
 def parse_vcard(text):
     """One vCard as {name, first, last, nickname, org, title, phones,
-    emails, addresses, birthday, note, photo}. Phones, emails and addresses
-    are [{label, value}] in the card's own order; `photo` is the picture's
-    bytes as the card holds them (nothing decodes them here)."""
+    emails, addresses, websites, birthday, note, photo, stored}. Phones,
+    emails, addresses and websites are [{label, value}] in the card's own
+    order; `photo` is the picture's bytes as the card holds them (nothing
+    decodes them here); `stored` is where the phone keeps it (vcard_stored)."""
     card = {"name": "", "first": "", "last": "", "nickname": "", "org": "", "title": "",
-            "phones": [], "emails": [], "addresses": [], "birthday": "", "note": "", "photo": b""}
+            "phones": [], "emails": [], "addresses": [], "websites": [], "birthday": "", "note": "", "photo": b"",
+            "stored": ""}
     lines = re.sub(r"\n[ \t]", "", re.sub(r"\r\n|\r", "\n", str(text or ""))).split("\n")
     i = 0
     while i < len(lines):
@@ -4164,6 +4189,8 @@ def parse_vcard(text):
             where = ", ".join([p for p in vcard_parts(value)[2:] if p])
             if where:
                 card["addresses"].append({"label": vcard_label(params, "Address"), "value": where})
+        elif name == "URL":
+            card["websites"].append({"label": vcard_label(params, "Website"), "value": vcard_unescape(value).strip()})
         elif name == "ORG":
             card["org"] = ", ".join([p for p in vcard_parts(value) if p])
         elif name in ("TITLE", "ROLE") and not card["title"]:
@@ -4172,6 +4199,8 @@ def parse_vcard(text):
             card["birthday"] = value
         elif name == "NOTE":
             card["note"] = vcard_unescape(value).strip()
+        elif name.startswith("X-KDECONNECT-ID-DEV-"):
+            card["stored"] = vcard_stored(value)
         elif name == "PHOTO" and not card["photo"] and "://" not in value:
             try:
                 card["photo"] = base64.b64decode(re.sub(r"\s", "", value), validate=False)
@@ -4299,8 +4328,10 @@ def desktop_webapp(path):
 
 
 def omarchy_contacts_app(share=OMARCHY_APPS, user=None):
-    """Omarchy's contacts app as {"name", "url"}, or None when this computer
-    has no Omarchy contacts app."""
+    """Omarchy's contacts app as {"name", "url", "find"}, or None when this
+    computer has no Omarchy contacts app. `find` is the app's search
+    address for one person ({} is the name), "" when it has none known: it
+    holds only the contacts of the account it belongs to."""
     user = user or os.path.expanduser(USER_APPS)
     try:
         names = sorted(os.listdir(share))
@@ -4313,18 +4344,94 @@ def omarchy_contacts_app(share=OMARCHY_APPS, user=None):
             continue
         app = desktop_webapp(os.path.join(user, name))
         if app:
+            app["find"] = contacts_find_url(app["url"])
             return app
     return None
 
 
-def open_contacts_app(app=None, launch=None):
+# The search address of each contacts web app known here, by its host.
+CONTACTS_FIND = {"contacts.google.com": "https://contacts.google.com/search/{}"}
+
+
+def contacts_find_url(url):
+    host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    return CONTACTS_FIND.get(host, "")
+
+
+def open_contacts_app(app=None, launch=None, find=""):
     """Omarchy's contacts app, opened or brought forward exactly as Omarchy
-    opens a web app."""
+    opens a web app; with `find`, a window of its own on that person's
+    search (a window brought forward stays where the user left it)."""
     app = app or omarchy_contacts_app()
     if not app:
         return say("This computer has no Omarchy contacts app", EXIT_FAILED)
+    if find:
+        if not app.get("find"):
+            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
+        url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
+        (launch or launch_detached)(["omarchy-launch-webapp", url])
+        return say("Opening %s" % app["name"])
     (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
     return say("Opening %s" % app["name"])
+
+
+def contact_link(kind, value):
+    """What opens a contact's detail: a website as an http(s) address (a
+    bare host gets https://; any other scheme the card holds is refused, a
+    card being the device's text), an address as a search on Google Maps,
+    the map Omarchy ships, an email as a mailto: link. "" when there is
+    nothing to open."""
+    value = str(value or "").strip()
+    if not value or "\n" in value:
+        return ""
+    if kind == "web":
+        if not re.match(r"^[a-z][a-z0-9+.-]*:(?!\d)", value, re.I):
+            value = "https://" + value
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc or re.search(r"\s", value):
+            return ""
+        return value
+    if kind == "map":
+        return "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(value, safe="")
+    if kind == "mail":
+        if not re.match(r"^[^@\s]+@[^@\s]+$", value):
+            return ""
+        return "mailto:" + urllib.parse.quote(value, safe="@+.-_")
+    return ""
+
+
+def omarchy_maps_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's maps web app as {"name", "url"}, or None when this computer
+    has none (the user removed it)."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "maps" not in name.lower():
+            continue
+        if os.path.isfile(os.path.join(user, name)):
+            return desktop_webapp(os.path.join(user, name))
+    return None
+
+
+def contact_open(kind, value, launch=None, maps=None):
+    """A contact's detail opened where Omarchy opens it: a website in the
+    default browser (`omarchy-launch-browser`), an address in Omarchy's maps
+    web app (the browser when this computer has none), an email in the
+    mail app the user chose for mailto: links (Omarchy's default is HEY)."""
+    link = contact_link(kind, value)
+    if not link:
+        return say("Nothing to open", EXIT_FAILED)
+    launch = launch or launch_detached
+    if kind == "map" and (maps if maps is not None else omarchy_maps_app()):
+        launch(["omarchy-launch-webapp", link])
+    elif kind == "mail":
+        launch(["uwsm-app", "--", "xdg-open", link])
+    else:
+        launch(["omarchy-launch-browser", link])
+    return EXIT_OK
 
 
 def launch_detached(cmd):
@@ -4352,9 +4459,11 @@ def contacts_list(device_id, sync=False, conn=None):
             "phones": card["phones"],
             "emails": card["emails"],
             "addresses": card["addresses"],
+            "websites": card["websites"],
             "birthday": card["birthday"],
             "note": card["note"],
             "photo": contact_photo(device_id, card["photo"]),
+            "stored": card["stored"],
         })
     out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
     return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
@@ -4823,7 +4932,12 @@ def main(argv):
         print(json.dumps(contacts_list(argv[1], sync="--sync" in argv), ensure_ascii=False))
         return EXIT_OK
     if argv[0] == "contacts-app":
-        return open_contacts_app()
+        find = argv[argv.index("--find") + 1] if "--find" in argv[:-1] else ""
+        return open_contacts_app(find=find)
+    if argv[0] == "contact-open":
+        if len(argv) < 3:
+            return say("contact-open needs web, map or mail and a value", EXIT_FAILED)
+        return contact_open(argv[1], argv[2])
     if argv[0] == "app-forget":
         if len(argv) < 3:
             return say("app-forget needs a device id and a package", EXIT_FAILED)

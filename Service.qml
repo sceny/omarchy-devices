@@ -1432,6 +1432,7 @@ Item {
     bridge: root.bridge
     deviceId: root.device ? String(root.device.id) : ""
     reachable: root.reachable
+    demoPicture: root.demoPicture
   }
 
   Timer {

@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import io
 import re
 import importlib.machinery
 import importlib.util
@@ -223,6 +224,7 @@ class ContactCards(unittest.TestCase):
             "TEL;TYPE=CELL,PREF:+1 514-555-0123\r\nTEL;TYPE=WORK:+15145550144\r\n"
             "EMAIL;TYPE=INTERNET,HOME:alex@example.invalid\r\n"
             "ADR;TYPE=HOME:;;12 Rue Example;Montreal;QC;H2X 1Y4;Canada\r\n"
+            "URL:https://example.com/alex\r\n"
             "BDAY:1990-05-02\r\nNOTE:Brings the board game\\nAlways late\r\n"
             "END:VCARD\r\n")
 
@@ -238,9 +240,35 @@ class ContactCards(unittest.TestCase):
         self.assertEqual(card["emails"], [{"label": "Home", "value": "alex@example.invalid"}])
         self.assertEqual(card["addresses"],
                          [{"label": "Home", "value": "12 Rue Example, Montreal, QC, H2X 1Y4, Canada"}])
+        self.assertEqual(card["websites"], [{"label": "Website", "value": "https://example.com/alex"}])
         self.assertEqual(card["birthday"], "1990-05-02")
         self.assertEqual(card["note"], "Brings the board game\nAlways late", "\\n is a new line")
         self.assertEqual(card["photo"], b"")
+
+    def test_a_detail_opens_only_as_a_link(self):
+        self.assertEqual(bridge.contact_link("web", "example.com/alex"), "https://example.com/alex")
+        self.assertEqual(bridge.contact_link("web", "http://example.com"), "http://example.com")
+        for bad in ("file:///etc/passwd", "javascript:alert(1)", "https://", "example .com", ""):
+            self.assertEqual(bridge.contact_link("web", bad), "", bad)
+        self.assertEqual(bridge.contact_link("map", "12 Rue Example, Montreal"),
+                         "https://www.google.com/maps/search/?api=1&query=12%20Rue%20Example%2C%20Montreal")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid"), "mailto:alex@example.invalid")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid?body=hi"), "mailto:alex@example.invalid%3Fbody%3Dhi")
+        self.assertEqual(bridge.contact_link("mail", "not an address"), "")
+        self.assertEqual(bridge.contact_link("phone", "5145550123"), "")
+
+    def test_a_detail_opens_where_omarchy_opens_it(self):
+        ran = []
+        bridge.contact_open("web", "example.com", launch=ran.append)
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps={"name": "Google Maps", "url": "https://maps.google.com"})
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps=False)
+        bridge.contact_open("mail", "alex@example.invalid", launch=ran.append)
+        self.assertEqual([r[0] for r in ran], ["omarchy-launch-browser", "omarchy-launch-webapp",
+                                               "omarchy-launch-browser", "uwsm-app"])
+        self.assertEqual(ran[3], ["uwsm-app", "--", "xdg-open", "mailto:alex@example.invalid"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bridge.contact_open("web", "file:///etc/passwd", launch=ran.append), bridge.EXIT_FAILED)
+        self.assertEqual(len(ran), 4, "nothing launched for what is not a link")
 
     def test_name_from_its_parts_when_the_card_has_no_full_name(self):
         card = bridge.parse_vcard("BEGIN:VCARD\r\nN:Chen;Sam;;;\r\nTEL:5145550142\r\nEND:VCARD\r\n")
@@ -265,6 +293,19 @@ class ContactCards(unittest.TestCase):
     def test_a_picture_by_address_is_not_read(self):
         card = bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nPHOTO;VALUE=URI:https://example.invalid/p.png\r\nEND:VCARD\r\n")
         self.assertEqual(card["photo"], b"")
+
+    def test_where_the_phone_keeps_it(self):
+        # Android's lookup key: an `i` or `e` part is synced with an account,
+        # an `r` part is on the phone only; a merged contact has both.
+        def stored(key):
+            return bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nX-KDECONNECT-ID-DEV-dev1:%s\r\nEND:VCARD\r\n" % key)["stored"]
+        self.assertEqual(stored("2803i3a1b2c3d4e5f6"), "account")
+        self.assertEqual(stored("3221r12-2F4D3F3B.2803i3a1b"), "account")
+        self.assertEqual(stored("1234e5a2b.3c"), "account")
+        self.assertEqual(stored("0r42-4B2D3F3B"), "phone")
+        self.assertEqual(stored("812r7-2F3D.0r9-2D"), "phone")
+        self.assertEqual(stored("not-a-key"), "")
+        self.assertEqual(bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nEND:VCARD\r\n")["stored"], "")
 
     def test_the_page_lists_them_by_name(self):
         with tempfile.TemporaryDirectory() as home:
@@ -322,7 +363,12 @@ class OmarchyContactsApp(unittest.TestCase):
             self.write(share, "Google Contacts.desktop", self.ENTRY)
             self.write(user, "Google Contacts.desktop", self.ENTRY)
             app = bridge.omarchy_contacts_app(share, user)
-        self.assertEqual(app, {"name": "Google Contacts", "url": "https://contacts.google.com/"})
+        self.assertEqual(app, {"name": "Google Contacts", "url": "https://contacts.google.com/",
+                               "find": "https://contacts.google.com/search/{}"})
+
+    def test_a_person_is_found_only_where_the_search_is_known(self):
+        self.assertEqual(bridge.contacts_find_url("https://contacts.google.com/"), "https://contacts.google.com/search/{}")
+        self.assertEqual(bridge.contacts_find_url("https://contacts.example.invalid/"), "")
 
     def test_removed_by_the_user_means_no_app(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -345,6 +391,17 @@ class OmarchyContactsApp(unittest.TestCase):
                                      launch=launched.append)
         self.assertEqual(launched, [["omarchy-launch-or-focus-webapp", "Google Contacts",
                                      "https://contacts.google.com/"]])
+
+    def test_a_person_opens_its_search_in_a_window_of_its_own(self):
+        launched = []
+        app = {"name": "Google Contacts", "url": "https://contacts.google.com/",
+               "find": "https://contacts.google.com/search/{}"}
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen & Co/")
+            code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen")
+        self.assertEqual(launched, [["omarchy-launch-webapp",
+                                     "https://contacts.google.com/search/Sam%20Chen%20%26%20Co%2F"]])
+        self.assertEqual(code, bridge.EXIT_FAILED)
 
 
 class AttachmentNames(unittest.TestCase):
