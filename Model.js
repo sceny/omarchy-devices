@@ -24,6 +24,7 @@ var GLYPH = {
   send: "\u{F048A}",
   close: "\u{F0156}",
   back: "\u{F004D}",         // arrow-left
+  home: "\u{F02DC}",         // home: back to the main page
   wave: "\u{F1821}",         // hand-wave
   playPause: "\u{F040E}",
   phoneCog: "\u{F0951}",     // cellphone-cog
@@ -2977,6 +2978,109 @@ function placeToResume(left, nowMs, ctx) {
   if (ctx && ctx.requested && ctx.requested !== left.device) return null
   if (!left.settingsOpen && !left.messagesOpen && !left.contactsOpen && !left.appsOpen && !(left.y > 0)) return null
   return left
+}
+
+// ---- Navigation: one stack of pages above a base ----
+// The base is the main page (or, on the first run, the card the panel opened
+// on). A page is "contacts", "messages", "apps" or "settings/<scope>"; the
+// stack holds the pages above the base, each entry { key, ...view } with what
+// to put back when the user returns to it. Every move gives { stack, dir }:
+// dir +1 slides the new page in from the right, -1 from the left, 0 is a
+// lateral move (tabs) whose direction the caller knows.
+var HOME_KEY = "0"
+var HOME_MIN_DEPTH = 2
+
+function navIndex(stack, key) {
+  for (var i = 0; i < stack.length; i++) if (stack[i].key === key) return i
+  return -1
+}
+function navTopKey(stack, base) { return stack.length > 0 ? stack[stack.length - 1].key : base }
+function navDepth(stack) { return stack.length }
+// At depth 1 Back and Home would go to the same page, so only Back exists.
+function homeShown(stack) { return stack.length >= HOME_MIN_DEPTH }
+
+// A page already in the stack is returned to (everything above it goes, like
+// Back), never added twice: Back never walks a cycle.
+function navPush(stack, entry) {
+  var i = navIndex(stack, entry.key)
+  if (i >= 0) return i === stack.length - 1 ? { stack: stack, dir: 0 } : { stack: stack.slice(0, i + 1), dir: -1 }
+  return { stack: stack.concat([entry]), dir: 1 }
+}
+// Pages whose feature is gone are skipped on the way back; `ok(key)` says so.
+function navPrune(stack, ok) {
+  return ok ? stack.filter(function(e) { return ok(e.key) }) : stack
+}
+function navPop(stack, ok) {
+  return { stack: navPrune(stack.slice(0, -1), ok), dir: -1 }
+}
+function navHome(stack) { return { stack: [], dir: -1 } }
+// A peer in the place of the top page (a device's tab on its Settings page).
+function navReplace(stack, entry) {
+  var i = navIndex(stack, entry.key)
+  if (i >= 0) return i === stack.length - 1 ? { stack: stack, dir: 0 } : { stack: stack.slice(0, i + 1), dir: -1 }
+  if (stack.length === 0) return { stack: [entry], dir: 0 }
+  return { stack: stack.slice(0, -1).concat([entry]), dir: 0 }
+}
+// A scripted open: the target alone, so Back goes to the base.
+function navFresh(entry) {
+  return entry ? { stack: [entry], dir: 1 } : { stack: [], dir: -1 }
+}
+
+// The panel's pages changed to `target`; what was it, given how it was asked
+// (hint: "" a user's move, "fresh" a scripted open, "replace" a lateral move)?
+// state { base, stack } -> { base, stack, dir }. Leaving the main page's
+// place for a first-run card, or the card for main, moves the base: the card
+// is not a page to come back to. The first run's "getting ready" card is
+// replaced by its next step.
+function navSettle(state, target, hint) {
+  var base = state.base, stack = state.stack
+  if (target === navTopKey(stack, base)) return { base: base, stack: stack, dir: 0 }
+  if (target === "main") return { base: "main", stack: [], dir: -1 }
+  if (target === base) return { base: base, stack: [], dir: -1 }
+  if (hint === "fresh") return { base: base, stack: [{ key: target }], dir: 1 }
+  if (hint === "replace") {
+    var r = navReplace(stack, { key: target })
+    return { base: base, stack: r.stack, dir: r.dir }
+  }
+  if (stack.length === 0 && base === "settings/ready") return { base: target, stack: [], dir: 1 }
+  var p = navPush(stack, { key: target })
+  return { base: base, stack: p.stack, dir: p.dir }
+}
+
+// The panel's page flags for a page key.
+function navPlace(key) {
+  var s = key.indexOf("settings/") === 0
+  return { settingsOpen: s, messagesOpen: key === "messages", contactsOpen: key === "contacts", appsOpen: key === "apps",
+           scope: s ? key.slice(9) : "root" }
+}
+function navKey(place) {
+  return place.messagesOpen ? "messages" : place.contactsOpen ? "contacts" : place.appsOpen ? "apps"
+    : place.settingsOpen ? "settings/" + place.scope : "main"
+}
+
+// What a page is called in "Back to …"; ctx { single, names: { id: label } }.
+function navLabel(key, ctx) {
+  ctx = ctx || {}
+  if (key === "contacts") return "Contacts"
+  if (key === "messages") return "Messages"
+  if (key === "apps") return "All apps"
+  if (key.indexOf("settings/") !== 0) return ""
+  var scope = key.slice(9)
+  if (scope === "root") return "Settings"
+  if (scope === "defaults") return "Settings · For all devices"
+  if (scope === "connection") return "Diagnostics"
+  if (scope === "addDevice") return "Add a device"
+  if (scope === "ready") return "Getting ready"
+  if (scope.indexOf("screen:") === 0) return "Screen and apps"
+  if (ctx.single) return "Settings"
+  return (ctx.names && ctx.names[scope]) || "Settings"
+}
+// The back arrow's tooltip names where it goes; the main page is "Back" (with
+// several devices, the device it shows).
+function navBackLabel(stack, base, ctx) {
+  var to = stack.length >= 2 ? stack[stack.length - 2].key : base
+  var name = to === "main" ? (ctx && ctx.mainName) || "" : navLabel(to, ctx)
+  return name !== "" ? "Back to " + name : "Back"
 }
 
 // A photo's identity: the same file is the same tile, wherever it moves.
