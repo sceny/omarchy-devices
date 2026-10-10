@@ -12,8 +12,10 @@ GitHub release with these notes.
 
 - **Contacts**: the phone's address book in the panel, two panes like
   Messages: a searchable list and the full card (numbers, emails,
-  addresses, birthday, note, photo). *Message* starts a text, *Call* opens
-  the dialer on the phone, *Copy* takes a detail; read-only. Add the
+  addresses, websites, birthday, note, photo). *Message* starts a text,
+  *Call* opens the dialer on the phone, an email opens the mail app, an
+  address Omarchy's Google Maps, a website the browser, *Copy* takes a
+  detail; read-only. Add the
   *Contacts* shortcut; the card last open comes back, per device. Texts
   take their names from the same cards.
 
