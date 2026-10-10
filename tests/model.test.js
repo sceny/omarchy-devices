@@ -888,6 +888,8 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([both.sound, both.limits.both], ["both", ""], "Android 16: both offered")
   const old = M.screenSetup(Object.assign(M.demoScreen("ready"), { sdk: 31 }), { name: "Pixel 8" }, null, true, false, false, "here").actions.find(a => a.key === "appSound")
   assert.equal(old.limits.both, "Needs Android 13")
+  const soundRow = M.screenRows(M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "both")).find(r => r.key === "appSound")
+  assert.deepEqual([soundRow.sound, soundRow.device, soundRow.limits.both], ["both", "Pixel 8", ""], "the settings row keeps the chosen sound, the device's name and the limits")
   assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
   assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
   assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")

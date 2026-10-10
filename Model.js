@@ -1933,6 +1933,9 @@ function screenRows(setup) {
     if (a.on !== undefined) row.on = a.on
     if (a.docked !== undefined) row.docked = a.docked
     if (a.keys !== undefined) row.keys = a.keys
+    if (a.sound !== undefined) row.sound = a.sound
+    if (a.device !== undefined) row.device = a.device
+    if (a.limits !== undefined) row.limits = a.limits
     return row
   })
 }
