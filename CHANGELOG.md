@@ -15,7 +15,8 @@ GitHub release with these notes.
   addresses, birthday, note, photo). *Message* starts a text, *Call* opens
   the dialer on the phone, *Copy* takes a detail; read-only. Add the
   *Contacts* shortcut; the card last open comes back, per device. Texts
-  take their names from the same cards.
+  take their names from the same cards. A card synced with an account
+  opens in Google Contacts; one kept on the phone only says so.
 
 ## 0.8.0 — 2026-10-05
 
