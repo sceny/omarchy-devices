@@ -5,8 +5,12 @@
 ## It stays between you and your phone
 
 - KDE Connect pairs the two with a key you compare on both, and encrypts
-  what they send, on your own network. The firewall rule the plugin adds
-  opens KDE Connect's ports to that network only.
+  what they send. The firewall rules the plugin adds open KDE Connect's
+  ports to your home and office networks (the private address ranges) and
+  to your mesh (Tailscale, NordVPN Meshnet), never to everyone.
+- From anywhere goes through your own mesh account: the plugin reads the
+  mesh's list of your devices to find your phone, and gives KDE Connect
+  its address. Nothing else leaves this computer.
 - No account, no telemetry, no cloud. It never sends a text, rings or
   plays anything on its own. It keeps caches only
   (`~/.cache/sceny.devices/`); drafts stay in memory.

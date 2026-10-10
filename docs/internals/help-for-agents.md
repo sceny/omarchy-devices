@@ -32,7 +32,8 @@ When you fix what the plugin's own fix missed, propose a report:
 | KDE Connect | `kdeconnect` package, its daemon (`app-org.kde.kdeconnect.daemon@autostart.service`), ports 1714–1764 open on the local network (ufw) | the KDE Connect app, paired; its permissions | notifications, messages, names, now playing, calls, files, clipboard, ring, battery |
 | Files | `sshfs` | KDE Connect's *all files access* | the gallery |
 | Screen link | `scrcpy`, `android-tools`, `android-udev` | Developer options, Wireless debugging (off after every restart), adb pairing by QR code | the screen, apps in windows |
-| *Planned:* network, Bluetooth | | | reaching it away; calls with audio |
+| Network | Tailscale (Omarchy's installer) or NordVPN Meshnet, let through the firewall | the mesh app, signed in | reaching it away from home |
+| Bluetooth | `bluez`, `bluez-utils`, PipeWire's hands-free service | the phone paired over Bluetooth, allowing phone calls | calls with their audio here |
 
 The plugin's bridge (`bin/kdeconnect-bridge`, in the plugin folder
 `~/.config/omarchy/plugins/sceny.devices`) reads all of it. Start there:
@@ -56,6 +57,7 @@ $B snapshot                    # everything the panel draws (contains personal d
 | Nothing in the bar, or the panel never opens | `journalctl --user -t omarchy-shell --since -5min \| grep -i sceny` | a QML error in the plugin: report it; restart the shell with `omarchy restart shell` |
 | *KDE Connect is not running* | `doctor`: `running` | `$B fix start` |
 | The phone shows as away | `doctor`: firewall, network; is the phone on the same Wi-Fi with the app open? `screen <id>` ready means adb still reaches it | `$B fix search`; with adb: `$B device-fix reconnect <id>`, then `wake`; the firewall fix (`$B fix firewall --describe`, then the person approves) |
+| Away from home: the phone never connects | `doctor`: `mesh`; `features <id>`: `network` (`peer`, `added`, `isolated`) | `$B fix tailscale --describe` (Omarchy's installer, in a terminal; the person signs in); `$B device-fix reach <id>` (or `reach <id> <address>`: a peer picked, or an address the person gives); a Wi-Fi that keeps devices apart: say so, the mesh still works |
 | A feature is *Turned off* | `features`: its plugin `on: false` | `$B device-fix plugin <id> <plugin>=on` |
 | *Needs SMS / contacts / notification access* | `features --adb`: `permissions` | `$B device-fix grant <id> <permission>`, or on the phone: KDE Connect › Permissions |
 | Notifications stopped arriving | `features --adb`: `notifications.here` 0 while `device` is several | `$B device-fix renotify <id>`, then `relisten`, else restart the phone |

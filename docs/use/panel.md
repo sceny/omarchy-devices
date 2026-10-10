@@ -26,7 +26,8 @@ to one line that still works, so the panel is as tall as you want it.
 | Key | Action |
 |---|---|
 | `j` `k` / arrows · PgUp PgDn | Move · a page |
-| Enter · Esc | Activate · back, then close |
+| Enter · Esc | Activate · back to where you came from, then close |
+| `0` | Home: the main page, from two pages deep |
 | `c` | Fold the section under the cursor |
 | `s` · `E` · `m` · `a` | Settings · edit the page · messages · all apps |
 

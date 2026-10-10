@@ -34,6 +34,7 @@ Item {
   signal pinRequested(var app, int at)
   signal unpinRequested(var app)
   signal allRequested()
+  signal soundRequested(var app)       // an open app's badge (#129)
 
   readonly property int count: apps.length
   readonly property real cellWidth: (width - gap * (columns - 1)) / columns
@@ -174,6 +175,7 @@ Item {
       fontFamily: row.fontFamily
       dragEnabled: true
       onActivated: function(pop) { row.activated(modelData, pop) }
+      onSoundRequested: row.soundRequested(modelData)
       onPinToggled: row.unpinRequested(modelData)
       onHovered: row.hovered(index)
       onDragStarted: { row.outside = false; pinOrder.begin(index, row.cellWidth) }

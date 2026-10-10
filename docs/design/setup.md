@@ -2,8 +2,10 @@
 
 # Setup that just works: design
 
-**Status:** built in 0.8.0 except where marked *planned*; Bluetooth calls
-(#59) built for 0.9.0. 2026-10-05.
+**Status:** built in 0.8.0 (the network, 0.9.0) except where marked *planned*;
+sections 5 and 6 reworked after a new user's first run (2026-10-06): the
+engine stays, what it shows changes. Bluetooth calls (#59) built for 0.9.0.
+
 
 ## 1. The premise (the owner's)
 
@@ -25,9 +27,9 @@
 ## 2. Words
 
 - **Source:** where something comes from: KDE Connect, the screen link (adb
-  and scrcpy), files (sshfs over KDE Connect), the phone's permissions,
-  Bluetooth (PipeWire's hands-free service, for calls); *planned:* the
-  network. A source has a part on this computer
+  and scrcpy), files (sshfs over KDE Connect), the phone's permissions;
+  the network and Bluetooth (PipeWire's hands-free service, for calls)
+  (0.9.0). A source has a part on this computer
   (packages, services, the firewall), a part on the device (pairing, a
   setting, a permission) and a live state.
 - **Feature:** what the user wants: Notifications, Messages, Names, Now
@@ -67,6 +69,7 @@ Three layers, read from the bridge's reports (`doctor`, `features`,
 | Android permissions | notification access, SMS, contacts, phone, all files access (device, over adb or a tap) | Notifications, Now playing, Messages, Names, Calls, Gallery |
 | Storage link | sshfs (this computer); its storage mounted (device, health) | Gallery |
 | Screen link | scrcpy and adb (this computer); Wireless debugging and adb pairing (device); Screen and apps on (the plugin's switch) | Screen and apps |
+| Network | a mesh on this computer, let through the firewall (`mesh`, this computer); the device's mesh address given to KDE Connect (`reach:mesh`, device) | From anywhere |
 | Bluetooth | Bluetooth on here, PipeWire's hands-free service (this computer); paired for calls, kept and connected (device); Calls here on (the plugin's switch) | Calls here (#59) |
 
 A feature's state comes from its items the same way for every feature:
@@ -74,10 +77,28 @@ away > being read > turned off > not on this device > needs attention >
 to set up > on. Everything reads it: the device page's rows, Settings'
 status, the gear dot, the main page's line, *Fix all*, *Fix with AI*.
 
-## 5. Just works
+## 5. Just works, then out of the way
 
-A feature's one action (*Turn on*, *Fix*) runs every step the plugin can do,
-in order, and stops at the first one only the user can do:
+The engine above runs unseen. The panel shows three things only: the
+feature working; the one act only the user can do, at the moment they
+reach for what it gives; and their preferences. Every step is one of three
+kinds:
+
+| Kind | Examples | What shows |
+|---|---|---|
+| The plugin does it alone | KDE Connect's plugins, the mount, reconnecting, reading notifications again | nothing |
+| Root on this computer | the packages, the firewall rule | once, at the first run: one card, one password (`fix ready`) |
+| Only the user's hands on the device | install the app, pair, a permission, Wireless debugging | where the feature is used, once, then gone |
+
+Where each is asked: notification access in Notifications; SMS and
+contacts on the Messages page; the gallery's storage in its section; the
+screen on the first **Open** of a notification's app or the Screen
+shortcut, after which what was pressed opens by itself. An ask sits only
+where the user already is: nothing advertises a feature.
+
+A feature's one action (*Allow*, *Fix*, a switch turned on) runs every step
+the plugin can do, in order, and stops at the first one only the user can
+do:
 
 1. a package this computer needs (sshfs, scrcpy), first and in one
    password prompt after a card says what for: the same item This
@@ -97,36 +118,34 @@ so the phone stops sending it.
 
 ## 6. Settings
 
-One shape whatever the number of devices; each setting where its scope
-is; folds one level deep, anything deeper a page of its own.
+Preferences, not status. Each setting where its scope is; folds one level
+deep, anything deeper a page of its own.
 
 ```
-Settings
-├─ Status                      Everything works, or each problem once (its place ›),
-│                              Fix all, Fix with AI
-├─ MY DEVICES                  every device (the one in view too), asking to pair
-│   ├─ <Device> ›              its page, with tabs to the others
-│   │   ├─ THIS DEVICE         nickname, icon; with several: bar, tab
-│   │   ├─ WHAT IT CAN DO      a row per feature: its state, one action, a switch
-│   │   ├─ Sections, shortcuts and bar   (edited on the page; the defaults or its own)
-│   │   └─ Unpair
-│   └─ Add a device ›          pair it, then its page
-├─ For all devices ›           (two or more: with one, its layout is the defaults)
-└─ This computer ›             KDE Connect, firewall, network, Screen tools, Gallery tools
+Settings (one device: its page)        Settings (several)
+├─ Status   only while something       ├─ Status   only while something needs the user
+│           needs the user             ├─ MY DEVICES   every device, asking to pair, Add a device
+├─ THIS DEVICE   nickname, icon        │   └─ <Device> ›   its page, tabs to the others
+├─ WHAT IT SHARES WITH THIS COMPUTER   └─ For all devices ›
+│     a switch per feature it can do
+├─ Sections, shortcuts and bar ›   (edited on the page)
+├─ Add a device ›
+└─ Unpair
 ```
 
-- **A problem shows once, where its cause is.** This computer holds only
-  this computer (KDE Connect, the firewall, the network, the packages); a
-  device's page holds that device (its features, its permissions, Wireless
-  debugging, its mount). A feature that needs something here says so
-  (*Needs sshfs on this computer*), and its one click installs it.
-- **The status** lists every problem (Model.settingsProblems: a check
-  failing here, not optional nor ignored; a broken item on a connected
-  device, once with the features it affects; a fix that did not work). The gear's dot and
-  a line at the top of the main page count the same list.
-- **Fix all** runs what its page is about: the status everything (this
-  computer first, one password), This computer its checks, a device's
-  page that device's features.
+- **Nothing while all is well:** no *Everything works*, no state words,
+  no tools by name. The status appears only when something stopped and
+  the plugin could not fix it alone.
+- **A problem shows where its effect is.** On the main page, in the
+  section of the feature it stopped (*Fix*, *Details*, *Fix with AI*;
+  `Model.sectionNote`); a problem with no section (this computer, a link)
+  in the line at the top. Settings' status lists them all; the gear's dot
+  counts them.
+- **Diagnostics** (this computer's checks: KDE Connect, the firewall, the
+  network, the packages) is a page reached from a problem it causes, not
+  a place in Settings.
+- **What it shares** lists only what the device can do: a device that is
+  not Android (an iPhone) has no screen link and no Android steps.
 - **Screen and apps** keeps its own page (its steps, where it opens, the
   sound). **KDE Connect settings** goes: nothing is left there that the
   plugin does not do.
@@ -143,31 +162,38 @@ Settings
 | #29/#30 actions that open a screen on the phone | opened in the app's window (the screen, when set up) |
 | #60/#61 calls: ringing and missed only | Calls here (#59, Bluetooth) follows every call to its end and answers it; KDE Connect still names the caller. No ringer mute (#61) |
 
-## 8. Connectivity (#119, #8, planned) and Bluetooth (#59)
+## 8. The network (#119, #8) and Bluetooth (#59)
 
-The network is not built yet; its place is set so it does not drift.
-Bluetooth is built:
-
-- **The network is a source.** This computer gets a *Network* row (the
-  firewall for every local network and VPN, not just the default route);
-  a device gets *Reach it away* (an address KDE Connect keeps,
-  `customDevices`; Tailscale peers). Its link shows on the device page
-  (`activeProviderNames`: Wi-Fi, Bluetooth).
-- **Bluetooth is a source** (built for 0.9.0, #59). This computer: Bluetooth
+- **The network is a source** (0.9.0). Its firewall rule for every
+  private network and each mesh joins `fix ready` (and *Firewall*, a
+  diagnostic); *Mesh network* (Tailscale through Omarchy's installer, or
+  NordVPN Meshnet) is a diagnostic too, optional. A device out of reach
+  asks on its away card to be reached away from home: *From anywhere*,
+  a page with the steps, the mesh's phones to pick from and an address to
+  type (#8; an address KDE Connect keeps, `customDevices`; peers matched
+  silently when certain). It has no row among what the device shares, and the main page does not
+  show how a device is connected (its own page does); a Wi-Fi that keeps its devices
+  apart is among the likely causes behind *Why?*, and an address that
+  was given and lost is a problem under the Network gateway. On a network
+  change KDE Connect announces itself again; adb goes USB, then Wi-Fi,
+  then the mesh.
+- **Bluetooth is a source** (built for 0.9.0, #59), in section 5's shape:
+  asked where used. This computer: Bluetooth
   on (`fix bluetooth-on`, Omarchy's switch; installed and started behind
   the password card, `fix bluetooth`) and PipeWire's hands-free service
   (`fix audio`, Omarchy's audio restart). The device: paired over
   Bluetooth (the user's step in Omarchy's Bluetooth, which the step opens
   and waits for), kept on the click that turns it on (the phone paired
-  under its name), and connected. The feature: *Calls here*, a row of its
-  own beside *Calls*: who is calling needs KDE Connect and no Bluetooth,
+  under its name), and connected. The feature: *Calls here*, beside
+  *Calls*: who is calling needs KDE Connect and no Bluetooth,
   answering here needs Bluetooth and no KDE Connect.
 
 ## 9. Rules this changes (AGENTS.md)
 
 - The boundary: each source is the truth for its feature; KDE Connect is
   one of them; KDE Connect's faults are handled here when met.
-- This computer and Add a device are Settings pages; the device's
-  features live on its page; Settings has one shape (section 6).
+- Setup never shows plumbing; using a feature gets it working; a problem
+  shows where its effect is; Settings is preferences, the device's page
+  with one device (sections 5 and 6).
 - Fixes still change the system only on a click (one password prompt), and
   a change on the phone (a permission) only on a click too.

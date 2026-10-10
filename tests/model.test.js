@@ -486,7 +486,7 @@ test("demo: several devices, and one asking to pair", () => {
   assert.deepEqual(pill.chips.map(c => c.id), ["demo", "demo-tab"], "the tablet shows: news and a low battery; the away laptop does not")
 })
 
-test("settings rows: one shape whatever the count: My devices, For all devices with two or more, This computer", () => {
+test("settings rows: one device's Settings is its page; several: My devices and For all devices; never This computer", () => {
   const s = M.readSettings({})
   const one = snap(phone())
   const edit = M.resolveProfile(s, phone(), true)
@@ -494,10 +494,15 @@ test("settings rows: one shape whatever the count: My devices, For all devices w
     identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
-  assert.deepEqual(kinds, ["device", "addDevice", "connection"], "one device is in the list too; its own layout is the defaults")
+  assert.deepEqual(kinds, ["device", "addDevice"], "This computer is reached from a problem it causes, never listed")
   assert.ok(!kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
   const page = M.settingsPageRows(ctx({ scope: "device" })).map(r => r.kind)
   assert.deepEqual(page.slice(0, 2), ["nickname", "icon"])
+  assert.deepEqual(page.slice(-2), ["addDevice", "unpair"], "one device: Add a device on its page, which is Settings")
+  const broken = [{ where: "computer", whereLabel: "This computer", key: "firewall", label: "Firewall", detail: "Closed", steps: [] }]
+  assert.equal(M.settingsPageRows(ctx({ scope: "device", problems: broken }))[0].kind, "problem", "one device: the status leads its page")
+  assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false, problems: broken })).some(r => r.kind === "problem" || r.kind === "addDevice"),
+            "several: the status and Add a device are on Settings' first page")
   assert.ok(page.includes("editPage") && !page.includes("barPlace") && !page.includes("showInPanel"), "one device: nothing to choose about where it shows")
   assert.ok(!["layout", "shortcut", "bar", "barFlag", "reset", "resetGroup"].some(k => page.includes(k)), "sections, shortcuts and the bar are edited on the page")
   const two = snap(phone(), tablet(), device({ id: "n", name: "New", paired: false, pairRequestedByPeer: true, verificationKey: "4E5A3506" }), device({ id: "a", name: "Near", paired: false }))
@@ -508,7 +513,7 @@ test("settings rows: one shape whatever the count: My devices, For all devices w
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults", "connection"], "in reach: on Add a device")
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults"], "in reach: on Add a device")
 })
 
 test("settings status: each problem once, where its cause is; a device's line and This computer say so", () => {
@@ -778,12 +783,13 @@ test("connection: this computer's checks, ignored ones, requests and devices to 
 test("reconnect: where it was last seen, another network, and what to try after a search", () => {
   const now = 10 * 3600 * 1000
   const away = device({ reachable: false, name: "Galaxy S23", lastSeen: { link: "LAN", address: "192.168.1.20", at: now - 12 * 60000 } })
-  assert.deepEqual(M.awayState(away, "192.168.1.0/24", 0, now), { lines: ["Last seen on Wi-Fi at 192.168.1.20, 12 min ago"], searching: false })
-  assert.match(M.awayState(away, "10.0.0.0/24", 0, now).lines[1], /Likely on another network/)
+  assert.deepEqual(M.awayState(away, "192.168.1.0/24", 0, now), { lines: ["Last seen 12 min ago"], why: ["Last seen on Wi-Fi at 192.168.1.20"], searching: false },
+                   "the causes wait behind Why?")
+  assert.match(M.awayState(away, "10.0.0.0/24", 0, now).why[1], /Likely on another network/)
   assert.equal(M.awayState(away, "192.168.1.0/24", now - 1000, now).searching, true, "looking for SEARCH_MS")
   const after = M.awayState(away, "192.168.1.0/24", now - M.SEARCH_MS, now)
-  assert.match(after.lines[1], /^Not found\. On Galaxy S23: open KDE Connect, and join the same Wi-Fi; set the app's battery use to Unrestricted$/)
-  assert.doesNotMatch(M.awayState(device({ reachable: false, name: "Pixel 8" }), "", 1, now).lines[1], /Unrestricted/, "Samsung advice only for Samsung")
+  assert.match(after.why[1], /^Not found\. On Galaxy S23: open KDE Connect, and join the same Wi-Fi; set the app's battery use to Unrestricted$/)
+  assert.doesNotMatch(M.awayState(device({ reachable: false, name: "Pixel 8" }), "", 1, now).why[0], /Unrestricted/, "Samsung advice only for Samsung")
   assert.equal(M.awayState(device({ reachable: false }), "", 0, now).lines[0], "Not seen by this computer yet")
   assert.equal(M.inNetwork("192.168.1.20", "192.168.1.0/24"), true)
   assert.equal(M.inNetwork("192.168.2.20", "192.168.1.0/24"), false)
@@ -813,7 +819,137 @@ test("the panel goes back where it was for five minutes, unless it must open els
   assert.equal(M.placeToResume(left, 2000, { requested: "p2" }), null, "another device's chip: that device")
   assert.equal(M.placeToResume(left, 2000, { requested: "p1" }), left, "the same device's chip: back where it was")
   assert.equal(M.placeToResume(Object.assign({}, left, { messagesOpen: false }), 2000, {}), null, "the main page at its top: nothing to go back to")
+  const onContacts = { at: 1000, messagesOpen: false, contactsOpen: true, scope: "root", device: "p1", y: 0 }
+  assert.equal(M.placeToResume(onContacts, 2000, {}), onContacts, "back to the contacts page too")
   assert.equal(M.placeToResume(null, 2000, {}), null)
+})
+
+const keys = stack => stack.map(e => e.key)
+
+test("navigation: a page pushed goes on the stack, forward; back pops one, from the left", () => {
+  let r = M.navPush([], { key: "contacts" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], 1])
+  r = M.navPush(r.stack, { key: "messages" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts", "messages"], 1])
+  r = M.navPop(r.stack)
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1])
+  r = M.navPop(r.stack)
+  assert.deepEqual([keys(r.stack), r.dir], [[], -1], "the base is left")
+  assert.deepEqual(M.navPop([]).stack, [], "nothing to pop on the base")
+})
+
+test("navigation: a page is in the stack once; going to it again returns to it", () => {
+  const s = [{ key: "contacts", y: 12 }, { key: "messages" }, { key: "settings/root" }]
+  const r = M.navPush(s, { key: "contacts" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1], "everything above it goes, like Back")
+  assert.equal(r.stack[0].y, 12, "its view is kept")
+  const same = M.navPush(s, { key: "settings/root" })
+  assert.deepEqual([same.stack, same.dir], [s, 0], "the page already on top: nothing happens")
+  // However the moves go, a page never repeats and depth stays bounded.
+  let st = []
+  const pages = ["contacts", "messages", "apps", "settings/root", "settings/d1", "settings/screen:d1", "contacts", "messages", "settings/root"]
+  for (const k of pages) {
+    st = M.navPush(st, { key: k }).stack
+    assert.equal(new Set(keys(st)).size, st.length, "no page twice after " + k)
+  }
+  assert.deepEqual(keys(st), ["contacts", "messages", "settings/root"], "Contacts returned to, then on again")
+})
+
+test("navigation: replace swaps the top page for its peer; home clears", () => {
+  let r = M.navReplace([{ key: "settings/root" }, { key: "settings/d1" }], { key: "settings/d2" })
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/root", "settings/d2"], 0])
+  r = M.navReplace([], { key: "settings/d1" })
+  assert.deepEqual(keys(r.stack), ["settings/d1"], "on the base it opens the page")
+  r = M.navReplace([{ key: "settings/d1" }, { key: "messages" }], { key: "settings/d1" })
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/d1"], -1], "a peer already below is returned to, not repeated")
+  r = M.navHome([{ key: "contacts" }, { key: "messages" }, { key: "settings/root" }])
+  assert.deepEqual([r.stack, r.dir], [[], -1])
+})
+
+test("navigation: a scripted open starts the stack with the target alone", () => {
+  assert.deepEqual(M.navFresh({ key: "messages" }), { stack: [{ key: "messages" }], dir: 1 })
+  assert.deepEqual(M.navFresh(null), { stack: [], dir: -1 })
+  const r = M.navSettle({ base: "main", stack: [{ key: "contacts" }] }, "messages", "fresh")
+  assert.deepEqual([keys(r.stack), r.dir], [["messages"], 1], "from a contact: back goes to main")
+})
+
+test("navigation: Home shows from depth 2 only", () => {
+  assert.equal(M.homeShown([]), false)
+  assert.equal(M.homeShown([{ key: "contacts" }]), false, "at depth 1 Back is Home")
+  assert.equal(M.homeShown([{ key: "contacts" }, { key: "messages" }]), true)
+  assert.equal(M.navDepth([{ key: "a" }, { key: "b" }, { key: "c" }]), 3)
+  assert.equal(M.HOME_KEY, "0")
+  assert.ok(M.GLYPH.home && M.GLYPH.home !== M.GLYPH.back && M.GLYPH.home !== M.GLYPH.settings)
+})
+
+test("navigation: pages whose feature is gone are skipped on the way back", () => {
+  const s = [{ key: "contacts" }, { key: "messages" }, { key: "apps" }]
+  const r = M.navPop(s, k => k !== "messages")
+  assert.deepEqual(keys(r.stack), ["contacts"], "Messages is gone: back lands on the page below it")
+  assert.deepEqual(keys(M.navPop([{ key: "contacts" }, { key: "messages" }], k => k !== "contacts").stack), [], "and on the base when nothing below remains")
+  assert.deepEqual(keys(M.navPrune(s, k => k !== "apps")), ["contacts", "messages"])
+})
+
+test("navigation: the page asked for decides the move (navSettle)", () => {
+  const at = (base, ...ks) => ({ base, stack: ks.map(key => ({ key })) })
+  let r = M.navSettle(at("main"), "contacts", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], 1], "main -> Contacts is a push")
+  r = M.navSettle(at("main", "contacts"), "messages", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts", "messages"], 1], "Contact -> Text message")
+  r = M.navSettle(at("main", "contacts", "messages"), "contacts", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1], "Back from messages")
+  r = M.navSettle(at("main", "contacts", "messages"), "main", "")
+  assert.deepEqual([keys(r.stack), r.dir], [[], -1], "Home")
+  r = M.navSettle(at("main", "contacts"), "contacts", "")
+  assert.equal(r.dir, 0, "already there")
+  r = M.navSettle(at("main", "settings/root", "settings/d1"), "settings/d2", "replace")
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/root", "settings/d2"], 0], "a device tab")
+  r = M.navSettle(at("main"), "settings/connection", "")
+  assert.deepEqual(keys(r.stack), ["settings/connection"], "a banner's Fix lands on Diagnostics: no made-up parent")
+  // Several devices: gear -> list -> device page -> Screen and apps.
+  r = M.navSettle(at("main", "settings/root", "settings/d1"), "settings/screen:d1", "")
+  assert.deepEqual(keys(r.stack), ["settings/root", "settings/d1", "settings/screen:d1"])
+  assert.equal(M.homeShown(r.stack), true)
+})
+
+test("navigation: the first run's card is the base, and its next step replaces it", () => {
+  let r = M.navSettle({ base: "settings/ready", stack: [] }, "settings/addDevice", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["settings/addDevice", [], 1], "the card is replaced, not left to come back to")
+  r = M.navSettle({ base: "settings/addDevice", stack: [] }, "settings/connection", "")
+  assert.deepEqual([r.base, keys(r.stack)], ["settings/addDevice", ["settings/connection"]], "Add a device with nothing paired is a base to return to")
+  r = M.navSettle({ base: "settings/addDevice", stack: [] }, "main", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["main", [], -1], "a pairing lands on the device's main page")
+  r = M.navSettle({ base: "settings/addDevice", stack: [{ key: "settings/connection" }] }, "settings/addDevice", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["settings/addDevice", [], -1], "back to the card")
+})
+
+test("navigation: pages and their flags go both ways", () => {
+  for (const k of ["contacts", "messages", "apps", "settings/root", "settings/d1", "settings/screen:d1", "main"])
+    assert.equal(M.navKey(M.navPlace(k)), k)
+  assert.deepEqual(M.navPlace("settings/screen:d1"), { settingsOpen: true, messagesOpen: false, contactsOpen: false, appsOpen: false, scope: "screen:d1" })
+})
+
+test("navigation: the back arrow names where it goes", () => {
+  const ctx = { single: false, names: { d1: "Pixel 8" } }
+  const label = (stack, base = "main", c = ctx) => M.navBackLabel(stack.map(key => ({ key })), base, c)
+  assert.equal(label(["contacts", "messages"]), "Back to Contacts")
+  assert.equal(label(["contacts"]), "Back")
+  assert.equal(label(["contacts"], "main", { mainName: "Pixel 8" }), "Back to Pixel 8", "with several devices, the device it returns to")
+  assert.equal(label(["settings/root", "settings/d1"]), "Back to Settings")
+  assert.equal(label(["settings/d1", "settings/addDevice"]), "Back to Pixel 8")
+  assert.equal(label(["settings/d1", "settings/addDevice"], "main", { single: true }), "Back to Settings", "with one device, its page is Settings")
+  assert.equal(label(["settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
+  assert.equal(label(["settings/root", "settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
+  assert.equal(label(["settings/connection"], "settings/addDevice"), "Back to Add a device")
+  assert.equal(label(["settings/d1", "settings/reach:d1", "settings/connection"]), "Back to From anywhere")
+})
+
+test("navigation: the stack goes with the place for five minutes", () => {
+  const nav = [{ key: "contacts", y: 0 }, { key: "messages" }]
+  const left = { at: 1000, settingsOpen: false, messagesOpen: true, contactsOpen: false, scope: "root", device: "p1", y: 0, nav }
+  assert.equal(M.placeToResume(left, 1000 + 60000, {}).nav, nav, "within five minutes: Back works through the same stack")
+  assert.equal(M.placeToResume(left, 1000 + M.KEEP_PLACE_MS, {}), null, "after: the base")
+  assert.equal(M.placeToResume(left, 2000, { requested: "p2" }), null, "another device's chip: the base")
 })
 
 test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
@@ -847,9 +983,6 @@ test("connection pills: on, off (more can be set up) and failing", () => {
   assert.equal(M.connectionSummary(allOn, []), "Everything on")
   const row = M.connectionRows(installed, []).find(r => r.key === "screen")
   assert.deepEqual([row.ok, row.status, row.fix], [true, "Installed", ""], "never a device's own step here")
-  const pills = M.settingsPageRows({ scope: "root", single: true, devices: [], connectionPills: M.connectionPills(installed, []) })
-    .find(r => r.kind === "connection").pills
-  assert.equal(pills.length, 4)
 })
 
 test("screen and apps: each state's line, current step and actions", () => {
@@ -878,7 +1011,13 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "appSound"]])
   const sound = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "phone").actions.find(a => a.key === "appSound")
   assert.deepEqual([sound.sound, sound.device], ["phone", "Pixel 8"])
-  assert.match(sound.hint, /^Its sound stays on Pixel 8\. Not settled yet/)
+  assert.match(sound.hint, /^Its sound stays on Pixel 8\. An open app's tile changes its own/)
+  const both = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "both").actions.find(a => a.key === "appSound")
+  assert.deepEqual([both.sound, both.limits.both], ["both", ""], "Android 16: both offered")
+  const old = M.screenSetup(Object.assign(M.demoScreen("ready"), { sdk: 31 }), { name: "Pixel 8" }, null, true, false, false, "here").actions.find(a => a.key === "appSound")
+  assert.equal(old.limits.both, "Needs Android 13")
+  const soundRow = M.screenRows(M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "both")).find(r => r.key === "appSound")
+  assert.deepEqual([soundRow.sound, soundRow.device, soundRow.limits.both], ["both", "Pixel 8", ""], "the settings row keeps the chosen sound, the device's name and the limits")
   assert.equal(M.screenRows(ready)[0].label, "Screen", "the tile reads as its shortcut")
   assert.equal(M.screenRows(ready)[1].docked, true, "opens under the bar unless chosen otherwise")
   assert.deepEqual(M.screenRows(ready)[1].keys.map(k => k.keys.join("+")), ["Super+O", "Super+F", "Super+O"], "how to free it and dock it back")
@@ -1036,7 +1175,7 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
 
 test("features: each state from the report, the steps one click runs, Fix all", () => {
   const report = M.demoFeatures()
-  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8", [], {},
+  const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8", [M.demoMeshCheck("")], {},
                              { bluetooth: M.demoBluetooth("Pixel 8"), handsfree: M.demoHandsfree("Pixel 8") })
   const by = k => rows.find(r => r.key === k)
   assert.equal(by("notifications").state, "on")
@@ -1048,7 +1187,8 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.match(by("names").steps[0].orAsk, /KDE Connect › Permissions › contacts/)
   assert.equal(by("screen").state, "on")
   const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
-  assert.ok(away.filter(r => r.key !== "screen").every(r => r.state === "away"))
+  // From anywhere is about reaching it away: its own setup, not away.
+  assert.ok(away.filter(r => r.key !== "screen" && r.key !== "reach").every(r => r.state === "away"))
   const noSim = Object.assign({}, report, { plugins: Object.assign({}, report.plugins, { sms: { on: true, offered: false } }) })
   assert.equal(M.featureRows(noSim, null, "Tab").find(r => r.key === "messages").state, "unavailable")
   const dead = Object.assign({}, report, { files: { sshfs: true, mounted: false, error: "sshfs finished with exit code 1" } })
@@ -1064,15 +1204,56 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
-  assert.equal(M.featuresSummary(rows), "10 on · 1 to set up")
+  assert.equal(M.featuresSummary(rows), "11 on · 1 to set up")
 })
 
-test("settings: a device's page lists what it can do; This computer", () => {
+test("settings: a device's page lists what it shares, only what it can do", () => {
   const features = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, "Pixel 8")
   const rows = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features })
-  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length)
+  assert.equal(rows.filter(r => r.kind === "feature").length, M.FEATURES.length - 1)
+  assert.ok(!rows.some(r => r.key === "reach"), "From anywhere shares nothing: it is asked on the away card, not listed here")
   assert.ok(!rows.some(r => r.kind === "screen"), "Screen and apps is one of its features")
-  assert.equal(M.settingsPageRows({ scope: "root", single: true, devices: [] }).find(r => r.kind === "connection").label, "This computer")
+  // Another kind of device (an iPhone): KDE Connect offers no texts, calls
+  // or storage there, and nothing it cannot do is listed.
+  const plugins = {}
+  ;["share", "clipboard", "findmyphone", "battery", "ping"].forEach(k => { plugins[k] = { on: true, offered: true, loaded: true } })
+  const other = M.featureRows({ reachable: true, paired: true, links: ["LAN"], plugins, permissions: null, files: {} }, null, "iPhone")
+  const shown = M.settingsPageRows({ scope: "device", single: true, devices: [], identity: { nickname: "", icon: "" }, edit: null, features: other })
+    .filter(r => r.kind === "feature").map(r => r.key)
+  assert.deepEqual(shown, ["callsHere", "share", "clipboard", "ring", "battery"], "no screen, no Android steps; calls here is Bluetooth, any phone")
+  assert.equal(M.isAndroid(null), true, "not read yet: Android")
+  assert.equal(M.sharesSummary(features), "All but Clipboard", "the demo's clipboard is off")
+  assert.equal(M.sharesSummary(features.map(r => Object.assign({}, r, { on: true }))), "Everything")
+})
+
+test("the main page says what a feature needs in its own section; the line at the top keeps the rest", () => {
+  const ask = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: false, sms: true, contacts: true, phone: true, storage: true } }),
+                              screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
+  const note = M.sectionNote(ask, "notifications")
+  assert.deepEqual([note.kind, note.key, note.fix], ["ask", "notifications", true], "one click allows it over adb")
+  assert.equal(M.sectionNote(ask, "photos"), null)
+  const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
+  const rows = quiet.features.map(r => Object.assign({}, r, { problem: r.state === "attention" }))
+  const stopped = M.sectionNote(rows, "notifications")
+  assert.deepEqual([stopped.kind, stopped.fix], ["problem", true])
+  assert.match(stopped.text, /none arrive here/)
+  const sms = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: { notifications: true, sms: false, contacts: true, phone: true, storage: true } }),
+                              screen: { state: "ready", line: "" }, name: "Pixel 8" }).features
+  assert.deepEqual([M.sectionNote(sms, "messages").key, M.sectionNote(sms, "notifications")], ["messages", null], "SMS is asked on the Messages page")
+  assert.equal(M.sectionNote(M.featureRows(M.demoFeatures("stopped"), null, "Pixel 8").map(r => Object.assign({}, r, { problem: r.state === "attention" })), "notifications").kind,
+               "problem", "the demo's stopped state")
+  const off = rows.map(r => r.key === "notifications" ? Object.assign({}, r, { on: false }) : r)
+  assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
+  const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],
+                                      [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
+  assert.deepEqual(M.bannerProblems(problems, ["notifications"]).map(p => p.key), ["firewall"], "said in its section: not in the line")
+  assert.deepEqual(M.bannerProblems(problems, []).map(p => p.key), ["firewall", "health:notifications"], "no section drawn: the line says it")
+})
+
+test("first run: one card for this computer while KDE Connect is missing or stopped", () => {
+  assert.deepEqual(M.readyRows([]).map(r => [r.kind, r.checking]), [["ready", true]])
+  const r = M.readyRows([{ key: "installed", ok: true }, { key: "running", ok: false }])[0]
+  assert.deepEqual([r.installed, r.running, r.checking], [true, false, false])
 })
 
 test("screen and apps can be turned off per device: its switch, no problem, read from the profile", () => {
@@ -1135,6 +1316,45 @@ test("an app's sound: here unless something else plays on the device; the playin
   assert.deepEqual(M.appSound("here", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "music in its headset stays there")
   assert.deepEqual(M.appSound("here", ["Spotify"], "Spotify"), { sound: "here", kept: false }, "the app playing: its sound comes with it")
   assert.deepEqual(M.appSound("phone", [], "Maps"), { sound: "phone", kept: false }, "the device's own choice")
+  assert.deepEqual(M.appSound("both", [], "Maps"), { sound: "both", kept: false }, "both: here and on the device")
+  assert.deepEqual(M.appSound("both", ["Spotify"], "Maps"), { sound: "phone", kept: true, playing: "Spotify" }, "both would bring the music here too: kept there")
+  assert.deepEqual(M.appSound("weird", [], "Maps"), { sound: "here", kept: false }, "an unknown setting reads as here")
+})
+
+test("a window's sound (#129): the app's own last choice beats the quiet rule; the screen keeps here", () => {
+  assert.deepEqual(M.appSound("here", ["Spotify"], "Maps", "here"), { sound: "here", kept: false, remembered: true }, "chosen here for Maps: here, music or not")
+  assert.deepEqual(M.appSound("phone", [], "Maps", "both"), { sound: "both", kept: false, remembered: true }, "its own choice over the device's")
+  assert.deepEqual(M.appSound("phone", [], "Maps", "nonsense"), { sound: "phone", kept: false }, "an unknown memory is none")
+  assert.equal(M.screenSound(undefined), "here", "the screen as it always was")
+  assert.equal(M.screenSound("both"), "both")
+})
+
+test("a window's sound card: three places, what each does, the volume while it plays here", () => {
+  const ready = M.demoScreen("ready")
+  const card = M.windowSoundCard({ label: "Maps" }, "here", { found: true, volume: 0.4, muted: false, output: "Speakers" }, "Pixel 8", ready)
+  assert.equal(card.title, "Maps's sound")
+  assert.deepEqual(card.options.map(o => [o.key, o.label, o.selected, o.enabled]),
+    [["here", "Here", true, true], ["phone", "On Pixel 8", false, true], ["both", "Both", false, true]])
+  assert.deepEqual([card.volume, card.level, card.muted, card.output], [true, 0.4, false, "Plays on Speakers"])
+  assert.match(card.line, /Pixel 8 goes quiet/)
+  const phone = M.windowSoundCard({ label: "Maps" }, "phone", { found: false }, "Pixel 8", ready)
+  assert.deepEqual([phone.volume, phone.output], [false, ""], "on the phone: no volume here (the phone's own is Now playing's)")
+  const starting = M.windowSoundCard({ label: "" }, "both", { found: false }, "Pixel 8", ready)
+  assert.deepEqual([starting.title, starting.volume, starting.output], ["Pixel 8's screen: its sound", false, "Its sound is not playing here yet"])
+  const old = M.windowSoundCard({ label: "Maps" }, "here", null, "Pixel 8", Object.assign({}, ready, { sdk: 32 }))
+  assert.deepEqual(old.options.map(o => o.enabled), [true, true, false], "Android 12: no both")
+  assert.equal(old.options[2].hint, "Needs Android 13")
+  assert.equal(M.windowSoundCard({ label: "Maps" }, "here", { found: true, volume: 1.7 }, "Pixel 8", ready).level, 1, "a level past 100% shows full")
+})
+
+test("an open app's window: its tile knows it, and where its sound plays", () => {
+  assert.equal(M.windowTitle("Pixel 8", "Maps"), "Maps · Pixel 8")
+  assert.equal(M.windowTitle("Pixel 8", ""), "Pixel 8 · Screen")
+  const apps = [{ package: "com.example.maps", name: "Maps" }, { package: "com.example.notes", name: "Notes" }]
+  const out = M.withWindows(apps, { Maps: true }, { "com.example.maps": "both" }, "here")
+  assert.deepEqual(out[0], { package: "com.example.maps", name: "Maps", open: true, sound: "both" })
+  assert.equal(out[1], apps[1], "a closed one is the same object")
+  assert.equal(M.withWindows(apps, { Notes: true }, {}, "phone")[1].sound, "phone", "not chosen on its window: where it opened")
 })
 
 test("notifications: One UI's hidden '1 more notification' is not shown (#52); a real System UI one is", () => {
@@ -1260,4 +1480,153 @@ test("This computer lists Bluetooth and the calls audio, optional: they never li
   const rows = M.connectionRows([{ key: "bluetooth", ok: false, optional: true, status: "Off", fix: "bluetooth-on", fixLabel: "Turn on" }, { key: "handsfree", ok: true, optional: true, status: "Ready" }], [])
   assert.deepEqual(rows.map(r => [r.label, r.optional]), [["Bluetooth", true], ["Calls in this computer's audio", true]])
   assert.equal(M.settingsProblems([{ key: "bluetooth", ok: false, optional: true }], [], []).length, 0)
+})
+
+test("from anywhere (#119): a Network gateway, its items, its feature and its page", () => {
+  const net = kind => Object.assign(M.demoFeatures(), { network: M.demoNetwork(kind) })
+  const rowOf = (kind, checks) => M.deviceSetup({ report: net(kind), screen: null, name: "Pixel 8", checks }).features.find(r => r.key === "reach")
+  const setup = M.deviceSetup({ report: net(""), screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
+  const g = setup.gateways.find(x => x.key === "network")
+  assert.deepEqual([g.usedBy, g.items.map(it => it.key)], [["reach"], ["mesh", "reach:mesh"]], "a gateway with its items, used by its feature")
+  assert.equal(setup.items.find(it => it.key === "mesh").scope, "computer", "the mesh is this computer's, checked once")
+  const on = rowOf("", [M.demoMeshCheck("")])
+  assert.deepEqual([on.state, on.detail, on.page, on.switchable], ["on", "Tailscale · 100.101.102.103", "reach", false])
+  assert.equal(rowOf("", []).state, "setup", "this computer's checks not read yet: still looking")
+  // No mesh here: Omarchy's installer first (its card), then the sign-in
+  // and the phone, each waited for where it can be seen.
+  const none = rowOf("none", [M.demoMeshCheck("none")])
+  assert.deepEqual(none.steps.map(s => s.kind + ":" + (s.fix ? s.fix.what : s.wait)), ["auto:tailscale", "ask:true", "ask:true"])
+  assert.deepEqual(M.featurePlan(none).map(s => s.fix.what), ["tailscale"])
+  const later = rowOf("setup", [M.demoMeshCheck("")])
+  assert.deepEqual([later.state, later.steps[0].label], ["setup", "On Pixel 8: install Tailscale from its store and sign in, with the same account as this computer"])
+  const pick = rowOf("pick", [M.demoMeshCheck("")])
+  assert.equal(pick.steps[0].page, "reach", "not certainly it: picked on its page")
+  // Given before and gone: it worked and stopped.
+  const lost = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const broken = M.deviceSetup({ report: lost, screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
+  assert.equal(broken.features.find(r => r.key === "reach").state, "attention")
+  const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: broken, rows: broken.features }])
+  assert.deepEqual(problems.map(p => [p.key, p.gateway]), [["reach:mesh", "Network"]])
+  assert.equal(problems[0].opens, "reach:p1", "its problem opens its own page: no row among what the device shares")
+  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["reach"])
+  // Fix all leaves a feature with a page to the user, unless it broke.
+  assert.equal(M.fixAllPlan([none]).length, 0)
+  assert.deepEqual(M.fixAllPlan(broken.features).map(s => s.fix.what).filter(w => w === "reach"), ["reach"])
+  // A typed address (#8) does it too.
+  const typed = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork("setup"), { typed: "10.8.0.4", typedKept: true }) })
+  assert.deepEqual(M.featureRows(typed, null, "Pixel 8", [M.demoMeshCheck("")]).find(r => r.key === "reach").detail, "At 10.8.0.4")
+})
+
+test("from anywhere's page: steps, the mesh's phones to pick, an address field, what the network says", () => {
+  const dev = device({ reachable: true })
+  const page = kind => {
+    const checks = [M.demoMeshCheck(kind === "none" ? "none" : "")]
+    const report = Object.assign(M.demoFeatures(), { network: M.demoNetwork(kind) })
+    return M.reachSetup(report, dev, checks, M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach"))
+  }
+  const ready = page("")
+  assert.deepEqual([ready.state, ready.line, ready.now, ready.steps.length], ["ready", "Reaches Pixel 8 on any network, through Tailscale (100.101.102.103)", "Connected now over Wi-Fi", 0])
+  assert.deepEqual(ready.actions.map(a => a.key), ["address", "forget", "check"])
+  const none = page("none")
+  assert.deepEqual(none.steps.map(s => [s.key, s.done, s.current]), [["mesh", false, true], ["device", false, false], ["kde", false, false]])
+  assert.equal(none.actions[0].key, "setup")
+  const pick = page("pick")
+  assert.deepEqual(pick.actions.filter(a => a.key.startsWith("pick:")).map(a => [a.label, a.address]),
+                   [["This is Pixel 8: pixel-8", "100.101.102.103"], ["This is Pixel 8: old-phone", "100.101.102.104"]])
+  assert.match(pick.actions[1].hint, /offline now/)
+  const rows = M.reachRows(pick)
+  assert.deepEqual(rows.find(r => r.key === "address"), { kind: "reachAction", key: "address", label: "Its address", hint: pick.actions.find(a => a.key === "address").hint, field: true, value: "" })
+  const isolated = M.reachSetup(Object.assign(M.demoFeatures(), { network: M.demoNetwork("isolated") }), device({ reachable: false }), [M.demoMeshCheck("")], null,
+                                { state: "ready", via: "mesh" })
+  assert.match(isolated.notes[0], /^Likely: this Wi-Fi keeps its devices apart/)
+  assert.equal(isolated.now, "KDE Connect does not reach it now; its screen link does, over a mesh")
+  assert.equal(M.reachSetup(null, dev, [], null).state, "checking")
+})
+
+test("the network in words: links, addresses, where an away device was", () => {
+  assert.equal(M.linkText([{ kind: "lan" }, { kind: "bluetooth" }]), "Wi-Fi and Bluetooth")
+  assert.equal(M.linkText([{ kind: "tailscale" }, { kind: "tailscale" }]), "Tailscale")
+  assert.equal(M.linkText([]), "")
+  assert.ok(M.isIpAddress("192.168.1.20") && M.isIpAddress("100.101.102.103") && M.isIpAddress("fd7a::1"))
+  assert.ok(!M.isIpAddress("192.168.1.256") && !M.isIpAddress("pixel-8") && !M.isIpAddress(""))
+  const now = Date.UTC(2026, 9, 5, 12)
+  const over = device({ reachable: false, lastSeen: { at: now - 60000, link: "LAN", address: "100.101.102.103" } })
+  assert.match(M.awayState(over, "192.168.1.0/24", 0, now).why[0], /^Last seen on a mesh at 100\.101\.102\.103/)
+  const why = M.awayState(over, "192.168.1.0/24", 0, now, M.demoNetwork("isolated")).why
+  assert.ok(why.some(l => /^Likely: this Wi-Fi keeps its devices apart/.test(l)), "a likely cause, behind Why?")
+  assert.ok(why.some(l => l === "Tailscale sees it online: KDE Connect is trying its address"))
+})
+
+test("from anywhere's page: broken, its action is Fix", () => {
+  const checks = [M.demoMeshCheck("")]
+  const report = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const row = M.featureRows(report, null, "Pixel 8", checks).find(r => r.key === "reach")
+  const page = M.reachSetup(report, device(), checks, row)
+  assert.deepEqual([row.state, page.actions[0].key, page.actions[0].label], ["attention", "setup", "Fix"])
+})
+
+test("contacts: the list by letter, a search by name and by digits", () => {
+  const list = M.demoContacts()
+  const rows = M.contactRows(list, "")
+  assert.deepEqual(rows.map(r => r.name),
+    ["Alex Rivera", "Dr. Moreau's office", "Jordan Lee", "Priya Anand", "Sam Chen", "Taylor Brooks"])
+  assert.deepEqual(rows.filter(r => r.first).map(r => r.letter), ["A", "D", "J", "P", "S", "T"],
+    "the first of each letter carries its header")
+  assert.equal(rows[0].line, "+1 514-555-0123", "the first number under the name")
+  assert.deepEqual(M.contactRows(list, "bakery").map(r => r.name), ["Taylor Brooks"], "where they work")
+  assert.deepEqual(M.contactRows(list, "5550188").map(r => r.name), ["Jordan Lee"], "digits, anywhere in a number")
+  assert.deepEqual(M.contactRows(list, "nobody"), [])
+  assert.equal(M.contactRows(list, "sam")[0].first, true, "a search starts its own letters")
+  assert.equal(rows[0].photo, "", "no picture: the initial")
+  assert.equal(M.contactRows(M.demoContacts("/x/picture.jpg"), "alex")[0].photo, "/x/picture.jpg",
+    "a row carries its photo, so the list shows the face")
+})
+
+test("contacts: a card's rows, in order, each with what it offers", () => {
+  const rows = M.contactDetails(M.demoContacts()[0])
+  assert.deepEqual(rows.map(r => r.kind), ["org", "phone", "phone", "email", "address", "website", "birthday", "note"])
+  assert.deepEqual([rows[1].label, rows[1].value, rows[1].raw],
+    ["Mobile", "+1 514-555-0123", "+15145550123"], "shown formatted, sent as the device has it")
+  assert.deepEqual(rows[1].actions, ["message", "call", "copy"])
+  assert.deepEqual(rows[3].actions, ["mail", "copy"], "an email opens the mail app; nothing is sent from here")
+  assert.deepEqual(rows[4].actions, ["map", "copy"], "an address opens the map")
+  assert.deepEqual(rows[5].actions, ["web", "copy"], "a website opens the browser")
+  assert.deepEqual([rows[5].value, rows[5].raw], ["example.com/alex", "https://example.com/alex"], "shown without its scheme, opened as it is")
+  assert.deepEqual(rows[0].actions, ["copy"], "what has nowhere to open is copied")
+  assert.equal(rows[6].value, "May 2, 1990")
+  assert.equal(M.contactDetails({}).length, 0)
+  assert.equal(M.birthdayText("--11-19"), "November 19", "no year on the card, none shown")
+  assert.equal(M.birthdayText("19900502"), "May 2, 1990")
+  assert.equal(M.birthdayText("spring"), "spring", "anything else stays as it came")
+})
+
+test("contacts: a nameless card, and what an empty page says", () => {
+  const rows = M.contactRows([{ id: "x", phones: [{ label: "Mobile", value: "5145550123" }] }], "")
+  assert.deepEqual([rows[0].name, rows[0].initial], ["No name", "#"])
+  const phone = { name: "Pixel 8" }
+  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/)
+  assert.match(M.contactsEmpty("away", "", phone), /^Pixel 8 is away/)
+  assert.equal(M.contactsEmpty("ready", "zz", phone), "No contact matches.")
+
+  const google = { name: "Google Contacts", url: "https://contacts.google.com/", find: "https://contacts.google.com/search/{}" }
+  const synced = { name: "Sam Chen", stored: "account" }, local = { name: "Dr. Moreau's office", stored: "phone" }
+  assert.equal(M.contactsAppHint(null, [synced]), "")
+  assert.equal(M.contactsAppHint(google, [synced]), "Open Google Contacts: its account's contacts")
+  assert.equal(M.contactsAppHint(google, [synced, local, local]), "Open Google Contacts: its account's contacts, not the 2 on the phone only")
+  assert.equal(M.contactsAppHint(google, [local]), "Open Google Contacts: these contacts are on the phone only, not there")
+  assert.deepEqual(M.contactFind(google, synced), { label: "Find in Google Contacts", note: "" })
+  assert.deepEqual(M.contactFind(google, local), { label: "", note: "On the phone only" })
+  assert.deepEqual(M.contactFind(Object.assign({}, google, { find: "" }), synced), { label: "", note: "" })
+  assert.deepEqual(M.contactFind(google, { name: "", stored: "account" }), { label: "", note: "" })
+  // An older bridge says nothing of where a card is: it is looked up.
+  assert.deepEqual(M.contactFind(google, { name: "Sam Chen" }), { label: "Find in Google Contacts", note: "" })
+})
+
+test("contacts: the shortcut needs the device's contacts, and the feature says what it gives", () => {
+  const tiles = M.shortcutTiles(["contacts"], { contacts: false })
+  assert.equal(tiles[0].enabled, false, "a device that does not share contacts cannot open the page")
+  assert.equal(M.shortcutTiles(["contacts"], { contacts: true })[0].enabled, true)
+  const feature = M.FEATURES.find(f => f.key === "names")
+  assert.equal(feature.label, "Contacts")
+  assert.deepEqual(feature.needs, ["link", "plugin:contacts", "permission:contacts"])
 })

@@ -31,10 +31,11 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path>               the file on the clipboard
   kdeconnect-bridge doctor                    setup checks, as JSON
-  kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|search
+  kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|tailscale|search
                                               fix one (install, firewall, sshfs, screen and
-                                              bluetooth ask for a password; search looks
-                                              for devices again)
+                                              bluetooth ask for a password; tailscale opens
+                                              Omarchy's installer in a terminal; search looks
+                                              for devices again); --describe: what it would do
   kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
   kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
                                               JSON lines (qr, found, paired, connected, error)
@@ -43,9 +44,16 @@ not re-printed, so the shell only wakes when something moved.
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
                                               an app tiled (--pop: Omarchy's pop-out), no
-                                              on-screen keyboard (--sound phone: its sound
-                                              stays on the device); returns once the
+                                              on-screen keyboard (--sound here|phone|both:
+                                              where its sound plays); returns once the
                                               window is there
+  kdeconnect-bridge screen-sound <device> here|phone|both [package] [label]
+                                              where a window's sound plays: kept for
+                                              next time, and its open window opened
+                                              again in its place with it
+  kdeconnect-bridge screen-volume <device> [package] [label] [--set 0-1] [--mute on|off|toggle]
+                                              a window's sound here, as JSON
+                                              ({found, volume, muted, output})
   kdeconnect-bridge screen-focus <device>          bring its open window forward
   kdeconnect-bridge screen-close <device>          close its open window
   kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
@@ -54,8 +62,9 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge screen-dock <device> on|off [--at x,y,w,h]   dock or undock
                                               its window (--at: where, on the monitor)
   kdeconnect-bridge features <device> [--adb]      what it can do: KDE Connect's
-                                              plugins, its link, files; with --adb,
-                                              KDE Connect's permissions on it
+                                              plugins, its link, files, its network
+                                              (meshes, its peer, how it is reached);
+                                              with --adb, KDE Connect's permissions on it
   kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
@@ -66,6 +75,9 @@ not re-printed, so the shell only wakes when something moved.
                                               run in the background, and opened),
                                               bluetooth use=<address>|connect (calls
                                               through Bluetooth: kept, connected)
+                                              reach [address] (KDE Connect pointed at
+                                              its mesh address, or one typed), unreach
+                                              [address|typed] (taken back)
   kdeconnect-bridge apps <device> [--refresh]      its apps, as JSON (kept a day;
                                               icon: a safe PNG, "" not read, "none")
   kdeconnect-bridge app-forget <device> <package>  take an app out of the recent ones
@@ -82,6 +94,17 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge call-audio <device>            while a call's audio is here: its
                                               voice to this computer's output, the
                                               microphone to the device, until killed
+  kdeconnect-bridge contacts <device> [--sync]     its contacts, as JSON (from the
+                                              vCards KDE Connect syncs; --sync asks
+                                              the device for them again first)
+  kdeconnect-bridge contacts-app [--find <name>]   Omarchy's contacts app, opened or
+                                              brought forward (nothing when this
+                                              computer has none); --find opens
+                                              its search for that person
+  kdeconnect-bridge contact-open <web|map|mail> <value>
+                                              a contact's website in the browser,
+                                              address in Omarchy's maps, email in
+                                              the mail app
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -264,6 +287,7 @@ def read_device(conn, device_id, calls=None):
             "clipboard": has("clipboard"),
             "share": has("share"),
             "sms": has("sms"),
+            "contacts": has("contacts"),
             "media": has("mprisremote"),
             "notifications": has("notifications"),
             "ping": has("ping"),
@@ -1189,7 +1213,21 @@ def watch():
 
     def heartbeat():
         schedule()
+        if net.proc is None:
+            net.check()
         return True
+
+    def on_network():
+        # Another Wi-Fi, a cable, a mesh up or down: KDE Connect announces
+        # itself on every network again now, and a device that hears it
+        # connects back, instead of waiting for its next broadcast.
+        try:
+            call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+        except GLib.Error:
+            pass
+        schedule()
+
+    net = NetWatch(on_network)
 
     def on_call(_conn, _sender, path, _iface, _signal, params):
         # /modules/kdeconnect/devices/<id>/telephony
@@ -1413,6 +1451,15 @@ def act(argv):
 
 KDE_PORTS = "1714:1764"
 DAEMON_UNIT = "app-org.kde.kdeconnect.daemon@autostart.service"
+# Home and office networks: where the firewall lets devices in (as Omarchy
+# opens Sunshine's ports), never everyone.
+PRIVATE_LANS = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+# Tailscale's and NordVPN Meshnet's addresses are in this range.
+MESH_RANGE = "100.64.0.0/10"
+# The meshes the plugin knows, in the order it offers them (Tailscale first:
+# Omarchy installs it, with a free plan), and the interface each adds here.
+MESHES = {"tailscale": {"label": "Tailscale", "iface": "tailscale0"},
+          "meshnet": {"label": "NordVPN Meshnet", "iface": "nordlynx"}}
 
 
 def local_network():
@@ -1429,23 +1476,99 @@ def local_network():
         return ""
 
 
+def kde_rules(text):
+    """KDE Connect's allow rules in ufw's user.rules, as [{proto, src,
+    iface}]. A rule's tuple: `### tuple ### allow tcp 1714:1764 0.0.0.0/0
+    any 192.168.1.0/24 in[_tailscale0] [comment=…]`."""
+    rules = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        if not line.startswith("### tuple ###") or len(parts) < 10 or parts[3] != "allow" or parts[5] != KDE_PORTS:
+            continue
+        if parts[9] != "in" and not parts[9].startswith("in_"):
+            continue
+        rules.append({"proto": parts[4], "src": parts[8], "iface": parts[9][3:]})
+    return rules
+
+
+def covered(rules, source="", iface=""):
+    """The protocols (tcp, udp) KDE Connect's rules let in from `source` (a
+    network or one address), or on the interface `iface` from anywhere."""
+    protos = set()
+    want = ipaddress.ip_network(source, strict=False) if source else None
+    for r in rules:
+        try:
+            src = ipaddress.ip_network(r["src"], strict=False)
+        except ValueError:
+            continue
+        if want is not None:
+            ok = not r["iface"] and want.version == src.version and want.subnet_of(src)
+        else:
+            ok = (r["iface"] == iface or not r["iface"]) and src.prefixlen == 0
+        if ok:
+            protos |= {"tcp", "udp"} if r["proto"] == "any" else {r["proto"]}
+    return protos
+
+
+def mesh_open(rules, iface):
+    """Whether KDE Connect's ports are open to a mesh: on its interface, or
+    from its addresses (the whole range or one device's, as a hand-made rule
+    for one phone does)."""
+    if {"tcp", "udp"} <= covered(rules, iface=iface):
+        return True
+    mesh = ipaddress.ip_network(MESH_RANGE)
+    for r in rules:
+        try:
+            src = ipaddress.ip_network(r["src"], strict=False)
+        except ValueError:
+            continue
+        if not r["iface"] and src.version == 4 and src.subnet_of(mesh):
+            return True
+    return False
+
+
 def firewall_state():
-    """ufw on or off, and whether KDE Connect's ports are allowed (TCP and
-    UDP). ufw keeps its rules world-readable, so no root is needed to look."""
+    """ufw on or off, KDE Connect's rules, and whether they let this
+    network in (TCP and UDP). ufw keeps its rules world-readable, so no root
+    is needed to look."""
     try:
         enabled = any(line.strip() == "ENABLED=yes" for line in open("/etc/ufw/ufw.conf"))
     except OSError:
-        return {"present": False, "active": False, "allowed": True}
-    protos = set()
+        return {"present": False, "active": False, "allowed": True, "rules": []}
     try:
-        for line in open("/etc/ufw/user.rules"):
-            if line.startswith("### tuple ###") and " allow " in line and " %s " % KDE_PORTS in line:
-                parts = line.split()
-                if len(parts) > 5:
-                    protos.add(parts[4])
+        with open("/etc/ufw/user.rules") as f:
+            rules = kde_rules(f.read())
     except OSError:
+        rules = []
+    lan = local_network()
+    if lan:
+        allowed = {"tcp", "udp"} <= covered(rules, lan)
+    else:
+        allowed = {"tcp", "udp"} <= set(p for r in rules for p in (("tcp", "udp") if r["proto"] == "any" else (r["proto"],)))
+    return {"present": True, "active": enabled, "allowed": allowed, "rules": rules}
+
+
+def firewall_rules(rules, lan, ifaces):
+    """The ufw commands that open KDE Connect's ports to every private
+    network (home, office: as Omarchy opens Sunshine's) and on each mesh's
+    interface, only those not open yet. Never to everyone. A default
+    route's network outside the private ranges is added as itself."""
+    sources = list(PRIVATE_LANS)
+    try:
+        if lan and not any(ipaddress.ip_network(lan).subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS):
+            sources.append(lan)
+    except ValueError:
         pass
-    return {"present": True, "active": enabled, "allowed": {"tcp", "udp"} <= protos or "any" in protos}
+    out = []
+    for src in sources:
+        for proto in ("tcp", "udp"):
+            if proto not in covered(rules, src):
+                out.append("/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (src, KDE_PORTS, proto))
+    for iface in ifaces:
+        for proto in ("tcp", "udp"):
+            if proto not in covered(rules, iface=iface):
+                out.append("/usr/bin/ufw allow in on %s to any port %s proto %s comment 'KDE Connect'" % (iface, KDE_PORTS, proto))
+    return out
 
 
 def doctor():
@@ -1482,6 +1605,9 @@ def doctor():
                    "status": lan or "No network",
                    "detail": "" if lan else "Join the Wi-Fi your devices are on",
                    "fix": "", "fixLabel": ""})
+    # Optional: only reaching devices away from home needs a mesh.
+    meshes = mesh_status()
+    checks.append(mesh_check(meshes, fw, mesh_interfaces()))
     paired = [d for d in devices if d.get("paired")]
     reachable = [d for d in paired if d.get("reachable")]
     checks.append({"key": "paired", "ok": len(paired) > 0, "label": "A device is paired",
@@ -1507,7 +1633,8 @@ def doctor():
                    "detail": "" if sshfs else "A device's photos and videos here: sshfs",
                    "fix": "" if sshfs else "sshfs", "fixLabel": "" if sshfs else "Install"})
     checks.extend(bluetooth_checks(bluetooth_state()))
-    return {"checks": checks, "network": lan, "firewall": fw}
+    return {"checks": checks, "network": lan, "firewall": dict(fw, rules=len(fw.get("rules", []))),
+            "meshes": [{k: m[k] for k in ("mesh", "label", "on", "installed", "state")} for m in meshes]}
 
 
 def bluetooth_checks(bt):
@@ -1553,7 +1680,7 @@ def pkg_add(packages):
 # only that plan: it is built again at the run, and a plan that differs from
 # the one shown (its hash) does not run.
 
-ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "bluetooth")
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "ready", "tailscale", "bluetooth")
 
 
 def pacman_will_install(packages, run=None):
@@ -1588,7 +1715,12 @@ def package_installed(name, run=None):
         return False
 
 
-def root_plan(what, run=None, lan=None):
+# Everything any feature needs on this computer (docs/design/setup.md): the
+# first run installs them together, so no package is asked for again.
+READY_FIXES = ("install", "sshfs", "screen")
+
+
+def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen", "bluetooth") else []
@@ -1623,15 +1755,53 @@ def root_plan(what, run=None, lan=None):
                 actions = actions[1:]
     elif what == "firewall":
         lan = lan if lan is not None else local_network()
-        if not lan:
-            return {"what": what, "why": "", "actions": [], "commands": [], "hash": "", "error": "Could not tell which network this computer is on"}
-        rules = ["/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (lan, KDE_PORTS, proto) for proto in ("tcp", "udp")]
-        reason = "To let your devices reach KDE Connect through the firewall, from this network only"
-        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in rules]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(rules)]]
+        existing = rules if rules is not None else firewall_state().get("rules", [])
+        ifaces = ifaces if ifaces is not None else mesh_interfaces()
+        wanted = firewall_rules(existing, lan, ifaces)
+        meshes = [m["label"] for m in MESHES.values() if m["iface"] in ifaces]
+        reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
+            + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
+        actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted] or ["Nothing to change: the firewall already lets them in"]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(wanted)]] if wanted else []
+    elif what == "tailscale":
+        # Omarchy's own installer, as its Install menu runs it: in its
+        # terminal, which asks for the password itself.
+        reason = "To set up Tailscale with Omarchy's own installer, as its Install menu does"
+        actions = ["Opens Omarchy's Tailscale installer in a terminal; it asks for your password there",
+                   "Installs tailscale and starts it",
+                   "Signs this computer in to Tailscale: a page opens in your browser",
+                   "Lets you manage it without a password, receives Taildrop files in Downloads, and adds Tailscale to the bar"]
+        commands = [[os.path.join(OMARCHY_BIN, "omarchy-launch-floating-terminal-with-presentation"), "omarchy-install-service-tailscale"]]
+        footer = "Nothing else runs with it. Its terminal asks for the password, not this panel."
+    elif what == "ready":
+        # The first run: every package not installed at any version, and the
+        # firewall's rule while it keeps devices out, under one password.
+        wanted = [p for k in READY_FIXES for p in fix_packages(k)]
+        packages = [p for p in wanted if not package_installed(p, run)]
+        will = pacman_will_install(packages, run) if packages else []
+        fw = fw if fw is not None else firewall_state()
+        wanted_rules = []
+        if fw.get("active") and not fw.get("allowed"):
+            lan = lan if lan is not None else local_network()
+            existing = rules if rules is not None else fw.get("rules", [])
+            wanted_rules = firewall_rules(existing, lan, ifaces if ifaces is not None else mesh_interfaces())
+        reason = "To get this computer ready for your devices"
+        actions, parts = [], []
+        if packages and will != []:
+            actions.append("Install with pacman (Omarchy's omarchy-pkg-add): " + ", ".join(will if will else packages))
+            if will and len(will) > len(packages):
+                actions.append("Those include what " + ", ".join(packages) + " need to run")
+            parts.append(" ".join(shlex.quote(a) for a in pkg_add(packages)[1:]))
+        actions += ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted_rules]
+        parts += wanted_rules
+        if not actions:
+            actions = ["Nothing to install: this computer has everything"]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
+    if what == "tailscale":
+        plan["footer"] = footer
     plan["hash"] = hashlib.sha256(json.dumps([commands, actions]).encode()).hexdigest()[:16]
     return plan
 
@@ -1645,6 +1815,14 @@ def run_root(what, confirm):
         return say(plan["error"], EXIT_FAILED)
     if not confirm or confirm != plan["hash"]:
         return say("What would run is not what was shown: look at it again", EXIT_FAILED)
+    if what == "tailscale":
+        # A terminal of its own, left running: the user goes on there.
+        try:
+            subprocess.Popen(plan["commands"][0], start_new_session=True,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError as error:
+            return say(str(error), EXIT_FAILED)
+        return say("Omarchy's Tailscale installer is open: sign in there")
     for cmd in plan["commands"]:
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
@@ -1655,7 +1833,9 @@ def run_root(what, confirm):
         if out.returncode != 0:
             return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
     if what == "firewall":
-        return say("Firewall now allows KDE Connect from %s" % local_network())
+        return say("The firewall lets your devices reach KDE Connect")
+    if what == "ready":
+        return say("This computer is ready")
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
                 "screen": "scrcpy and adb installed: set up a device's screen and apps",
                 "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed"))
@@ -1827,11 +2007,18 @@ def device_features(device_id, conn=None, with_adb=False, status=None):
     except GLib.Error:
         here = None
     out["notifications"] = {"here": here, "device": None}
+    serial = ""
     if with_adb:
         status = status or screen_status(device_id)
         if status.get("state") == "ready" and status.get("serial"):
-            out["permissions"] = device_permissions(status["serial"])
-            out["notifications"]["device"] = device_notification_count(status["serial"])
+            serial = status["serial"]
+            out["permissions"] = device_permissions(serial)
+            out["notifications"]["device"] = device_notification_count(serial)
+    # How it is reached, and its address away from home (#119).
+    try:
+        out["network"] = device_network(device_id, conn, p, serial)
+    except GLib.Error:
+        out["network"] = None
     return out
 
 
@@ -1913,7 +2100,7 @@ def device_address(serial, run=None):
     """The device's address on the network, from its adb serial (Wi-Fi) or
     from the device (USB); "" when it has none."""
     m = IPV4.match(serial or "")
-    if m:
+    if m and not inside(m.group(1), MESH_RANGE):
         return m.group(1)
     run = run or (lambda args: adb(["-s", serial, "shell"] + args))
     code, out = run(["ip", "-o", "-4", "addr", "show", "wlan0"])
@@ -1989,6 +2176,414 @@ def wake(device_id, conn=None):
     return say("KDE Connect is open on it, but it did not connect", EXIT_FAILED)
 
 
+# ---- The network: every path to a device, at home and away (#119) ---------
+#
+# KDE Connect finds a device by broadcast on the local network, which does
+# not cross another network or a VPN. A mesh gives each device an address
+# that reaches it anywhere: Tailscale first (Omarchy installs it, with a
+# free plan), NordVPN Meshnet the same way (Omarchy installs NordVPN too).
+# KDE Connect is pointed at the device's mesh address (its daemon's custom
+# devices, a D-Bus property, which its own settings write), and the
+# firewall lets KDE Connect's ports in on the mesh's interface. The mesh
+# peer is matched to the KDE Connect device by what is certain first (an
+# address KDE Connect or adb reaches it at), then by name; failing both,
+# the user picks it. A wrong address is harmless: KDE Connect only talks to
+# a device that shows its paired certificate. What was matched and added is
+# kept in the cache (network.json), so a later change is a fix, not a guess.
+
+NETWORK_FILE = "network.json"
+
+
+def norm_name(name):
+    return re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+
+
+def parse_tailscale(text):
+    """`tailscale status --json` as a mesh: {mesh, label, on, state,
+    address, peers: [{name, host, os, address, online}]}; None when it is
+    not JSON (tailscaled not running)."""
+    try:
+        data = json.loads(text or "")
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    peers = []
+    for p in (data.get("Peer") or {}).values():
+        ips = [a for a in (p.get("TailscaleIPs") or []) if ":" not in a]
+        peers.append({"name": p.get("HostName") or "", "host": (p.get("DNSName") or "").split(".")[0],
+                      "os": str(p.get("OS") or "").lower(), "address": ips[0] if ips else "", "online": bool(p.get("Online"))})
+    mine = [a for a in ((data.get("Self") or {}).get("TailscaleIPs") or []) if ":" not in a]
+    state = str(data.get("BackendState") or "")
+    return {"mesh": "tailscale", "label": "Tailscale", "on": state == "Running", "state": state,
+            "address": mine[0] if mine else "", "peers": peers}
+
+
+def parse_meshnet(text):
+    """`nordvpn meshnet peer list` (blocks of `Key: value` under This
+    device, Local Peers, External Peers) as a mesh. Meshnet off prints no
+    blocks."""
+    mesh = {"mesh": "meshnet", "label": "NordVPN Meshnet", "on": False, "state": "Off", "address": "", "peers": []}
+    section, block = "", {}
+
+    def flush():
+        if not block:
+            return
+        if section == "This device:":
+            mesh["address"] = block.get("IP", "")
+        elif section:
+            mesh["peers"].append({"name": block.get("Nickname") or block.get("Hostname", ""),
+                                  "host": block.get("Hostname", "").split(".")[0], "os": block.get("OS", "").lower(),
+                                  "address": block.get("IP", ""), "online": block.get("Status", "") == "connected"})
+        block.clear()
+
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if s in ("This device:", "Local Peers:", "External Peers:"):
+            flush()
+            section = s
+        elif not s:
+            flush()
+        elif ":" in s and section:
+            k, _, v = s.partition(":")
+            block[k.strip()] = v.strip()
+    flush()
+    if mesh["address"]:
+        mesh.update(on=True, state="Running")
+    return mesh
+
+
+def mesh_status(run=None, have=None):
+    """The meshes installed here, each with its peers (no root needed)."""
+    run = run or subprocess.run
+    have = have or shutil.which
+
+    def ask(cmd):
+        try:
+            out = run(cmd, capture_output=True, text=True, timeout=6)
+            return out.returncode, out.stdout or ""
+        except (OSError, subprocess.TimeoutExpired):
+            return 1, ""
+
+    out = []
+    if have("tailscale"):
+        mesh = parse_tailscale(ask(["tailscale", "status", "--json"])[1]) or \
+            {"mesh": "tailscale", "label": "Tailscale", "on": False, "state": "Stopped", "address": "", "peers": []}
+        out.append(dict(mesh, installed=True))
+    if have("nordvpn"):
+        code, text = ask(["nordvpn", "meshnet", "peer", "list"])
+        out.append(dict(parse_meshnet(text if code == 0 else ""), installed=True))
+    return out
+
+
+def mesh_interfaces(run=None):
+    """The meshes' interfaces present here (tailscale0, nordlynx)."""
+    run = run or subprocess.run
+    try:
+        links = json.loads(run(["ip", "-j", "link"], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return []
+    names = set(l.get("ifname") for l in links)
+    return [m["iface"] for m in MESHES.values() if m["iface"] in names]
+
+
+def mesh_check(meshes, fw, ifaces):
+    """This computer's mesh, for This computer: optional (only reaching
+    devices away from home needs it). Its fix: Tailscale through Omarchy's
+    installer; on, but the firewall keeps it out: the firewall's fix."""
+    on = [m for m in meshes if m.get("on")]
+    closed = [m for m in on if fw.get("active") and MESHES[m["mesh"]]["iface"] in ifaces
+              and not mesh_open(fw.get("rules", []), MESHES[m["mesh"]]["iface"])]
+    tailscale = next((m for m in meshes if m["mesh"] == "tailscale"), None)
+    if on and not closed:
+        status, detail, fix, label = ", ".join(m["label"] for m in on), "", "", ""
+    elif closed:
+        status = ", ".join(m["label"] for m in on)
+        detail = "The firewall keeps %s out" % " and ".join(m["label"] for m in closed)
+        fix, label = "firewall", "Allow"
+    else:
+        status = "Signed out" if tailscale else "Not set up"
+        detail = "Reach your devices on any network: Tailscale, with Omarchy's installer" \
+            + ("; or turn Meshnet on in NordVPN" if any(m["mesh"] == "meshnet" for m in meshes) else "")
+        fix, label = "tailscale", "Set up"
+    return {"key": "mesh", "ok": bool(on) and not closed, "optional": True, "label": "Mesh network",
+            "status": status, "detail": detail, "fix": fix, "fixLabel": label,
+            "meshes": [m["mesh"] for m in on]}
+
+
+def link_kind(address, meshes):
+    """What an address of the device is: a mesh's (tailscale, meshnet, or
+    mesh for one this computer does not know), lan (a private network: the
+    device's Wi-Fi), or network."""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return ""
+    for m in meshes:
+        if any(p.get("address") == address for p in m.get("peers", [])):
+            return m["mesh"]
+    if ip.version == 4 and ip in ipaddress.ip_network(MESH_RANGE):
+        return "mesh"
+    return "lan" if ip.is_private else "network"
+
+
+def match_peer(device, meshes, record=None, sure=()):
+    """The device among the meshes' peers, and how it was found: "address"
+    (KDE Connect or adb reaches it there: certain), "remembered" (picked or
+    found before), "name" (its name and the peer's are the same, ignoring
+    case and punctuation); (None, "") otherwise."""
+    record = record or {}
+    peers = [dict(p, mesh=m["mesh"], label=m["label"]) for m in meshes if m.get("on")
+             for p in m.get("peers", []) if p.get("address")]
+    sure = set(a for a in sure if a)
+    for p in peers:
+        if p["address"] in sure:
+            return p, "address"
+    if record.get("peer"):
+        for p in peers:
+            if p["mesh"] == record.get("mesh") and p["name"] == record["peer"]:
+                return p, "remembered"
+    name = norm_name(device.get("name"))
+    if name:
+        named = [p for p in peers if name in (norm_name(p["name"]), norm_name(p["host"]))]
+        if len(named) == 1:
+            return named[0], "name"
+    return None, ""
+
+
+def network_record(device_id, update=None):
+    """What this computer remembers of a device's network (the mesh peer
+    matched, the addresses this plugin gave KDE Connect), in the cache."""
+    path = os.path.join(state_dir(), NETWORK_FILE)
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        data = {}
+    if update is None:
+        return data.get(device_id, {})
+    entry = dict(data.get(device_id, {}), **update)
+    data[device_id] = {k: v for k, v in entry.items() if v not in ("", None)}
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(data, f)
+    os.replace(tmp, path)
+    return data[device_id]
+
+
+def device_addresses(serial, run=None):
+    """Every IPv4 address the device has (adb), by interface: a mesh's VPN
+    (tun0) included, which makes the match certain."""
+    run = run or (lambda args: adb(["-s", serial, "shell"] + args))
+    code, out = run(["ip", "-o", "-4", "addr"])
+    return re.findall(r"^\d+:\s+(\S+)\s+inet (\d{1,3}(?:\.\d{1,3}){3})/", out or "", re.M) if code == 0 else []
+
+
+def lan_answers(address, run=None):
+    run = run or subprocess.run
+    try:
+        return run(["ping", "-c", "1", "-W", "1", address], capture_output=True, timeout=4).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def reach_report(device, custom, meshes, record, adb_addresses=(), wifi=(), lan="", answers=None):
+    """A device's network, for its page (Model.reachSetup): the meshes here,
+    its peer and how it was matched, what KDE Connect has been given, how
+    KDE Connect and adb reach it now, and whether this Wi-Fi likely keeps
+    its devices apart."""
+    kde = [a for a in (device.get("addresses") or []) if a]
+    peer, how = match_peer(device, meshes, record, kde + list(adb_addresses))
+    links = [{"kind": link_kind(a, meshes), "address": a} for a in kde]
+    if "Bluetooth" in (device.get("links") or []):
+        links.append({"kind": "bluetooth", "address": ""})
+    phones = [dict(p, mesh=m["mesh"], label=m["label"]) for m in meshes if m.get("on") for p in m.get("peers", [])
+              if p.get("address") and p.get("os") in ("android", "ios")]
+    out = {
+        "meshes": [{k: m.get(k) for k in ("mesh", "label", "on", "installed", "state")} for m in meshes],
+        "peer": {k: peer[k] for k in ("name", "mesh", "label", "address", "online")} if peer else None,
+        "match": how,
+        "candidates": [] if peer else [{k: p[k] for k in ("name", "mesh", "label", "address", "online")} for p in phones],
+        "added": bool(peer) and peer["address"] in custom,
+        # What this plugin gave KDE Connect before (a mesh address, an
+        # address typed on the page), and whether it is still there.
+        "given": record.get("address", ""), "givenKept": bool(record.get("address")) and record.get("address") in custom,
+        "typed": record.get("typed", ""), "typedKept": bool(record.get("typed")) and record.get("typed") in custom,
+        "links": links, "isolated": False,
+    }
+    # KDE Connect lost it while adb reaches it (so it is awake), and its
+    # Wi-Fi address on this computer's network does not answer: this Wi-Fi
+    # likely keeps its devices apart (guest or office Wi-Fi). Said as
+    # likely, never as certain.
+    here = [a for a in wifi if lan and inside(a, lan)]
+    if not device.get("reachable") and here and not (answers or lan_answers)(here[0]):
+        out["isolated"] = True
+    return out
+
+
+def inside(address, network):
+    try:
+        return ipaddress.ip_address(address) in ipaddress.ip_network(network, strict=False)
+    except ValueError:
+        return False
+
+
+def valid_address(text):
+    try:
+        ipaddress.ip_address(text)
+        return True
+    except ValueError:
+        return False
+
+
+def device_network(device_id, conn, p, serial=""):
+    """The `network` part of a device's features report."""
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    custom = list(daemon.get("customDevices") or [])
+    by_iface = device_addresses(serial) if serial else []
+    device = {"name": p.get("name"), "addresses": list(p.get("reachableAddresses") or []),
+              "links": list(p.get("activeProviderNames") or []), "reachable": bool(p.get("isReachable"))}
+    return reach_report(device, custom, mesh_status(), network_record(device_id),
+                        adb_addresses=[a for _, a in by_iface], wifi=[a for n, a in by_iface if n.startswith("wlan")],
+                        lan=local_network())
+
+
+def set_custom(conn, wanted):
+    call(conn, ROOT, "org.freedesktop.DBus.Properties", "Set",
+         (IFACE + ".daemon", "customDevices", GLib.Variant("as", wanted)), "(ssv)")
+
+
+def reach(device_id, address="", conn=None, meshes=None):
+    """Points KDE Connect at the device's address away from home: its mesh
+    address (matched, or picked on its page: `address` a peer's), or one the
+    user typed (`address`, any IP: a VPN, another network). The address this
+    plugin gave before for the same kind goes; the user's own stay."""
+    conn = conn or bus()
+    record = network_record(device_id)
+    p = props(conn, device_path(device_id), IFACE + ".device") or {}
+    if not p.get("isPaired"):
+        return say("Not a paired device", EXIT_FAILED)
+    name = p.get("name") or "the device"
+    meshes = mesh_status() if meshes is None else meshes
+    if address and not valid_address(address):
+        return say("Not an IP address: type one such as 192.168.1.20 or 100.101.102.103", EXIT_FAILED)
+    peers = [dict(q, mesh=m["mesh"]) for m in meshes for q in m.get("peers", []) if q.get("address")]
+    picked = next((q for q in peers if address and q["address"] == address), None)
+    if not address:
+        peer, _how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
+        if not peer:
+            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED)
+        picked, address = peer, peer["address"]
+    kind = "address" if picked else "typed"
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    wanted = with_address(current, record.get(kind, ""), address)
+    try:
+        if wanted != current:
+            set_custom(conn, wanted)
+        update = {kind: address}
+        if picked:
+            update.update(mesh=picked["mesh"], peer=picked["name"])
+        network_record(device_id, update)
+        call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    # Here already (at home): the address is for when it is not.
+    if p.get("isReachable"):
+        return say("KDE Connect knows where to find %s away from home: %s" % (name, address))
+    if wait_reachable(device_id, conn):
+        return say("Connected again, through %s" % address)
+    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name))
+
+
+def unreach(device_id, kind="", conn=None):
+    """Takes the addresses this plugin gave KDE Connect for a device back
+    (`kind`: address, typed, or both); the user's own stay."""
+    conn = conn or bus()
+    if not (props(conn, device_path(device_id), IFACE + ".device") or {}).get("isPaired"):
+        return say("Not a paired device", EXIT_FAILED)
+    record = network_record(device_id)
+    kinds = [kind] if kind in ("address", "typed") else ["address", "typed"]
+    gone = [record.get(k) for k in kinds if record.get(k)]
+    daemon = props(conn, ROOT, IFACE + ".daemon") or {}
+    current = list(daemon.get("customDevices") or [])
+    wanted = [a for a in current if a not in gone]
+    try:
+        if wanted != current:
+            set_custom(conn, wanted)
+    except GLib.Error as error:
+        return say(error.message, EXIT_FAILED)
+    clear = {k: "" for k in kinds}
+    if "address" in kinds:
+        clear.update(mesh="", peer="")
+    network_record(device_id, clear)
+    return say("KDE Connect forgot that address")
+
+
+def network_signature(run=None):
+    """What KDE Connect's reach depends on here: this computer's addresses,
+    by interface (Wi-Fi joined or left, a cable, a mesh coming up). Docker's
+    and virtual bridges are left out: they come and go with containers."""
+    run = run or subprocess.run
+    try:
+        addrs = json.loads(run(["ip", "-j", "-4", "addr"], capture_output=True, text=True, timeout=5).stdout or "[]")
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return ""
+    out = []
+    for a in addrs:
+        name = a.get("ifname") or ""
+        if name == "lo" or name.startswith(("docker", "br-", "veth", "virbr")):
+            continue
+        out.extend("%s %s/%s" % (name, i.get("local"), i.get("prefixlen")) for i in a.get("addr_info") or [])
+    return " ".join(sorted(out))
+
+
+class NetWatch:
+    """Watches this computer's addresses (`ip monitor address`): after a
+    network change settles, `on_change()` once. KDE Connect asks Qt whether
+    the network changed, which needs NetworkManager; Omarchy's network has
+    no NetworkManager, so KDE Connect would wait for its own next broadcast.
+    Best effort: without `ip monitor`, the heartbeat compares (`check`)."""
+
+    SETTLE_MS = 2000
+
+    def __init__(self, on_change, signature=network_signature):
+        self.on_change = on_change
+        self.signature = signature
+        self.last = signature()
+        self.pending = 0
+        self.proc = None
+        try:
+            self.proc = subprocess.Popen(["ip", "-o", "monitor", "address"], stdout=subprocess.PIPE,
+                                         stderr=subprocess.DEVNULL, text=True)
+            GLib.io_add_watch(self.proc.stdout.fileno(), GLib.IO_IN | GLib.IO_HUP, self._line)
+        except OSError:
+            self.proc = None
+
+    def _line(self, _fd, condition):
+        if condition & GLib.IO_HUP:
+            return False
+        self.proc.stdout.readline()
+        if self.pending:
+            GLib.source_remove(self.pending)
+        self.pending = GLib.timeout_add(self.SETTLE_MS, self._settled)
+        return True
+
+    def _settled(self):
+        self.pending = 0
+        self.check()
+        return False
+
+    def check(self):
+        now = self.signature()
+        if now and now != self.last:
+            self.last = now
+            self.on_change()
+            return True
+        return False
+
+
 def device_fix(what, device_id, arg=""):
     """The fixes that act on one device, each a click's: a KDE Connect
     plugin, a permission (granted over adb, or its screen opened there), a
@@ -2030,6 +2625,10 @@ def device_fix(what, device_id, arg=""):
     if what == "bluetooth":
         verb, _, address = arg.partition("=")
         return bluetooth_fix(verb, device_id, address)
+    if what == "reach":
+        return reach(device_id, arg)
+    if what == "unreach":
+        return unreach(device_id, arg)
     status = screen_status(device_id)
     serial = status.get("serial") if status.get("state") == "ready" else ""
     if what == "grant":
@@ -2684,6 +3283,15 @@ def adb_identity(d, mdns):
     return ""
 
 
+def adb_via(d):
+    """How adb reaches a device: usb, wifi, or mesh (its serial's address is
+    a mesh's: Tailscale, Meshnet)."""
+    if d["usb"]:
+        return "usb"
+    host = d["serial"].rpartition(":")[0]
+    return "mesh" if re.match(r"^[\d.]+$", host) and inside(host, MESH_RANGE) else "wifi"
+
+
 def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None):
     """The adb serial for a KDE Connect device, and how it is reached:
     (serial, "wifi" | "usb", state) or (None, "", ""). The device's own
@@ -2695,9 +3303,10 @@ def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None)
     ids = identities or {}
     if serial:
         mine = [d for d in adb_devices if (ids.get(d["serial"]) or adb_identity(d, mdns)) == serial]
-        mine.sort(key=lambda d: (d["state"] != "device", not d["usb"]))
+        # USB first, then Wi-Fi, then the mesh (the slowest path).
+        mine.sort(key=lambda d: (d["state"] != "device", ["usb", "wifi", "mesh"].index(adb_via(d))))
         if mine:
-            return mine[0]["serial"], "usb" if mine[0]["usb"] else "wifi", mine[0]["state"]
+            return mine[0]["serial"], adb_via(mine[0]), mine[0]["state"]
     addresses = set(device.get("addresses") or [])
     hosts = {s["name"]: s["host"] for s in mdns if s["kind"] == "connect"}
     for d in adb_devices:
@@ -2705,7 +3314,7 @@ def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None)
             continue
         host = d["serial"].rpartition(":")[0] if re.match(r"^[\d.]+:\d+$", d["serial"]) else hosts.get(d["serial"].split(".")[0], "")
         if host and host in addresses:
-            return d["serial"], "wifi", d["state"]
+            return d["serial"], adb_via(d), d["state"]
     name = (device.get("name") or "").strip().lower()
     for d in adb_devices:
         if d["usb"] and name and ((names or {}).get(d["serial"], "").strip().lower() == name
@@ -2836,6 +3445,20 @@ def browse_adb_match(device, devices, known, status):
                 devices = parse_adb_devices(adb(["devices", "-l"])[1])
                 serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
                 break
+    if not serial and known:
+        # Away from this Wi-Fi, mDNS does not reach it: its mesh address,
+        # at the port Wireless debugging had last (a new port after a
+        # restart of it is found here by mDNS only).
+        net = network_record(device.get("id", "")).get("address")
+        port = screen_record(device.get("id", "")).get("port")
+        if net and port:
+            target = "%s:%s" % (net, port)
+            adb(["connect", target], timeout=8)
+            devices = parse_adb_devices(adb(["devices", "-l"])[1])
+            for d in devices:
+                if d["serial"] == target and d["state"] == "device":
+                    identities[target] = adb(["-s", target, "shell", "getprop", "ro.serialno"])[1].strip()
+            serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
     if not serial:
         usb = [d for d in devices if d["usb"]]
         names = {d["serial"]: adb(["-s", d["serial"], "shell", "settings", "get", "global", "device_name"])[1].strip()
@@ -2872,6 +3495,10 @@ def screen_status(device_id):
             ("off" if screen_record(device_id).get("paired") else "pair")
         return status
     status.update(serial=serial, via=via)
+    # Wireless debugging's port, for the mesh when this Wi-Fi is not around.
+    port = serial.rpartition(":")[2] if via in ("wifi", "mesh") else ""
+    if port.isdigit() and state == "device" and screen_record(device_id).get("port") != port:
+        screen_record(device_id, {"port": port})
     # Found by address or name: remember its own serial from now on.
     if state == "device" and not known:
         own = adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip()
@@ -3585,8 +4212,8 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4, and the
-    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`:
-    "phone" leaves an app's sound on the device."""
+    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`
+    (SOUND_PLACES): where its sound plays."""
     # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
     # back and came in a late batch, after the turn they told of. Appended,
     # so the watcher can empty the file without leaving a hole.
@@ -3599,9 +4226,46 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
             cmd += ["--flex-display", "--display-ime-policy=hide"]
-        if sound == "phone":
-            cmd += ["--no-audio"]
-    return cmd
+    return cmd + sound_args(sound)
+
+
+# Where a window's sound plays (#129), as Model.SOUND_PLACES: here
+# (scrcpy's default source: the device's whole output, the device quiet
+# meanwhile), on the device (none forwarded), or both (what apps play,
+# captured while the device keeps playing it; Android 13). scrcpy cannot
+# switch while running: a change opens the window again.
+SOUND_PLACES = ("here", "phone", "both")
+SCREEN_SOUND = "@screen"   # the screen's own window, beside its apps
+
+
+def sound_args(sound):
+    if sound == "phone":
+        return ["--no-audio"]
+    if sound == "both":
+        return ["--audio-source=playback", "--audio-dup"]
+    return []
+
+
+def window_sounds(device_id, key=None, sound=None):
+    """Where each window last chose its sound to play ({package or
+    SCREEN_SOUND: place}); with a key and a place, records it. In the
+    cache beside opened.json: usage, not a setting."""
+    path = os.path.join(apps_dir(device_id), "sound.json")
+    try:
+        with open(path) as f:
+            sounds = json.load(f)
+        if not isinstance(sounds, dict):
+            sounds = {}
+    except (OSError, ValueError):
+        sounds = {}
+    sounds = {k: v for k, v in sounds.items() if v in SOUND_PLACES}
+    if key and sound in SOUND_PLACES:
+        sounds[key] = sound
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(sounds, f)
+        os.replace(tmp, path)
+    return sounds
 
 
 def launch_or_focus(title, cmd):
@@ -3685,6 +4349,203 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     if win:
         dock_window(win, docked, disp, rect)
     return say("Opens under the bar" if docked else "Opens as a window")
+
+
+# ---- A window's sound (#129): where it plays, changed while it is open ----
+# scrcpy picks its sound source as it starts, so a change opens the window
+# again: closed, and opened where it was (a floating window by a rule at
+# its own rectangle; a tiled one moved back to the side its tile was on,
+# measured and corrected, since the layout splits the focused tile and
+# puts the new window on its right or below).
+
+REOPEN_WAIT_SEC = 3
+
+
+def hypr_dispatch(lua):
+    subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+
+
+def window_place(win, mons, border=0):
+    """Where an open window is, to open it again there."""
+    tags = [str(t).rstrip("*") for t in win.get("tags") or []]
+    return {"floating": bool(win.get("floating")), "pinned": bool(win.get("pinned")),
+            "rect": resting(win, mons, border), "at": list(win.get("at") or [0, 0]), "size": list(win.get("size") or [0, 0]),
+            "workspace": (win.get("workspace") or {}).get("id"), "pop": "pop" in tags}
+
+
+def side_of(win, place):
+    """The way from where `win` is to where the window was ("l", "r", "u",
+    "d"), or None when it is there (its middle within a quarter of a tile)."""
+    (x, y), (w, h) = win.get("at") or [0, 0], win.get("size") or [0, 0]
+    (ox, oy), (ow, oh) = place["at"], place["size"]
+    dx, dy = (ox + ow / 2) - (x + w / 2), (oy + oh / 2) - (y + h / 2)
+    if abs(dx) <= max(w, ow) / 4 and abs(dy) <= max(h, oh) / 4:
+        return None
+    if abs(dx) >= abs(dy):
+        return "r" if dx > 0 else "l"
+    return "d" if dy > 0 else "u"
+
+
+def tile_back(place, win, run=hypr_dispatch, look=None, sleep=time.sleep):
+    """A tiled window opened again, moved back to its workspace and to the
+    side its tile was on; True once it is there."""
+    look = look or (lambda: find_window(win.get("title", "")))
+    q = lua_string("address:" + win["address"])
+    ws = place.get("workspace")
+    if ws is not None and (win.get("workspace") or {}).get("id") != ws:
+        run('hl.dsp.window.move({ window = %s, workspace = "%s", follow = false })' % (q, ws))
+        sleep(0.12)
+        win = look() or win
+    for _ in range(2):
+        way = side_of(win, place)
+        if not way:
+            return True
+        run('hl.dsp.window.swap({ window = %s, direction = "%s" })' % (q, way))
+        sleep(0.12)
+        win = look() or win
+    return side_of(win, place) is None
+
+
+def same_window(a, b):
+    """Whether two looks are one window: by Hyprland's stable id, since a
+    new window can take a closed one's address (it is a pointer)."""
+    if a.get("stableId") is not None and b.get("stableId") is not None:
+        return a["stableId"] == b["stableId"]
+    return a.get("address") == b.get("address")
+
+
+def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=None, border=0):
+    """Closes an open window and opens it again in its place (`launch`
+    starts it; `look()` finds it by its title). True once it is back."""
+    place = window_place(win, mons if mons is not None else hypr_json("monitors"), border)
+    run("hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"]))
+    for _ in range(REOPEN_WAIT_SEC * 4):
+        now = look()
+        if not now or not same_window(now, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    launch()
+    for _ in range(WINDOW_WAIT_SEC * 4):
+        new = look()
+        if new and not same_window(new, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    q = lua_string("address:" + new["address"])
+    if place["floating"]:
+        if bool(new.get("pinned")) != place["pinned"]:
+            run("hl.dsp.window.pin({ window = %s })" % q)
+        if place["pop"]:
+            run('hl.dsp.window.tag({ window = %s, tag = "+pop" })' % q)
+        return True
+    sleep(0.12)   # tiled into its place first
+    return tile_back(place, look() or new, run, look, sleep)
+
+
+def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep):
+    """Where a window's sound plays: kept as its next default (the screen's,
+    or that app's), and, its window open, opened again in its place with
+    it."""
+    if sound not in SOUND_PLACES:
+        return say("A sound plays here, on the phone or both", EXIT_FAILED)
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name, label)
+    window_sounds(device_id, package or SCREEN_SOUND, sound)
+    what = label or name + "'s screen"
+    where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
+    win = find_window(title)
+    if not win:
+        return say("%s plays its sound %s next time" % (what, where))
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED)
+    border = border_size()
+    mons = hypr_json("monitors")
+    disp = status.get("display") or device_display(status["serial"])
+    aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
+    top = next(((m.get("reserved") or [0, 0])[1] for m in mons if m.get("focused")), 0)
+    # A floating window (docked, popped out) comes back exactly where it is
+    # now, by the rule; a tiled one goes where the layout puts it, then back.
+    floating = bool(win.get("floating"))
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, floating,
+                                                     resting(win, mons, border) if floating else None, border)],
+                   capture_output=True, timeout=5)
+    log = screen_log(title) if not package else ""
+
+    def start():
+        if log:
+            open(log, "w").close()   # a fresh log for the watcher
+        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
+        (launch or (lambda c: launch_or_focus(title, c)))(cmd)
+
+    if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED)
+    return say("%s plays its sound %s" % (what, where))
+
+
+# Its sound here: scrcpy's PipeWire stream, found by the window's process
+# (wpctl's volume, the same scale as Omarchy's own volume controls).
+
+def parse_wpctl_volume(text):
+    """(volume, muted) from `wpctl get-volume`: "Volume: 0.40 [MUTED]"."""
+    m = re.search(r"Volume:\s*([0-9.]+)", text or "")
+    return (float(m.group(1)) if m else 0.0), "[MUTED]" in (text or "")
+
+
+def window_stream(pid, dump):
+    """The id of the window's own sound stream (a PipeWire node of its
+    process, from pw-dump), and the name of this computer's output it
+    plays on. A lone scrcpy stream counts when no process matches (a
+    launcher in between)."""
+    props = lambda n: (n.get("info") or {}).get("props") or {}
+    nodes = [o for o in dump if o.get("type") == "PipeWire:Interface:Node"]
+    streams = [n for n in nodes if props(n).get("media.class") == "Stream/Output/Audio"]
+    # The process is the stream's client's (its node seldom says it).
+    clients = {o.get("id"): props(o) for o in dump if o.get("type") == "PipeWire:Interface:Client"}
+    of = lambda n, key: props(n).get(key) or clients.get(props(n).get("client.id"), {}).get(key)
+    mine = [n for n in streams if pid and str(of(n, "application.process.id")) == str(pid)]
+    if not mine:
+        scrcpy = [n for n in streams if "scrcpy" in str(of(n, "application.process.binary") or of(n, "application.name") or "").lower()]
+        mine = scrcpy if len(scrcpy) == 1 else []
+    sink = ""
+    for o in dump:
+        if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "default":
+            for e in o.get("metadata") or []:
+                if e.get("key") == "default.audio.sink":
+                    v = e.get("value")
+                    sink = v.get("name", "") if isinstance(v, dict) else str(v or "")
+    output = next((props(n).get("node.description") or props(n).get("node.nick") or ""
+                   for n in nodes if sink and props(n).get("node.name") == sink), "")
+    return (mine[0].get("id") if mine else None), output
+
+
+def screen_volume(device_id, package="", label="", level=None, mute=None, run=None, dump=None):
+    """A window's sound here: {found, volume, muted, output}; `level` (0–1)
+    and `mute` ("on", "off", "toggle") set it first. Never the device's
+    own volume: that is Now playing's."""
+    run = run or (lambda args: subprocess.run(args, capture_output=True, text=True, timeout=5).stdout)
+    device = screen_device(device_id) or {}
+    win = find_window(screen_title(device.get("name") or "Device", label))
+    if not win:
+        return {"found": False, "volume": 0, "muted": False, "output": ""}
+    if dump is None:
+        try:
+            dump = json.loads(run(["pw-dump"]) or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            dump = []
+    node, output = window_stream(win.get("pid"), dump)
+    if node is None:
+        return {"found": False, "volume": 0, "muted": False, "output": output}
+    if level is not None:
+        run(["wpctl", "set-volume", str(node), "%.2f" % max(0.0, min(1.0, level))])
+    if mute in ("on", "off", "toggle"):
+        run(["wpctl", "set-mute", str(node), {"on": "1", "off": "0"}.get(mute, "toggle")])
+    volume, muted = parse_wpctl_volume(run(["wpctl", "get-volume", str(node)]))
+    return {"found": True, "volume": volume, "muted": muted, "output": output}
 
 
 # ---- Apps: the device's apps and their icons -------------------------------
@@ -3803,7 +4664,7 @@ def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None)
         mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
         shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
                       "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
-    return {"state": state if not shown else "ready", "at": at, "apps": shown}
+    return {"state": state if not shown else "ready", "at": at, "apps": shown, "sounds": window_sounds(device_id)}
 
 
 class PhoneReader:
@@ -4589,48 +5450,410 @@ def vcard_qp(value, key):
         return raw.decode("utf-8", errors="replace")
 
 
-def read_contacts(device_id):
-    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
-    Returns ({digits_key: name}, [{"name", "number"}])."""
-    folder = os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
-    names = {}
-    entries = []
+# ---- Contacts --------------------------------------------------------------
+#
+# KDE Connect's contacts plugin writes the device's contacts as vCards in
+# ~/.local/share/kpeoplevcard/kdeconnect-<device>/, one file each, while the
+# device allows contacts. They are the only source: names for text messages
+# (read_contacts) and the Contacts page (contacts_list) read the same cards,
+# and nothing about a contact is kept anywhere else.
+
+# What a property's TYPE is called on the page; anything else is used as it
+# comes, capitalised.
+VCARD_LABELS = {
+    "CELL": "Mobile", "MOBILE": "Mobile", "HOME": "Home", "WORK": "Work",
+    "MAIN": "Main", "VOICE": "Phone", "FAX": "Fax", "PAGER": "Pager",
+    "IPHONE": "iPhone", "CAR": "Car", "OTHER": "Other", "SCHOOL": "School",
+    "INTERNET": "", "PREF": "", "X-OTHER": "Other",
+}
+CONTACT_PHOTO_BOX = 192
+CONTACTS_CACHE_MAX = 32 << 20
+
+
+def vcard_unescape(value):
+    """A vCard 3.0 value as text: \\n is a new line, and \\, \\; \\\\ are the
+    characters they escape."""
+    out, i, text = [], 0, str(value or "")
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            out.append("\n" if nxt in "nN" else nxt)
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def vcard_parts(value):
+    """A structured value (N, ADR, ORG) as its components, split on the
+    semicolons that are not escaped."""
+    return [vcard_unescape(p).strip() for p in re.split(r"(?<!\\);", str(value or ""))]
+
+
+def vcard_label(params, fallback):
+    """What to call a phone number or address, from its TYPE parameters."""
+    types = []
+    for p in params:
+        key, _, value = p.partition("=")
+        types += [t.strip().upper() for t in (value if key.upper() == "TYPE" else key).split(",")]
+    for t in types:
+        if t in ("", "PREF", "INTERNET", "VOICE") or t.startswith("ENCODING") or t.startswith("CHARSET"):
+            continue
+        named = VCARD_LABELS.get(t, t.replace("X-", "").replace("_", " ").capitalize())
+        if named:
+            return named
+    return fallback
+
+
+def vcard_stored(lookup):
+    """Where the phone keeps a contact, from its Android lookup key (KDE
+    Connect's X-KDECONNECT-ID-DEV-<device>). The key has one part per
+    account the contact is in, each an account hash and a kind: `i` or `e`
+    when the account syncs it (it has the account's own id: Google, the
+    phone maker's cloud, work mail), `r` when it has none (on the phone
+    only, or the SIM). "account" when any part is synced, "phone" when none
+    is, "" when the key says neither (not an Android key)."""
+    kinds = set()
+    for part in str(lookup or "").strip().split("."):
+        m = re.match(r"^-?\d+([a-z])", part)
+        if m:
+            kinds.add(m.group(1))
+    if kinds & {"i", "e"}:
+        return "account"
+    return "phone" if "r" in kinds else ""
+
+
+def parse_vcard(text):
+    """One vCard as {name, first, last, nickname, org, title, phones,
+    emails, addresses, websites, birthday, note, photo, stored}. Phones,
+    emails, addresses and websites are [{label, value}] in the card's own
+    order; `photo` is the picture's bytes as the card holds them (nothing
+    decodes them here); `stored` is where the phone keeps it (vcard_stored)."""
+    card = {"name": "", "first": "", "last": "", "nickname": "", "org": "", "title": "",
+            "phones": [], "emails": [], "addresses": [], "websites": [], "birthday": "", "note": "", "photo": b"",
+            "stored": ""}
+    lines = re.sub(r"\n[ \t]", "", re.sub(r"\r\n|\r", "\n", str(text or ""))).split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        parts = key.upper().split(";")
+        name, params = parts[0].split(".")[-1], parts[1:]
+        joined = ";".join(params)
+        if "QUOTED-PRINTABLE" in joined:
+            # vCard 2.1: a soft break ends a line with "=".
+            while value.endswith("=") and i < len(lines):
+                value = value[:-1] + lines[i]
+                i += 1
+            value = vcard_qp(value, key.upper())
+        elif "BASE64" in joined or "ENCODING=B" in joined:
+            # vCard 2.1 ends a base64 value with a blank line; what folding
+            # left is already joined above.
+            while i < len(lines) and lines[i].strip() and ":" not in lines[i]:
+                value += lines[i].strip()
+                i += 1
+        value = value.strip()
+        if not value:
+            continue
+        if name == "FN":
+            card["name"] = vcard_unescape(value).strip()
+        elif name == "N":
+            bits = vcard_parts(value)
+            card["last"] = bits[0] if bits else ""
+            card["first"] = bits[1] if len(bits) > 1 else ""
+        elif name == "NICKNAME":
+            card["nickname"] = vcard_unescape(value).strip()
+        elif name == "TEL":
+            card["phones"].append({"label": vcard_label(params, "Phone"), "value": vcard_unescape(value).strip()})
+        elif name == "EMAIL":
+            card["emails"].append({"label": vcard_label(params, "Email"), "value": vcard_unescape(value).strip()})
+        elif name == "ADR":
+            where = ", ".join([p for p in vcard_parts(value)[2:] if p])
+            if where:
+                card["addresses"].append({"label": vcard_label(params, "Address"), "value": where})
+        elif name == "URL":
+            card["websites"].append({"label": vcard_label(params, "Website"), "value": vcard_unescape(value).strip()})
+        elif name == "ORG":
+            card["org"] = ", ".join([p for p in vcard_parts(value) if p])
+        elif name in ("TITLE", "ROLE") and not card["title"]:
+            card["title"] = vcard_unescape(value).strip()
+        elif name == "BDAY":
+            card["birthday"] = value
+        elif name == "NOTE":
+            card["note"] = vcard_unescape(value).strip()
+        elif name.startswith("X-KDECONNECT-ID-DEV-"):
+            card["stored"] = vcard_stored(value)
+        elif name == "PHOTO" and not card["photo"] and "://" not in value:
+            try:
+                card["photo"] = base64.b64decode(re.sub(r"\s", "", value), validate=False)
+            except (ValueError, TypeError):
+                card["photo"] = b""
+    if not card["name"]:
+        card["name"] = " ".join([p for p in (card["first"], card["last"]) if p]).strip()
+    return card
+
+
+def vcard_folder(device_id):
+    return os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
+
+
+def read_vcards(device_id):
+    """Every contact the device has synced, as (id, parse_vcard) pairs; the
+    id is the card's file name, which KDE Connect keeps per contact."""
+    folder = vcard_folder(device_id)
+    cards = []
     try:
-        files = os.listdir(folder)
+        files = sorted(os.listdir(folder))
     except OSError:
-        return names, entries
+        return cards
     for name in files:
         try:
             text = open(os.path.join(folder, name), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        # Unfold continuation lines, then read FN and every TEL.
-        text = re.sub(r"\r?\n[ \t]", "", text)
-        full = ""
-        tels = []
-        lines = text.splitlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            i += 1
-            key, _, value = line.partition(":")
-            key = key.upper()
-            if key == "FN" or key.startswith("FN;"):
-                if "QUOTED-PRINTABLE" in key:
-                    # vCard 2.1: a soft break ends a line with "=".
-                    while value.endswith("=") and i < len(lines):
-                        value = value[:-1] + lines[i]
-                        i += 1
-                    value = vcard_qp(value, key)
-                full = value.strip()
-            elif key == "TEL" or key.startswith("TEL;"):
-                tels.append(value.strip())
-        for tel in tels:
-            k = digits_key(tel)
-            if k and full:
+        cards.append((os.path.splitext(name)[0], parse_vcard(text)))
+    return cards
+
+
+def read_contacts(device_id):
+    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
+    Returns ({digits_key: name}, [{"name", "number"}])."""
+    names = {}
+    entries = []
+    for _cid, card in read_vcards(device_id):
+        full = card["name"]
+        if not full:
+            continue
+        for phone in card["phones"]:
+            k = digits_key(phone["value"])
+            if k:
                 names.setdefault(k, full)
-                entries.append({"name": full, "number": tel})
+                entries.append({"name": full, "number": phone["value"]})
     return names, entries
+
+
+def contacts_dir(device_id):
+    path = os.path.join(state_dir(), "contacts-" + re.sub(r"[^\w-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def contact_photo(device_id, data, folder=None):
+    """A contact's picture as a PNG made from its decoded pixels (fit_image,
+    in the sandbox), kept in the cache; "" when the card has none or it
+    cannot be read. The card's own bytes never reach the shell."""
+    if not data or len(data) > SAFE_SOURCE_MAX:
+        return ""
+    folder = folder or contacts_dir(device_id)
+    dst = os.path.join(folder, hashlib.sha1(data).hexdigest()[:24] + ".png")
+    if os.path.isfile(dst):
+        os.utime(dst)
+        return dst
+    raw = dst + ".raw"
+    ok = False
+    try:
+        with open(raw, "wb") as f:
+            f.write(data)
+        ok = fit_image(raw, dst, CONTACT_PHOTO_BOX)
+    except OSError:
+        ok = False
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
+    if not ok:
+        return ""
+    trim_files(folder, CONTACTS_CACHE_MAX, keep=dst)
+    return dst
+
+
+def contacts_sync(device_id, conn=None):
+    """Ask the device for its contacts again. KDE Connect syncs them when it
+    connects, so this is only for a panel opened on the page; the cards land
+    a moment later and the page reads them again."""
+    try:
+        conn = conn or bus()
+        call(conn, device_path(device_id) + "/contacts", IFACE + ".device.contacts",
+             "synchronizeRemoteWithLocal")
+        return True
+    except GLib.Error:
+        return False
+
+
+# Omarchy's own contacts tool, when this computer has one. Omarchy ships web
+# apps as desktop entries and copies them into the user's applications folder
+# (omarchy-refresh-applications); only an entry Omarchy ships counts, and only
+# while the user still has it.
+OMARCHY_APPS = "/usr/share/omarchy/applications"
+USER_APPS = "~/.local/share/applications"
+
+
+def desktop_webapp(path):
+    """A web app's name and address from its desktop entry (Omarchy's
+    `omarchy-launch-webapp <url>`); None for anything else."""
+    name = url = ""
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if key == "Name" and not name:
+            name = value
+        elif key == "Exec" and not url:
+            m = re.match(r"^omarchy-launch-webapp\s+(\S+)", value)
+            if m:
+                url = m.group(1)
+    return {"name": name, "url": url} if name and url else None
+
+
+def omarchy_contacts_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's contacts app as {"name", "url", "find"}, or None when this
+    computer has no Omarchy contacts app. `find` is the app's search
+    address for one person ({} is the name), "" when it has none known: it
+    holds only the contacts of the account it belongs to."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "contact" not in name.lower():
+            continue
+        if not os.path.isfile(os.path.join(user, name)):
+            continue
+        app = desktop_webapp(os.path.join(user, name))
+        if app:
+            app["find"] = contacts_find_url(app["url"])
+            return app
+    return None
+
+
+# The search address of each contacts web app known here, by its host.
+CONTACTS_FIND = {"contacts.google.com": "https://contacts.google.com/search/{}"}
+
+
+def contacts_find_url(url):
+    host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    return CONTACTS_FIND.get(host, "")
+
+
+def open_contacts_app(app=None, launch=None, find=""):
+    """Omarchy's contacts app, opened or brought forward exactly as Omarchy
+    opens a web app; with `find`, a window of its own on that person's
+    search (a window brought forward stays where the user left it)."""
+    app = app or omarchy_contacts_app()
+    if not app:
+        return say("This computer has no Omarchy contacts app", EXIT_FAILED)
+    if find:
+        if not app.get("find"):
+            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
+        url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
+        (launch or launch_detached)(["omarchy-launch-webapp", url])
+        return say("Opening %s" % app["name"])
+    (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
+    return say("Opening %s" % app["name"])
+
+
+def contact_link(kind, value):
+    """What opens a contact's detail: a website as an http(s) address (a
+    bare host gets https://; any other scheme the card holds is refused, a
+    card being the device's text), an address as a search on Google Maps,
+    the map Omarchy ships, an email as a mailto: link. "" when there is
+    nothing to open."""
+    value = str(value or "").strip()
+    if not value or "\n" in value:
+        return ""
+    if kind == "web":
+        if not re.match(r"^[a-z][a-z0-9+.-]*:(?!\d)", value, re.I):
+            value = "https://" + value
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc or re.search(r"\s", value):
+            return ""
+        return value
+    if kind == "map":
+        return "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(value, safe="")
+    if kind == "mail":
+        if not re.match(r"^[^@\s]+@[^@\s]+$", value):
+            return ""
+        return "mailto:" + urllib.parse.quote(value, safe="@+.-_")
+    return ""
+
+
+def omarchy_maps_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's maps web app as {"name", "url"}, or None when this computer
+    has none (the user removed it)."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "maps" not in name.lower():
+            continue
+        if os.path.isfile(os.path.join(user, name)):
+            return desktop_webapp(os.path.join(user, name))
+    return None
+
+
+def contact_open(kind, value, launch=None, maps=None):
+    """A contact's detail opened where Omarchy opens it: a website in the
+    default browser (`omarchy-launch-browser`), an address in Omarchy's maps
+    web app (the browser when this computer has none), an email in the
+    mail app the user chose for mailto: links (Omarchy's default is HEY)."""
+    link = contact_link(kind, value)
+    if not link:
+        return say("Nothing to open", EXIT_FAILED)
+    launch = launch or launch_detached
+    if kind == "map" and (maps if maps is not None else omarchy_maps_app()):
+        launch(["omarchy-launch-webapp", link])
+    elif kind == "mail":
+        launch(["uwsm-app", "--", "xdg-open", link])
+    else:
+        launch(["omarchy-launch-browser", link])
+    return EXIT_OK
+
+
+def launch_detached(cmd):
+    subprocess.Popen(cmd, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def contacts_list(device_id, sync=False, conn=None):
+    """The device's contacts for the panel: {"state", "contacts", "app"}.
+    `state` is "ready" while there are cards and "empty" while there are
+    none (the device may not allow contacts, which its page says); `app` is
+    Omarchy's contacts app when this computer has one."""
+    if sync:
+        contacts_sync(device_id, conn)
+    out = []
+    for cid, card in read_vcards(device_id):
+        if not card["name"] and not card["phones"] and not card["emails"]:
+            continue
+        out.append({
+            "id": cid,
+            "name": card["name"],
+            "nickname": card["nickname"],
+            "org": card["org"],
+            "title": card["title"],
+            "phones": card["phones"],
+            "emails": card["emails"],
+            "addresses": card["addresses"],
+            "websites": card["websites"],
+            "birthday": card["birthday"],
+            "note": card["note"],
+            "photo": contact_photo(device_id, card["photo"]),
+            "stored": card["stored"],
+        })
+    out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
+    return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 
 
 class Sms:
@@ -5085,11 +6308,46 @@ def main(argv):
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         return screen_dock(argv[1], argv[2] == "on", rect=at, ctx=ctx)
+    if argv[0] == "screen-sound":
+        if len(argv) < 3:
+            return say("screen-sound needs a device id and here, phone or both", EXIT_FAILED)
+        return screen_sound(argv[1], argv[2], argv[3] if len(argv) > 3 else "", argv[4] if len(argv) > 4 else "")
+    if argv[0] == "screen-volume":
+        if len(argv) < 2:
+            return say("screen-volume needs a device id", EXIT_FAILED)
+        opt = lambda flag: next((argv[i + 1] for i, a in enumerate(argv) if a == flag and i + 1 < len(argv)), None)
+        rest, skip = [], False
+        for a in argv[2:]:
+            if skip:
+                skip = False
+            elif a in ("--set", "--mute"):
+                skip = True
+            else:
+                rest.append(a)
+        try:
+            level = float(opt("--set")) if opt("--set") is not None else None
+        except ValueError:
+            return say("--set takes a level from 0 to 1", EXIT_FAILED)
+        print(json.dumps(screen_volume(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
+                                       level=level, mute=opt("--mute"))))
+        return EXIT_OK
     if argv[0] == "apps":
         if len(argv) < 2:
             return say("apps needs a device id", EXIT_FAILED)
         print(json.dumps(apps_list(argv[1], refresh="--refresh" in argv), ensure_ascii=False))
         return EXIT_OK
+    if argv[0] == "contacts":
+        if len(argv) < 2:
+            return say("contacts needs a device id", EXIT_FAILED)
+        print(json.dumps(contacts_list(argv[1], sync="--sync" in argv), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "contacts-app":
+        find = argv[argv.index("--find") + 1] if "--find" in argv[:-1] else ""
+        return open_contacts_app(find=find)
+    if argv[0] == "contact-open":
+        if len(argv) < 3:
+            return say("contact-open needs web, map or mail and a value", EXIT_FAILED)
+        return contact_open(argv[1], argv[2])
     if argv[0] == "app-forget":
         if len(argv) < 3:
             return say("app-forget needs a device id and a package", EXIT_FAILED)

@@ -22,9 +22,10 @@ Pick them from the Apps section of the panel, or from **All apps**:
 - **A notification** opens its app in a window (its window button, or `o`).
 - **Popped out** instead of tiled, floating at the top right:
   **Shift+Enter** or Shift+click.
-- **Sound:** here, or left on the phone (*Screen and apps* page). While
-  something else plays on the phone, say music in your headset, an app's
-  sound stays there.
+- **Sound, per window:** an open app's speaker (or `v`): **Here**, **On
+  the phone** or **Both**, and its volume here. The window reopens in
+  place; the app keeps the choice. While music plays on the phone, a new
+  app's sound stays there.
 - **Locked,** the phone wakes and the app opens once you unlock it.
 
 ## Keys
@@ -34,5 +35,7 @@ Pick them from the Apps section of the panel, or from **All apps**:
 | `a` · `/` | All apps · search |
 | Enter · Shift+Enter | Open · open popped out |
 | `p` · `x` · `Shift+H` `Shift+L` | Pin · forget a recent one · move a pinned one |
+| Esc · `0` | Back to where you came from · Home |
+| `v` | An open app's sound: ← → where, ↑ ↓ its volume here, `m` mute |
 
 Setup: [Screen and apps](../setup/screen-and-apps.md) · Limits: [What it cannot do](../setup/limits.md)
