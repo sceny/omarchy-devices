@@ -11,6 +11,10 @@ The panel shows what KDE Connect sends. Today it does not:
 - keep each player's **position**: only the playing one has a seek bar;
 - on an **iPhone**, share notifications, texts or media: files and the
   clipboard only, while the app is open;
+- edit a **contact**: cards are read-only, changed on the phone;
+- tell **which account** holds a contact: a card synced with another
+  account (Samsung, work) still offers *Find in Google Contacts*, which
+  finds nothing there; an iPhone sends no contacts at all;
 - answer a call, carry its audio, or say when it was **answered or ended**:
   a ringing card gives up after 45 s, and a call you decline shows as
   missed ([#60](https://github.com/sceny/omarchy-devices/issues/60)).
@@ -23,8 +27,11 @@ The panel shows what KDE Connect sends. Today it does not:
 - **Sound** here needs Android 11; **Both** needs Android 13, and an app
   can keep its sound out of it. One window takes the phone's whole sound
   at a time, and changing where it plays opens the window again.
-- A notification opens its **app**, not that message: the phone does not
-  offer it yet ([#122](https://github.com/sceny/omarchy-devices/issues/122)).
+- A notification opens its **app**, not the exact screen inside it:
+  KDE Connect does not forward the tap target
+  ([#122](https://github.com/sceny/omarchy-devices/issues/122)). A **text
+  message** is the exception — it opens its conversation in
+  [Messages](../use/messages.md), since the texts come from the phone too.
 
 ## What the phone hides
 

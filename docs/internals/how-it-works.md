@@ -17,7 +17,7 @@ state, and writes nothing outside its folder but caches in
 | `SmsService.qml` | Text messages: threads and the open conversation, search, what was seen here. |
 | `Model.js` | Pure functions from data to what is drawn; tested with `node`. |
 | `BarWidget.qml`, `Panel.qml` | The pill; the panel, keyboard, settings and IPC. |
-| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings (This computer and Add a device are among its pages), messages, the steps on a new device (and the app's QR code, from `qrencode`, part of Omarchy). |
+| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings (the first run's card, diagnostics and Add a device are among its pages), messages, the steps on a new device (and the app's QR code, from `qrencode`, part of Omarchy). |
 | `PanelField.qml` | Every text field: Esc steps back the same way everywhere. |
 | `CursorGlide.qml`, `CursorStop.qml` | The keyboard cursor, drawn once per page and sliding to where it stops. |
 | `ScreenSetup.qml`, `ScreenTurn.qml` | A device's Screen and apps page; the docked screen turning or folding. |
@@ -55,9 +55,9 @@ working and KDE Connect's link is the one problem.
 
 | Command | Does |
 |---|---|
-| `doctor` | This computer: KDE Connect, the firewall, the network, the packages. |
+| `doctor` | This computer (diagnostics): KDE Connect, the firewall, the network, the packages. |
 | `features <id> [--adb]` | One device: KDE Connect's plugins, its link, its storage; with adb, its permissions and notification count. |
-| `fix <what> [--describe \| --confirm H]` | This computer: install, firewall, sshfs, screen (root, as shown), start, restart, search. |
+| `fix <what> [--describe \| --confirm H]` | This computer: ready (the first run: every package and the firewall's rule in one prompt), install, firewall, sshfs, screen (root, as shown), start, restart, search. |
 | `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, reconnect, wake, wireless. |
 | `screen <id>` | The screen link: tools, pair, off, away, unauthorized or ready, and whether it is locked. |
 | `screen-open <id> [package] [label]` | Its screen docked (or `--tiled`), or an app tiled (or `--pop`); waits for an unlock. |

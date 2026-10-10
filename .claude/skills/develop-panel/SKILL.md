@@ -73,12 +73,13 @@ checked live, and the merge waits for someone who checks it.
 IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status                  # what the panel shows
 "${IPC[@]}" open ; "${IPC[@]}" close
-"${IPC[@]}" page settings           # also: main, messages, connection
+"${IPC[@]}" page settings           # also: main, messages, connection (diagnostics), ready (the first run's card)
 "${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
 "${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
 "${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
-"${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # This computer: a failing firewall (a problem: the status, the gear's dot); Ignore / Undo
+"${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # this computer: a failing firewall (a problem: the status, the main page's line, the gear's dot); Ignore / Undo
+"${IPC[@]}" demoFeature ask         # demo only: notification access to allow, said in Notifications; stopped: it stopped arriving; "" as set up
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
 "${IPC[@]}" preview true            # Preview with a demo phone (the user's demo, with its strip); false: Back to setup
 "${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
