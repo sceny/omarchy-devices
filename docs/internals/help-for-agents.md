@@ -32,7 +32,8 @@ When you fix what the plugin's own fix missed, propose a report:
 | KDE Connect | `kdeconnect` package, its daemon (`app-org.kde.kdeconnect.daemon@autostart.service`), ports 1714–1764 open on the local network (ufw) | the KDE Connect app, paired; its permissions | notifications, messages, names, now playing, calls, files, clipboard, ring, battery |
 | Files | `sshfs` | KDE Connect's *all files access* | the gallery |
 | Screen link | `scrcpy`, `android-tools`, `android-udev` | Developer options, Wireless debugging (off after every restart), adb pairing by QR code | the screen, apps in windows |
-| *Planned:* network, Bluetooth | | | reaching it away; calls with audio |
+| Network | Tailscale (Omarchy's installer) or NordVPN Meshnet, let through the firewall | the mesh app, signed in | reaching it away from home |
+| Bluetooth | `bluez`, `bluez-utils`, PipeWire's hands-free service | the phone paired over Bluetooth, allowing phone calls | calls with their audio here |
 
 The plugin's bridge (`bin/kdeconnect-bridge`, in the plugin folder
 `~/.config/omarchy/plugins/sceny.devices`) reads all of it. Start there:

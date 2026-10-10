@@ -50,6 +50,13 @@ GitHub release with these notes.
   address you type. Its page says how it is connected now; a new network
   is announced at once; a Wi-Fi that keeps its devices apart is named as
   the likely cause.
+- **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
+  answer and make calls with the audio on this computer, over Bluetooth;
+  the card follows a call to its end, with the microphone, the keypad, the
+  volume, a second call held or joined, and music here paused meanwhile.
+  Call back or call from a conversation. Set up from the device's page:
+  Bluetooth here, the phone paired in Omarchy's Bluetooth, then it carries
+  on by itself.
 - **A hidden test rig** (`dev/rig`): a second shell in its own compositor
   and a small Android emulator as the phone, paired to a private KDE
   Connect, so changes are tried without touching the desktop or a real phone

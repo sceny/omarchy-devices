@@ -32,6 +32,18 @@ So:
 - With the screen set up, the plugin can allow KDE Connect a permission
   over adb, and only on your click.
 
+## Calls here: what Bluetooth hands-free allows
+
+Paired for calls, the computer is the phone's hands-free, as a car is: it
+hears and places calls, and sends tones. Nothing more of the phone.
+
+- Pairing is your own act, in Omarchy's Bluetooth; the plugin uses the
+  phone paired under its name only after your click.
+- A call is answered, placed or ended only by your click. Between calls
+  the audio stays on the phone.
+- Take it back any time: forget the computer in the phone's Bluetooth, or
+  turn Calls here off.
+
 ## Every step shown before it runs
 
 - A password only after a card says what for: the packages by name, the

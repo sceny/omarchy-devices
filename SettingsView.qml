@@ -1837,7 +1837,7 @@ Column {
         iconText: checkRow.fixing ? "\u{F0996}" : ""
         iconSpinning: checkRow.fixing
         enabled: !checkRow.fixing
-        tooltipText: ["install", "firewall", "screen", "sshfs"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
+        tooltipText: ["install", "firewall", "screen", "sshfs", "bluetooth"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
         bordered: true
         foreground: root.foreground
         fontFamily: root.fontFamily

@@ -4,7 +4,7 @@
 
 **Status:** built in 0.8.0 (the network, 0.9.0) except where marked *planned*;
 sections 5 and 6 reworked after a new user's first run (2026-10-06): the
-engine stays, what it shows changes.
+engine stays, what it shows changes. Bluetooth calls (#59) built for 0.9.0.
 
 
 ## 1. The premise (the owner's)
@@ -28,7 +28,8 @@ engine stays, what it shows changes.
 
 - **Source:** where something comes from: KDE Connect, the screen link (adb
   and scrcpy), files (sshfs over KDE Connect), the phone's permissions;
-  the network (0.9.0); *planned:* Bluetooth. A source has a part on this computer
+  the network and Bluetooth (PipeWire's hands-free service, for calls)
+  (0.9.0). A source has a part on this computer
   (packages, services, the firewall), a part on the device (pairing, a
   setting, a permission) and a live state.
 - **Feature:** what the user wants: Notifications, Messages, Names, Now
@@ -69,7 +70,7 @@ Three layers, read from the bridge's reports (`doctor`, `features`,
 | Storage link | sshfs (this computer); its storage mounted (device, health) | Gallery |
 | Screen link | scrcpy and adb (this computer); Wireless debugging and adb pairing (device); Screen and apps on (the plugin's switch) | Screen and apps |
 | Network | a mesh on this computer, let through the firewall (`mesh`, this computer); the device's mesh address given to KDE Connect (`reach:mesh`, device) | From anywhere |
-| *planned:* Bluetooth | BlueZ and audio here; paired for calls | Calls with audio (#59) |
+| Bluetooth | Bluetooth on here, PipeWire's hands-free service (this computer); paired for calls, kept and connected (device); Calls here on (the plugin's switch) | Calls here (#59) |
 
 A feature's state comes from its items the same way for every feature:
 away > being read > turned off > not on this device > needs attention >
@@ -159,9 +160,9 @@ Settings (one device: its page)        Settings (several)
 | #35 a player Android hid (#33) | not shown once the phone has no session for it |
 | #38 a group chat's title with its count | the count taken out of the title |
 | #29/#30 actions that open a screen on the phone | opened in the app's window (the screen, when set up) |
-| #60/#61 calls: ringing and missed only | stays as it is (no D-Bus for more); Bluetooth calls are #59 |
+| #60/#61 calls: ringing and missed only | Calls here (#59, Bluetooth) follows every call to its end and answers it; KDE Connect still names the caller. No ringer mute (#61) |
 
-## 8. The network (#119, #8), and planned: Bluetooth (#59)
+## 8. The network (#119, #8) and Bluetooth (#59)
 
 - **The network is a source** (0.9.0). Its firewall rule for every
   private network and each mesh joins `fix ready` (and *Firewall*, a
@@ -176,14 +177,16 @@ Settings (one device: its page)        Settings (several)
   was given and lost is a problem under the Network gateway. On a network
   change KDE Connect announces itself again; adb goes USB, then Wi-Fi,
   then the mesh.
-
-Not built yet; its place is set so it does not drift, in section 5's shape
-(asked where used, nothing shown once it works):
-
-- **Bluetooth is a source.** This computer: BlueZ and the audio profiles;
-  the device: paired for calls, offered after a missed or ended call (a
-  ringing call is too short to pair); then *Answer here* on the call
-  card.
+- **Bluetooth is a source** (built for 0.9.0, #59), in section 5's shape:
+  asked where used. This computer: Bluetooth
+  on (`fix bluetooth-on`, Omarchy's switch; installed and started behind
+  the password card, `fix bluetooth`) and PipeWire's hands-free service
+  (`fix audio`, Omarchy's audio restart). The device: paired over
+  Bluetooth (the user's step in Omarchy's Bluetooth, which the step opens
+  and waits for), kept on the click that turns it on (the phone paired
+  under its name), and connected. The feature: *Calls here*, beside
+  *Calls*: who is calling needs KDE Connect and no Bluetooth,
+  answering here needs Bluetooth and no KDE Connect.
 
 ## 9. Rules this changes (AGENTS.md)
 

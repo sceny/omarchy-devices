@@ -18,6 +18,7 @@ place it shows, and goes on by itself when it is done.
 | Gallery | Its section: all files access |
 | Messages, Contacts | The Messages and Contacts pages: SMS, contacts |
 | Calls | On the phone, when KDE Connect asks for the phone and call log |
+| Calls here | Bluetooth here; the phone [paired over Bluetooth](calls-here.md) |
 | Files, Clipboard, Ring, Battery | Never: they just work |
 
 With the screen set up, the panel sees what is missing and *Allow* grants
