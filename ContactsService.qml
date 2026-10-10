@@ -237,6 +237,14 @@ Item {
     return true
   }
 
+  // A contact's email, address or website in its app (`kind`: mail, map,
+  // web), through the bridge, which refuses what is not a link.
+  function openDetail(kind, value) {
+    if (bridge === "") return false
+    Quickshell.execDetached([bridge, "contact-open", kind, String(value)])
+    return true
+  }
+
   Timer { id: errorClear; interval: 6000; onTriggered: contacts.lastError = "" }
 
   Process {

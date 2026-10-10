@@ -15,6 +15,10 @@ import "Model.js" as Model
 // cross between the panes, r asks the device again. In the card, Enter runs
 // the row's first action, which is never a call: a call leaves this computer
 // for the phone, so it waits for a click.
+//
+// An email, an address and a website open where Omarchy opens them (the mail
+// app, the map, the browser): a window the user goes on in, so the panel
+// closes behind it, as it does for the contacts app.
 Item {
   id: view
 
@@ -77,6 +81,12 @@ Item {
     if (contacts.demo) return
     view.reported(contacts.reachable ? "Asking " + Model.deviceLabel(device) + " for its contacts"
                                      : "Reading the contacts already here")
+  }
+
+  // A detail opened in its app: `kind` is web, map or mail.
+  function openDetail(kind, value) {
+    if (!contacts || !contacts.openDetail(kind, value)) return
+    appOpened()
   }
 
   function openApp() {
@@ -193,12 +203,16 @@ Item {
     cardReveal.restart()
   }
 
-  // Enter on a detail row: its first action, which is Message on a number and
-  // Copy on everything else. Never a call.
+  // Enter on a detail row: its first action, which is Message on a number,
+  // the mail app, the map or the browser on what opens there, and Copy on
+  // everything else. Never a call.
   function runFirstAction(i) {
     var row = contacts && i >= 0 && i < detailList.count ? contacts.details.get(i) : null
     if (!row) return
-    if (String(row.actions).indexOf("message") >= 0) { messageContact(row.raw, contacts.openTitle); return }
+    var actions = String(row.actions)
+    if (actions.indexOf("message") >= 0) { messageContact(row.raw, contacts.openTitle); return }
+    var open = ["mail", "map", "web"].filter(function(k) { return actions.indexOf(k) >= 0 })[0]
+    if (open) { openDetail(open, row.raw); return }
     copyText(row.raw)
   }
 
@@ -791,6 +805,36 @@ Item {
         foreground: view.foreground
         fontFamily: view.fontFamily
         onClicked: view.callContact(detail.model.raw, view.contacts ? view.contacts.openTitle : "")
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("mail") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.mail
+        tooltipText: "Write an email"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("mail", detail.model.raw)
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("map") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.map
+        tooltipText: "Show on the map"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("map", detail.model.raw)
+      }
+
+      PanelActionButton {
+        visible: detail.actions.indexOf("web") >= 0
+        Layout.alignment: Qt.AlignTop
+        iconText: Model.GLYPH.web
+        tooltipText: "Open in the browser"
+        foreground: view.foreground
+        fontFamily: view.fontFamily
+        onClicked: view.openDetail("web", detail.model.raw)
       }
 
       PanelActionButton {

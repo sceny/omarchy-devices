@@ -74,6 +74,7 @@ var GLYPH = {
   contacts: "\u{F05D2}",     // card-account-details: the device's contacts
   openIn: "\u{F03CC}",       // open-in-new: a tool of this computer's opens
   place: "\u{F034E}",        // map-marker: a contact's address
+  web: "\u{F059F}",          // web: a contact's website
   copy: "\u{F018F}",         // content-copy
   // Demo apps (no real icons in demo mode)
   clock: "\u{F0150}", calendar: "\u{F00ED}", camera: "\u{F0100}", map: "\u{F034D}", music: "\u{F075A}",
@@ -1127,8 +1128,10 @@ function birthdayText(value) {
 }
 
 // A contact's card, one row per detail, in the order the page shows them:
-// where they work, then every number, email and address the device has,
-// then a birthday and a note. `actions` are what a row offers.
+// where they work, then every number, email, address and website the device
+// has, then a birthday and a note. `actions` are what a row offers, the first
+// being what Enter does: a detail opens where it belongs (a text, the mail
+// app, the map, the browser) and anything else is copied.
 function contactDetails(contact) {
   var c = contact || {}
   var rows = []
@@ -1140,11 +1143,16 @@ function contactDetails(contact) {
   })
   ;(c.emails || []).forEach(function(e) {
     rows.push({ kind: "email", glyph: GLYPH.mail, label: e.label || "Email",
-                value: String(e.value || ""), raw: String(e.value || ""), actions: ["copy"] })
+                value: String(e.value || ""), raw: String(e.value || ""), actions: ["mail", "copy"] })
   })
   ;(c.addresses || []).forEach(function(a) {
     rows.push({ kind: "address", glyph: GLYPH.place, label: a.label || "Address",
-                value: String(a.value || ""), raw: String(a.value || ""), actions: ["copy"] })
+                value: String(a.value || ""), raw: String(a.value || ""), actions: ["map", "copy"] })
+  })
+  ;(c.websites || []).forEach(function(w) {
+    rows.push({ kind: "website", glyph: GLYPH.web, label: w.label || "Website",
+                value: String(w.value || "").replace(/^https?:\/\//i, "").replace(/\/$/, ""),
+                raw: String(w.value || ""), actions: ["web", "copy"] })
   })
   if (c.birthday) rows.push({ kind: "birthday", glyph: GLYPH.calendar, label: "Birthday",
                               value: birthdayText(c.birthday), raw: birthdayText(c.birthday), actions: ["copy"] })
@@ -1958,13 +1966,14 @@ function demoConversation(nowMs, picture) {
 function demoContacts(picture) {
   function c(id, name, line) {
     return Object.assign({ id: id, name: name, nickname: "", org: "", title: "", phones: [], emails: [],
-                           addresses: [], birthday: "", note: "", photo: "", stored: "account" }, line)
+                           addresses: [], websites: [], birthday: "", note: "", photo: "", stored: "account" }, line)
   }
   return [
     c("demo-1", "Alex Rivera", { nickname: "Al", org: "Northwind Press", title: "Editor",
       phones: [{ label: "Mobile", value: "+15145550123" }, { label: "Work", value: "+15145550144" }],
       emails: [{ label: "Home", value: "alex@example.invalid" }],
       addresses: [{ label: "Home", value: "12 Rue Example, Montreal, QC" }],
+      websites: [{ label: "Website", value: "https://example.com/alex" }],
       birthday: "1990-05-02", note: "Brings the board game", photo: picture || "" }),
     c("demo-2", "Dr. Moreau's office", { stored: "phone", phones: [{ label: "Work", value: "+15145550177" }],
       addresses: [{ label: "Work", value: "480 Avenue Example, Montreal, QC" }] }),

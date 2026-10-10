@@ -1181,12 +1181,16 @@ test("contacts: the list by letter, a search by name and by digits", () => {
 
 test("contacts: a card's rows, in order, each with what it offers", () => {
   const rows = M.contactDetails(M.demoContacts()[0])
-  assert.deepEqual(rows.map(r => r.kind), ["org", "phone", "phone", "email", "address", "birthday", "note"])
+  assert.deepEqual(rows.map(r => r.kind), ["org", "phone", "phone", "email", "address", "website", "birthday", "note"])
   assert.deepEqual([rows[1].label, rows[1].value, rows[1].raw],
     ["Mobile", "+1 514-555-0123", "+15145550123"], "shown formatted, sent as the device has it")
   assert.deepEqual(rows[1].actions, ["message", "call", "copy"])
-  assert.deepEqual(rows[3].actions, ["copy"], "an email is copied, never sent from here")
-  assert.equal(rows[5].value, "May 2, 1990")
+  assert.deepEqual(rows[3].actions, ["mail", "copy"], "an email opens the mail app; nothing is sent from here")
+  assert.deepEqual(rows[4].actions, ["map", "copy"], "an address opens the map")
+  assert.deepEqual(rows[5].actions, ["web", "copy"], "a website opens the browser")
+  assert.deepEqual([rows[5].value, rows[5].raw], ["example.com/alex", "https://example.com/alex"], "shown without its scheme, opened as it is")
+  assert.deepEqual(rows[0].actions, ["copy"], "what has nowhere to open is copied")
+  assert.equal(rows[6].value, "May 2, 1990")
   assert.equal(M.contactDetails({}).length, 0)
   assert.equal(M.birthdayText("--11-19"), "November 19", "no year on the card, none shown")
   assert.equal(M.birthdayText("19900502"), "May 2, 1990")

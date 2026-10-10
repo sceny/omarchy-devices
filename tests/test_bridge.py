@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import io
 import re
 import importlib.machinery
 import importlib.util
@@ -223,6 +224,7 @@ class ContactCards(unittest.TestCase):
             "TEL;TYPE=CELL,PREF:+1 514-555-0123\r\nTEL;TYPE=WORK:+15145550144\r\n"
             "EMAIL;TYPE=INTERNET,HOME:alex@example.invalid\r\n"
             "ADR;TYPE=HOME:;;12 Rue Example;Montreal;QC;H2X 1Y4;Canada\r\n"
+            "URL:https://example.com/alex\r\n"
             "BDAY:1990-05-02\r\nNOTE:Brings the board game\\nAlways late\r\n"
             "END:VCARD\r\n")
 
@@ -238,9 +240,35 @@ class ContactCards(unittest.TestCase):
         self.assertEqual(card["emails"], [{"label": "Home", "value": "alex@example.invalid"}])
         self.assertEqual(card["addresses"],
                          [{"label": "Home", "value": "12 Rue Example, Montreal, QC, H2X 1Y4, Canada"}])
+        self.assertEqual(card["websites"], [{"label": "Website", "value": "https://example.com/alex"}])
         self.assertEqual(card["birthday"], "1990-05-02")
         self.assertEqual(card["note"], "Brings the board game\nAlways late", "\\n is a new line")
         self.assertEqual(card["photo"], b"")
+
+    def test_a_detail_opens_only_as_a_link(self):
+        self.assertEqual(bridge.contact_link("web", "example.com/alex"), "https://example.com/alex")
+        self.assertEqual(bridge.contact_link("web", "http://example.com"), "http://example.com")
+        for bad in ("file:///etc/passwd", "javascript:alert(1)", "https://", "example .com", ""):
+            self.assertEqual(bridge.contact_link("web", bad), "", bad)
+        self.assertEqual(bridge.contact_link("map", "12 Rue Example, Montreal"),
+                         "https://www.google.com/maps/search/?api=1&query=12%20Rue%20Example%2C%20Montreal")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid"), "mailto:alex@example.invalid")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid?body=hi"), "mailto:alex@example.invalid%3Fbody%3Dhi")
+        self.assertEqual(bridge.contact_link("mail", "not an address"), "")
+        self.assertEqual(bridge.contact_link("phone", "5145550123"), "")
+
+    def test_a_detail_opens_where_omarchy_opens_it(self):
+        ran = []
+        bridge.contact_open("web", "example.com", launch=ran.append)
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps={"name": "Google Maps", "url": "https://maps.google.com"})
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps=False)
+        bridge.contact_open("mail", "alex@example.invalid", launch=ran.append)
+        self.assertEqual([r[0] for r in ran], ["omarchy-launch-browser", "omarchy-launch-webapp",
+                                               "omarchy-launch-browser", "uwsm-app"])
+        self.assertEqual(ran[3], ["uwsm-app", "--", "xdg-open", "mailto:alex@example.invalid"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bridge.contact_open("web", "file:///etc/passwd", launch=ran.append), bridge.EXIT_FAILED)
+        self.assertEqual(len(ran), 4, "nothing launched for what is not a link")
 
     def test_name_from_its_parts_when_the_card_has_no_full_name(self):
         card = bridge.parse_vcard("BEGIN:VCARD\r\nN:Chen;Sam;;;\r\nTEL:5145550142\r\nEND:VCARD\r\n")
