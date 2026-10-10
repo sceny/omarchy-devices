@@ -1953,7 +1953,9 @@ function demoConversation(nowMs, picture) {
 
 // Made-up contacts, the people the demo conversations are with, for
 // screenshots and checks: a real phone's contacts never go in a picture.
-function demoContacts() {
+// `picture` is a local image for Alex's photo; without one Alex shows the
+// initial, as the others do.
+function demoContacts(picture) {
   function c(id, name, line) {
     return Object.assign({ id: id, name: name, nickname: "", org: "", title: "", phones: [], emails: [],
                            addresses: [], birthday: "", note: "", photo: "", stored: "account" }, line)
@@ -1963,7 +1965,7 @@ function demoContacts() {
       phones: [{ label: "Mobile", value: "+15145550123" }, { label: "Work", value: "+15145550144" }],
       emails: [{ label: "Home", value: "alex@example.invalid" }],
       addresses: [{ label: "Home", value: "12 Rue Example, Montreal, QC" }],
-      birthday: "1990-05-02", note: "Brings the board game" }),
+      birthday: "1990-05-02", note: "Brings the board game", photo: picture || "" }),
     c("demo-2", "Dr. Moreau's office", { stored: "phone", phones: [{ label: "Work", value: "+15145550177" }],
       addresses: [{ label: "Work", value: "480 Avenue Example, Montreal, QC" }] }),
     c("demo-3", "Jordan Lee", { phones: [{ label: "Mobile", value: "+15145550188" }],

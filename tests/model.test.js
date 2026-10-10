@@ -1174,6 +1174,9 @@ test("contacts: the list by letter, a search by name and by digits", () => {
   assert.deepEqual(M.contactRows(list, "5550188").map(r => r.name), ["Jordan Lee"], "digits, anywhere in a number")
   assert.deepEqual(M.contactRows(list, "nobody"), [])
   assert.equal(M.contactRows(list, "sam")[0].first, true, "a search starts its own letters")
+  assert.equal(rows[0].photo, "", "no picture: the initial")
+  assert.equal(M.contactRows(M.demoContacts("/x/picture.jpg"), "alex")[0].photo, "/x/picture.jpg",
+    "a row carries its photo, so the list shows the face")
 })
 
 test("contacts: a card's rows, in order, each with what it offers", () => {

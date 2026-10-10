@@ -189,6 +189,7 @@ Item {
   // Demo cards arrive after a device's usual delay, so the skeletons the
   // page shows meanwhile can be looked at too.
   readonly property int demoDelay: 900
+  property string demoPicture: ""
 
   function showDemo() {
     demo = true
@@ -205,7 +206,7 @@ Item {
     interval: contacts.demoDelay
     onTriggered: {
       if (!contacts.demo) return
-      contacts.cards = Model.demoContacts()
+      contacts.cards = Model.demoContacts(contacts.demoPicture)
       contacts.ready = true
       contacts.readAt = Date.now()
       contacts.listState = "ready"
