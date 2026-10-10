@@ -73,12 +73,13 @@ checked live, and the merge waits for someone who checks it.
 IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" status                  # what the panel shows
 "${IPC[@]}" open ; "${IPC[@]}" close
-"${IPC[@]}" page settings           # also: main, messages, connection
+"${IPC[@]}" page settings           # also: main, messages, connection (diagnostics), ready (the first run's card)
 "${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
 "${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
 "${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
-"${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # This computer: a failing firewall (a problem: the status, the gear's dot); Ignore / Undo
+"${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # this computer: a failing firewall (a problem: the status, the main page's line, the gear's dot); Ignore / Undo
+"${IPC[@]}" demoFeature ask         # demo only: notification access to allow, said in Notifications; stopped: it stopped arriving; "" as set up
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
 "${IPC[@]}" reach ; "${IPC[@]}" reachInfo   # the viewed device's From anywhere page, as its row opens it (#119)
 "${IPC[@]}" demoReach <ready|setup|pick|none|isolated>   # demo only: a made-up network and This computer's mesh row; then `page main` after `demo away` shows the away card's lines
@@ -101,6 +102,8 @@ IPC=(timeout 8 qs -p /usr/share/omarchy/shell/shell.qml ipc call sceny.devices)
 "${IPC[@]}" pressAction <index> "<action>"   # demo only: press a notification's action as a click would
 "${IPC[@]}" pressDismiss <index>      # demo only: its X, to see the waiting ring
 "${IPC[@]}" compose "<text>"        # the Send text field with <text>, unfocused; compose - closes it
+"${IPC[@]}" demoWindow Maps true ; "${IPC[@]}" soundCard com.example.maps   # demo only: an app's window "open" (its badge); its sound card ("" the screen's)
+"${IPC[@]}" soundInfo ; "${IPC[@]}" soundVolume 0.4 ; "${IPC[@]}" chooseSound phone   # the card; a real choice reopens the real window (owner's go)
 "${IPC[@]}" slowMotion 10           # stretch every transition; slowMotion 1 to undo
 ```
 

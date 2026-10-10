@@ -66,7 +66,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `BarWidget.qml` | the bar pill |
 | `Panel.qml` | the panel: pages, keyboard, settings persistence, the IPC target |
 | `SettingsView.qml`, `MessagesView.qml` | the settings page and the two-pane messages view |
-| `SetupChecks.qml` | the steps on a new device, for Add a device (This computer's rows are its checks, from `kdeconnect-bridge doctor`) |
+| `SetupChecks.qml` | the steps on a new device, for Add a device (diagnostics' rows are this computer's checks, from `kdeconnect-bridge doctor`) |
 | `ScreenSetup.qml` | a device's Screen and apps page: where it stands and the steps on it (`Model.screenSetup`, from `kdeconnect-bridge screen`) |
 | `ReachSetup.qml` | a device's From anywhere page: where it stands, how it is connected, the steps (`Model.reachSetup`, from `kdeconnect-bridge features`' `network`) |
 | `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | the All apps page, an app's tile, the pinned row, and a row's apps kept as tiles while it changes (the Apps section and the page) |
@@ -192,7 +192,7 @@ Keep them; change one only with the owner.
   for them. A separator goes between sections, never under the header.
 - **A section shows when its switch is on and it has something:** Now
   playing while a player exists, Notifications while there are any (no
-  empty state).
+  empty state), or something to say about its feature (`sectionNotes`).
 - **A device's page is edited in place** (✎, shown only while the pointer
   is on the device's header so the page has no chrome at rest; a
   right-click on the page, KDE's *Enter Edit Mode* idiom; a right-click on
@@ -209,13 +209,21 @@ Keep them; change one only with the owner.
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
-- **Settings has one shape whatever the number of devices**
-  (`docs/design/setup.md`, section 6): the status first (*Everything
-  works*, or each problem once, its line opening the page that fixes it,
-  with *Fix all* and *Fix with AI*), MY DEVICES (every device, the one in
-  view too, asking to pair, Add a device), *For all devices* (two or more
-  devices only: with one, its layout is the defaults), This computer.
-  Folds go one level deep; anything deeper is a page, with its back arrow.
+- **Setup never shows plumbing** (`docs/design/setup.md`, the owner's
+  decision after a new user installed dependencies by hand): the engine
+  (gateways, items, states) runs unseen, and the panel shows only the
+  thing working, the one act only the user can do when they reach for it,
+  and their preferences. Settings says nothing while everything works:
+  no status, no *Everything works*, no state words, no tools by name
+  (KDE Connect is named once, as the app for the phone).
+- **Settings is the device's page with one device; with several, MY
+  DEVICES then *For all devices*** (`docs/design/setup.md`, section 6):
+  the status leads only while something needs the user (each problem
+  once, its line opening where it is fixed, with *Fix all* and *Fix with
+  AI*); with one device its page carries Add a device. This computer is
+  not on it: its checks are a diagnostics page reached from a problem it
+  causes. Folds go one level deep; anything deeper is a page, with its
+  back arrow.
 - **Each device's settings are its own** (`docs/design/multi-device.md`):
   a device's page (tabs to the others' pages) edits its nickname, icon,
   and with two or more devices its place in the bar, tab, and any group
@@ -241,24 +249,32 @@ Keep them; change one only with the owner.
   devices; else `wake`: KDE Connect on the device let run in the
   background and opened). The away card shows only when no gateway reaches
   it.
-- **One switch gets a feature working.** Turning a feature on runs every
-  step the plugin can, across its gateways, this computer's packages
-  first (one password card for them); it stops only at a step the user
-  must do, waits for it where it can be seen, and then carries on by
-  itself. A step that needs a page of its own (the screen link's pairing)
-  opens that page.
-- **A problem shows once, where its cause is**, and is counted the same
+- **Using a feature gets it working.** What a feature needs is asked where
+  it is used, once, never ahead: notification access in Notifications,
+  SMS and contacts on the Messages page, the screen on the first **Open**
+  of a notification's app or the Screen shortcut (it then opens by
+  itself). Its one action (*Allow*, *Fix*, a switch turned on) runs every
+  step the plugin can, across its gateways, this computer's packages first
+  (one password card for them); it stops only at a step the user must
+  do, waits for it where it can be seen, and then carries on by itself. A
+  step that needs a page of its own (the screen link's pairing) opens
+  that page. Nothing advertises a feature: an ask sits only where the user
+  already is.
+- **A problem shows where its effect is**, once, and is counted the same
   everywhere (`Model.settingsProblems`): this computer's failing checks
   (not optional, not ignored) and connected devices' broken items (they
   worked and stopped), each once with the features it affects (none
-  turned off), and fixes that did not work. Settings' status lists them;
-  the gear's dot and a line at the top of the main page (folding in)
-  count them. The main page's line closes (✕): the problems it showed then
-  stay out of it (`closedProblems`, written on the close only), a new one
-  brings it back; the dot and the status keep every problem. This computer holds only this computer; a package installed
-  is all it says of the screen or the gallery. *Fix all* runs what its
-  page is about: the status what it lists, This computer its checks, a
-  device's page that device.
+  turned off), and fixes that did not work. On the main page a problem
+  shows in the section of the feature it stopped (`Model.sectionNote`,
+  `FEATURE_SECTIONS`: *Fix*, *Details*, *Fix with AI*); the line at the
+  top (folding in) keeps the rest (`Model.bannerProblems`: this
+  computer's, a link, a feature with no section). Settings' status lists
+  them all and the gear's dot counts them. The main page's line closes
+  (✕): the problems it showed then stay out of it (`closedProblems`,
+  written on the close only), a new one brings it back. The diagnostics
+  page holds only this computer; a package installed is all it says of
+  the screen or the gallery. *Fix all* runs what its page is about: the
+  status what it lists, diagnostics this computer's checks.
 - **The gallery and received files are read, never kept beyond the cache**
   (two sections, Gallery and Received, each gone while it has nothing).
   The gallery is read from the device's storage (KDE Connect's sftp, which
@@ -326,6 +342,21 @@ Keep them; change one only with the owner.
   app (the package is in KDE Connect's id, Android's key), never the
   message itself (#122). Opening a real app in a check is the owner's
   go, as the screen is.
+- **Each window chooses where its sound plays** (#129): *Here*
+  (scrcpy's default: the device's whole output, the device quiet), *On
+  the phone* (`--no-audio`) or *Both* (`--audio-source=playback
+  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
+  the Screen shortcut's speaker for the screen), on a card over the
+  panel. scrcpy cannot switch while running, so a choice closes the
+  window and opens it again in its place (`screen-sound`: a floating one
+  by a rule at its own rectangle, a tiled one swapped back to its side,
+  measured). An app's choice is its next default (`sound.json`, in the
+  cache beside `opened.json`: usage, never `shell.json`); otherwise the
+  device's `appSound`, with the quiet rule; the screen keeps *Here* until
+  chosen. Its volume here is the window's own PipeWire stream
+  (`screen-volume`, `wpctl`), never this computer's whole output nor the
+  device's volume.
 - **Opening a place closes the panel; opening an item keeps it.** An
   album, a file's folder (*Show in Files*) or KDE Connect's app opens a
   window the user goes on in, so the panel closes; a gallery tile or a
@@ -340,8 +371,8 @@ Keep them; change one only with the owner.
   A device that comes back gets its notifications read again while no
   panel is open (`device-fix renotify`), so one dismissed there while its
   cancel was lost goes.
-- **Fix with AI, on every problem, always** (a feature's row, a failing
-  check, the gallery's error, and the title of *What it can do* for all of
+- **Fix with AI, on every problem, always** (a section's problem, a
+  failing check, the gallery's error, and Settings' status for all of
   them, beside *Fix all*): the person's default coding agent, launched
   exactly as Omarchy launches it (`omarchy agent prompt`, its own mode; no
   default yet: `omarchy agent --pick`), named in the tooltip, with the
@@ -358,13 +389,15 @@ Keep them; change one only with the owner.
   quick log check has already passed (an attached handler that does not
   exist, such as `Keys.onPageUpPressed`, does exactly that).
 
-- **What a device can do is on its page** (`Model.FEATURES`,
-  `featureRows`, from `kdeconnect-bridge features`): a row per feature, its
-  state in one word (On, Set up, Needs attention, Turned off, Not on this
-  device, Away), what is missing, one action that runs every step the
-  plugin can do (`featurePlan`) and stops at the first only the user can
-  do, and a switch where its KDE Connect plugins can be turned off for that
-  device. Screen and apps keeps its own page; its switch is the plugin's
+- **What a device shares with this computer is on its page**
+  (`Model.FEATURES`, `featureRows`, from `kdeconnect-bridge features`): a
+  switch per feature the device can do, a privacy choice (off, KDE
+  Connect's plugins for it are off for that device); no state word, no
+  action, and nothing the device cannot do (a device that is not Android,
+  `Model.isAndroid`, has no screen link). After a switch is turned on, the
+  step left to the user shows under it while it waits. The states (On,
+  Set up, Needs attention…) stay internal. Screen and apps keeps its own
+  page; its switch is the plugin's
   (`screenFeature`, per device like `screenDocked`): off, there is no Apps
   section, no Screen shortcut, no app button on a notification, nothing read
   over adb, its window closes, and nothing about it counts as a problem.
@@ -375,19 +408,25 @@ Keep them; change one only with the owner.
   runs only that plan (`--confirm <hash>`, built again and compared). Only
   packages not installed at any version go to pacman, so nothing installed
   is downgraded. A change on the phone (a permission) is a click's too.
-- **This computer and Add a device are two Settings pages:** one checks what
-  exists, the other makes a new pairing (then goes on to the new device's
-  page, what it can do). This computer (`settingsScope` `connection`):
-  this computer's checks, *Fix all* (status icon, name, short status,
-  one action; *Ignore* stops a check lighting the gear's dot, kept in
-  `ignoredChecks`); the panel opens on it while KDE Connect is down. Add a
-  device (`addDevice`): requests to pair, the steps on the device, devices
-  in reach (it searches while open); the panel opens on it while nothing
-  is paired. An away device's page offers
-  *Reconnect* in place (a search, `fix search`; it never leaves the
-  page), and opening the panel on it searches once a minute at most.
-  Last seen comes from the bridge's cache (`last-seen.json`); causes are
-  worded as likely, and Samsung advice shows for Samsung devices only.
+- **The first run is one card** (`settingsScope` `ready`): while KDE
+  Connect is missing or stopped the panel opens on *Getting this computer
+  ready*, whose Continue installs everything any feature needs here in
+  one password (`fix ready`: the packages not installed and the firewall's
+  rule, after the card), starts KDE Connect, and goes on to Add a device.
+  No package is asked for again.
+- **Diagnostics and Add a device are pages, not places to visit:**
+  diagnostics (`connection`) checks this computer (status icon, name,
+  short status, one action, *Fix all*; *Ignore* stops a check lighting
+  the gear's dot, kept in `ignoredChecks`) and is reached from a problem
+  it causes. Add a device (`addDevice`): requests to pair, the steps on
+  the device, devices in reach (it searches while open); the panel opens
+  on it while nothing is paired, and a pairing made there lands on the
+  device's main page. An away device's page says when it was last seen
+  and offers *Reconnect* in place (a search, `fix search`; it never
+  leaves the page); *Why?* shows where it was and the likely causes.
+  Opening the panel on it searches once a minute at most. Last seen
+  comes from the bridge's cache (`last-seen.json`); causes are worded as
+  likely, and Samsung advice shows for Samsung devices only.
 - **Pairing comes forward, never over the keyboard.** A device asking to
   pair brings `PairingPopup` under the bar (a layer surface with no
   keyboard focus, input only on its card) and glows the first chip;
@@ -397,8 +436,8 @@ Keep them; change one only with the owner.
   `Model.PAIR_TIMEOUT_S`). The key is drawn by `PairingKey` everywhere,
   as KDE Connect shows it (one word). Pairing actions show their result
   in place (`Model.shownInPlace`): no toast unless they fail.
-- **Fixes change the system only on a click.** `fix install`, `fix firewall`,
-  `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
+- **Fixes change the system only on a click.** `fix ready`, `fix install`,
+  `fix firewall`, `fix sshfs` and `fix screen` go through `pkexec` (one password prompt;
   packages through Omarchy's `omarchy-pkg-add`, with Omarchy's bin on the
   `PATH` pkexec clears); the firewall rules open KDE Connect's ports to the
   private ranges (as Omarchy opens Sunshine's) and on a mesh's interface
@@ -413,13 +452,16 @@ Keep them; change one only with the owner.
   replaced or taken back. The device is matched among the mesh's peers by
   an address it is reached at, then the one picked or matched before
   (`network.json` in the cache), then the same name; else the user picks
-  it. From anywhere is a feature with a page of its own: its row opens
-  it, and Fix all leaves it to the user unless it broke.
+  it. From anywhere is asked where it is used: the away card's button
+  opens its page. It has no row among what the device shares; Fix all
+  leaves it to the user unless it broke, and a broken one is a problem
+  that opens its page.
 - **A feature that needs more than KDE Connect ships its own setup.** A
   package, a setting on the device or a pairing is a step the panel walks
-  the user through: a check (This computer's row from `doctor`; optional
-  when only that feature needs it, so missing it is never a problem), a fix on
-  a click, and the steps on the device, each ticked when it is done. Never
+  the user through: a check (a diagnostics row from `doctor`; optional
+  when only that feature needs it, so missing it is never a problem), its
+  package in `fix ready`, a fix on a click, and the steps on the device,
+  asked where the feature is used and each ticked when it is done. Never
   a manual install in the docs instead. Test the setup on a machine
   without the dependency before installing it, and install it through the
   new fix.

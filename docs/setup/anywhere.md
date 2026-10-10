@@ -5,8 +5,8 @@
 Once per computer, then once per phone. What it does:
 [From anywhere](../use/anywhere.md).
 
-**Settings ›** the device **› From anywhere ›** walks you through it, and
-ticks each step as it sees it done. *Set it up* does what it can:
+A device that is away offers **From anywhere** on its card. The page walks
+you through it, and ticks each step as it sees it done. *Set it up* does what it can:
 
 1. **Tailscale on this computer**, with Omarchy's own installer (as
    *Install › Service › Tailscale* does): a card says what it does, then a
@@ -18,7 +18,7 @@ ticks each step as it sees it done. *Set it up* does what it can:
    the mesh. When the panel cannot tell which device is yours, it lists
    your phones: pick it.
 
-The firewall's fix (*This computer › Firewall*) lets KDE Connect in from
+The firewall's fix (*Diagnostics › Firewall*, or the first run's card) lets KDE Connect in from
 your home and office networks and from the mesh, never from everyone.
 
 **Its address** on the same page takes any IP that reaches the phone (your

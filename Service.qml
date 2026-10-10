@@ -43,6 +43,7 @@ Item {
     demo = true
     snapshot = Model.demoSnapshot(liveSnapshot || snapshot, kind || "")
     smsService.showDemo()
+    contactsService.showDemo()
   }
 
   // A demo the user started from the panel, before any device is set up
@@ -57,9 +58,11 @@ Item {
     demo = false
     snapshot = liveSnapshot
     smsService.showLive()
+    contactsService.showLive()
     searchedAt = 0
     demoChecks = false
     demoNetworkKind = ""
+    demoFeature = ""
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -696,7 +699,7 @@ Item {
     at[String(id)] = now
     featuresReadAt = at
     // A demo's report follows its device (away in the away demo).
-    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(), { reachable: !!dev && dev.reachable === true, network: Model.demoNetwork(demoNetworkKind) }); featureReports = d; return }
+    if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true, network: Model.demoNetwork(demoNetworkKind) }); featureReports = d; return }
     var st = screenOf(String(id))
     var proc = featuresComponent.createObject(root, { device: String(id),
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
@@ -722,8 +725,12 @@ Item {
   // described first (rootAsk, the panel's card: why and every action), and
   // runs only on Continue, only that plan (its hash).
   property var rootAsk: null               // { what, why, actions, hash }
+  // Demo: the made-up device's features in a state to look at ("ask":
+  // notification access missing; "stopped": its notifications stopped
+  // arriving), else as set up (Model.demoFeatures).
+  property string demoFeature: ""
   property var rootThen: null
-  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "tailscale"]
+  readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready", "tailscale"]
   function isRootFix(what) { return rootFixes.indexOf(what) >= 0 || String(what).indexOf("packages") === 0 }
   // A demo shows the card too (describing changes nothing); Continue there
   // runs nothing.
@@ -1047,15 +1054,27 @@ Item {
   function launchScreen(id, pkg, label, docked, place, fit, sound, pop) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
-    if (pkg) { cmd.push(pop ? "--pop" : "--tiled"); if (sound === "phone") cmd.push("--sound", "phone") }
+    var wasOpen = pkg ? appWindowsOf(id)[label || ""] === true : screenIsOpen(id)
+    // The screen: its own last choice, else here, as it always was.
+    if (!pkg) sound = Model.screenSound(rememberedSound(id, Model.SCREEN_SOUND))
+    sound = Model.soundPlace(sound)
+    if (pkg) cmd.push(pop ? "--pop" : "--tiled")
     else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
+    if (sound !== "here") cmd.push("--sound", sound)
+    if (!pkg) {
+      var places = Object.assign({}, screenPlaces)
+      places[String(id)] = { ctx: place && place.ctx ? place.ctx : ({}), fit: fit === true }
+      screenPlaces = places
+    }
     var proc = actionComponent.createObject(root, { key: key, command: cmd, quietSuccess: true })
     // Connecting takes a moment: said by the card or the tile in a panel;
     // with none open (a key), by Omarchy's on-screen display.
     if (openPanels === 0) report("Connecting to " + Model.deviceLabel(findDevice(id)) + "…", false)
     proc.exited.connect(function(code) {
       if (code === 0) {
+        // Open already: brought forward, playing where it did.
+        if (!wasOpen) root.noteWindowSound(String(id), pkg || Model.SCREEN_SOUND, sound)
         if (pkg) root.appOpened(String(id), pkg)
         root.screenOpened(String(id))
         // Docked, it follows turns under the chip; tiled, its tile takes the
@@ -1145,6 +1164,136 @@ Item {
       return a.package === pkg ? Object.assign({}, a, { opened: Date.now() }) : a
     }) }))
   }
+
+  // ---- A window's sound (#129): where each open window's sound plays, and
+  //      its volume here. Changed on the window's tile, it opens again in
+  //      its place (kdeconnect-bridge screen-sound); the choice is kept per
+  //      app in the cache (`sounds` in the apps list), the screen's under
+  //      Model.SCREEN_SOUND ----
+  property var windowSounds: ({})          // device id -> { package or SCREEN_SOUND: where it plays now }
+  property var demoWindows: ({})           // demo: app names whose window is "open"
+  property var screenPlaces: ({})          // device id -> { ctx, fit } of its screen's opening (its watcher again)
+  // The windows of a device's apps open here (their labels): Hyprland's
+  // own list, by title, as screenOpen; worked out only while a panel shows.
+  readonly property var appWindowsOpen: {
+    if (openPanels === 0) return ({})
+    var out = {}
+    var devs = snapshot && snapshot.devices ? snapshot.devices : []
+    var list = Hyprland.toplevels ? Hyprland.toplevels.values : []
+    for (var i = 0; i < list.length; i++) {
+      var title = String(list[i].title || "")
+      for (var j = 0; j < devs.length; j++) {
+        var suffix = " · " + String(devs[j].name || "Device")
+        if (title.length > suffix.length && title.slice(-suffix.length) === suffix) {
+          var id = String(devs[j].id)
+          out[id] = out[id] || {}
+          out[id][title.slice(0, -suffix.length)] = true
+        }
+      }
+    }
+    return out
+  }
+  function appWindowsOf(id) {
+    if (demo) return demoWindows
+    return id ? (appWindowsOpen[String(id)] || ({})) : ({})
+  }
+  // An app's (or the screen's) own last choice, if it made one.
+  function rememberedSound(id, key) {
+    var list = demo ? demoAppList : appLists[String(id)]
+    var s = list && list.sounds ? list.sounds[key] : undefined
+    return Model.SOUND_PLACES.indexOf(s) >= 0 ? s : ""
+  }
+  function windowSoundOf(id, key) {
+    var now = windowSounds[String(id)]
+    return now && now[key] ? now[key] : ""
+  }
+  function noteWindowSound(id, key, sound) {
+    var next = Object.assign({}, windowSounds)
+    next[String(id)] = Object.assign({}, next[String(id)] || {})
+    next[String(id)][key] = sound
+    windowSounds = next
+  }
+  function rememberSound(id, key, sound) {
+    var list = demo ? demoAppList : appLists[String(id)]
+    var sounds = Object.assign({}, (list && list.sounds) || {})
+    sounds[key] = sound
+    if (demo) demoAppList = Object.assign({}, demoAppList, { sounds: sounds })
+    else if (list) setApps(String(id), Object.assign({}, list, { sounds: sounds }))
+  }
+  // Demo: an app's window "open" here, to see its tile's badge and card.
+  function setDemoWindow(name, open) {
+    var next = Object.assign({}, demoWindows)
+    if (open) next[name] = true
+    else delete next[name]
+    demoWindows = next
+  }
+  // The choice from the window's tile: kept, and the window opened again in
+  // its place with it. `pkg` "" is the screen.
+  function setWindowSound(id, pkg, label, sound) {
+    if (!id || Model.SOUND_PLACES.indexOf(sound) < 0) return
+    var key = pkg || Model.SCREEN_SOUND
+    var busyKey = "sound:" + id + ":" + key
+    if (isBusy(busyKey)) return
+    rememberSound(id, key, sound)
+    if (demo) {
+      noteWindowSound(id, key, sound)
+      report("Demo: " + (label || "the screen") + " would open again with its sound " + ({ here: "here", phone: "on the phone", both: "here and on the phone" })[sound], false)
+      return
+    }
+    setBusy(busyKey, true)
+    var proc = actionComponent.createObject(root, { key: busyKey, command: [bridge, "screen-sound", String(id), sound, pkg || "", label || ""] })
+    proc.exited.connect(function(code) {
+      if (code !== 0) return
+      root.noteWindowSound(String(id), key, sound)
+      root.windowStream = null
+      // The screen's watcher goes with its old window: a new one for the new.
+      if (!pkg) { rewatch.device = String(id); rewatch.restart() }
+    })
+    proc.running = true
+  }
+  Timer {
+    id: rewatch
+    property string device: ""
+    interval: 600
+    onTriggered: {
+      var p = root.screenPlaces[device]
+      if (root.screenIsOpen(device)) root.watchScreen(device, p ? p.ctx : ({}), p ? p.fit === true : false)
+    }
+  }
+  // Its sound here, for the card: { key, found, volume, muted, output }, null
+  // while read. Never the device's own volume (that is Now playing's).
+  property var windowStream: null
+  function readWindowStream(id, pkg, label, extra) {
+    var key = String(id) + ":" + (pkg || Model.SCREEN_SOUND)
+    if (demo) {
+      var was = windowStream && windowStream.key === key ? windowStream : { key: key, found: true, volume: 0.7, muted: false, output: "Speakers" }
+      var lvl = extra && extra.level !== undefined ? extra.level : was.volume
+      var muted = extra && extra.mute ? (extra.mute === "toggle" ? !was.muted : extra.mute === "on") : was.muted
+      windowStream = { key: key, found: true, volume: lvl, muted: muted, output: "Speakers" }
+      return
+    }
+    var cmd = [bridge, "screen-volume", String(id), pkg || "", label || ""]
+    if (extra && extra.level !== undefined) cmd.push("--set", Number(extra.level).toFixed(2))
+    if (extra && extra.mute) cmd.push("--mute", extra.mute)
+    if (streamProc.running) { streamAgain = { id: id, pkg: pkg, label: label, extra: extra }; return }
+    streamProc.key = key
+    streamProc.command = cmd
+    streamProc.running = true
+  }
+  property var streamAgain: null
+  Process {
+    id: streamProc
+    property string key: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var s = null
+        try { s = JSON.parse(text) } catch (e) {}
+        if (s) root.windowStream = Object.assign({ key: streamProc.key }, s)
+      }
+    }
+    onExited: if (root.streamAgain) { var a = root.streamAgain; root.streamAgain = null; Qt.callLater(function() { root.readWindowStream(a.id, a.pkg, a.label, a.extra) }) }
+  }
+
   Process {
     id: appsProc
     property string device: ""
@@ -1423,6 +1572,18 @@ Item {
     reachable: root.reachable
     // Once started (start() on first use) it stays started.
     wanted: root.barCountsMessages
+  }
+
+  // Contacts: the viewed device's cards, read on first use of the page
+  // (contacts.opened()). The device is asked for its cards again only on the
+  // user's own Refresh (contacts.refresh()).
+  readonly property var contacts: contactsService
+  ContactsService {
+    id: contactsService
+    bridge: root.bridge
+    deviceId: root.device ? String(root.device.id) : ""
+    reachable: root.reachable
+    demoPicture: root.demoPicture
   }
 
   Timer {

@@ -17,6 +17,6 @@ data: notifications, messages, media and files, as at home.
 - **Away, it says why** when it can: a Wi-Fi that keeps its devices apart
   (guest or office Wi-Fi) is named as the likely cause.
 
-On the device's page in Settings: **From anywhere ›**.
+On the card of a device that is away: **From anywhere**.
 
 Setup: [From anywhere](../setup/anywhere.md) · Limits: [What it cannot do](../setup/limits.md#from-anywhere)

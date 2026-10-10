@@ -16,6 +16,9 @@ your mouse and keyboard while the phone stays in your pocket.
   on it to send it to the phone's Downloads.
 - **Full screen:** Omarchy's pop-out key, then its full screen key (the
   panel shows your keys).
+- **Its sound** plays here; the speaker on the Screen shortcut (or `v`)
+  keeps it on the phone, or plays it in both places, and sets its volume
+  here.
 - **Back by itself** after the phone restarts, as soon as the phone lets it.
 - Its [apps](apps.md), each in a window of its own, come with it.
 

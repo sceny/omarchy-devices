@@ -44,9 +44,16 @@ not re-printed, so the shell only wakes when something moved.
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
                                               an app tiled (--pop: Omarchy's pop-out), no
-                                              on-screen keyboard (--sound phone: its sound
-                                              stays on the device); returns once the
+                                              on-screen keyboard (--sound here|phone|both:
+                                              where its sound plays); returns once the
                                               window is there
+  kdeconnect-bridge screen-sound <device> here|phone|both [package] [label]
+                                              where a window's sound plays: kept for
+                                              next time, and its open window opened
+                                              again in its place with it
+  kdeconnect-bridge screen-volume <device> [package] [label] [--set 0-1] [--mute on|off|toggle]
+                                              a window's sound here, as JSON
+                                              ({found, volume, muted, output})
   kdeconnect-bridge screen-focus <device>          bring its open window forward
   kdeconnect-bridge screen-close <device>          close its open window
   kdeconnect-bridge screen-watch <device> <serial> --ctx <json>   keep its docked
@@ -76,6 +83,17 @@ not re-printed, so the shell only wakes when something moved.
                                               (those first): JSON lines {package, icon}
   kdeconnect-bridge sms <device>                   text messages: JSON commands on
                                               stdin, JSON events on stdout
+  kdeconnect-bridge contacts <device> [--sync]     its contacts, as JSON (from the
+                                              vCards KDE Connect syncs; --sync asks
+                                              the device for them again first)
+  kdeconnect-bridge contacts-app [--find <name>]   Omarchy's contacts app, opened or
+                                              brought forward (nothing when this
+                                              computer has none); --find opens
+                                              its search for that person
+  kdeconnect-bridge contact-open <web|map|mail> <value>
+                                              a contact's website in the browser,
+                                              address in Omarchy's maps, email in
+                                              the mail app
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -257,6 +275,7 @@ def read_device(conn, device_id, calls=None):
             "clipboard": has("clipboard"),
             "share": has("share"),
             "sms": has("sms"),
+            "contacts": has("contacts"),
             "media": has("mprisremote"),
             "notifications": has("notifications"),
             "ping": has("ping"),
@@ -1594,7 +1613,7 @@ def pkg_add(packages):
 # only that plan: it is built again at the run, and a plan that differs from
 # the one shown (its hash) does not run.
 
-ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "tailscale")
+ROOT_FIXES = ("install", "sshfs", "screen", "firewall", "ready", "tailscale")
 
 
 def pacman_will_install(packages, run=None):
@@ -1621,7 +1640,12 @@ def package_installed(name, run=None):
         return False
 
 
-def root_plan(what, run=None, lan=None, rules=None, ifaces=None):
+# Everything any feature needs on this computer (docs/design/setup.md): the
+# first run installs them together, so no package is asked for again.
+READY_FIXES = ("install", "sshfs", "screen")
+
+
+def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen") else []
@@ -1664,6 +1688,30 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None):
                    "Lets you manage it without a password, receives Taildrop files in Downloads, and adds Tailscale to the bar"]
         commands = [[os.path.join(OMARCHY_BIN, "omarchy-launch-floating-terminal-with-presentation"), "omarchy-install-service-tailscale"]]
         footer = "Nothing else runs with it. Its terminal asks for the password, not this panel."
+    elif what == "ready":
+        # The first run: every package not installed at any version, and the
+        # firewall's rule while it keeps devices out, under one password.
+        wanted = [p for k in READY_FIXES for p in fix_packages(k)]
+        packages = [p for p in wanted if not package_installed(p, run)]
+        will = pacman_will_install(packages, run) if packages else []
+        fw = fw if fw is not None else firewall_state()
+        wanted_rules = []
+        if fw.get("active") and not fw.get("allowed"):
+            lan = lan if lan is not None else local_network()
+            existing = rules if rules is not None else fw.get("rules", [])
+            wanted_rules = firewall_rules(existing, lan, ifaces if ifaces is not None else mesh_interfaces())
+        reason = "To get this computer ready for your devices"
+        actions, parts = [], []
+        if packages and will != []:
+            actions.append("Install with pacman (Omarchy's omarchy-pkg-add): " + ", ".join(will if will else packages))
+            if will and len(will) > len(packages):
+                actions.append("Those include what " + ", ".join(packages) + " need to run")
+            parts.append(" ".join(shlex.quote(a) for a in pkg_add(packages)[1:]))
+        actions += ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted_rules]
+        parts += wanted_rules
+        if not actions:
+            actions = ["Nothing to install: this computer has everything"]
+        commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
@@ -1701,6 +1749,8 @@ def run_root(what, confirm):
             return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
     if what == "firewall":
         return say("The firewall lets your devices reach KDE Connect")
+    if what == "ready":
+        return say("This computer is ready")
     return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
                 "screen": "scrcpy and adb installed: set up a device's screen and apps"}.get(what, "Installed"))
 
@@ -3588,8 +3638,8 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4, and the
-    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`:
-    "phone" leaves an app's sound on the device."""
+    device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`
+    (SOUND_PLACES): where its sound plays."""
     # Line-buffered (stdbuf): written to a file, scrcpy's own lines were held
     # back and came in a late batch, after the turn they told of. Appended,
     # so the watcher can empty the file without leaving a hole.
@@ -3602,9 +3652,46 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
             cmd += ["--flex-display", "--display-ime-policy=hide"]
-        if sound == "phone":
-            cmd += ["--no-audio"]
-    return cmd
+    return cmd + sound_args(sound)
+
+
+# Where a window's sound plays (#129), as Model.SOUND_PLACES: here
+# (scrcpy's default source: the device's whole output, the device quiet
+# meanwhile), on the device (none forwarded), or both (what apps play,
+# captured while the device keeps playing it; Android 13). scrcpy cannot
+# switch while running: a change opens the window again.
+SOUND_PLACES = ("here", "phone", "both")
+SCREEN_SOUND = "@screen"   # the screen's own window, beside its apps
+
+
+def sound_args(sound):
+    if sound == "phone":
+        return ["--no-audio"]
+    if sound == "both":
+        return ["--audio-source=playback", "--audio-dup"]
+    return []
+
+
+def window_sounds(device_id, key=None, sound=None):
+    """Where each window last chose its sound to play ({package or
+    SCREEN_SOUND: place}); with a key and a place, records it. In the
+    cache beside opened.json: usage, not a setting."""
+    path = os.path.join(apps_dir(device_id), "sound.json")
+    try:
+        with open(path) as f:
+            sounds = json.load(f)
+        if not isinstance(sounds, dict):
+            sounds = {}
+    except (OSError, ValueError):
+        sounds = {}
+    sounds = {k: v for k, v in sounds.items() if v in SOUND_PLACES}
+    if key and sound in SOUND_PLACES:
+        sounds[key] = sound
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(sounds, f)
+        os.replace(tmp, path)
+    return sounds
 
 
 def launch_or_focus(title, cmd):
@@ -3688,6 +3775,203 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
     if win:
         dock_window(win, docked, disp, rect)
     return say("Opens under the bar" if docked else "Opens as a window")
+
+
+# ---- A window's sound (#129): where it plays, changed while it is open ----
+# scrcpy picks its sound source as it starts, so a change opens the window
+# again: closed, and opened where it was (a floating window by a rule at
+# its own rectangle; a tiled one moved back to the side its tile was on,
+# measured and corrected, since the layout splits the focused tile and
+# puts the new window on its right or below).
+
+REOPEN_WAIT_SEC = 3
+
+
+def hypr_dispatch(lua):
+    subprocess.run(["hyprctl", "dispatch", lua], capture_output=True, timeout=5)
+
+
+def window_place(win, mons, border=0):
+    """Where an open window is, to open it again there."""
+    tags = [str(t).rstrip("*") for t in win.get("tags") or []]
+    return {"floating": bool(win.get("floating")), "pinned": bool(win.get("pinned")),
+            "rect": resting(win, mons, border), "at": list(win.get("at") or [0, 0]), "size": list(win.get("size") or [0, 0]),
+            "workspace": (win.get("workspace") or {}).get("id"), "pop": "pop" in tags}
+
+
+def side_of(win, place):
+    """The way from where `win` is to where the window was ("l", "r", "u",
+    "d"), or None when it is there (its middle within a quarter of a tile)."""
+    (x, y), (w, h) = win.get("at") or [0, 0], win.get("size") or [0, 0]
+    (ox, oy), (ow, oh) = place["at"], place["size"]
+    dx, dy = (ox + ow / 2) - (x + w / 2), (oy + oh / 2) - (y + h / 2)
+    if abs(dx) <= max(w, ow) / 4 and abs(dy) <= max(h, oh) / 4:
+        return None
+    if abs(dx) >= abs(dy):
+        return "r" if dx > 0 else "l"
+    return "d" if dy > 0 else "u"
+
+
+def tile_back(place, win, run=hypr_dispatch, look=None, sleep=time.sleep):
+    """A tiled window opened again, moved back to its workspace and to the
+    side its tile was on; True once it is there."""
+    look = look or (lambda: find_window(win.get("title", "")))
+    q = lua_string("address:" + win["address"])
+    ws = place.get("workspace")
+    if ws is not None and (win.get("workspace") or {}).get("id") != ws:
+        run('hl.dsp.window.move({ window = %s, workspace = "%s", follow = false })' % (q, ws))
+        sleep(0.12)
+        win = look() or win
+    for _ in range(2):
+        way = side_of(win, place)
+        if not way:
+            return True
+        run('hl.dsp.window.swap({ window = %s, direction = "%s" })' % (q, way))
+        sleep(0.12)
+        win = look() or win
+    return side_of(win, place) is None
+
+
+def same_window(a, b):
+    """Whether two looks are one window: by Hyprland's stable id, since a
+    new window can take a closed one's address (it is a pointer)."""
+    if a.get("stableId") is not None and b.get("stableId") is not None:
+        return a["stableId"] == b["stableId"]
+    return a.get("address") == b.get("address")
+
+
+def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=None, border=0):
+    """Closes an open window and opens it again in its place (`launch`
+    starts it; `look()` finds it by its title). True once it is back."""
+    place = window_place(win, mons if mons is not None else hypr_json("monitors"), border)
+    run("hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"]))
+    for _ in range(REOPEN_WAIT_SEC * 4):
+        now = look()
+        if not now or not same_window(now, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    launch()
+    for _ in range(WINDOW_WAIT_SEC * 4):
+        new = look()
+        if new and not same_window(new, win):
+            break
+        sleep(0.25)
+    else:
+        return False
+    q = lua_string("address:" + new["address"])
+    if place["floating"]:
+        if bool(new.get("pinned")) != place["pinned"]:
+            run("hl.dsp.window.pin({ window = %s })" % q)
+        if place["pop"]:
+            run('hl.dsp.window.tag({ window = %s, tag = "+pop" })' % q)
+        return True
+    sleep(0.12)   # tiled into its place first
+    return tile_back(place, look() or new, run, look, sleep)
+
+
+def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep):
+    """Where a window's sound plays: kept as its next default (the screen's,
+    or that app's), and, its window open, opened again in its place with
+    it."""
+    if sound not in SOUND_PLACES:
+        return say("A sound plays here, on the phone or both", EXIT_FAILED)
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name, label)
+    window_sounds(device_id, package or SCREEN_SOUND, sound)
+    what = label or name + "'s screen"
+    where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
+    win = find_window(title)
+    if not win:
+        return say("%s plays its sound %s next time" % (what, where))
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED)
+    border = border_size()
+    mons = hypr_json("monitors")
+    disp = status.get("display") or device_display(status["serial"])
+    aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
+    top = next(((m.get("reserved") or [0, 0])[1] for m in mons if m.get("focused")), 0)
+    # A floating window (docked, popped out) comes back exactly where it is
+    # now, by the rule; a tiled one goes where the layout puts it, then back.
+    floating = bool(win.get("floating"))
+    subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, floating,
+                                                     resting(win, mons, border) if floating else None, border)],
+                   capture_output=True, timeout=5)
+    log = screen_log(title) if not package else ""
+
+    def start():
+        if log:
+            open(log, "w").close()   # a fresh log for the watcher
+        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
+        (launch or (lambda c: launch_or_focus(title, c)))(cmd)
+
+    if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED)
+    return say("%s plays its sound %s" % (what, where))
+
+
+# Its sound here: scrcpy's PipeWire stream, found by the window's process
+# (wpctl's volume, the same scale as Omarchy's own volume controls).
+
+def parse_wpctl_volume(text):
+    """(volume, muted) from `wpctl get-volume`: "Volume: 0.40 [MUTED]"."""
+    m = re.search(r"Volume:\s*([0-9.]+)", text or "")
+    return (float(m.group(1)) if m else 0.0), "[MUTED]" in (text or "")
+
+
+def window_stream(pid, dump):
+    """The id of the window's own sound stream (a PipeWire node of its
+    process, from pw-dump), and the name of this computer's output it
+    plays on. A lone scrcpy stream counts when no process matches (a
+    launcher in between)."""
+    props = lambda n: (n.get("info") or {}).get("props") or {}
+    nodes = [o for o in dump if o.get("type") == "PipeWire:Interface:Node"]
+    streams = [n for n in nodes if props(n).get("media.class") == "Stream/Output/Audio"]
+    # The process is the stream's client's (its node seldom says it).
+    clients = {o.get("id"): props(o) for o in dump if o.get("type") == "PipeWire:Interface:Client"}
+    of = lambda n, key: props(n).get(key) or clients.get(props(n).get("client.id"), {}).get(key)
+    mine = [n for n in streams if pid and str(of(n, "application.process.id")) == str(pid)]
+    if not mine:
+        scrcpy = [n for n in streams if "scrcpy" in str(of(n, "application.process.binary") or of(n, "application.name") or "").lower()]
+        mine = scrcpy if len(scrcpy) == 1 else []
+    sink = ""
+    for o in dump:
+        if o.get("type") == "PipeWire:Interface:Metadata" and (o.get("props") or {}).get("metadata.name") == "default":
+            for e in o.get("metadata") or []:
+                if e.get("key") == "default.audio.sink":
+                    v = e.get("value")
+                    sink = v.get("name", "") if isinstance(v, dict) else str(v or "")
+    output = next((props(n).get("node.description") or props(n).get("node.nick") or ""
+                   for n in nodes if sink and props(n).get("node.name") == sink), "")
+    return (mine[0].get("id") if mine else None), output
+
+
+def screen_volume(device_id, package="", label="", level=None, mute=None, run=None, dump=None):
+    """A window's sound here: {found, volume, muted, output}; `level` (0–1)
+    and `mute` ("on", "off", "toggle") set it first. Never the device's
+    own volume: that is Now playing's."""
+    run = run or (lambda args: subprocess.run(args, capture_output=True, text=True, timeout=5).stdout)
+    device = screen_device(device_id) or {}
+    win = find_window(screen_title(device.get("name") or "Device", label))
+    if not win:
+        return {"found": False, "volume": 0, "muted": False, "output": ""}
+    if dump is None:
+        try:
+            dump = json.loads(run(["pw-dump"]) or "[]")
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            dump = []
+    node, output = window_stream(win.get("pid"), dump)
+    if node is None:
+        return {"found": False, "volume": 0, "muted": False, "output": output}
+    if level is not None:
+        run(["wpctl", "set-volume", str(node), "%.2f" % max(0.0, min(1.0, level))])
+    if mute in ("on", "off", "toggle"):
+        run(["wpctl", "set-mute", str(node), {"on": "1", "off": "0"}.get(mute, "toggle")])
+    volume, muted = parse_wpctl_volume(run(["wpctl", "get-volume", str(node)]))
+    return {"found": True, "volume": volume, "muted": muted, "output": output}
 
 
 # ---- Apps: the device's apps and their icons -------------------------------
@@ -3806,7 +4090,7 @@ def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None)
         mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
         shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
                       "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
-    return {"state": state if not shown else "ready", "at": at, "apps": shown}
+    return {"state": state if not shown else "ready", "at": at, "apps": shown, "sounds": window_sounds(device_id)}
 
 
 class PhoneReader:
@@ -4592,48 +4876,410 @@ def vcard_qp(value, key):
         return raw.decode("utf-8", errors="replace")
 
 
-def read_contacts(device_id):
-    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
-    Returns ({digits_key: name}, [{"name", "number"}])."""
-    folder = os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
-    names = {}
-    entries = []
+# ---- Contacts --------------------------------------------------------------
+#
+# KDE Connect's contacts plugin writes the device's contacts as vCards in
+# ~/.local/share/kpeoplevcard/kdeconnect-<device>/, one file each, while the
+# device allows contacts. They are the only source: names for text messages
+# (read_contacts) and the Contacts page (contacts_list) read the same cards,
+# and nothing about a contact is kept anywhere else.
+
+# What a property's TYPE is called on the page; anything else is used as it
+# comes, capitalised.
+VCARD_LABELS = {
+    "CELL": "Mobile", "MOBILE": "Mobile", "HOME": "Home", "WORK": "Work",
+    "MAIN": "Main", "VOICE": "Phone", "FAX": "Fax", "PAGER": "Pager",
+    "IPHONE": "iPhone", "CAR": "Car", "OTHER": "Other", "SCHOOL": "School",
+    "INTERNET": "", "PREF": "", "X-OTHER": "Other",
+}
+CONTACT_PHOTO_BOX = 192
+CONTACTS_CACHE_MAX = 32 << 20
+
+
+def vcard_unescape(value):
+    """A vCard 3.0 value as text: \\n is a new line, and \\, \\; \\\\ are the
+    characters they escape."""
+    out, i, text = [], 0, str(value or "")
+    while i < len(text):
+        c = text[i]
+        if c == "\\" and i + 1 < len(text):
+            nxt = text[i + 1]
+            out.append("\n" if nxt in "nN" else nxt)
+            i += 2
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def vcard_parts(value):
+    """A structured value (N, ADR, ORG) as its components, split on the
+    semicolons that are not escaped."""
+    return [vcard_unescape(p).strip() for p in re.split(r"(?<!\\);", str(value or ""))]
+
+
+def vcard_label(params, fallback):
+    """What to call a phone number or address, from its TYPE parameters."""
+    types = []
+    for p in params:
+        key, _, value = p.partition("=")
+        types += [t.strip().upper() for t in (value if key.upper() == "TYPE" else key).split(",")]
+    for t in types:
+        if t in ("", "PREF", "INTERNET", "VOICE") or t.startswith("ENCODING") or t.startswith("CHARSET"):
+            continue
+        named = VCARD_LABELS.get(t, t.replace("X-", "").replace("_", " ").capitalize())
+        if named:
+            return named
+    return fallback
+
+
+def vcard_stored(lookup):
+    """Where the phone keeps a contact, from its Android lookup key (KDE
+    Connect's X-KDECONNECT-ID-DEV-<device>). The key has one part per
+    account the contact is in, each an account hash and a kind: `i` or `e`
+    when the account syncs it (it has the account's own id: Google, the
+    phone maker's cloud, work mail), `r` when it has none (on the phone
+    only, or the SIM). "account" when any part is synced, "phone" when none
+    is, "" when the key says neither (not an Android key)."""
+    kinds = set()
+    for part in str(lookup or "").strip().split("."):
+        m = re.match(r"^-?\d+([a-z])", part)
+        if m:
+            kinds.add(m.group(1))
+    if kinds & {"i", "e"}:
+        return "account"
+    return "phone" if "r" in kinds else ""
+
+
+def parse_vcard(text):
+    """One vCard as {name, first, last, nickname, org, title, phones,
+    emails, addresses, websites, birthday, note, photo, stored}. Phones,
+    emails, addresses and websites are [{label, value}] in the card's own
+    order; `photo` is the picture's bytes as the card holds them (nothing
+    decodes them here); `stored` is where the phone keeps it (vcard_stored)."""
+    card = {"name": "", "first": "", "last": "", "nickname": "", "org": "", "title": "",
+            "phones": [], "emails": [], "addresses": [], "websites": [], "birthday": "", "note": "", "photo": b"",
+            "stored": ""}
+    lines = re.sub(r"\n[ \t]", "", re.sub(r"\r\n|\r", "\n", str(text or ""))).split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        key, sep, value = line.partition(":")
+        if not sep:
+            continue
+        parts = key.upper().split(";")
+        name, params = parts[0].split(".")[-1], parts[1:]
+        joined = ";".join(params)
+        if "QUOTED-PRINTABLE" in joined:
+            # vCard 2.1: a soft break ends a line with "=".
+            while value.endswith("=") and i < len(lines):
+                value = value[:-1] + lines[i]
+                i += 1
+            value = vcard_qp(value, key.upper())
+        elif "BASE64" in joined or "ENCODING=B" in joined:
+            # vCard 2.1 ends a base64 value with a blank line; what folding
+            # left is already joined above.
+            while i < len(lines) and lines[i].strip() and ":" not in lines[i]:
+                value += lines[i].strip()
+                i += 1
+        value = value.strip()
+        if not value:
+            continue
+        if name == "FN":
+            card["name"] = vcard_unescape(value).strip()
+        elif name == "N":
+            bits = vcard_parts(value)
+            card["last"] = bits[0] if bits else ""
+            card["first"] = bits[1] if len(bits) > 1 else ""
+        elif name == "NICKNAME":
+            card["nickname"] = vcard_unescape(value).strip()
+        elif name == "TEL":
+            card["phones"].append({"label": vcard_label(params, "Phone"), "value": vcard_unescape(value).strip()})
+        elif name == "EMAIL":
+            card["emails"].append({"label": vcard_label(params, "Email"), "value": vcard_unescape(value).strip()})
+        elif name == "ADR":
+            where = ", ".join([p for p in vcard_parts(value)[2:] if p])
+            if where:
+                card["addresses"].append({"label": vcard_label(params, "Address"), "value": where})
+        elif name == "URL":
+            card["websites"].append({"label": vcard_label(params, "Website"), "value": vcard_unescape(value).strip()})
+        elif name == "ORG":
+            card["org"] = ", ".join([p for p in vcard_parts(value) if p])
+        elif name in ("TITLE", "ROLE") and not card["title"]:
+            card["title"] = vcard_unescape(value).strip()
+        elif name == "BDAY":
+            card["birthday"] = value
+        elif name == "NOTE":
+            card["note"] = vcard_unescape(value).strip()
+        elif name.startswith("X-KDECONNECT-ID-DEV-"):
+            card["stored"] = vcard_stored(value)
+        elif name == "PHOTO" and not card["photo"] and "://" not in value:
+            try:
+                card["photo"] = base64.b64decode(re.sub(r"\s", "", value), validate=False)
+            except (ValueError, TypeError):
+                card["photo"] = b""
+    if not card["name"]:
+        card["name"] = " ".join([p for p in (card["first"], card["last"]) if p]).strip()
+    return card
+
+
+def vcard_folder(device_id):
+    return os.path.expanduser("~/.local/share/kpeoplevcard/kdeconnect-%s" % device_id)
+
+
+def read_vcards(device_id):
+    """Every contact the device has synced, as (id, parse_vcard) pairs; the
+    id is the card's file name, which KDE Connect keeps per contact."""
+    folder = vcard_folder(device_id)
+    cards = []
     try:
-        files = os.listdir(folder)
+        files = sorted(os.listdir(folder))
     except OSError:
-        return names, entries
+        return cards
     for name in files:
         try:
             text = open(os.path.join(folder, name), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        # Unfold continuation lines, then read FN and every TEL.
-        text = re.sub(r"\r?\n[ \t]", "", text)
-        full = ""
-        tels = []
-        lines = text.splitlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            i += 1
-            key, _, value = line.partition(":")
-            key = key.upper()
-            if key == "FN" or key.startswith("FN;"):
-                if "QUOTED-PRINTABLE" in key:
-                    # vCard 2.1: a soft break ends a line with "=".
-                    while value.endswith("=") and i < len(lines):
-                        value = value[:-1] + lines[i]
-                        i += 1
-                    value = vcard_qp(value, key)
-                full = value.strip()
-            elif key == "TEL" or key.startswith("TEL;"):
-                tels.append(value.strip())
-        for tel in tels:
-            k = digits_key(tel)
-            if k and full:
+        cards.append((os.path.splitext(name)[0], parse_vcard(text)))
+    return cards
+
+
+def read_contacts(device_id):
+    """Names by phone number, from the vCards KDE Connect syncs (if allowed).
+    Returns ({digits_key: name}, [{"name", "number"}])."""
+    names = {}
+    entries = []
+    for _cid, card in read_vcards(device_id):
+        full = card["name"]
+        if not full:
+            continue
+        for phone in card["phones"]:
+            k = digits_key(phone["value"])
+            if k:
                 names.setdefault(k, full)
-                entries.append({"name": full, "number": tel})
+                entries.append({"name": full, "number": phone["value"]})
     return names, entries
+
+
+def contacts_dir(device_id):
+    path = os.path.join(state_dir(), "contacts-" + re.sub(r"[^\w-]", "_", device_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def contact_photo(device_id, data, folder=None):
+    """A contact's picture as a PNG made from its decoded pixels (fit_image,
+    in the sandbox), kept in the cache; "" when the card has none or it
+    cannot be read. The card's own bytes never reach the shell."""
+    if not data or len(data) > SAFE_SOURCE_MAX:
+        return ""
+    folder = folder or contacts_dir(device_id)
+    dst = os.path.join(folder, hashlib.sha1(data).hexdigest()[:24] + ".png")
+    if os.path.isfile(dst):
+        os.utime(dst)
+        return dst
+    raw = dst + ".raw"
+    ok = False
+    try:
+        with open(raw, "wb") as f:
+            f.write(data)
+        ok = fit_image(raw, dst, CONTACT_PHOTO_BOX)
+    except OSError:
+        ok = False
+    finally:
+        if os.path.exists(raw):
+            os.remove(raw)
+    if not ok:
+        return ""
+    trim_files(folder, CONTACTS_CACHE_MAX, keep=dst)
+    return dst
+
+
+def contacts_sync(device_id, conn=None):
+    """Ask the device for its contacts again. KDE Connect syncs them when it
+    connects, so this is only for a panel opened on the page; the cards land
+    a moment later and the page reads them again."""
+    try:
+        conn = conn or bus()
+        call(conn, device_path(device_id) + "/contacts", IFACE + ".device.contacts",
+             "synchronizeRemoteWithLocal")
+        return True
+    except GLib.Error:
+        return False
+
+
+# Omarchy's own contacts tool, when this computer has one. Omarchy ships web
+# apps as desktop entries and copies them into the user's applications folder
+# (omarchy-refresh-applications); only an entry Omarchy ships counts, and only
+# while the user still has it.
+OMARCHY_APPS = "/usr/share/omarchy/applications"
+USER_APPS = "~/.local/share/applications"
+
+
+def desktop_webapp(path):
+    """A web app's name and address from its desktop entry (Omarchy's
+    `omarchy-launch-webapp <url>`); None for anything else."""
+    name = url = ""
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key, value = key.strip(), value.strip()
+        if key == "Name" and not name:
+            name = value
+        elif key == "Exec" and not url:
+            m = re.match(r"^omarchy-launch-webapp\s+(\S+)", value)
+            if m:
+                url = m.group(1)
+    return {"name": name, "url": url} if name and url else None
+
+
+def omarchy_contacts_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's contacts app as {"name", "url", "find"}, or None when this
+    computer has no Omarchy contacts app. `find` is the app's search
+    address for one person ({} is the name), "" when it has none known: it
+    holds only the contacts of the account it belongs to."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "contact" not in name.lower():
+            continue
+        if not os.path.isfile(os.path.join(user, name)):
+            continue
+        app = desktop_webapp(os.path.join(user, name))
+        if app:
+            app["find"] = contacts_find_url(app["url"])
+            return app
+    return None
+
+
+# The search address of each contacts web app known here, by its host.
+CONTACTS_FIND = {"contacts.google.com": "https://contacts.google.com/search/{}"}
+
+
+def contacts_find_url(url):
+    host = (urllib.parse.urlparse(str(url or "")).hostname or "").lower()
+    return CONTACTS_FIND.get(host, "")
+
+
+def open_contacts_app(app=None, launch=None, find=""):
+    """Omarchy's contacts app, opened or brought forward exactly as Omarchy
+    opens a web app; with `find`, a window of its own on that person's
+    search (a window brought forward stays where the user left it)."""
+    app = app or omarchy_contacts_app()
+    if not app:
+        return say("This computer has no Omarchy contacts app", EXIT_FAILED)
+    if find:
+        if not app.get("find"):
+            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
+        url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
+        (launch or launch_detached)(["omarchy-launch-webapp", url])
+        return say("Opening %s" % app["name"])
+    (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
+    return say("Opening %s" % app["name"])
+
+
+def contact_link(kind, value):
+    """What opens a contact's detail: a website as an http(s) address (a
+    bare host gets https://; any other scheme the card holds is refused, a
+    card being the device's text), an address as a search on Google Maps,
+    the map Omarchy ships, an email as a mailto: link. "" when there is
+    nothing to open."""
+    value = str(value or "").strip()
+    if not value or "\n" in value:
+        return ""
+    if kind == "web":
+        if not re.match(r"^[a-z][a-z0-9+.-]*:(?!\d)", value, re.I):
+            value = "https://" + value
+        parsed = urllib.parse.urlparse(value)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc or re.search(r"\s", value):
+            return ""
+        return value
+    if kind == "map":
+        return "https://www.google.com/maps/search/?api=1&query=" + urllib.parse.quote(value, safe="")
+    if kind == "mail":
+        if not re.match(r"^[^@\s]+@[^@\s]+$", value):
+            return ""
+        return "mailto:" + urllib.parse.quote(value, safe="@+.-_")
+    return ""
+
+
+def omarchy_maps_app(share=OMARCHY_APPS, user=None):
+    """Omarchy's maps web app as {"name", "url"}, or None when this computer
+    has none (the user removed it)."""
+    user = user or os.path.expanduser(USER_APPS)
+    try:
+        names = sorted(os.listdir(share))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".desktop") or "maps" not in name.lower():
+            continue
+        if os.path.isfile(os.path.join(user, name)):
+            return desktop_webapp(os.path.join(user, name))
+    return None
+
+
+def contact_open(kind, value, launch=None, maps=None):
+    """A contact's detail opened where Omarchy opens it: a website in the
+    default browser (`omarchy-launch-browser`), an address in Omarchy's maps
+    web app (the browser when this computer has none), an email in the
+    mail app the user chose for mailto: links (Omarchy's default is HEY)."""
+    link = contact_link(kind, value)
+    if not link:
+        return say("Nothing to open", EXIT_FAILED)
+    launch = launch or launch_detached
+    if kind == "map" and (maps if maps is not None else omarchy_maps_app()):
+        launch(["omarchy-launch-webapp", link])
+    elif kind == "mail":
+        launch(["uwsm-app", "--", "xdg-open", link])
+    else:
+        launch(["omarchy-launch-browser", link])
+    return EXIT_OK
+
+
+def launch_detached(cmd):
+    subprocess.Popen(cmd, start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def contacts_list(device_id, sync=False, conn=None):
+    """The device's contacts for the panel: {"state", "contacts", "app"}.
+    `state` is "ready" while there are cards and "empty" while there are
+    none (the device may not allow contacts, which its page says); `app` is
+    Omarchy's contacts app when this computer has one."""
+    if sync:
+        contacts_sync(device_id, conn)
+    out = []
+    for cid, card in read_vcards(device_id):
+        if not card["name"] and not card["phones"] and not card["emails"]:
+            continue
+        out.append({
+            "id": cid,
+            "name": card["name"],
+            "nickname": card["nickname"],
+            "org": card["org"],
+            "title": card["title"],
+            "phones": card["phones"],
+            "emails": card["emails"],
+            "addresses": card["addresses"],
+            "websites": card["websites"],
+            "birthday": card["birthday"],
+            "note": card["note"],
+            "photo": contact_photo(device_id, card["photo"]),
+            "stored": card["stored"],
+        })
+    out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
+    return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 
 
 class Sms:
@@ -5088,11 +5734,46 @@ def main(argv):
         at = next((parse_rect(argv[i + 1]) for i, a in enumerate(argv) if a == "--at" and i + 1 < len(argv)), None)
         ctx = next((parse_ctx(argv[i + 1]) for i, a in enumerate(argv) if a == "--ctx" and i + 1 < len(argv)), None)
         return screen_dock(argv[1], argv[2] == "on", rect=at, ctx=ctx)
+    if argv[0] == "screen-sound":
+        if len(argv) < 3:
+            return say("screen-sound needs a device id and here, phone or both", EXIT_FAILED)
+        return screen_sound(argv[1], argv[2], argv[3] if len(argv) > 3 else "", argv[4] if len(argv) > 4 else "")
+    if argv[0] == "screen-volume":
+        if len(argv) < 2:
+            return say("screen-volume needs a device id", EXIT_FAILED)
+        opt = lambda flag: next((argv[i + 1] for i, a in enumerate(argv) if a == flag and i + 1 < len(argv)), None)
+        rest, skip = [], False
+        for a in argv[2:]:
+            if skip:
+                skip = False
+            elif a in ("--set", "--mute"):
+                skip = True
+            else:
+                rest.append(a)
+        try:
+            level = float(opt("--set")) if opt("--set") is not None else None
+        except ValueError:
+            return say("--set takes a level from 0 to 1", EXIT_FAILED)
+        print(json.dumps(screen_volume(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
+                                       level=level, mute=opt("--mute"))))
+        return EXIT_OK
     if argv[0] == "apps":
         if len(argv) < 2:
             return say("apps needs a device id", EXIT_FAILED)
         print(json.dumps(apps_list(argv[1], refresh="--refresh" in argv), ensure_ascii=False))
         return EXIT_OK
+    if argv[0] == "contacts":
+        if len(argv) < 2:
+            return say("contacts needs a device id", EXIT_FAILED)
+        print(json.dumps(contacts_list(argv[1], sync="--sync" in argv), ensure_ascii=False))
+        return EXIT_OK
+    if argv[0] == "contacts-app":
+        find = argv[argv.index("--find") + 1] if "--find" in argv[:-1] else ""
+        return open_contacts_app(find=find)
+    if argv[0] == "contact-open":
+        if len(argv) < 3:
+            return say("contact-open needs web, map or mail and a value", EXIT_FAILED)
+        return contact_open(argv[1], argv[2])
     if argv[0] == "app-forget":
         if len(argv) < 3:
             return say("app-forget needs a device id and a package", EXIT_FAILED)

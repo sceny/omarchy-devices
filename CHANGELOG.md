@@ -10,6 +10,33 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list, each person with their photo, and the full
+  card (numbers, emails, addresses, websites, birthday, note, photo).
+  *Message* starts a text, *Call* opens the dialer on the phone, an email
+  opens the mail app, an address Omarchy's Google Maps, a website the
+  browser, *Copy* takes a detail; read-only. Add the
+  *Contacts* shortcut; the card last open comes back, per device. Texts
+  take their names from the same cards. A card synced with an account
+  opens in Google Contacts; one kept on the phone only says so.
+
+- **Setup that gets out of the way**: Settings no longer shows the
+  plumbing. With one device it is that device's page: what it shares with
+  this computer, a switch each, and nothing about its state while all is
+  well. This computer's checks are diagnostics, reached from a problem
+  they cause.
+- **Asked where you use it**: notification access in Notifications, SMS
+  and contacts on the Messages page, the screen on the first *Open* of a
+  notification's app (it then opens by itself). A feature that stops says
+  so in its own section, with *Fix*, *Details* and *Fix with AI*.
+- **The first run is one card**: one password installs everything any
+  feature needs here; a new pairing lands on the phone's main page.
+- **An iPhone** shows only what it can do; the away card keeps the likely
+  causes behind *Why?*.
+- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
+  an open app's tile and the Screen shortcut say where its sound plays;
+  click (or `v`) for Here, On the phone or Both, and its volume here. The
+  window reopens in its place; an app keeps its choice.
 - **From anywhere**: the phone in the panel away from home, through
   Tailscale (Omarchy's installer, from the panel) or NordVPN Meshnet, or an
   address you type. Its page says how it is connected now; a new network

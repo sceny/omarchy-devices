@@ -17,7 +17,7 @@ state, and writes nothing outside its folder but caches in
 | `SmsService.qml` | Text messages: threads and the open conversation, search, what was seen here. |
 | `Model.js` | Pure functions from data to what is drawn; tested with `node`. |
 | `BarWidget.qml`, `Panel.qml` | The pill; the panel, keyboard, settings and IPC. |
-| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings (This computer and Add a device are among its pages), messages, the steps on a new device (and the app's QR code, from `qrencode`, part of Omarchy). |
+| `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings (the first run's card, diagnostics and Add a device are among its pages), messages, the steps on a new device (and the app's QR code, from `qrencode`, part of Omarchy). |
 | `PanelField.qml` | Every text field: Esc steps back the same way everywhere. |
 | `CursorGlide.qml`, `CursorStop.qml` | The keyboard cursor, drawn once per page and sliding to where it stops. |
 | `ScreenSetup.qml`, `ScreenTurn.qml` | A device's Screen and apps page; the docked screen turning or folding. |
@@ -55,13 +55,15 @@ working and KDE Connect's link is the one problem.
 
 | Command | Does |
 |---|---|
-| `doctor` | This computer: KDE Connect, the firewall, the network, the mesh, the packages. |
+| `doctor` | This computer (diagnostics): KDE Connect, the firewall, the network, the mesh, the packages. |
 | `features <id> [--adb]` | One device: KDE Connect's plugins, its link, its storage, its network (`network`: meshes, its peer, how it is reached); with adb, its permissions and notification count. |
-| `fix <what> [--describe \| --confirm H]` | This computer: install, firewall, sshfs, screen (root, as shown), tailscale (Omarchy's installer in its terminal, as shown), start, restart, search. |
+| `fix <what> [--describe \| --confirm H]` | This computer: ready (the first run: every package and the firewall's rule in one prompt), install, firewall, sshfs, screen (root, as shown), tailscale (Omarchy's installer in its terminal, as shown), start, restart, search. |
 | `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, reconnect, wake, wireless, reach, unreach. |
 | `screen <id>` | The screen link: tools, pair, off, away, unauthorized or ready, and whether it is locked. |
 | `screen-open <id> [package] [label]` | Its screen docked (or `--tiled`), or an app tiled (or `--pop`); waits for an unlock. |
 | `screen-watch`, `screen-pair`, `screen-dock` | The docked screen following turns; pairing by QR code; docking an open window. |
+| `screen-sound <id> here\|phone\|both [package] [label]` | Where a window's sound plays: kept per app (`apps-<id>/sound.json`, the cache), and an open window closed and opened again in its place (floating: a rule at its rectangle; tiled: swapped back to its side, measured). scrcpy: nothing (the whole output, the device quiet), `--no-audio`, or `--audio-source=playback --audio-dup`. |
+| `screen-volume <id> [package] [label] [--set L] [--mute M]` | Its sound here: the window's own PipeWire stream (by its process, from `pw-dump`), set with `wpctl`; never the device's volume. |
 | `apps <id>`, `icons <id>` | Its apps from the cache (from the device once a day); their icons, decoded in a sandbox. |
 
 ## The network: from anywhere (#119)

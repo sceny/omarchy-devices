@@ -2,38 +2,31 @@
 
 # Getting started
 
+Install it, open it, follow your phone. Nothing to set up by hand.
+
 ## Install
 
-You need Omarchy 4 and the phone on the same network. What the computer is
-missing (KDE Connect; scrcpy and adb for the screen; sshfs for the
-gallery), the panel installs on a click, after a card says what.
+You need Omarchy 4 and the phone on the same network.
 
 ```bash
 omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable
 ```
 
-## Add your phone
+## The first time
 
-Until a phone is paired, the panel opens on **Add a device**. Scan the
-code with the phone's camera to get the app, Android or iPhone, then pick
-this computer in the app and accept here.
+The panel gets this computer ready in one step: one password, once, after
+a card lists what it installs. No package is asked for again.
+
+![Getting this computer ready: one Continue (demo data)](../images/ready.png)
+
+Then **Add a device**: scan the code with the phone's camera to get the
+app, Android or iPhone, pick this computer in the app and accept here.
 
 ![Add a device: the steps on the phone and a QR code for the app (demo data)](../images/add-device.png)
 
-Once paired, its page shows what it can do: one switch per feature does
-every step it can, here and on the phone, and says the one left to you
-(a permission to allow): [Your devices](devices.md). An iPhone or iPad
-shares files and the clipboard only. The screen and the apps:
-[Screen and apps](screen-and-apps.md).
-
-## Check this computer
-
-**This computer** checks KDE Connect, the firewall, the network and the
-tools the screen and the gallery need, with a fix for each, or *Fix all*
-([Settings](settings.md)). Before a password, a card says exactly what it
-is for.
-
-![This computer: KDE Connect, the firewall, the network and the tools, all good (demo data)](../images/connection.png)
+Paired, the panel shows your phone. What a feature still needs, it asks
+where you use it: notification access in Notifications, the screen the
+first time you press **Open**. Each is asked once.
 
 ## Look around first
 

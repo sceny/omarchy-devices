@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import io
 import re
 import importlib.machinery
 import importlib.util
@@ -211,6 +212,196 @@ class Contacts(unittest.TestCase):
             finally:
                 if old is not None:
                     os.environ["HOME"] = old
+
+
+class ContactCards(unittest.TestCase):
+    """A whole card, for the Contacts page: every detail the device sends,
+    each with the word the page puts on it. Made-up people, 555 numbers."""
+
+    CARD = ("BEGIN:VCARD\r\nVERSION:3.0\r\n"
+            "N:Rivera;Alex;;;\r\nFN:Alex Rivera\r\nNICKNAME:Al\r\n"
+            "ORG:Northwind Press;Design\r\nTITLE:Editor\r\n"
+            "TEL;TYPE=CELL,PREF:+1 514-555-0123\r\nTEL;TYPE=WORK:+15145550144\r\n"
+            "EMAIL;TYPE=INTERNET,HOME:alex@example.invalid\r\n"
+            "ADR;TYPE=HOME:;;12 Rue Example;Montreal;QC;H2X 1Y4;Canada\r\n"
+            "URL:https://example.com/alex\r\n"
+            "BDAY:1990-05-02\r\nNOTE:Brings the board game\\nAlways late\r\n"
+            "END:VCARD\r\n")
+
+    def test_every_detail_with_its_word(self):
+        card = bridge.parse_vcard(self.CARD)
+        self.assertEqual(card["name"], "Alex Rivera")
+        self.assertEqual((card["first"], card["last"]), ("Alex", "Rivera"))
+        self.assertEqual(card["nickname"], "Al")
+        self.assertEqual(card["org"], "Northwind Press, Design")
+        self.assertEqual(card["title"], "Editor")
+        self.assertEqual(card["phones"], [{"label": "Mobile", "value": "+1 514-555-0123"},
+                                          {"label": "Work", "value": "+15145550144"}])
+        self.assertEqual(card["emails"], [{"label": "Home", "value": "alex@example.invalid"}])
+        self.assertEqual(card["addresses"],
+                         [{"label": "Home", "value": "12 Rue Example, Montreal, QC, H2X 1Y4, Canada"}])
+        self.assertEqual(card["websites"], [{"label": "Website", "value": "https://example.com/alex"}])
+        self.assertEqual(card["birthday"], "1990-05-02")
+        self.assertEqual(card["note"], "Brings the board game\nAlways late", "\\n is a new line")
+        self.assertEqual(card["photo"], b"")
+
+    def test_a_detail_opens_only_as_a_link(self):
+        self.assertEqual(bridge.contact_link("web", "example.com/alex"), "https://example.com/alex")
+        self.assertEqual(bridge.contact_link("web", "http://example.com"), "http://example.com")
+        for bad in ("file:///etc/passwd", "javascript:alert(1)", "https://", "example .com", ""):
+            self.assertEqual(bridge.contact_link("web", bad), "", bad)
+        self.assertEqual(bridge.contact_link("map", "12 Rue Example, Montreal"),
+                         "https://www.google.com/maps/search/?api=1&query=12%20Rue%20Example%2C%20Montreal")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid"), "mailto:alex@example.invalid")
+        self.assertEqual(bridge.contact_link("mail", "alex@example.invalid?body=hi"), "mailto:alex@example.invalid%3Fbody%3Dhi")
+        self.assertEqual(bridge.contact_link("mail", "not an address"), "")
+        self.assertEqual(bridge.contact_link("phone", "5145550123"), "")
+
+    def test_a_detail_opens_where_omarchy_opens_it(self):
+        ran = []
+        bridge.contact_open("web", "example.com", launch=ran.append)
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps={"name": "Google Maps", "url": "https://maps.google.com"})
+        bridge.contact_open("map", "12 Rue Example", launch=ran.append, maps=False)
+        bridge.contact_open("mail", "alex@example.invalid", launch=ran.append)
+        self.assertEqual([r[0] for r in ran], ["omarchy-launch-browser", "omarchy-launch-webapp",
+                                               "omarchy-launch-browser", "uwsm-app"])
+        self.assertEqual(ran[3], ["uwsm-app", "--", "xdg-open", "mailto:alex@example.invalid"])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(bridge.contact_open("web", "file:///etc/passwd", launch=ran.append), bridge.EXIT_FAILED)
+        self.assertEqual(len(ran), 4, "nothing launched for what is not a link")
+
+    def test_name_from_its_parts_when_the_card_has_no_full_name(self):
+        card = bridge.parse_vcard("BEGIN:VCARD\r\nN:Chen;Sam;;;\r\nTEL:5145550142\r\nEND:VCARD\r\n")
+        self.assertEqual(card["name"], "Sam Chen")
+        self.assertEqual(card["phones"], [{"label": "Phone", "value": "5145550142"}])
+
+    def test_vcard_21_bare_types_and_quoted_printable(self):
+        card = bridge.parse_vcard("BEGIN:VCARD\r\nVERSION:2.1\r\n"
+                                  "FN;CHARSET=UTF-8;ENCODING=QUOTED-PRINTABLE:=5A=6F=C3=AB\r\n"
+                                  "TEL;CELL;VOICE:+15145550177\r\nEND:VCARD\r\n")
+        self.assertEqual(card["name"], "Zoë")
+        self.assertEqual(card["phones"], [{"label": "Mobile", "value": "+15145550177"}])
+
+    def test_a_picture_is_bytes_here_and_decoded_only_in_the_sandbox(self):
+        # One pixel, as a card carries it: base64, folded over two lines.
+        png = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmM"
+               "IQAAAABJRU5ErkJggg==")
+        card = bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nPHOTO;ENCODING=BASE64;TYPE=PNG:%s\r\n %s\r\nEND:VCARD\r\n"
+                                  % (png[:40], png[40:]))
+        self.assertTrue(card["photo"].startswith(b"\x89PNG"), "the card's own bytes, not a path")
+
+    def test_a_picture_by_address_is_not_read(self):
+        card = bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nPHOTO;VALUE=URI:https://example.invalid/p.png\r\nEND:VCARD\r\n")
+        self.assertEqual(card["photo"], b"")
+
+    def test_where_the_phone_keeps_it(self):
+        # Android's lookup key: an `i` or `e` part is synced with an account,
+        # an `r` part is on the phone only; a merged contact has both.
+        def stored(key):
+            return bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nX-KDECONNECT-ID-DEV-dev1:%s\r\nEND:VCARD\r\n" % key)["stored"]
+        self.assertEqual(stored("2803i3a1b2c3d4e5f6"), "account")
+        self.assertEqual(stored("3221r12-2F4D3F3B.2803i3a1b"), "account")
+        self.assertEqual(stored("1234e5a2b.3c"), "account")
+        self.assertEqual(stored("0r42-4B2D3F3B"), "phone")
+        self.assertEqual(stored("812r7-2F3D.0r9-2D"), "phone")
+        self.assertEqual(stored("not-a-key"), "")
+        self.assertEqual(bridge.parse_vcard("BEGIN:VCARD\r\nFN:Sam Chen\r\nEND:VCARD\r\n")["stored"], "")
+
+    def test_the_page_lists_them_by_name(self):
+        with tempfile.TemporaryDirectory() as home:
+            folder = os.path.join(home, ".local/share/kpeoplevcard/kdeconnect-dev1")
+            os.makedirs(folder)
+            with open(os.path.join(folder, "2.vcf"), "w") as f:
+                f.write(self.CARD)
+            with open(os.path.join(folder, "1.vcf"), "w") as f:
+                f.write("BEGIN:VCARD\r\nFN:Sam Chen\r\nTEL;TYPE=CELL:+15145550142\r\nEND:VCARD\r\n")
+            old, oldcache = os.environ.get("HOME"), os.environ.get("XDG_CACHE_HOME")
+            os.environ["HOME"] = home
+            os.environ["XDG_CACHE_HOME"] = os.path.join(home, ".cache")
+            try:
+                out = bridge.contacts_list("dev1")
+            finally:
+                if old is not None:
+                    os.environ["HOME"] = old
+                if oldcache is None:
+                    os.environ.pop("XDG_CACHE_HOME", None)
+                else:
+                    os.environ["XDG_CACHE_HOME"] = oldcache
+        self.assertEqual(out["state"], "ready")
+        self.assertEqual([c["name"] for c in out["contacts"]], ["Alex Rivera", "Sam Chen"])
+        self.assertEqual(out["contacts"][0]["id"], "2", "the card's file, so the page can name it")
+        self.assertEqual(out["contacts"][0]["photo"], "", "no picture on this card")
+
+    def test_nothing_synced_is_empty(self):
+        with tempfile.TemporaryDirectory() as home:
+            old = os.environ.get("HOME")
+            os.environ["HOME"] = home
+            try:
+                out = bridge.contacts_list("missing")
+            finally:
+                if old is not None:
+                    os.environ["HOME"] = old
+        self.assertEqual(out["state"], "empty")
+        self.assertEqual(out["contacts"], [])
+
+
+class OmarchyContactsApp(unittest.TestCase):
+    """The contacts app Omarchy ships, and only that one: the plugin opens
+    it the way Omarchy does."""
+
+    def write(self, folder, name, text):
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, name), "w") as f:
+            f.write(text)
+
+    ENTRY = ("[Desktop Entry]\nName=Google Contacts\n"
+             "Exec=omarchy-launch-webapp https://contacts.google.com/\nType=Application\n")
+
+    def test_an_entry_omarchy_ships_and_the_user_still_has(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share, user = os.path.join(tmp, "share"), os.path.join(tmp, "user")
+            self.write(share, "Google Contacts.desktop", self.ENTRY)
+            self.write(user, "Google Contacts.desktop", self.ENTRY)
+            app = bridge.omarchy_contacts_app(share, user)
+        self.assertEqual(app, {"name": "Google Contacts", "url": "https://contacts.google.com/",
+                               "find": "https://contacts.google.com/search/{}"})
+
+    def test_a_person_is_found_only_where_the_search_is_known(self):
+        self.assertEqual(bridge.contacts_find_url("https://contacts.google.com/"), "https://contacts.google.com/search/{}")
+        self.assertEqual(bridge.contacts_find_url("https://contacts.example.invalid/"), "")
+
+    def test_removed_by_the_user_means_no_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share, user = os.path.join(tmp, "share"), os.path.join(tmp, "user")
+            self.write(share, "Google Contacts.desktop", self.ENTRY)
+            os.makedirs(user)
+            self.assertIsNone(bridge.omarchy_contacts_app(share, user))
+
+    def test_another_contacts_app_is_not_omarchys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            share, user = os.path.join(tmp, "share"), os.path.join(tmp, "user")
+            os.makedirs(share)
+            self.write(user, "Other Contacts.desktop", "[Desktop Entry]\nName=Other Contacts\nExec=other-contacts\n")
+            self.assertIsNone(bridge.omarchy_contacts_app(share, user))
+
+    def test_opened_as_omarchy_opens_a_web_app(self):
+        launched = []
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
+                                     launch=launched.append)
+        self.assertEqual(launched, [["omarchy-launch-or-focus-webapp", "Google Contacts",
+                                     "https://contacts.google.com/"]])
+
+    def test_a_person_opens_its_search_in_a_window_of_its_own(self):
+        launched = []
+        app = {"name": "Google Contacts", "url": "https://contacts.google.com/",
+               "find": "https://contacts.google.com/search/{}"}
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen & Co/")
+            code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen")
+        self.assertEqual(launched, [["omarchy-launch-webapp",
+                                     "https://contacts.google.com/search/Sam%20Chen%20%26%20Co%2F"]])
+        self.assertEqual(code, bridge.EXIT_FAILED)
 
 
 class AttachmentNames(unittest.TestCase):

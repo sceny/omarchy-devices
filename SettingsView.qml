@@ -44,14 +44,11 @@ Column {
   // what: "features" (the section's), "feature" or "check" (a row's).
   signal fixWithAiRequested(string what, int index)
   signal checkAgainRequested()
+  // The first run's one step (scope "ready"): this computer made ready.
+  signal readyRequested()
   property string agentName: ""
   readonly property string aiTip: agentName !== "" ? "Opens " + agentName + ", your default coding agent, in a terminal, on what is wrong here"
     : "Choose your coding agent first (Omarchy's own choice), then again"
-  // What it can do's problems: a marker and the section's own Fix all and
-  // Fix with AI in its title.
-  readonly property int featureProblems: rows.filter(function(r) { return r.kind === "feature" && r.problem }).length
-  readonly property string featuresLine: featureProblems > 0 ? featureProblems + (featureProblems === 1 ? " needs attention" : " need attention")
-    : Model.featuresSummary(rows.filter(function(r) { return r.kind === "feature" }))
   property int fixAllCount: 0
   signal screenCloseRequested()
   // A pairing that just completed here: ✓ in place of its card, for a moment.
@@ -137,11 +134,11 @@ Column {
 
   spacing: Style.space(6)
 
-  // ---- The status: everything well, or each problem once, where its
-  //      cause is (a device, this computer); Fix all and Fix with AI for
-  //      all of them. A line opens the page that fixes it ----
+  // ---- The status, only while something needs the user: each problem
+  //      once (a device, this computer); Fix all and Fix with AI for all of
+  //      them. A line opens where it is fixed. All well: nothing is said ----
   Rectangle {
-    visible: root.scopeKind === "root"
+    visible: (root.scopeKind === "root" || root.scopeKind === "device") && root.problemCount > 0
     width: root.width
     implicitHeight: statusColumn.implicitHeight + 2 * Style.space(8)
     radius: Style.cornerRadius
@@ -259,15 +256,15 @@ Column {
       }
   }
 
-  // ---- For all devices (with two or more) and This computer: pages ----
-  Item { visible: root.scopeKind === "root"; width: 1; height: Style.space(6) }
-  PanelSeparator { visible: root.scopeKind === "root"; foreground: root.foreground }
+  // ---- For all devices (with two or more): a page ----
+  Item { visible: root.firstIndex("defaults") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("defaults") >= 0; foreground: root.foreground }
   Repeater {
     model: root.rows
     ListRow {
       required property var modelData
       required property int index
-      visible: modelData.kind === "defaults" || modelData.kind === "connection"
+      visible: modelData.kind === "defaults"
       width: root.width
       row: modelData
       rowIndex: index
@@ -308,49 +305,21 @@ Column {
       }
   }
 
-  // ---- What it can do (docs/design/setup.md): a row per feature, folding;
-  //      a problem marks its title, which then holds Fix all and Fix with AI ----
+  // ---- What it shares with this computer (docs/design/setup.md): a
+  //      switch per feature it can do; no state. What a feature needs shows
+  //      where it is used, or in the status above when it stopped ----
   Item { visible: root.firstIndex("feature") >= 0; width: 1; height: Style.space(6) }
-  RowLayout {
+  FoldToggle {
     visible: root.firstIndex("feature") >= 0
     width: root.width
-    spacing: Style.space(4)
-    FoldToggle {
-      id: featuresFold
-      Layout.fillWidth: true
-      title: "WHAT IT CAN DO"
-      summary: root.featuresLine
-      folded: root.isFolded("features")
-      foreground: root.featureProblems > 0 ? Color.urgent : root.foreground
-      fontFamily: root.fontFamily
-      motion: root.motion
-      animate: root.animate
-      onToggled: root.foldToggled("features")
-    }
-    Button {
-      visible: root.featureProblems > 0 && root.fixAllCount > 0
-      Layout.preferredHeight: featuresFold.headerHeight
-      text: root.phone && root.phone.isBusy("fixAll") ? "Fixing…" : "Fix all"
-      enabled: !(root.phone && root.phone.isBusy("fixAll"))
-      tooltipText: "Every fix the plugin can do, here and on the device"
-      verticalPadding: 0
-      bordered: true
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      onClicked: root.fixAllRequested()
-    }
-    Button {
-      visible: root.featureProblems > 0
-      Layout.preferredHeight: featuresFold.headerHeight
-      text: "Fix with AI"
-      tooltipText: root.aiTip
-      verticalPadding: 0
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-      fontSize: Style.font.caption
-      onClicked: root.fixWithAiRequested("features", -1)
-    }
+    title: "WHAT IT SHARES WITH THIS COMPUTER"
+    summary: Model.sharesSummary(root.rows.filter(function(r) { return r.kind === "feature" }))
+    folded: root.isFolded("features")
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    motion: root.motion
+    animate: root.animate
+    onToggled: root.foldToggled("features")
   }
   FoldBody {
     visible: root.firstIndex("feature") >= 0
@@ -380,6 +349,19 @@ Column {
       required property var modelData
       required property int index
       visible: modelData.kind === "editPage" || modelData.kind === "resetGroup"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
+  // One device: Add a device is on its page (Settings' first page).
+  Repeater {
+    model: root.scopeKind === "device" ? root.rows : []
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "addDevice"
       width: root.width
       row: modelData
       rowIndex: index
@@ -578,6 +560,52 @@ Column {
     onClicked: root.fixAllRequested()
   }
 
+  // ---- The first run: everything this computer needs for any feature,
+  //      under one password after its card says what, then pairing ----
+  Column {
+    id: readyCard
+    visible: root.scopeKind === "ready"
+    width: root.width
+    spacing: Style.space(8)
+    readonly property bool busy: !!root.phone && root.phone.isBusy("ready")
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: "Getting this computer ready"
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.body
+      font.bold: true
+    }
+    Text {
+      width: parent.width
+      textFormat: Text.PlainText
+      wrapMode: Text.WordWrap
+      text: "Devices needs a few things here to reach your phone. One password, once; then you pair it."
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+    }
+    Item {
+      width: readyButton.implicitWidth
+      height: readyButton.implicitHeight
+      CursorStop { here: root.cursorIndex === 0; glide: root.cursorGlide }
+      Button {
+        id: readyButton
+        text: readyCard.busy ? "Getting ready…" : "Continue"
+        iconText: readyCard.busy ? "" : Model.GLYPH.chevronRight
+        enabled: !readyCard.busy
+        tooltipText: "Shows what it installs before asking for your password"
+        bordered: true
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        fontSize: Style.font.bodySmall
+        onClicked: root.readyRequested()
+      }
+    }
+  }
+
   PanelSectionHeader {
     visible: root.firstIndex("request") >= 0 && root.scopeKind === "addDevice"
     text: "PAIRING REQUESTS"
@@ -761,9 +789,9 @@ Column {
     Button {
       readonly property int rowIndex: root.firstIndex("unpair")
       visible: rowIndex >= 0
-      text: root.unpairArmed ? "Unpair? Again to confirm" : "Unpair"
+      text: root.unpairArmed ? "Unpair? Click again to confirm" : "Unpair"
       iconText: Model.GLYPH.close
-      tooltipText: "Forget this device; pair again from it to come back"
+      tooltipText: root.unpairArmed ? "" : "Forget it here; pair again from it to come back"
       foreground: root.unpairArmed ? Color.urgent : root.foreground
       fontFamily: root.fontFamily
       bordered: true
@@ -1303,7 +1331,7 @@ Column {
 
   // Where the screen opens: one of two, as a choice is drawn in Settings
   // (the chosen one filled), with a line on the chosen one.
-  // Where an app's sound plays (#116): one of two, as where the screen opens.
+  // Where an app's sound plays when it opens (#116, #129): one of three.
   component ScreenSoundRow: Column {
     id: ssr
     property var row: ({})
@@ -1351,6 +1379,21 @@ Column {
           fontFamily: root.fontFamily
           fontSize: Style.font.bodySmall
           onClicked: root.appSoundChosen("phone")
+        }
+        // Both (#129): here and on the device, Android 13.
+        Button {
+          readonly property string limit: ssr.row.limits ? ssr.row.limits.both : ""
+          text: "Both"
+          iconText: Model.GLYPH.devices
+          selected: ssr.row.sound === "both"
+          enabled: limit === ""
+          opacity: enabled ? 1 : 0.45
+          tooltipText: limit || "Here and on " + (ssr.row.device || "the device")
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.appSoundChosen("both")
         }
       }
     }
@@ -1628,23 +1671,27 @@ Column {
     }
   }
 
+
+  // What it shares: its glyph, its name and its switch. After the user
+  // turned one on, the step left to them (on the device) shows under it
+  // until it is done; nothing else: no state, no fix here.
   component FeatureRow: CursorSurface {
     id: featureRow
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
-    readonly property bool acts: (row.steps || []).length > 0 || !!row.page
+    readonly property bool switchable: row.switchable === true && row.state !== "away"
     hasCursor: false
     CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
-    implicitHeight: featureContent.implicitHeight + Style.space(12)
+    implicitHeight: featureContent.implicitHeight + Style.space(10)
 
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
-      cursorShape: featureRow.acts ? Qt.PointingHandCursor : Qt.ArrowCursor
+      cursorShape: featureRow.switchable ? Qt.PointingHandCursor : Qt.ArrowCursor
       onEntered: root.hovered(featureRow.rowIndex)
-      onClicked: if (featureRow.acts) root.featureRequested(featureRow.rowIndex)
+      onClicked: if (featureRow.switchable && !featureRow.working) root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
     }
 
     RowLayout {
@@ -1661,57 +1708,26 @@ Column {
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
         text: featureRow.row.glyph || ""
-        color: featureRow.row.state === "on" ? root.foreground : root.dim
+        color: featureRow.row.on === false ? root.dim : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
       }
       ColumnLayout {
         Layout.fillWidth: true
         spacing: Style.space(1)
-        RowLayout {
-          Layout.fillWidth: true
-          spacing: Style.space(10)
-          Text {
-            Layout.fillWidth: true
-            textFormat: Text.PlainText
-            text: featureRow.row.label || ""
-            color: featureRow.row.state === "on" || featureRow.row.state === "attention" || featureRow.row.state === "setup" ? root.foreground : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.body
-            elide: Text.ElideRight
-          }
-          Text {
-            textFormat: Text.PlainText
-            text: featureRow.working ? "Working…" : (featureRow.row.stateLabel || "")
-            color: featureRow.row.state === "attention" ? Color.urgent : root.dim
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
-          }
-        }
         Text {
           Layout.fillWidth: true
-          visible: text !== "" && featureRow.row.state !== "on" && !featureRow.row.pending
           textFormat: Text.PlainText
-          wrapMode: Text.WordWrap
-          text: featureRow.row.detail || featureRow.row.hint || ""
-          color: root.dim
+          text: featureRow.row.label || ""
+          color: featureRow.row.on === false ? root.dim : root.foreground
           font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
         }
-        // What a fix left: the step for the user, then waiting for it (it is
-        // seen when done) or Check again; or that it did not work.
-        Text {
+        // The step left to the user after turning it on, and waiting for it.
+        RowLayout {
           visible: !!featureRow.row.pending
           Layout.fillWidth: true
-          textFormat: Text.PlainText
-          wrapMode: Text.WordWrap
-          text: featureRow.row.pending ? featureRow.row.pending.text : ""
-          color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.caption
-        }
-        RowLayout {
-          visible: !!featureRow.row.pending && featureRow.row.pending.failed !== true
           spacing: Style.space(6)
           WaitRing {
             visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
@@ -1720,73 +1736,23 @@ Column {
             size: Math.round(Style.font.caption * 0.9)
           }
           Text {
-            visible: !!featureRow.row.pending && featureRow.row.pending.wait === true
+            Layout.fillWidth: true
             textFormat: Text.PlainText
-            text: "Waiting for it…"
-            color: root.dim
+            wrapMode: Text.WordWrap
+            text: featureRow.row.pending ? featureRow.row.pending.text : ""
+            color: featureRow.row.pending && featureRow.row.pending.failed ? Color.urgent : root.dim
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
-          }
-          Button {
-            visible: !!featureRow.row.pending && featureRow.row.pending.wait !== true && featureRow.row.pending.failed !== true
-            text: "Check again"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.caption
-            onClicked: root.checkAgainRequested()
-          }
-        }
-        // Its actions, on a line of their own so the name keeps its room.
-        Row {
-          visible: fixButton.visible || aiButton.visible
-          Layout.topMargin: Style.space(4)
-          spacing: Style.space(6)
-          Button {
-            id: fixButton
-            // Not while it waits for the user's step: nothing to press again.
-            visible: !(featureRow.row.pending && featureRow.row.pending.wait === true) && featureRow.acts && ((featureRow.row.state !== "on" && featureRow.row.state !== "off" && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable")
-                                         || featureRow.row.problem === true)
-            // A step on its own page (the screen link's), or a feature with
-            // a page (From anywhere): Set up there.
-            readonly property bool onPage: !!featureRow.row.page || !!((featureRow.row.steps || [])[0] || {}).page
-            text: featureRow.working ? "Working…" : (featureRow.row.state === "attention" ? "Fix" : onPage ? "Set up" : "Turn on")
-            enabled: !featureRow.working
-            tooltipText: (featureRow.row.steps || []).some(function(s) { return s.fix && s.fix.verb === "fix" && s.fix.what !== "restart" })
-              ? "Does every step it can; shows what your password is for before asking for it" : "Does every step it can, then says what is left"
-            bordered: true
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: root.featureRequested(featureRow.rowIndex)
-          }
-          Button {
-            id: aiButton
-            visible: featureRow.row.problem === true && !featureRow.working
-            text: "Fix with AI"
-            tooltipText: root.aiTip
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
-            onClicked: root.fixWithAiRequested("feature", featureRow.rowIndex)
           }
         }
       }
       ToggleSwitch {
-        visible: featureRow.row.switchable === true && featureRow.row.state !== "away" && featureRow.row.state !== "unavailable"
+        visible: featureRow.switchable
         Layout.alignment: Qt.AlignVCenter
         checked: featureRow.row.on !== false
         busy: featureRow.working
         foreground: root.foreground
         onToggled: root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
-      }
-      // A page of its own (From anywhere): the row opens it.
-      Text {
-        visible: !!featureRow.row.page
-        text: Model.GLYPH.chevronRight
-        color: root.dim
-        font.family: root.fontFamily
-        font.pixelSize: Style.font.icon
-        Layout.alignment: Qt.AlignVCenter
       }
     }
   }
