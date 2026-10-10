@@ -3364,9 +3364,12 @@ Panel {
         property var shown: null
         onPlanChanged: if (plan) shown = plan
         z: 12
-        anchors.centerIn: parent
+        x: (parent.width - width) / 2
+        // Centred on the panel, but never above the top of the screen.
+        y: Math.max((parent.height - height) / 2, Style.space(8) - parent.mapToItem(null, 0, 0).y)
         width: Math.min(parent.width - Style.space(32), Style.space(440))
         height: rootColumn.implicitHeight + Style.space(28)
+        readonly property real listRoom: Math.max(Style.space(60), parent.height - Style.space(32) - Style.space(28) - rootColumn.fixedHeight)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
@@ -3377,12 +3380,16 @@ Panel {
 
         Column {
           id: rootColumn
+          // All but the list of actions: the heading, the reason and the
+          // buttons stay in view while a long list scrolls.
+          readonly property real fixedHeight: rootTitle.height + rootWhy.height + rootFooter.height + rootButtons.height + 4 * spacing
           anchors.left: parent.left
           anchors.right: parent.right
           anchors.top: parent.top
           anchors.margins: Style.space(14)
           spacing: Style.space(8)
           Text {
+            id: rootTitle
             width: parent.width
             textFormat: Text.PlainText
             text: "Your password, for this only"
@@ -3392,6 +3399,7 @@ Panel {
             font.bold: true
           }
           Text {
+            id: rootWhy
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
@@ -3400,20 +3408,35 @@ Panel {
             font.family: root.fontFamily
             font.pixelSize: Style.font.bodySmall
           }
-          Repeater {
-            model: rootCard.shown ? rootCard.shown.actions : []
-            Text {
-              required property string modelData
-              width: rootColumn.width
-              textFormat: Text.PlainText
-              wrapMode: Text.Wrap
-              text: "• " + modelData
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
+          Flickable {
+            width: parent.width
+            height: Math.min(rootActions.implicitHeight, rootCard.listRoom)
+            contentHeight: rootActions.implicitHeight
+            clip: true
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            Column {
+              id: rootActions
+              width: parent.width
+              spacing: Style.space(8)
+              Repeater {
+                model: rootCard.shown ? rootCard.shown.actions : []
+                Text {
+                  required property string modelData
+                  width: rootActions.width
+                  textFormat: Text.PlainText
+                  wrapMode: Text.Wrap
+                  text: "• " + modelData
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                }
+              }
             }
           }
           Text {
+            id: rootFooter
             width: parent.width
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
@@ -3423,6 +3446,7 @@ Panel {
             font.pixelSize: Style.font.caption
           }
           Row {
+            id: rootButtons
             anchors.right: parent.right
             spacing: Style.space(6)
             Button {
