@@ -36,6 +36,7 @@ Only your own click or Enter puts the cursor in the reply field.
 | `l` `h` | Into the conversation · back |
 | Enter | Open and reply; on a message: its picture, or copy |
 | `/` · `u` · `n` · `i` | Search · unread · new · reply |
-| PgUp PgDn · Esc | A page · back |
+| PgUp PgDn | A page |
+| Esc · `0` | Back to where you came from · Home |
 
 Setup: [Your devices](../setup/devices.md) · Limits: [What it cannot do](../setup/limits.md)

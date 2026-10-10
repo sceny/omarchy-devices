@@ -824,6 +824,134 @@ test("the panel goes back where it was for five minutes, unless it must open els
   assert.equal(M.placeToResume(null, 2000, {}), null)
 })
 
+const keys = stack => stack.map(e => e.key)
+
+test("navigation: a page pushed goes on the stack, forward; back pops one, from the left", () => {
+  let r = M.navPush([], { key: "contacts" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], 1])
+  r = M.navPush(r.stack, { key: "messages" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts", "messages"], 1])
+  r = M.navPop(r.stack)
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1])
+  r = M.navPop(r.stack)
+  assert.deepEqual([keys(r.stack), r.dir], [[], -1], "the base is left")
+  assert.deepEqual(M.navPop([]).stack, [], "nothing to pop on the base")
+})
+
+test("navigation: a page is in the stack once; going to it again returns to it", () => {
+  const s = [{ key: "contacts", y: 12 }, { key: "messages" }, { key: "settings/root" }]
+  const r = M.navPush(s, { key: "contacts" })
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1], "everything above it goes, like Back")
+  assert.equal(r.stack[0].y, 12, "its view is kept")
+  const same = M.navPush(s, { key: "settings/root" })
+  assert.deepEqual([same.stack, same.dir], [s, 0], "the page already on top: nothing happens")
+  // However the moves go, a page never repeats and depth stays bounded.
+  let st = []
+  const pages = ["contacts", "messages", "apps", "settings/root", "settings/d1", "settings/screen:d1", "contacts", "messages", "settings/root"]
+  for (const k of pages) {
+    st = M.navPush(st, { key: k }).stack
+    assert.equal(new Set(keys(st)).size, st.length, "no page twice after " + k)
+  }
+  assert.deepEqual(keys(st), ["contacts", "messages", "settings/root"], "Contacts returned to, then on again")
+})
+
+test("navigation: replace swaps the top page for its peer; home clears", () => {
+  let r = M.navReplace([{ key: "settings/root" }, { key: "settings/d1" }], { key: "settings/d2" })
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/root", "settings/d2"], 0])
+  r = M.navReplace([], { key: "settings/d1" })
+  assert.deepEqual(keys(r.stack), ["settings/d1"], "on the base it opens the page")
+  r = M.navReplace([{ key: "settings/d1" }, { key: "messages" }], { key: "settings/d1" })
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/d1"], -1], "a peer already below is returned to, not repeated")
+  r = M.navHome([{ key: "contacts" }, { key: "messages" }, { key: "settings/root" }])
+  assert.deepEqual([r.stack, r.dir], [[], -1])
+})
+
+test("navigation: a scripted open starts the stack with the target alone", () => {
+  assert.deepEqual(M.navFresh({ key: "messages" }), { stack: [{ key: "messages" }], dir: 1 })
+  assert.deepEqual(M.navFresh(null), { stack: [], dir: -1 })
+  const r = M.navSettle({ base: "main", stack: [{ key: "contacts" }] }, "messages", "fresh")
+  assert.deepEqual([keys(r.stack), r.dir], [["messages"], 1], "from a contact: back goes to main")
+})
+
+test("navigation: Home shows from depth 2 only", () => {
+  assert.equal(M.homeShown([]), false)
+  assert.equal(M.homeShown([{ key: "contacts" }]), false, "at depth 1 Back is Home")
+  assert.equal(M.homeShown([{ key: "contacts" }, { key: "messages" }]), true)
+  assert.equal(M.navDepth([{ key: "a" }, { key: "b" }, { key: "c" }]), 3)
+  assert.equal(M.HOME_KEY, "0")
+  assert.ok(M.GLYPH.home && M.GLYPH.home !== M.GLYPH.back && M.GLYPH.home !== M.GLYPH.settings)
+})
+
+test("navigation: pages whose feature is gone are skipped on the way back", () => {
+  const s = [{ key: "contacts" }, { key: "messages" }, { key: "apps" }]
+  const r = M.navPop(s, k => k !== "messages")
+  assert.deepEqual(keys(r.stack), ["contacts"], "Messages is gone: back lands on the page below it")
+  assert.deepEqual(keys(M.navPop([{ key: "contacts" }, { key: "messages" }], k => k !== "contacts").stack), [], "and on the base when nothing below remains")
+  assert.deepEqual(keys(M.navPrune(s, k => k !== "apps")), ["contacts", "messages"])
+})
+
+test("navigation: the page asked for decides the move (navSettle)", () => {
+  const at = (base, ...ks) => ({ base, stack: ks.map(key => ({ key })) })
+  let r = M.navSettle(at("main"), "contacts", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], 1], "main -> Contacts is a push")
+  r = M.navSettle(at("main", "contacts"), "messages", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts", "messages"], 1], "Contact -> Text message")
+  r = M.navSettle(at("main", "contacts", "messages"), "contacts", "")
+  assert.deepEqual([keys(r.stack), r.dir], [["contacts"], -1], "Back from messages")
+  r = M.navSettle(at("main", "contacts", "messages"), "main", "")
+  assert.deepEqual([keys(r.stack), r.dir], [[], -1], "Home")
+  r = M.navSettle(at("main", "contacts"), "contacts", "")
+  assert.equal(r.dir, 0, "already there")
+  r = M.navSettle(at("main", "settings/root", "settings/d1"), "settings/d2", "replace")
+  assert.deepEqual([keys(r.stack), r.dir], [["settings/root", "settings/d2"], 0], "a device tab")
+  r = M.navSettle(at("main"), "settings/connection", "")
+  assert.deepEqual(keys(r.stack), ["settings/connection"], "a banner's Fix lands on Diagnostics: no made-up parent")
+  // Several devices: gear -> list -> device page -> Screen and apps.
+  r = M.navSettle(at("main", "settings/root", "settings/d1"), "settings/screen:d1", "")
+  assert.deepEqual(keys(r.stack), ["settings/root", "settings/d1", "settings/screen:d1"])
+  assert.equal(M.homeShown(r.stack), true)
+})
+
+test("navigation: the first run's card is the base, and its next step replaces it", () => {
+  let r = M.navSettle({ base: "settings/ready", stack: [] }, "settings/addDevice", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["settings/addDevice", [], 1], "the card is replaced, not left to come back to")
+  r = M.navSettle({ base: "settings/addDevice", stack: [] }, "settings/connection", "")
+  assert.deepEqual([r.base, keys(r.stack)], ["settings/addDevice", ["settings/connection"]], "Add a device with nothing paired is a base to return to")
+  r = M.navSettle({ base: "settings/addDevice", stack: [] }, "main", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["main", [], -1], "a pairing lands on the device's main page")
+  r = M.navSettle({ base: "settings/addDevice", stack: [{ key: "settings/connection" }] }, "settings/addDevice", "")
+  assert.deepEqual([r.base, r.stack, r.dir], ["settings/addDevice", [], -1], "back to the card")
+})
+
+test("navigation: pages and their flags go both ways", () => {
+  for (const k of ["contacts", "messages", "apps", "settings/root", "settings/d1", "settings/screen:d1", "main"])
+    assert.equal(M.navKey(M.navPlace(k)), k)
+  assert.deepEqual(M.navPlace("settings/screen:d1"), { settingsOpen: true, messagesOpen: false, contactsOpen: false, appsOpen: false, scope: "screen:d1" })
+})
+
+test("navigation: the back arrow names where it goes", () => {
+  const ctx = { single: false, names: { d1: "Pixel 8" } }
+  const label = (stack, base = "main", c = ctx) => M.navBackLabel(stack.map(key => ({ key })), base, c)
+  assert.equal(label(["contacts", "messages"]), "Back to Contacts")
+  assert.equal(label(["contacts"]), "Back")
+  assert.equal(label(["contacts"], "main", { mainName: "Pixel 8" }), "Back to Pixel 8", "with several devices, the device it returns to")
+  assert.equal(label(["settings/root", "settings/d1"]), "Back to Settings")
+  assert.equal(label(["settings/d1", "settings/addDevice"]), "Back to Pixel 8")
+  assert.equal(label(["settings/d1", "settings/addDevice"], "main", { single: true }), "Back to Settings", "with one device, its page is Settings")
+  assert.equal(label(["settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
+  assert.equal(label(["settings/root", "settings/d1", "settings/screen:d1"]), "Back to Pixel 8")
+  assert.equal(label(["settings/connection"], "settings/addDevice"), "Back to Add a device")
+  assert.equal(label(["settings/d1", "settings/reach:d1", "settings/connection"]), "Back to From anywhere")
+})
+
+test("navigation: the stack goes with the place for five minutes", () => {
+  const nav = [{ key: "contacts", y: 0 }, { key: "messages" }]
+  const left = { at: 1000, settingsOpen: false, messagesOpen: true, contactsOpen: false, scope: "root", device: "p1", y: 0, nav }
+  assert.equal(M.placeToResume(left, 1000 + 60000, {}).nav, nav, "within five minutes: Back works through the same stack")
+  assert.equal(M.placeToResume(left, 1000 + M.KEEP_PLACE_MS, {}), null, "after: the base")
+  assert.equal(M.placeToResume(left, 2000, { requested: "p2" }), null, "another device's chip: the base")
+})
+
 test("a pairing asked here counts down KDE Connect's 30 seconds", () => {
   assert.equal(M.pairSecondsLeft(0, 0), 30)
   assert.equal(M.pairSecondsLeft(0, 7400), 23)
