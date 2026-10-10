@@ -165,17 +165,14 @@ Panel {
   // (settingsScope) changes with the page, at the change's midpoint.
   readonly property string targetPage: messagesOpen ? "messages" : contactsOpen ? "contacts" : appsOpen ? "apps" : (settingsOpen ? "settings/" + targetScope : "main")
   readonly property string shownPage: showMessages ? "messages" : showContacts ? "contacts" : showAppsPage ? "apps" : (showSettings ? "settings/" + settingsScope : "main")
-  // Back (the new page from the left) to the main page, and to the Settings
-  // list from one of its pages; forward otherwise.
+  // The way of a lateral move between peers: from one device's page to
+  // another's (the tabs), the way the tabs go. Every other move takes its
+  // direction from the navigation stack (navSettle).
   function directionTo(target) {
-    if (target === "main") return -1
-    // From one device's page to another's (the tabs): the way the tabs go.
-    // Back from Screen and apps to its device's page.
     var from = shownPage.indexOf("settings/") === 0 ? shownPage.slice(9) : "", to = target.indexOf("settings/") === 0 ? target.slice(9) : ""
     var ids = tabDevices.map(function(d) { return String(d.id) })
     if (ids.indexOf(from) >= 0 && ids.indexOf(to) >= 0) return ids.indexOf(to) >= ids.indexOf(from) ? 1 : -1
-    if (from === "screen:" + to) return -1
-    return target === "settings/root" && shownPage.indexOf("settings/") === 0 ? -1 : 1
+    return 1
   }
   // +1 moves forward (the new page comes in from the right), -1 goes back.
   property int pageDirection: 1
@@ -191,6 +188,13 @@ Panel {
     settingsScope = targetScope
   }
 
+  // Back to where the page was scrolled, once it is laid out.
+  function putBackScroll() {
+    var y = restoreY
+    restoreY = 0
+    if (y > 0) Qt.callLater(function() { if (panelFlick) panelFlick.contentY = Math.min(y, Math.max(0, panelFlick.contentHeight - panelFlick.height)) })
+  }
+
   // Land on the target page at once, no transition (the panel opening).
   // Apply first: stopping runs onStopped, which only restarts when the
   // shown page is still behind.
@@ -201,15 +205,127 @@ Panel {
     pageHost.slide = 0
   }
 
-  onTargetPageChanged: {
-    // Leaving the preview runs its own change (previewSwap).
+  // ---- Navigation: one stack of pages above a base (Model.navSettle) ----
+  // The page flags above say which page shows; the stack says how the user got
+  // there, so Back returns to where they came from and Home to the base. A
+  // page change is read from the flags once they have settled, so an opener
+  // that sets several in a row is one move. Only a lateral or scripted open
+  // says so first (navAsk).
+  property string navBase: "main"          // "main", or the first run's card
+  property var nav: []                     // [{ key, y, idx }]: the pages above the base
+  property var navBaseView: ({ y: 0 })     // the base page's scroll, put back by Home and Back
+  property string navHint: ""              // "", "fresh" (scripted open) or "replace" (a tab)
+  property real navLeaveY: 0
+  property int navLeaveIdx: 0
+  property bool navPending: false
+  property real restoreY: 0                // the scroll to put back at the page change's midpoint
+  readonly property bool homeVisible: Model.homeShown(nav)
+  // The back arrow shows on every page above the base; the base has none
+  // (the first run's card closes the panel with Esc).
+  readonly property bool backVisible: nav.length > 0 || navBase === "main"
+  readonly property string backTip: Model.navBackLabel(nav, navBase, navLabelContext())
+  function navLabelContext() {
+    var names = {}
+    pairedDevices.forEach(function(d) { names[String(d.id)] = Model.deviceLabel(d) })
+    return { single: pairedDevices.length === 1, names: names, mainName: manyDevices && device ? Model.deviceLabel(device) : "" }
+  }
+  // A page whose feature or device is gone is skipped on the way back.
+  function navKeyValid(key) {
+    if (key === "messages") return !device || hasTexts(device)
+    if (key === "contacts") return !device || hasCards(device)
+    if (key === "apps") return !!device && appsSetUp(String(device.id))
+    if (key === "settings/root") return pairedDevices.length !== 1
+    if (key.indexOf("settings/") !== 0) return true
+    var scope = key.slice(9)
+    if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
+    return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope)
+  }
+  function navAsk(hint, open) {
+    navHint = hint
+    open()
+    Qt.callLater(navForgetHint)
+  }
+  function navForgetHint() { navHint = "" }
+  function navPruneBelow() {
+    if (nav.length < 2) return
+    var top = nav[nav.length - 1]
+    var kept = Model.navPrune(nav.slice(0, -1), navKeyValid)
+    if (kept.length !== nav.length - 1) nav = kept.concat([top])
+  }
+  function navSettle() {
+    navPending = false
+    var hint = navHint
+    navHint = ""
+    var target = targetPage
+    if (Model.navTopKey(nav, navBase) !== target) {
+      // The page left keeps what to put back: its scroll and row.
+      if (nav.length > 0) nav = nav.slice(0, -1).concat([Object.assign({}, nav[nav.length - 1], { y: navLeaveY, idx: navLeaveIdx })])
+      else navBaseView = { y: navLeaveY, idx: navLeaveIdx }
+    }
+    var r = Model.navSettle({ base: navBase, stack: nav }, target, hint)
+    navBase = r.base
+    nav = r.stack
+    navPruneBelow()
+    var top = nav.length > 0 ? nav[nav.length - 1] : navBaseView
+    restoreY = r.dir < 0 && top && top.y > 0 ? top.y : 0
     if (previewLeaving) return
-    if (targetPage === shownPage && !pageSwap.running) return
+    if (target === shownPage && !pageSwap.running) return
     // Closed, or just opening: nothing to show off, the panel fades in anyway.
     if (!opened) { snapPage(); return }
-    pageDirection = directionTo(targetPage)
+    pageDirection = r.dir !== 0 ? r.dir : directionTo(target)
     pageSwap.restart()
   }
+  onTargetPageChanged: {
+    if (navPending) return
+    // Taken now, before the opener scrolls to the top.
+    navPending = true
+    navLeaveY = panelFlick ? panelFlick.contentY : 0
+    navLeaveIdx = settingsIndex
+    Qt.callLater(navSettle)
+  }
+
+  // Back one page: the page below on the stack. False on the base.
+  function navBack() {
+    if (nav.length === 0) return false
+    var to = Model.navPop(nav, navKeyValid).stack
+    navShow(Model.navTopKey(to, navBase), to.length > 0 ? to[to.length - 1] : navBaseView)
+    return true
+  }
+  // Home: the base, in one move.
+  function goHome() {
+    if (!Model.homeShown(nav)) return
+    navShow(navBase, navBaseView)
+  }
+  // Show a page that is on the stack already: its view is put back, not
+  // opened afresh.
+  function navShow(key, view) {
+    var p = Model.navPlace(key)
+    editing = false
+    replyingTo = ""
+    replyFocused = false
+    composing = false
+    composerFocused = false
+    settingsOpen = p.settingsOpen
+    messagesOpen = p.messagesOpen
+    contactsOpen = p.contactsOpen
+    appsOpen = p.appsOpen
+    if (p.settingsOpen) {
+      iconPicking = false
+      if (p.scope === "root") readAllFeatures()
+      else readScopeDevice(p.scope)
+      targetScope = p.scope
+      settingsIndex = view && view.idx > 0 ? view.idx : 0
+    } else if (p.messagesOpen) {
+      if (sms) sms.start()
+    } else if (p.contactsOpen) {
+      if (contacts) contacts.opened()
+    } else if (p.appsOpen) {
+      if (device) readAppsFor(String(device.id))
+    }
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+  // Esc and the back arrow: back a page; on the base, the panel closes.
+  function backOrClose() { if (!navBack()) close() }
 
   // The card (the panel's box) follows the page's size with an animation.
   // KeyboardPanel is a full-screen layer surface and the card an item inside
@@ -251,6 +367,7 @@ Panel {
         root.applyShownPage()
         pageHost.slide = root.pageDirection * pageSwap.travel
         if (panelFlick) panelFlick.contentY = 0
+        root.putBackScroll()
       }
     }
     ParallelAnimation {
@@ -258,7 +375,7 @@ Panel {
       NumberAnimation { target: pageHost; property: "slide"; to: 0; duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic }
     }
     // A change of mind mid-way (Esc right after opening) lands too.
-    onStopped: if (root.shownPage !== root.targetPage) { root.pageDirection = root.directionTo(root.targetPage); pageSwap.restart() }
+    onStopped: if (root.shownPage !== root.targetPage) pageSwap.restart()
   }
 
   // Leaving the preview (backToSetup): the still of the old page fades and
@@ -369,16 +486,21 @@ Panel {
     if (opened) settleTimer.restart()
     // Where it was, for a reopen within Model.KEEP_PLACE_MS (onOpened): the
     // page the user chose, not a detour the panel took by itself (screenDetour).
-    else if (screenDetour && screenId === screenDetour.id)
-      leftPlace = Object.assign({ at: Date.now(), device: device ? String(device.id) : "" }, screenDetour.from)
+    else if (screenDetour && screenId === screenDetour.id && settingsOpen && nav.length > 0) {
+      // The page below the detour is the place kept, with the stack under it.
+      var kept = nav.slice(0, -1)
+      var below = kept.length > 0 ? kept[kept.length - 1] : navBaseView
+      leftPlace = Object.assign({ at: Date.now(), device: device ? String(device.id) : "", y: below.y || 0, nav: kept },
+                                Model.navPlace(Model.navTopKey(kept, navBase)))
+    }
     else leftPlace = { at: Date.now(), settingsOpen: settingsOpen, messagesOpen: messagesOpen, contactsOpen: contactsOpen, appsOpen: appsOpen, scope: targetScope,
-                       device: device ? String(device.id) : "", y: panelFlick ? panelFlick.contentY : 0 }
+                       device: device ? String(device.id) : "", y: panelFlick ? panelFlick.contentY : 0, nav: nav }
     if (!opened) screenDetour = null
   }
   property var leftPlace: null
   // The panel went to a screen's setup page by itself (the user pressed
-  // Screen and it could not open yet): where the user was, so that is the
-  // place kept when the panel closes there. Gone once the user leaves it.
+  // Screen and it could not open yet): the page below it is the place kept
+  // when the panel closes there. Gone once the user leaves it.
   property var screenDetour: null
   // The page's keyboard cursor, drawn once (CursorGlide, in pageHost).
   property Item cursorGlide: null
@@ -662,9 +784,9 @@ Panel {
       // What was pressed (an app, the screen) opens as soon as it can: set
       // up the first time, or back after a restart; no second click.
       root.screenWaitOpen = String(id)
-      root.screenDetour = { id: String(id), from: { settingsOpen: root.settingsOpen, messagesOpen: root.messagesOpen, contactsOpen: root.contactsOpen,
-                                                    appsOpen: root.appsOpen, scope: root.targetScope,
-                                                    y: panelFlick ? panelFlick.contentY : 0 } }
+      // The page it pushes is a detour, not a place the user chose: closing
+      // there keeps the page below it (onOpenedChanged).
+      root.screenDetour = root.settingsOpen && root.screenId === String(id) ? null : { id: String(id) }
       root.openScreenSetup(id)
     }
     // A place opened: the panel fades out over it (docked, the window is
@@ -1046,17 +1168,19 @@ Panel {
   // With one device Settings' first page is its page: the list is never
   // shown for one (a resume, the demo's devices changing under it).
   function settingsHome(scope) { return scope === "root" && pairedDevices.length === 1 ? String(pairedDevices[0].id) : scope }
+  // A device's page: what it can do and where its screen stands, read now.
+  function readScopeDevice(scope) {
+    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled && screenOnFor(scope)) phone.readScreen(scope) }
+  }
   function openScope(scope) {
     scope = settingsHome(scope)
     targetScope = scope
     settingsIndex = 0
-    // A device's page: what it can do and where its screen stands, read now.
-    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled && screenOnFor(scope)) phone.readScreen(scope) }
+    readScopeDevice(scope)
     iconPicking = false
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
-  // Esc and the back arrow on a device's page or the defaults: to the list.
   // A demo leaves nothing in the settings: entering it keeps a copy of this
   // widget's entry (on the service, shared by every monitor's panel), and
   // leaving it writes that copy back, undoing anything changed meanwhile,
@@ -1164,19 +1288,6 @@ Panel {
     return JSON.stringify(s ? { state: s.state, line: s.line, current: s.steps.filter(function(x) { return x.current }).map(function(x) { return x.key }),
       pairing: s.pairingNote, qr: s.showQr, actions: s.actions.map(function(a) { return a.key }) } : { scope: settingsScope })
   }
-  function settingsBack() {
-    // Screen and apps goes back to its device's page.
-    if (screenId !== "") { openScope(screenId); return true }
-    // One device: its page is Settings' first page.
-    if (pairedDevices.length === 1) {
-      if (editingDevice) return false
-      if (settingsScope !== "root") { openScope(String(pairedDevices[0].id)); return true }
-      return false
-    }
-    if (settingsScope !== "root") { openScope("root"); return true }
-    return false
-  }
-
   // A change to what the page edits: the device's profile on its page, else
   // the flat keys (the defaults).
   function persistScoped(values) {
@@ -1559,7 +1670,7 @@ Panel {
   readonly property bool tabsOnSettings: showSettings && editingDevice && screenId === ""
   function tabAt(i) {
     if (i < 0 || i >= tabDevices.length) return
-    if (tabsOnSettings) openScope(String(tabDevices[i].id))
+    if (tabsOnSettings) navAsk("replace", function() { openScope(String(tabDevices[i].id)) })
     else switchDevice(tabDevices[i].id)
   }
   function tabStep(delta) {
@@ -1804,6 +1915,11 @@ Panel {
     if (appsView) appsView.reset()
     readAppsFor(String(device.id))
   }
+  // For checks (IPC navInfo): the stack, the way back, Home.
+  function navInfo() {
+    return JSON.stringify({ base: navBase, stack: nav.map(function(e) { return e.key }), depth: nav.length, home: homeVisible,
+                            back: backVisible, tip: backTip, target: targetPage, shown: shownPage })
+  }
   // For checks (IPC appsInfo): the section, the page, the cursor.
   function appsInfo() {
     return JSON.stringify({ open: appsOpen, count: allApps.length, state: appList ? appList.state : "",
@@ -1816,11 +1932,8 @@ Panel {
   // The header's button: back from a page, else Settings (its status says
   // what needs the user).
   function headerButton() {
-    if (messagesOpen) closeMessagesView()
-    else if (contactsOpen) closeContactsView()
-    else if (appsOpen) closeAppsView()
-    else if (settingsOpen) { if (!settingsBack()) closeSettings() }
-    else openSettings()
+    if (mainView) openSettings()
+    else navBack()
   }
   function closeAppsView() {
     appsOpen = false
@@ -2353,7 +2466,7 @@ Panel {
   // Middle click on the bar pill: straight to messages.
   function openMessagesFromHotkey() {
     openFromHotkey()
-    openMessagesView(-1)
+    navAsk("fresh", function() { openMessagesView(-1) })
     snapPage()
   }
 
@@ -2379,6 +2492,11 @@ Panel {
     cursorActive = false
     browsedName = ""
     awayWhy = false
+    // Back works through the stack the panel was left with; else the base is
+    // the main page, or the first run's card.
+    navBase = openingScope !== "" ? "settings/" + openingScope : "main"
+    nav = resume && resume.nav && openingScope === "" ? resume.nav : []
+    navBaseView = ({ y: 0 })
     settingsOpen = false
     messagesOpen = false
     contactsOpen = false
@@ -2393,6 +2511,10 @@ Panel {
     else if (resume && resume.contactsOpen) openContactsView()
     else if (resume && resume.appsOpen) openAppsView()
     snapPage()
+    // The stack ends in the page shown (a page the device no longer offers
+    // opens as the base, or alone).
+    if (Model.navTopKey(nav, navBase) !== targetPage) nav = targetPage === navBase ? [] : [{ key: targetPage }]
+    navPruneBelow()
     replyingTo = ""
     replyFocused = false
     composing = false
@@ -2428,16 +2550,22 @@ Panel {
     function ring(): string { if (root.phone) root.phone.ring(); return "ok" }
     function sendFiles(): string { if (root.phone) root.phone.sendFiles(); return "ok" }
     function sendClipboard(): string { if (root.phone) root.phone.sendClipboard(); return "ok" }
-    function messages(): string { var was = root.opened; if (!was) root.openFromHotkey(); root.openMessagesView(-1); if (!was) root.snapPage(); return "ok" }
-    // Scripted: opens the thread but never focuses the composer.
-    function openThread(tid: int): string { var was = root.opened; if (!was) root.openFromHotkey(); root.openMessagesView(tid, false); if (!was) root.snapPage(); return "ok" }
+    function messages(): string { var was = root.opened; if (!was) root.openFromHotkey(); root.navAsk("fresh", function() { root.openMessagesView(-1) }); if (!was) root.snapPage(); return "ok" }
+    // Scripted: opens the thread but never focuses the composer. A scripted
+    // open starts the navigation stack: Back goes to the main page.
+    function openThread(tid: int): string { var was = root.opened; if (!was) root.openFromHotkey(); root.navAsk("fresh", function() { root.openMessagesView(tid, false) }); if (!was) root.snapPage(); return "ok" }
     // Scripted: opens the page (on the card last open, or the one named) but
     // never focuses the search.
-    function contacts(): string { var was = root.opened; if (!was) root.openFromHotkey(); root.openContactsView(); if (!was) root.snapPage(); return "ok" }
-    function openContact(id: string): string { var was = root.opened; if (!was) root.openFromHotkey(); root.openContactsView(id); if (!was) root.snapPage(); return "ok" }
+    function contacts(): string { var was = root.opened; if (!was) root.openFromHotkey(); root.navAsk("fresh", function() { root.openContactsView() }); if (!was) root.snapPage(); return "ok" }
+    function openContact(id: string): string { var was = root.opened; if (!was) root.openFromHotkey(); root.navAsk("fresh", function() { root.openContactsView(id) }); if (!was) root.snapPage(); return "ok" }
     function contactsInfo(): string { return root.contactsInfo() }
     function forgetLastContact(): string { root.lastContacts = ({}); return "ok" }
-    // For checking the transitions: open a page as a click would.
+    // The navigation stack as page keys, for checks: the base, the pages above
+    // it, whether Home shows, and where the back arrow goes.
+    function navInfo(): string { return root.navInfo() }
+    function goHome(): string { root.goHome(); return root.navInfo() }
+    function goBack(): string { root.backOrClose(); return root.navInfo() }
+    // For checking the transitions: open a page as a click would (a push).
     function page(name: string): string {
       if (name === "settings") root.openSettings()
       else if (name === "connection") root.openConnection()
@@ -2954,10 +3082,10 @@ Panel {
         else if (root.soundTarget) root.closeSoundCard()
         else if (root.pageMenuOpen) root.closePageMenu()
         else if (root.editing) root.cancelEditing()
-        else if (root.messagesOpen) { if (!messagesView.goBack()) root.closeMessagesView() }
-        else if (root.contactsOpen) { if (!contactsView.goBack()) root.closeContactsView() }
-        else if (root.appsOpen) { if (!appsView.goBack()) root.closeAppsView() }
-        else if (root.settingsOpen) { if (!root.settingsBack()) root.closeSettings() }
+        else if (root.messagesOpen) { if (!messagesView.goBack()) root.backOrClose() }
+        else if (root.contactsOpen) { if (!contactsView.goBack()) root.backOrClose() }
+        else if (root.appsOpen) { if (!appsView.goBack()) root.backOrClose() }
+        else if (root.settingsOpen) root.backOrClose()
         else root.close()
       }
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -2998,6 +3126,8 @@ Panel {
       }
       onTextKey: function(t) {
         if (root.soundTarget) { if (t === "m" && root.soundCard && root.soundCard.volume) root.soundMute(); return }
+        // Home: the start, from two pages deep. Esc never means Home.
+        if (t === Model.HOME_KEY) { root.goHome(); return }
         if (root.contactsOpen) {
           if (!contactsView) return
           if (t === "/") contactsView.focusSearch()
@@ -4059,10 +4189,24 @@ Panel {
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
                 }
+                // Home, from two pages deep: left of the back arrow, which
+                // stays where it is. It fades in and out; it takes no room
+                // while absent.
                 PanelActionButton {
-                  visible: !(root.showMain && root.manyDevices)
+                  opacity: root.homeVisible ? 1 : 0
+                  visible: opacity > 0
+                  enabled: root.homeVisible
+                  Behavior on opacity { NumberAnimation { duration: (root.homeVisible ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+                  iconText: Model.GLYPH.home
+                  tooltipText: "Home (" + Model.HOME_KEY + ")"
+                  foreground: root.foreground
+                  fontFamily: root.fontFamily
+                  onClicked: root.goHome()
+                }
+                PanelActionButton {
+                  visible: !(root.showMain && root.manyDevices) && root.backVisible
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? "Back" : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
+                  tooltipText: !root.showMain ? root.backTip : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
