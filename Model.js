@@ -2672,6 +2672,11 @@ var BAR_PLACES = ["always", "attention", "never", "own"]
 
 function plainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v) }
 
+// A stored list as a real array. A list read back from shell.json after a
+// restart is a QML list object, for which Array.isArray is false.
+function isList(v) { return !!v && typeof v === "object" && typeof v.length === "number" }
+function asList(v) { return isList(v) ? Array.prototype.slice.call(v) : [] }
+
 // The widget's entry as the rest of the plugin reads it: { defaults,
 // devices, order, raw }. `defaults` holds every profile setting, cleaned;
 // `devices` maps an id to its stored profile (identity and changes);
@@ -2682,9 +2687,10 @@ function readSettings(entry) {
   for (var key in PROFILE_SETTINGS) defaults[key] = PROFILE_SETTINGS[key](e[key])
   var devices = plainObject(e.devices) ? e.devices : {}
   var order = []
-  if (Array.isArray(e.deviceOrder)) {
-    for (var i = 0; i < e.deviceOrder.length; i++) {
-      var id = String(e.deviceOrder[i] || "")
+  if (isList(e.deviceOrder)) {
+    var stored = asList(e.deviceOrder)
+    for (var i = 0; i < stored.length; i++) {
+      var id = String(stored[i] || "")
       if (id && order.indexOf(id) < 0) order.push(id)
     }
   } else if (e.deviceId) {

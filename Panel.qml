@@ -867,7 +867,7 @@ Panel {
   function setAppPlatform(p) { persistSettings({ appPlatform: p === "ios" ? "ios" : undefined }) }
   readonly property var ignoredChecks: {
     var v = setting("ignoredChecks", [])
-    return Array.isArray(v) ? v : []
+    return Model.asList(v)
   }
   readonly property var setupChecks: phone ? phone.setupChecks : []
   readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
@@ -967,7 +967,7 @@ Panel {
   // Kept with the settings, written on the close only.
   readonly property var closedProblems: {
     var v = setting("closedProblems", [])
-    return Array.isArray(v) ? v : []
+    return Model.asList(v)
   }
   function problemId(p) { return Model.problemId(p) }
   // The page open, as the entries name it (Model.FEATURES `entries`).
@@ -1423,7 +1423,7 @@ Panel {
   // written for demo devices (made-up ids) are removed.
   function forgetDemoProfiles() {
     var devs = settings && settings.devices && typeof settings.devices === "object" ? settings.devices : {}
-    var order = settings && Array.isArray(settings.deviceOrder) ? settings.deviceOrder : null
+    var order = settings && settings.deviceOrder !== undefined ? Model.asList(settings.deviceOrder) : null
     var demoIds = Object.keys(devs).filter(function(k) { return k.indexOf("demo") === 0 })
     var orderHasDemo = !!order && order.some(function(k) { return String(k).indexOf("demo") === 0 })
     var emptyLeft = (settings && settings.devices !== undefined && Object.keys(devs).length === 0) || (!!order && order.length === 0)

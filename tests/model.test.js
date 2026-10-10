@@ -376,6 +376,16 @@ test("today's settings are read as the defaults, and nothing new is invented", (
   assert.deepEqual(M.readSettings({ deviceOrder: ["a", "a", "", "b"], deviceId: "z" }).order, ["a", "b"], "a stored order wins over deviceId")
 })
 
+test("a list read back from shell.json after a restart is still a list", () => {
+  const qmlList = (items) => ({ length: items.length, ...Object.fromEntries(items.map((x, i) => [i, x])) })
+  assert.deepEqual(M.asList(qmlList(["a", "b"])), ["a", "b"])
+  assert.deepEqual(M.asList(["a"]), ["a"])
+  assert.deepEqual(M.asList(undefined), [])
+  assert.deepEqual(M.asList("ab"), [])
+  assert.deepEqual(M.asList({}), [])
+  assert.deepEqual(M.readSettings({ deviceOrder: qmlList(["a", "b"]), deviceId: "z" }).order, ["a", "b"])
+})
+
 test("device order: stored first, then the rest with the connected ones first", () => {
   const s = M.readSettings({ deviceOrder: ["gone", "t1"] })
   const snapshot = snap(device({ id: "x", reachable: false }), phone(), tablet(), device({ id: "u", paired: false }))
