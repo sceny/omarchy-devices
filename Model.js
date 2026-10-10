@@ -1675,6 +1675,11 @@ var GATEWAYS = [
 
 var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", contacts: "contacts", phone: "phone and call log", storage: "all files access" }
 
+// entries: where the user reaches the feature, by kind: the main page's
+// sections (header), shortcut tiles, and pages (their header). A problem
+// marks every one of them (problemMarks) and an action on one asks to fix it
+// first (problemForEntry): a new feature gets both from here, with no branch
+// of its own. ping and kdeconnect work without the feature's link, so none.
 // needs: the setup items it uses; switch: the items its switch turns off,
 // only its own (a shared one, such as notification access, never). page:
 // its own page (Fix all leaves it to the user unless it broke). shared:
@@ -1682,29 +1687,42 @@ var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", conta
 // device shares; it is asked on the away card. onDetail: the item whose detail its row shows when on.
 var FEATURES = [
   { key: "notifications", label: "Notifications", glyph: GLYPH.bell, hint: "Its notifications here, with reply",
-    needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"] },
+    needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"],
+    entries: { sections: ["notifications"], shortcuts: [], pages: [] } },
   { key: "messages", label: "Messages", glyph: GLYPH.messages, hint: "Every conversation, read and send",
-    needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"] },
+    needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"],
+    entries: { sections: [], shortcuts: ["messages"], pages: ["messages"] } },
   { key: "names", label: "Contacts", glyph: GLYPH.contacts, hint: "Its contacts here, and names for numbers",
-    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"] },
+    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"],
+    entries: { sections: [], shortcuts: ["contacts"], pages: ["contacts", "messages"] } },
   { key: "media", label: "Now playing", glyph: GLYPH.music, hint: "What it plays, with controls",
-    needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"] },
+    needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"],
+    entries: { sections: ["media"], shortcuts: ["playPause"], pages: [] } },
   { key: "calls", label: "Calls", glyph: GLYPH.callRing, hint: "Who is calling, and missed calls",
-    needs: ["link", "plugin:telephony", "permission:phone"], switch: ["plugin:telephony"] },
+    needs: ["link", "plugin:telephony", "permission:phone"], switch: ["plugin:telephony"],
+    entries: { sections: [], shortcuts: [], pages: [] } },
   // Its own row: who is calling comes from KDE Connect and needs no
   // Bluetooth; answering here needs Bluetooth and no KDE Connect.
   { key: "callsHere", label: "Calls here", glyph: GLYPH.callsHere, hint: "Answer and make calls with the audio on this computer",
-    needs: ["own:callsHere", "bt:adapter", "bt:handsfree", "bt:phone"], switch: ["own:callsHere"] },
+    needs: ["own:callsHere", "bt:adapter", "bt:handsfree", "bt:phone"], switch: ["own:callsHere"],
+    entries: { sections: [], shortcuts: [], pages: [] } },
   { key: "gallery", label: "Gallery", glyph: GLYPH.picture, hint: "Its newest photos and videos",
-    needs: ["link", "plugin:sftp", "package:sshfs", "permission:storage", "health:mount"], switch: ["plugin:sftp"] },
-  { key: "share", label: "Files", glyph: GLYPH.sendFile, hint: "Send files both ways", needs: ["link", "plugin:share"], switch: ["plugin:share"] },
-  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, hint: "Shared clipboard", needs: ["link", "plugin:clipboard"], switch: ["plugin:clipboard"] },
-  { key: "ring", label: "Ring", glyph: GLYPH.ring, hint: "Ring it, even on silent", needs: ["link", "plugin:findmyphone"], switch: ["plugin:findmyphone"] },
-  { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"] },
+    needs: ["link", "plugin:sftp", "package:sshfs", "permission:storage", "health:mount"], switch: ["plugin:sftp"],
+    entries: { sections: ["photos"], shortcuts: [], pages: [] } },
+  { key: "share", label: "Files", glyph: GLYPH.sendFile, hint: "Send files both ways", needs: ["link", "plugin:share"], switch: ["plugin:share"],
+    entries: { sections: ["received"], shortcuts: ["share", "text"], pages: [] } },
+  { key: "clipboard", label: "Clipboard", glyph: GLYPH.clipboard, hint: "Shared clipboard", needs: ["link", "plugin:clipboard"], switch: ["plugin:clipboard"],
+    entries: { sections: [], shortcuts: ["clipboard"], pages: [] } },
+  { key: "ring", label: "Ring", glyph: GLYPH.ring, hint: "Ring it, even on silent", needs: ["link", "plugin:findmyphone"], switch: ["plugin:findmyphone"],
+    entries: { sections: [], shortcuts: ["ring"], pages: [] } },
+  { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"],
+    entries: { sections: [], shortcuts: [], pages: [] } },
   { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, hint: "Its screen and apps in windows here",
-    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"], onDetail: "screen" },
+    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"], onDetail: "screen",
+    entries: { sections: ["apps"], shortcuts: ["screen"], pages: ["apps", "screen"] } },
   { key: "reach", label: "From anywhere", glyph: GLYPH.anywhere, hint: "Reach it on any network, through a mesh such as Tailscale",
-    needs: ["mesh", "reach:mesh"], switch: [], page: "reach", shared: false, onDetail: "reach:mesh" }
+    needs: ["mesh", "reach:mesh"], switch: [], page: "reach", shared: false, onDetail: "reach:mesh",
+    entries: { sections: [], shortcuts: [], pages: ["reach"] } }
 ]
 
 // One word for each state, everywhere.
@@ -2663,6 +2681,11 @@ var BAR_PLACES = ["always", "attention", "never", "own"]
 
 function plainObject(v) { return !!v && typeof v === "object" && !Array.isArray(v) }
 
+// A stored list as a real array. A list read back from shell.json after a
+// restart is a QML list object, for which Array.isArray is false.
+function isList(v) { return !!v && typeof v === "object" && typeof v.length === "number" }
+function asList(v) { return isList(v) ? Array.prototype.slice.call(v) : [] }
+
 // The widget's entry as the rest of the plugin reads it: { defaults,
 // devices, order, raw }. `defaults` holds every profile setting, cleaned;
 // `devices` maps an id to its stored profile (identity and changes);
@@ -2673,9 +2696,10 @@ function readSettings(entry) {
   for (var key in PROFILE_SETTINGS) defaults[key] = PROFILE_SETTINGS[key](e[key])
   var devices = plainObject(e.devices) ? e.devices : {}
   var order = []
-  if (Array.isArray(e.deviceOrder)) {
-    for (var i = 0; i < e.deviceOrder.length; i++) {
-      var id = String(e.deviceOrder[i] || "")
+  if (isList(e.deviceOrder)) {
+    var stored = asList(e.deviceOrder)
+    for (var i = 0; i < stored.length; i++) {
+      var id = String(stored[i] || "")
       if (id && order.indexOf(id) < 0) order.push(id)
     }
   } else if (e.deviceId) {
@@ -3011,8 +3035,15 @@ function settingsPageRows(ctx) {
 function settingsProblems(checks, ignored, devices) {
   var out = []
   connectionRows(checks, ignored).forEach(function(c) {
-    if (!c.ok && !c.optional && !c.ignored)
-      out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : ""), steps: [] })
+    if (c.ok || c.optional || c.ignored) return
+    // The features behind a package check, on any device where they are on.
+    var affects = []
+    ;(devices || []).forEach(function(d) {
+      ;(d.rows || []).forEach(function(r) {
+        if (r.needs.indexOf("package:" + c.key) >= 0 && r.state !== "off" && r.state !== "unavailable" && affects.indexOf(r.key) < 0) affects.push(r.key)
+      })
+    })
+    out.push({ where: "computer", whereLabel: "This computer", key: c.key, label: c.label, detail: c.status + (c.detail ? ": " + c.detail : ""), steps: [], affects: affects })
   })
   ;(devices || []).forEach(function(d) {
     var rows = d.rows || [], setup = d.setup || { items: [] }
@@ -3062,22 +3093,79 @@ function problemsLine(problems) {
   return n === 0 ? "Everything works" : n === 1 ? "1 thing needs you" : n + " things need you"
 }
 
-// ---- Where a feature shows: an ask or a problem in its own section ----
-// The main page says what a feature needs where that feature shows
-// (docs/design/setup.md): the one step only the user can do, or that it
-// stopped. A feature with no section of its own shows in the line at the top.
-// (Now playing's one need, notification access, is the Notifications
-// section's ask; the gallery says its own in its section. Messages and the
-// names in it: the Messages page.)
-var FEATURE_SECTIONS = { notifications: "notifications", gallery: "photos", screen: "apps", messages: "messages", names: "messages" }
+// ---- Where a feature shows: its entry points ----
+// A feature is reached from its entries (FEATURES `entries`: sections,
+// shortcut tiles, pages). A problem on the feature marks each of them with a
+// dot, and the card for it sits in one place at the top of the main page
+// (docs/design/setup.md). An ask (a permission to allow) is said where the
+// feature is used.
+var ENTRY_KINDS = { section: "sections", shortcut: "shortcuts", page: "pages" }
 
-// What a section says about its features, or null. `rows`: the device's
-// feature rows (with `problem` and `pending`). A problem: it worked and
-// stopped (Fix runs the plugin's steps, when it has any). An ask: something
-// it needs that one click here does (a permission over adb), or the step
-// left on the device, waited for.
+// The features reached from an entry (`kind`: section, shortcut, page).
+function entryFeatures(kind, key) {
+  var list = ENTRY_KINDS[kind]
+  if (!list) return []
+  return FEATURES.filter(function(f) { return ((f.entries || {})[list] || []).indexOf(key) >= 0 }).map(function(f) { return f.key })
+}
+
+function problemId(p) { return String(p.where) + ":" + String(p.key) }
+
+function problemOnDevice(p, deviceId) {
+  return deviceId === undefined || deviceId === null || p.where === "computer" || p.where === String(deviceId)
+}
+
+// The first problem on a feature of this device, or null.
+function problemFor(problems, feature, deviceId) {
+  var list = problems || []
+  for (var i = 0; i < list.length; i++) {
+    if ((list[i].affects || []).indexOf(feature) >= 0 && problemOnDevice(list[i], deviceId)) return list[i]
+  }
+  return null
+}
+
+// The first problem on any feature behind an entry, or null.
+function problemForEntry(problems, kind, key, deviceId) {
+  var features = entryFeatures(kind, key)
+  for (var i = 0; i < features.length; i++) {
+    var p = problemFor(problems, features[i], deviceId)
+    if (p) return p
+  }
+  return null
+}
+
+// The dots to draw on this device's page: { sections, shortcuts, pages },
+// each a set of entry keys (closed card or not).
+function problemMarks(problems, deviceId) {
+  var marks = { sections: {}, shortcuts: {}, pages: {} }
+  FEATURES.forEach(function(f) {
+    if (!problemFor(problems, f.key, deviceId)) return
+    Object.keys(ENTRY_KINDS).forEach(function(kind) {
+      var list = ENTRY_KINDS[kind]
+      ;((f.entries || {})[list] || []).forEach(function(k) { marks[list][k] = true })
+    })
+  })
+  return marks
+}
+
+// The card at the top of the main page: the first problem not closed, with
+// how many more wait (Settings' status lists them). The viewed device's
+// first, then this computer's, then the others'. `closed`: ids closed.
+function problemCard(problems, closed, deviceId) {
+  var open = (problems || []).filter(function(p) { return (closed || []).indexOf(problemId(p)) < 0 })
+  var rank = function(p) { return p.where === String(deviceId) ? 0 : p.where === "computer" ? 1 : 2 }
+  open = open.map(function(p, i) { return { p: p, i: i } })
+    .sort(function(a, b) { return rank(a.p) - rank(b.p) || a.i - b.i }).map(function(x) { return x.p })
+  return open.length === 0 ? null : { problem: open[0], more: open.length - 1 }
+}
+
+// What a section (or page) says about its features, or null. `rows`: the
+// device's feature rows (with `problem` and `pending`). A problem: it worked
+// and stopped (a plain line: the card at the top has its Fix). An ask:
+// something it needs that one click here does (a permission over adb), or the
+// step left on the device, waited for.
 function sectionNote(rows, section) {
-  var mine = (rows || []).filter(function(r) { return FEATURE_SECTIONS[r.key] === section && r.on !== false })
+  var keys = entryFeatures("section", section).concat(entryFeatures("page", section))
+  var mine = (rows || []).filter(function(r) { return keys.indexOf(r.key) >= 0 && r.on !== false })
   for (var i = 0; i < mine.length; i++) {
     var r = mine[i]
     if (r.problem) return { kind: "problem", key: r.key, label: r.label, text: r.pending && r.pending.failed ? r.pending.text : (r.detail || "It stopped working"),
@@ -3093,15 +3181,6 @@ function sectionNote(rows, section) {
       return { kind: "ask", key: a.key, label: a.label, text: a.detail, waiting: false, fix: true, row: a }
   }
   return null
-}
-
-// The problems the line at the top of the main page shows: those with no
-// section drawn to say them (this computer's, a link, a feature without a
-// section of its own).
-function bannerProblems(problems, drawn) {
-  return (problems || []).filter(function(p) {
-    return !(p.affects || []).some(function(k) { return !!FEATURE_SECTIONS[k] && (drawn || []).indexOf(FEATURE_SECTIONS[k]) >= 0 })
-  })
 }
 
 // ---- The first run: this computer made ready in one step ----
