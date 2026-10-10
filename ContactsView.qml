@@ -624,21 +624,39 @@ Item {
       anchors.rightMargin: Style.space(8)
       spacing: Style.space(10)
 
-      // The list keeps to the initial: a picture per row is a decode per
-      // row, and the card already shows the face.
+      // The face as the card draws it, smaller: the picture the bridge
+      // wrote from the decoded pixels, a rounded tile, the initial in its
+      // circle until it is ready or when there is none. Only the rows in
+      // view load one, at the size they show it.
       Rectangle {
+        id: rowFace
+        readonly property string photo: String(row.model.photo || "")
+        readonly property bool shown: photo !== "" && rowFaceImage.status === Image.Ready
         Layout.preferredWidth: Style.space(32)
         Layout.preferredHeight: Style.space(32)
-        radius: width / 2
+        radius: rowFace.shown ? Style.cornerRadius : width / 2
         color: Style.selectedFillFor(view.foreground, Color.accent)
+        clip: true
         Text {
           anchors.centerIn: parent
+          visible: !rowFace.shown
           textFormat: Text.PlainText
           text: row.model.initial
           color: view.foreground
           font.family: view.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
+        }
+        Image {
+          id: rowFaceImage
+          anchors.fill: parent
+          visible: rowFace.shown
+          source: rowFace.photo !== "" ? "file://" + encodeURI(rowFace.photo) : ""
+          fillMode: Image.PreserveAspectCrop
+          sourceSize.width: Style.space(32) * 2
+          sourceSize.height: Style.space(32) * 2
+          asynchronous: true
+          smooth: true
         }
       }
 
