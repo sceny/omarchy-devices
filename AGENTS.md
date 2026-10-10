@@ -222,7 +222,22 @@ Keep them; change one only with the owner.
   AI*); with one device its page carries Add a device. This computer is
   not on it: its checks are a diagnostics page reached from a problem it
   causes. Folds go one level deep; anything deeper is a page, with its
-  back arrow.
+  back arrow (a page on the stack).
+- **Pages form one stack; Back returns to where the user came from**
+  (`Model.navPush`, `navPop`, `navHome`, `navReplace`, `navSettle`; the
+  panel's `nav` above its base, the main page or the first run's card).
+  Opening a page from another pushes it; Esc and the back arrow pop it and
+  put its scroll and row back; a page is never twice in the stack (opening
+  one already below returns to it). The tabs and a scripted open (IPC
+  `openThread`, `openContact`, `messages`, `contacts`, the bar's click)
+  replace or start the stack, so Back goes to the main page. Home (`0`, left of the back arrow, tooltip
+  *Home (0)*) shows from two pages deep, fades at `Model.MOTION`, and goes
+  to the base in one move; Esc never goes Home and never closes the panel
+  except from the base. The stack lives in memory with the place kept for
+  five minutes (`Model.KEEP_PLACE_MS`). A new page opens through the
+  existing page flags; it needs no parent of its own. Pop and Home slide
+  the new page in from the left, a push from the right. Check with IPC
+  `navInfo`, `goBack`, `goHome`.
 - **Each device's settings are its own** (`docs/design/multi-device.md`):
   a device's page (tabs to the others' pages) edits its nickname, icon,
   and with two or more devices its place in the bar, tab, and any group

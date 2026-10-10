@@ -37,7 +37,8 @@ files and the clipboard.
 | `j` `k` · Enter | Move · activate (Shift+Enter: an app popped out) |
 | `a` | All apps |
 | `r` · `x` | Reply to · dismiss a notification |
-| `s` · `E` · Esc | Settings · edit the page · back |
+| `s` · `E` · Esc | Settings · edit the page · back to where you came from |
+| `0` | Home, from two pages deep |
 
 ## Sets itself up
 

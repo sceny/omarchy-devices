@@ -30,6 +30,7 @@ five minutes; `r` asks again. Away, the cards already here still read, and
 | `j` `k` · `g` `G` | Move · first, last |
 | `l` `h` | Into the card · back |
 | Enter | Open a card; on a detail: *Message* on a number, open an email, address or website, else copy |
-| `/` · `r` · Esc | Search · read again · back |
+| `/` · `r` | Search · read again |
+| Esc · `0` | Back to where you came from · Home |
 
 Setup: [Your devices](../setup/devices.md) · Limits: [What it cannot do](../setup/limits.md)

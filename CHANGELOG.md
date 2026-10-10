@@ -10,6 +10,13 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Back goes where you came from**: the pages form one stack. Esc and the
+  back arrow return to the page you left (a text started on a contact goes
+  back to that contact, with its scroll and row), the arrow's tooltip says
+  where (*Back to Contacts*), and a new **Home** button (`0`) fades in
+  from two pages deep and goes to the main page. Close and reopen within
+  five minutes and Back still goes to the previous page.
+
 - **Contacts**: the phone's address book in the panel, two panes like
   Messages: a searchable list, each person with their photo, and the full
   card (numbers, emails, addresses, websites, birthday, note, photo).
