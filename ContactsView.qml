@@ -81,7 +81,16 @@ Item {
 
   function openApp() {
     if (!contacts || !contacts.hasApp) return
-    if (!contacts.openApp()) return
+    if (!contacts.openApp("")) return
+    appOpened()
+  }
+
+  // The open card in this computer's contacts app, where it can be: a
+  // window the user goes on in (to change it), so the panel closes too.
+  readonly property var cardFind: contacts ? Model.contactFind(contacts.app, contacts.openCard) : ({ label: "", note: "" })
+  function findCard() {
+    if (!contacts || cardFind.label === "") return
+    if (!contacts.openApp(contacts.openTitle)) return
     appOpened()
   }
 
@@ -272,11 +281,12 @@ Item {
             fontFamily: view.fontFamily
           }
           // This computer's own contacts app, when it has one: the cards here
-          // are read-only, so a change is made there or on the device.
+          // are read-only, so a change is made there or on the device. It
+          // holds its account's contacts only, and its tooltip says so.
           PanelActionButton {
             visible: !!view.contacts && view.contacts.hasApp
             iconText: Model.GLYPH.openIn
-            tooltipText: view.contacts && view.contacts.hasApp ? "Open " + view.contacts.appName : ""
+            tooltipText: view.contacts ? Model.contactsAppHint(view.contacts.app, view.contacts.cards) : ""
             foreground: view.foreground
             fontFamily: view.fontFamily
             onClicked: view.openApp()
@@ -551,6 +561,28 @@ Item {
               font.pixelSize: Style.font.caption
               elide: Text.ElideRight
             }
+            // A card no account syncs: no contacts app has it, so this says
+            // why there is no button to find it there.
+            Text {
+              Layout.fillWidth: true
+              visible: text !== ""
+              textFormat: Text.PlainText
+              text: view.cardFind.note
+              color: view.faint
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+              elide: Text.ElideRight
+            }
+          }
+
+          PanelActionButton {
+            visible: view.cardFind.label !== ""
+            Layout.alignment: Qt.AlignTop
+            iconText: Model.GLYPH.openIn
+            tooltipText: view.cardFind.label
+            foreground: view.foreground
+            fontFamily: view.fontFamily
+            onClicked: view.findCard()
           }
         }
 
