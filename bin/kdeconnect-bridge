@@ -11,15 +11,17 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge watch                          snapshot per line, until killed
   kdeconnect-bridge snapshot                       one snapshot, then exit
   kdeconnect-bridge ring <device>
-  kdeconnect-bridge ping <device> [message]       a message shows in the notification
+  Text a person wrote (a message, a link, a number) is read from stdin, never
+  from the command line, which any local process can read:
+  kdeconnect-bridge ping <device>                 stdin: a message to show in the notification
   kdeconnect-bridge clipboard <device>
   kdeconnect-bridge share <device> [path...]       no paths: open the file chooser
-  kdeconnect-bridge text <device> <text>           lands on the device's clipboard
-  kdeconnect-bridge url <device> <url>             opens on the device
-  kdeconnect-bridge dial <device> <number>         the device's dialer, ready to call
+  kdeconnect-bridge text <device>                    stdin: the text; lands on the device's clipboard
+  kdeconnect-bridge url <device>                     stdin: the link; opens on the device
+  kdeconnect-bridge dial <device>                    stdin: the number; the device's dialer, ready
   kdeconnect-bridge media <device> <PlayPause|Next|Previous>
   kdeconnect-bridge dismiss <device> <notification>
-  kdeconnect-bridge reply <device> <replyId> <message>
+  kdeconnect-bridge reply <device> <replyId>         stdin: the message
   kdeconnect-bridge action <device> <notification> <action>
   kdeconnect-bridge pair|accept|reject|unpair <device>
   kdeconnect-bridge photos <device> [count]        the newest photos and screenshots on
@@ -1242,6 +1244,17 @@ def pick_files(title):
     return [p for p in out.stdout.splitlines() if p], ""
 
 
+def read_private():
+    """The text a verb carries, from stdin: argv is readable by any local
+    process (/proc/<pid>/cmdline), stdin is not. A terminal has no text."""
+    if sys.stdin is None or sys.stdin.isatty():
+        return ""
+    try:
+        return sys.stdin.read()
+    except (OSError, ValueError):
+        return ""
+
+
 def act(argv):
     if len(argv) < 2:
         return say(__doc__.strip(), EXIT_FAILED)
@@ -1265,7 +1278,7 @@ def act(argv):
 
         if verb == "ping":
             # sendPing is overloaded: no argument, or a message to show.
-            message = " ".join(rest).strip()
+            message = read_private().strip()
             if message:
                 call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing",
                      (message,), "(s)")
@@ -1274,7 +1287,7 @@ def act(argv):
             return say("Pinged %s" % device_name(conn, device_id))
 
         if verb in ("text", "url"):
-            value = " ".join(rest)
+            value = read_private()
             if not value.strip():
                 return say("Nothing to send", EXIT_CANCELLED)
             if verb == "url":
@@ -1289,12 +1302,12 @@ def act(argv):
             # A tel: link: the phone opens its dialer on the number (or, from
             # the background, offers to in a notification). The call itself is
             # the user's tap on the phone.
-            number = re.sub(r"[^\d+*#]", "", " ".join(rest))
+            number = re.sub(r"[^\d+*#]", "", read_private())
             if not number:
                 return say("No number to call", EXIT_CANCELLED)
             call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
                  ("tel:" + number,), "(s)")
-            return say("%s offers to call %s" % (device_name(conn, device_id), number))
+            return say("%s offers to call back" % device_name(conn, device_id))
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")
@@ -1333,7 +1346,7 @@ def act(argv):
             return say("Dismissed")
 
         if verb == "reply":
-            reply_id, message = rest[0], " ".join(rest[1:]).strip()
+            reply_id, message = rest[0], read_private().strip()
             if not message:
                 return say("Empty reply", EXIT_CANCELLED)
             call(conn, dpath + "/notifications", IFACE + ".device.notifications",

@@ -6,6 +6,24 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.1 — 2026-10-10
+
+### Highlights
+
+- **Private text stays off command lines**: a reply to a notification, a
+  text or link sent to the phone, a ping's message and a number to call back
+  reach the plugin's helper over stdin, never as command-line arguments,
+  which any local process can read.
+
+### Issues
+
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review of 0.8.0: a notification reply's text was a command-line argument
+
+### Upgrading
+
+- Nothing in your settings changes. The call-back notice no longer repeats
+  the number.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights
