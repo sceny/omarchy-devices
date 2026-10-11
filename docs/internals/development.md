@@ -143,3 +143,5 @@ See [Screenshots](screenshots.md): demo data only.
 `develop` through pull requests, CI green and checked in the rig. A
 release merges `develop` into `main`; the `release` workflow tags it and
 publishes the notes from [CHANGELOG.md](../../CHANGELOG.md).
+The checks that close a release, and the owner's go, are in
+[Releasing](releasing.md).

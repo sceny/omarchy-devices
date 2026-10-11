@@ -98,6 +98,7 @@ needs Wireless debugging, which you pair and can revoke:
 [How it works](docs/internals/how-it-works.md) ·
 [Messages and media](docs/internals/messages-and-media.md) ·
 [Development](docs/internals/development.md) ·
+[Releasing](docs/internals/releasing.md) ·
 [Screenshots](docs/internals/screenshots.md)
 
 ## Testing the plugin
