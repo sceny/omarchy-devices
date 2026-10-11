@@ -644,7 +644,8 @@ Keep them; change one only with the owner.
   throwaway plugin folder (`dev/rig sync`), so a branch is checked without
   touching the installed copy.
 - **An urgent fix for users** is a branch from `main` with a pull request
-  into `main`, only while `main` is not frozen (*Releasing*, step 5);
+  into `main`, only while `main` is not frozen (*Releasing*, step 5) and
+  only after the owner's go (*Releasing*, step 1d);
   afterwards merge `main` into `develop`.
 - **Instruction docs state what to do.** AGENTS.md, CLAUDE.md, the skills
   and `docs/internals/` give steps, conditions and rules in the
@@ -667,10 +668,27 @@ Keep them; change one only with the owner.
 
 ## Releasing
 
-When the owner says to release, run every step below to the end without
-stopping to ask: the owner approved the whole process, the marketplace
-request included. Stop only when a check fails or the freeze check finds
-`main` frozen, and report that.
+Releasing a version to Omarchy is always the owner's call. The steps below
+run in order; the detail, the checklist and the record templates are in
+`docs/internals/releasing.md`. Stop at a failed check, at a frozen `main`
+(step 0) and at the owner's go (step 1d), and report.
+
+- **Every pull request gets the regular review with a security check**
+  (Panel QA, one reviewer): private text (messages, contact names,
+  numbers, clipboard) stays off argv and out of logs; nothing from a
+  device is decoded outside the sandbox; root goes only through `pkexec`
+  with `--describe`/`--confirm`; the firewall stays on private ranges and
+  the mesh; no new listener and no command built from device data; no
+  personal data. A finding blocks the pull request.
+- **A release closes with** a full regression on the emulator in the rig
+  (a regression record; what the emulator cannot judge goes on a *needs a
+  real device* list for the owner), a cold install and an upgrade from the
+  live tag, and a dedicated security review of `last-tag..candidate`, once,
+  by the security specialist.
+- **Questions from outside are answered the same day:** the maintainer's
+  comments on a marketplace issue, and any open upstream report, are
+  answered or routed to their owner on the day they arrive (Omar's daily
+  check).
 
 0. **Check the freeze** (*Workflow*). A marketplace issue still open means
    `main` is frozen: say so and release nothing.
@@ -683,6 +701,22 @@ request included. Stop only when a check fails or the freeze check finds
    linked, with its title), and *Upgrading* when a setting or a default
    changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
    `develop`, CI green, squash-merge.
+   The candidate is the head of `develop` once that pull request is merged.
+   Steps 1a to 1c run on it before anything touches `main`.
+
+1a. **Regression and install checks** (`docs/internals/releasing.md`): the
+   full regression on the emulator in the rig, a cold install and an
+   upgrade from the live tag. Every failure is fixed on `develop` and the
+   checks run again on the new head.
+1b. **Security review** of `last-tag..candidate` by the security specialist,
+   after the regression has passed. Its findings are fixed before the go.
+1c. **Bring the owner** the regression record, the security verdict and the
+   *needs a real device* results, in one request.
+1d. **The owner's go, for this release.** Nothing touches `main` (a merge,
+   a tag, a release) and nothing is filed on or edited in the Omarchy
+   marketplace before the owner has said go for this release, after 1c. A
+   go for one release is not a go for the next; an urgent fix for users
+   needs its own.
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
@@ -702,8 +736,8 @@ request included. Stop only when a check fails or the freeze check finds
    ```
 
 4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`)
-   as soon as the release is published, with the text below as it stands:
-   the owner approved it for every release. It is filed from a session,
+   once the release is published and the owner has said go for the request
+   (1d), with the text below as it stands. It is filed from a session,
    not from CI (CI cannot open issues in another repository). The
    *Standard installation* box stays unticked: Devices needs KDE Connect
    set up separately, which is why the marketplace lists it `manual-setup`.
