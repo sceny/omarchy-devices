@@ -1137,6 +1137,39 @@ class Screen(unittest.TestCase):
     def test_pairing_qr_is_androids_format(self):
         self.assertEqual(bridge.pairing_qr("sceny-abc", "pw"), "WIFI:T:ADB;S:sceny-abc;P:pw;;")
 
+    def test_pairing_password_is_never_in_an_argument_list(self):
+        runs = []
+
+        def fake_run(args, **kwargs):
+            runs.append((list(args), kwargs.get("input")))
+            return subprocess.CompletedProcess(args, 0, "Successfully paired to 192.168.1.20:37099 [guid=adb-0A1B2C3D-xYz]\n", "")
+
+        saved = (bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.screen_record)
+        bridge.subprocess.run = fake_run
+        bridge.screen_tools = lambda: {"ok": True}
+        bridge.mdns_services = lambda: [{"name": n, "kind": "pairing", "host": "192.168.1.20", "port": 37099}
+                                        for n in names]
+        bridge.screen_record = lambda *a, **k: {}
+        names = []
+        events = []
+        real_urandom = os.urandom
+        try:
+            bridge.os.urandom = lambda n: b"\x01" * n
+            names.append("sceny-" + bridge.base64.b32encode(b"\x01" * 5).decode().lower().rstrip("="))
+            password = bridge.base64.b32encode(b"\x01" * 10).decode().lower().rstrip("=")
+            bridge.screen_pair("p1", wait=1, sleep=lambda s: None, emit=events.append)
+        finally:
+            bridge.os.urandom = real_urandom
+            bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.screen_record = saved
+        self.assertIn("paired", [e["ev"] for e in events])
+        pair = [(args, text) for args, text in runs if args[:2] == ["adb", "pair"]]
+        self.assertEqual(len(pair), 1)
+        self.assertEqual(pair[0][1], password + "\n", "adb is given the code on stdin")
+        qr = [(args, text) for args, text in runs if args[0] == "qrencode"]
+        self.assertIn(password, qr[0][1], "qrencode is given the code on stdin")
+        for args, _ in runs:
+            self.assertFalse(any(password in a for a in args), "the password is on no command line: %r" % args)
+
     def test_wifi_matches_by_address(self):
         devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
                    {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": ""}]

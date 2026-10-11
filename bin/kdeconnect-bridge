@@ -3343,10 +3343,11 @@ def screen_record(device_id, update=None):
     return data[device_id]
 
 
-def adb(args, timeout=10):
-    """One adb call: (exit code, stdout and stderr)."""
+def adb(args, timeout=10, stdin=None):
+    """One adb call: (exit code, stdout and stderr). `stdin` is text for a
+    secret adb prompts for, kept off the argument list."""
     try:
-        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout)
+        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout, input=stdin)
         return out.returncode, (out.stdout or "") + (out.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as error:
         return 1, str(error)
@@ -3540,7 +3541,7 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     payload = pairing_qr(name, password)
     ascii_code = ""
     try:
-        ascii_code = subprocess.run(["qrencode", "-t", "ASCII", "-m", "0", payload],
+        ascii_code = subprocess.run(["qrencode", "-t", "ASCII", "-m", "0"], input=payload,
                                     capture_output=True, text=True, timeout=10).stdout
     except (OSError, subprocess.TimeoutExpired):
         pass
@@ -3556,7 +3557,8 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
         emit({"ev": "error", "message": "The code was not scanned in time"})
         return EXIT_CANCELLED
     emit({"ev": "found"})
-    code, out = adb(["pair", "%s:%d" % (found["host"], found["port"]), password], timeout=30)
+    code, out = adb(["pair", "%s:%d" % (found["host"], found["port"])], timeout=30,
+                    stdin=password + "\n")
     if code != 0 or "Successfully paired" not in out:
         emit({"ev": "error", "message": (out.strip().splitlines() or ["Pairing failed"])[-1]})
         return EXIT_FAILED
