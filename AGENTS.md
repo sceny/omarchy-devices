@@ -717,9 +717,9 @@ run in order; the detail, the checklist and the record templates are in
    request names that SHA. A new commit on the candidate voids every check
    and any open request: they run again on the new head before anyone
    asks. Before the request the owner's machine runs that SHA (folder at
-   the SHA, shell restarted, `dev/loaded-code` exits 0); afterwards it goes
-   back to `develop` the same way. The owner is not asked to install or
-   run anything (`docs/internals/releasing.md`, *The owner's request*).
+   the SHA, shell restarted, `dev/loaded-code` exits 0), put there by
+   Plugin DevOps; afterwards it goes back to `develop` the same way. The
+   owner is not asked to install, paste or run anything (`docs/internals/releasing.md`, *The owner's request*).
 1d. **The owner's go, for this release.** Nothing touches `main` (a merge,
    a tag, a release) and nothing is filed on or edited in the Omarchy
    marketplace before the owner has said go for this release, after 1c. A

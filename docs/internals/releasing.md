@@ -128,7 +128,8 @@ changed head is regressed again where the fix reaches.
 ## The owner's request
 
 The owner is asked for the real-device checks and the go once per release,
-and only when nothing an agent can check is left open.
+and only when nothing an agent can check is left open. This is the standing
+rule for every release closing, not for one version.
 
 - **One exact SHA.** Every agent check of the release (the pull-request
   reviews, the full regression, the cold install, the upgrade, the security
@@ -137,7 +138,8 @@ and only when nothing an agent can check is left open.
   open request. The checks run again on the new head before anyone asks.
 - **The owner's machine runs the SHA.** Before the request, its plugin folder
   is at the SHA, the shell is restarted and `dev/loaded-code` exits 0. The
-  request names the SHA and these results.
+  request names the SHA and these results. Plugin DevOps does this, never a
+  command the owner pastes and runs.
 - **Back to `develop`.** After the checks, the owner's machine goes back to
   `develop` the same way: folder, restart, `dev/loaded-code`.
 - **Once, with every item.** The request holds the regression record, the
