@@ -16,8 +16,10 @@ version to Omarchy is always the owner's call.
 
 ## Every pull request: review with a security check
 
-One reviewer, Panel QA. Besides the change itself, the reviewer answers each
-line below from the diff. A finding blocks the pull request.
+One reviewer, Panel QA. This list is the record of faults already met: each
+class the security specialist finds is added here, with a test that fails the
+build where one can. Besides the change itself, the reviewer answers each line
+below from the diff. A finding blocks the pull request.
 
 - Private text (messages, contact names, numbers, clipboard) stays off
   argv and out of logs. A bridge verb reads it from stdin; a test fails if it
@@ -93,14 +95,31 @@ Both results go into the regression record as rows.
 ## Security review of the release
 
 The security specialist reviews `git diff <last-tag>..<candidate>` once, when
-the release closes and the regression has passed. It covers:
+the release closes and the regression has passed. The review goes beyond the
+per-pull-request list, which is assumed already run: it checks the diff against
+the plugin's threat model and looks for faults nobody has met yet. It traces
+untrusted input through the whole code path, unchanged code included.
 
-- argv and logs, for every verb that carries private text;
-- every `pkexec` plan and the firewall rules as written;
-- sandboxed decoding of everything a device sends;
-- the D-Bus and adb surfaces the diff adds or widens;
-- the capabilities the marketplace bot will report, as a list for the
-  maintainer's review.
+The attackers:
+
+- Another local user or process: `/proc`, file modes in the cache and runtime
+  directory, ports on `127.0.0.1`, the session D-Bus, logs.
+- A hostile paired device: everything it sends is attacker input (rich text,
+  paths, URLs, the *Fix with AI* prompt).
+- The local network and mesh: discovery, pairing, the firewall as written.
+- The `pkexec` boundary: what root runs, and whether a user process can change
+  it.
+- Supply chain and CI: packages, workflows, what the marketplace bots report.
+
+The review also lists the capabilities the marketplace bot will report, for the
+maintainer's review.
+
+- Each new minor version (Y) also gets one pass over the whole plugin, not
+  only the diff.
+- A finding is reproduced where possible.
+- Every finding gets a search for the same class across the plugin.
+- An unfixed vulnerability stays off public GitHub (issues, commits, pull
+  request text) until its fix is released.
 
 The verdict is a document on the release task: pass, or findings with file
 and line. Findings are fixed on `develop`; a fix changes the candidate, so the
