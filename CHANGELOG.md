@@ -72,9 +72,13 @@ GitHub release with these notes.
   and a small Android emulator as the phone, paired to a private KDE
   Connect, so changes are tried without touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
+- **The pairing code stays off command lines**: the one-time code for
+  pairing a phone's screen link reaches `adb` over stdin, so no other
+  program on this computer can read it.
 
 ### Issues
 
+- [#162](https://github.com/sceny/omarchy-devices/issues/162) The adb pairing password is on two command lines (qrencode, adb pair)
 - [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away
 - [#8](https://github.com/sceny/omarchy-devices/issues/8) Reach devices over Tailscale or a custom address
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
