@@ -107,6 +107,8 @@ def private_text_in_argv(path):
             args = [a.strip() for a in m.group(1).split(",") if a.strip()]
             if args != ALLOWED_ARGS.get(verb, []):
                 found.append("%s:%d: run(\"%s\") argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
+        for m in re.finditer(r'\brun\(\s*"%s"\s*,\s*(?![\s\[])' % verb, text):
+            found.append("%s:%d: run(\"%s\") argv is not a literal list" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb))
         for m in re.finditer(r'\[\s*(?:root\.)?bridge\s*,\s*"%s"\s*([^\]]*)\]' % verb, text):
             args = [a.strip() for a in m.group(1).split(",") if a.strip()]
             if len(args) > 1:
@@ -123,9 +125,10 @@ class PrivateText(unittest.TestCase):
         import tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
             f.write('run("reply", [n.replyId, message], k)\nrun("ping", [m], "ping")\n'
-                    'x = [bridge, "dial", c.device, number]\nrun("text", [], "text", null, t)\n')
+                    'x = [bridge, "dial", c.device, number]\nrun("text", [], "text", null, t)\n'
+                    'run("ping", m !== "" ? [m] : [], "ping")\n')
         try:
-            self.assertEqual(len(private_text_in_argv(f.name)), 3, private_text_in_argv(f.name))
+            self.assertEqual(len(private_text_in_argv(f.name)), 4, private_text_in_argv(f.name))
         finally:
             os.remove(f.name)
 
