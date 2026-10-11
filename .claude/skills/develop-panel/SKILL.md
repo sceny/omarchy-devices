@@ -43,7 +43,10 @@ dev/rig logs shell         # a QML error lands here
 - **Anything the panel or the pill loads is cached by the shell:** only
   `dev/rig restart-shell` picks it up. New IPC functions answer "Function not
   found" until then.
-- **After every restart, confirm the panel answers** (`dev/rig ipc status`).
+- **After every restart, confirm the panel answers** (`dev/rig ipc status`)
+  **and runs the files you synced** (`dev/rig exec -- dev/loaded-code
+  <plugin dir>/sceny.devices`, the plugin dir from `dev/rig status`). `status` is answered
+  by old code too; a rescan does not reload a plugin, only a restart does.
   "Target not found" means the plugin failed to load and the widget is gone
   from the bar; read `dev/rig logs shell`. The error can land after a quick
   log check has passed; the IPC check cannot.

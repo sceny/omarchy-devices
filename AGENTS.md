@@ -421,10 +421,18 @@ Keep them; change one only with the owner.
   seen when done, else *Check again*.
 - **Look at the render before saying done.** A measurement is not the layout
   fitting. Use `slowMotion 10` to catch a transition mid-way.
-- **After every shell restart, confirm the panel answers over IPC.** A QML
-  error takes the whole widget off the bar, and it can be logged after a
-  quick log check has already passed (an attached handler that does not
-  exist, such as `Keys.onPageUpPressed`, does exactly that).
+- **After every shell restart, confirm the panel answers over IPC, and that
+  it runs the files.** A QML error takes the whole widget off the bar, and it
+  can be logged after a quick log check has already passed (an attached
+  handler that does not exist, such as `Keys.onPageUpPressed`, does exactly
+  that). The shell reads a plugin's QML once: `omarchy-shell shell
+  rescanPlugins`, a `git pull` and `dev/rig sync` change the files and leave
+  the old code answering, and `status` answers either way. Run
+  `dev/loaded-code <plugin folder>` (in a rig: `dev/rig exec -- dev/loaded-code
+  <plugin folder>`); it compares the IPC functions the files declare with the
+  ones the running shell lists. Exit 1 means restart the shell
+  (`omarchy-restart-shell`). It sees functions added or removed, not an
+  edited body.
 
 - **What a device shares with this computer is on its page**
   (`Model.FEATURES`, `featureRows`, from `kdeconnect-bridge features`): a
@@ -637,7 +645,9 @@ Keep them; change one only with the owner.
   owner's installed copy following `develop`. A user timer
   (`sceny-plugins-follow-develop`, every 5 minutes; script
   `dev/follow-develop` in sceny/omarchy-paperclipai) fast-forwards it after
-  each merge into `develop` and rescans the shell, so nobody pulls by hand
+  each merge into `develop` and restarts the shell (a rescan does not reload
+  a loaded plugin; the restart waits while the session is locked), so nobody
+  pulls by hand
   (`omarchy plugin update` reads `main` and does not bring `develop`
   changes). It skips a checkout that is dirty or off `develop`, so never leave
   the installed copy on a feature branch. The rig installs your working tree into its own
