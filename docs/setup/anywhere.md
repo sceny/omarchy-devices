@@ -32,3 +32,5 @@ own VPN, another network): KDE Connect tries it as well.
   which signs you back in.
 
 Take it back: *Stop reaching it through Tailscale* on its page.
+
+Limits: [What it cannot do](limits.md#from-anywhere)

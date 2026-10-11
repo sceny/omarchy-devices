@@ -88,6 +88,7 @@ needs Wireless debugging, which you pair and can revoke:
 [Screen and apps](docs/setup/screen-and-apps.md) ·
 [From anywhere](docs/setup/anywhere.md) ·
 [Calls here](docs/setup/calls-here.md) ·
+[Contacts](docs/setup/contacts.md) ·
 [Settings](docs/setup/settings.md) ·
 [Troubleshooting](docs/setup/troubleshooting.md) ·
 [What it cannot do](docs/setup/limits.md) ·
