@@ -30,6 +30,7 @@ dev/rig ipc status          # the panel's IPC, as in the next section
 dev/rig screenshot x.png    # the nested shell, hidden or not
 dev/rig phone status        # battery N, notify T X, sms 555... X, call 555..., hangup N, shot, pair
 dev/rig restart-shell       # after a change to Panel.qml, Model.js and the like
+dev/loaded-code DIR         # does the running shell run DIR's files? (IPC functions; exit 1: restart it)
 dev/rig check               # every check against the running rig (the phone's battery, a notification,
                             # a call, the screen link and its window, the host left untouched)
 dev/rig down                # tear it down and prove nothing is left

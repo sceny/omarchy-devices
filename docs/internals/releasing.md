@@ -85,8 +85,9 @@ package is asked for twice.
 **Upgrade.** Install the live tag with a `shell.json` entry for one device
 and another for two devices with profiles, then move to the candidate. Old
 settings read back unchanged, nothing is written until the user changes
-something, IPC answers after the restart, and a firewall rule comes only from
-a click.
+something, IPC answers after the restart and `dev/loaded-code` finds the
+running code matching the candidate's files, and a firewall rule comes only
+from a click.
 
 Both results go into the regression record as rows.
 
