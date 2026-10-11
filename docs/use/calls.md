@@ -35,4 +35,4 @@ it opens on the phone's dialer.
 
 ![A missed call card with call back and text back (demo data)](../images/call-missed.png)
 
-Setup: [Calls here](../setup/calls-here.md) · Limits: [What it cannot do](../setup/limits.md)
+Setup: [Calls here](../setup/calls-here.md) · Limits: [What it cannot do](../setup/limits.md#calls)

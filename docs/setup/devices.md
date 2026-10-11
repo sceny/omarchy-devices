@@ -16,7 +16,7 @@ place it shows, and goes on by itself when it is done.
 | Notifications, Now playing | Notifications: allow notification access |
 | Screen and apps | The first **Open** on a notification, the Screen shortcut: [Wireless debugging](screen-and-apps.md) |
 | Gallery | Its section: all files access |
-| Messages, Contacts | The Messages and Contacts pages: SMS, contacts |
+| Messages, Contacts | The Messages and Contacts pages: SMS, contacts ([Contacts](contacts.md)) |
 | Calls | On the phone, when KDE Connect asks for the phone and call log |
 | Calls here | Bluetooth here; the phone [paired over Bluetooth](calls-here.md) |
 | Files, Clipboard, Ring, Battery | Never: they just work |

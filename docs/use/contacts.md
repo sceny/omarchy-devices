@@ -33,4 +33,4 @@ five minutes; `r` asks again. Away, the cards already here still read, and
 | `/` · `r` | Search · read again |
 | Esc · `0` | Back to where you came from · Home |
 
-Setup: [Your devices](../setup/devices.md) · Limits: [What it cannot do](../setup/limits.md)
+Setup: [Contacts](../setup/contacts.md) · Limits: [What it cannot do](../setup/limits.md#contacts)

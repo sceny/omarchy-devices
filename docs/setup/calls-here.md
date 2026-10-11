@@ -31,3 +31,5 @@ named here and answered on the phone, and nothing about it is a problem.
   computer's audio.
 - A headset on the computer: its microphone needs its own hands-free
   link, so its sound is plainer for the call.
+
+Limits: [What it cannot do](limits.md#calls)
