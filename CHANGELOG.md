@@ -13,10 +13,12 @@ GitHub release with these notes.
 - **Private text stays off command lines**: a reply to a notification, a
   text or link sent to the phone, a ping's message and a number to call back
   reach the plugin's helper over stdin, never as command-line arguments,
-  which any local process can read.
+  which any local process can read. The one-time code for pairing a phone's
+  screen link is never on a command line either.
 
 ### Issues
 
+- [#162](https://github.com/sceny/omarchy-devices/issues/162) The adb pairing password is on two command lines (qrencode, adb pair)
 - [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review of 0.8.0: a notification reply's text was a command-line argument
 
 ### Upgrading
