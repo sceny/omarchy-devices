@@ -70,9 +70,9 @@ messages, a vendor's battery settings, a phone's permission screens.
 | What | Why the emulator cannot | What the owner does | Result |
 |---|---|---|---|
 
-Omar sends the list to the owner as one request that says exactly what to do
-and why. An item stays open until the owner has done it or waived it, and the
-go waits for it.
+Omar sends the list to the owner as one request (*The owner's request*) that
+says exactly what to do and why. An item stays open until the owner has done
+it or waived it, and the go waits for it.
 
 ## Cold install and upgrade
 
@@ -125,11 +125,30 @@ The verdict is a document on the release task: pass, or findings with file
 and line. Findings are fixed on `develop`; a fix changes the candidate, so the
 changed head is regressed again where the fix reaches.
 
+## The owner's request
+
+The owner is asked for the real-device checks and the go once per release,
+and only when nothing an agent can check is left open. This is the standing
+rule for every release closing, not for one version.
+
+- **One exact SHA.** Every agent check of the release (the pull-request
+  reviews, the full regression, the cold install, the upgrade, the security
+  review) has passed on the same candidate SHA. The request names that SHA.
+- **A new commit voids.** A commit on the candidate voids every check and any
+  open request. The checks run again on the new head before anyone asks.
+- **The owner's machine runs the SHA.** Before the request, its plugin folder
+  is at the SHA, the shell is restarted and `dev/loaded-code` exits 0. The
+  request names the SHA and these results. Plugin DevOps does this, never a
+  command the owner pastes and runs.
+- **Back to `develop`.** After the checks, the owner's machine goes back to
+  `develop` the same way: folder, restart, `dev/loaded-code`.
+- **Once, with every item.** The request holds the regression record, the
+  security verdict and the whole *needs a real device* list. The owner
+  installs and runs nothing; they only use the phone and answer.
+
 ## The owner's go
 
-Omar brings the owner, in one request: the regression record, the security
-verdict and the *needs a real device* results. The owner answers go or not for
-this release.
+The owner answers go or not for this release on that request.
 
 - Until the go, nothing is merged into `main`, tagged or released, and
   nothing is filed on or edited in the Omarchy marketplace.
