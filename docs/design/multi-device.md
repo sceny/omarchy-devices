@@ -398,8 +398,7 @@ The same shape as with one ([setup.md](setup.md), section 6), with *For
 all devices* and each device's place in the bar and tab:
 
 ```
- SETTINGS · 2 devices · everything works                     ←
- ✓ Everything works
+ SETTINGS · 2 devices                                        ←
  MY DEVICES
    󰄜 S23      Galaxy S23 Ultra · 86% · Wi-Fi                 ›
    󰓶 Tab      Galaxy Tab S9 · Away                           ›

@@ -3087,10 +3087,10 @@ function problemsPlan(problems) {
   return out
 }
 
-// The status's one line: all well, or how many need the user.
+// The status's one line: how many need the user; nothing while all is well.
 function problemsLine(problems) {
   var n = (problems || []).length
-  return n === 0 ? "Everything works" : n === 1 ? "1 thing needs you" : n + " things need you"
+  return n === 0 ? "" : n === 1 ? "1 thing needs you" : n + " things need you"
 }
 
 // ---- Where a feature shows: its entry points ----

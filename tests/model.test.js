@@ -536,7 +536,7 @@ test("settings status: each problem once, where its cause is; a device's line an
   assert.deepEqual([problems[1].label, problems[1].gateway, problems[1].affects], ["Gallery", "Storage link", ["gallery"]], "the item, its gateway, what it affects")
   assert.equal(M.settingsProblems(checks, ["firewall"], []).length, 0, "an ignored check is not either")
   assert.equal(M.problemsLine(problems), "2 things need you")
-  assert.equal(M.problemsLine([]), "Everything works")
+  assert.equal(M.problemsLine([]), "", "all well: nothing is said")
   const list = M.devicesListRows(snap(phone()), M.readSettings({}), 15)
   const root = M.settingsPageRows({ scope: "root", single: true, devices: list, problems })
   assert.deepEqual(root.filter(r => r.kind === "problem").map(r => r.key), ["firewall", "health:mount"], "the status leads")
