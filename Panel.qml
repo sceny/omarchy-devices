@@ -243,7 +243,7 @@ Panel {
     if (key === "settings/root") return pairedDevices.length !== 1
     if (key.indexOf("settings/") !== 0) return true
     var scope = key.slice(9)
-    if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
+    if (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(scope) >= 0) return true
     return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope.indexOf("reach:") === 0 ? scope.slice(6) : scope)
   }
   function navAsk(hint, open) {
