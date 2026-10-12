@@ -4276,6 +4276,8 @@ class Sms:
     def emit_threads(self):
         msgs = self.active()
         for m in msgs:
+            if not self.admit(m):
+                continue
             self.remember(m)
             cur = self.latest.get(m["thread"])
             if cur is None or m["date"] >= cur["date"]:
@@ -4284,6 +4286,20 @@ class Sms:
                          key=lambda t: -t["date"])[:CAP_THREADS]
         self.out({"ev": "threads", "threads": threads})
         self.out({"ev": "contacts", "count": len(self.contacts), "contacts": self.contact_list})
+
+    def admit(self, m):
+        """Whether a message's thread is kept: at CAP_THREADS the oldest thread
+        gives way to a newer one, and an older one is dropped. The phone sends
+        a thread per conversation, so the count is held here, not by the shell."""
+        tid = m["thread"]
+        if tid in self.latest or len(self.latest) < CAP_THREADS:
+            return True
+        oldest = min(self.latest, key=lambda t: self.latest[t]["date"])
+        if m["date"] <= self.latest[oldest]["date"]:
+            return False
+        del self.latest[oldest]
+        self.cache.pop(oldest, None)
+        return True
 
     def remember(self, m):
         bucket = self.cache.setdefault(m["thread"], {})
@@ -4298,6 +4314,8 @@ class Sms:
             try:
                 m = self.message(params.get_child_value(0).get_variant().unpack())
             except (ValueError, TypeError):
+                return
+            if not self.admit(m):
                 return
             old = self.remember(m)
             if m["thread"] in self.pending:
