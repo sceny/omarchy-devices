@@ -5,7 +5,10 @@ device, and no call is made). All data is made up."""
 
 import importlib.machinery
 import importlib.util
+import contextlib
+import io
 import os
+import sys
 import tempfile
 import unittest
 
@@ -151,6 +154,27 @@ class Clicks(unittest.TestCase):
         bridge.call_verb("dial", "d1", "+1 (514) 555-0123")
         self.assertEqual(self.conn.sent[-1][3:], ("Dial", ("+15145550123",)))
         self.assertEqual(bridge.call_verb("dial", "d1", "call me"), bridge.EXIT_FAILED)
+
+    def run_main(self, argv, stdin=""):
+        """The bridge as the shell runs it: a number or digits arrive on stdin."""
+        saved, sys.stdin = sys.stdin, io.StringIO(stdin)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return bridge.main(argv)
+        finally:
+            sys.stdin = saved
+
+    def test_a_number_and_tones_come_from_stdin(self):
+        self.assertEqual(self.run_main(["call", "dial", "d1"], "+1 (514) 555-0123"), bridge.EXIT_OK)
+        self.assertEqual(self.conn.sent[-1][3:], ("Dial", ("+15145550123",)))
+        self.assertEqual(self.run_main(["call", "tones", "d1"], "12#*"), bridge.EXIT_OK)
+        self.assertEqual(self.conn.sent[-1][3:], ("SendTones", ("12#*",)))
+
+    def test_a_number_or_tones_in_argv_are_never_sent(self):
+        before = list(self.conn.sent)
+        self.assertEqual(self.run_main(["call", "dial", "d1", "+15145550123"]), bridge.EXIT_FAILED)
+        self.assertEqual(self.run_main(["call", "tones", "d1", "123"]), bridge.EXIT_OK)
+        self.assertEqual(self.conn.sent, before)
 
     def test_volume_is_a_byte(self):
         bridge.call_verb("volume", "d1", "40")

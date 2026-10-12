@@ -178,7 +178,7 @@ Item {
     var verbs = { answer: ["answer"], answerPhone: ["answer-phone"], decline: ["decline", c.id], hangup: ["hangup", c.id],
                   holdAnswer: ["answer", c.other ? c.other.id : ""], endAnswer: ["end-answer"],
                   declineOther: ["decline", c.other ? c.other.id : ""], swap: ["swap"], merge: ["merge"],
-                  audioHere: ["audio-here"], tones: ["tones", String(arg || "")], volume: ["volume", String(arg)],
+                  audioHere: ["audio-here"], tones: ["tones"], volume: ["volume", String(arg)],
                   mute: ["mute", isCallMuted(id) ? "off" : "on"] }
     // A conference ends whole.
     if (key === "hangup" && c.conference) key = "hangupAll"
@@ -187,7 +187,9 @@ Item {
     if (!v) return
     if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }
     if (demo) { demoCallClick(id, key); return }
+    // The keypad's digits go over stdin, never in the arguments.
     var proc = actionComponent.createObject(root, { key: "call:" + key, quietSuccess: true,
+      hasInput: key === "tones", input: key === "tones" ? String(arg || "") : "",
       command: [bridge, "call", v[0], id].concat(v.length > 1 && v[1] ? [v[1]] : []) })
     proc.running = true
   }
@@ -208,7 +210,8 @@ Item {
     if (!id || n === "") return
     if (!callsReady(id)) { callBack({ device: String(id), number: n }); return }
     if (demo) { demoCallClick(String(id), "dial"); return }
-    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true, command: [bridge, "call", "dial", String(id), n] })
+    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true,
+      hasInput: true, input: n, command: [bridge, "call", "dial", String(id)] })
     proc.running = true
   }
   // Between calls the audio stays on the device: a call answered there is
