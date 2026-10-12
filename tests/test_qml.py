@@ -91,5 +91,47 @@ class Qml(unittest.TestCase):
             os.remove(f.name)
 
 
+# Verbs that carry text a person wrote. Any local process can read a command
+# line from /proc, so the text goes over stdin (`run`'s input), and the
+# arguments after the device are ids only.
+PRIVATE_VERBS = ("ping", "text", "url", "dial", "reply")
+ALLOWED_ARGS = {"reply": ["n.replyId"]}
+
+
+def private_text_in_argv(path):
+    """Lines where a private verb's argument list holds anything but its ids."""
+    text = open(path).read()
+    found = []
+    for verb in PRIVATE_VERBS:
+        for m in re.finditer(r'\brun\(\s*"%s"\s*,\s*\[([^\]]*)\]' % verb, text):
+            args = [a.strip() for a in m.group(1).split(",") if a.strip()]
+            if args != ALLOWED_ARGS.get(verb, []):
+                found.append("%s:%d: run(\"%s\") argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
+        for m in re.finditer(r'\brun\(\s*"%s"\s*,\s*(?![\s\[])' % verb, text):
+            found.append("%s:%d: run(\"%s\") argv is not a literal list" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb))
+        for m in re.finditer(r'\[\s*(?:root\.)?bridge\s*,\s*"%s"\s*([^\]]*)\]' % verb, text):
+            args = [a.strip() for a in m.group(1).split(",") if a.strip()]
+            if len(args) > 1:
+                found.append("%s:%d: [bridge, \"%s\"] argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
+    return found
+
+
+class PrivateText(unittest.TestCase):
+    def test_private_text_never_reaches_a_command_line(self):
+        found = [p for f in sorted(glob.glob(os.path.join(ROOT, "*.qml"))) for p in private_text_in_argv(f)]
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_text_in_argv(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write('run("reply", [n.replyId, message], k)\nrun("ping", [m], "ping")\n'
+                    'x = [bridge, "dial", c.device, number]\nrun("text", [], "text", null, t)\n'
+                    'run("ping", m !== "" ? [m] : [], "ping")\n')
+        try:
+            self.assertEqual(len(private_text_in_argv(f.name)), 4, private_text_in_argv(f.name))
+        finally:
+            os.remove(f.name)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -72,13 +72,9 @@ GitHub release with these notes.
   and a small Android emulator as the phone, paired to a private KDE
   Connect, so changes are tried without touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
-- **The pairing code stays off command lines**: the one-time code for
-  pairing a phone's screen link reaches `adb` over stdin, so no other
-  program on this computer can read it.
 
 ### Issues
 
-- [#162](https://github.com/sceny/omarchy-devices/issues/162) The adb pairing password is on two command lines (qrencode, adb pair)
 - [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away
 - [#8](https://github.com/sceny/omarchy-devices/issues/8) Reach devices over Tailscale or a custom address
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
@@ -92,6 +88,26 @@ GitHub release with these notes.
   network (home, office) and to your mesh, instead of only the network
   you were on. Rules you have stay.
 - **This computer** has a *Mesh network* row (optional).
+
+## 0.8.1 — 2026-10-10
+
+### Highlights
+
+- **Private text stays off command lines**: a reply to a notification, a
+  text or link sent to the phone, a ping's message and a number to call back
+  reach the plugin's helper over stdin, never as command-line arguments,
+  which any local process can read. The one-time code for pairing a phone's
+  screen link is never on a command line either.
+
+### Issues
+
+- [#162](https://github.com/sceny/omarchy-devices/issues/162) The adb pairing password is on two command lines (qrencode, adb pair)
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review of 0.8.0: a notification reply's text was a command-line argument
+
+### Upgrading
+
+- Nothing in your settings changes. The call-back notice no longer repeats
+  the number.
 
 ## 0.8.0 — 2026-10-05
 
