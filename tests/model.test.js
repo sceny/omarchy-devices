@@ -526,6 +526,21 @@ test("settings rows: one device's Settings is its page; several: My devices and 
   assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults"], "in reach: on Add a device")
 })
 
+test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {
+  const fresh = Object.assign(M.demoFeatures(), {
+    files: { sshfs: true, mounted: false, error: "Permissions missing: filesystem access" },
+    permissions: Object.assign({}, M.demoFeatures().permissions, { storage: false }) })
+  const setup = M.deviceSetup({ report: fresh, screen: { state: "ready", line: "" }, name: "Pixel 8", checks: [] })
+  assert.deepEqual(M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }]), [], "it never worked: not a problem")
+  const gallery = setup.features.find(r => r.key === "gallery")
+  assert.deepEqual([gallery.state, gallery.steps.map(s => s.fix.what)], ["setup", ["grant"]], "the plugin grants it over adb on a click")
+  assert.equal(M.permissionDenied("The device did not allow its storage"), true)
+  assert.equal(M.permissionDenied("sshfs finished with exit code 1"), false)
+  const stopped = Object.assign({}, fresh, { permissions: Object.assign({}, fresh.permissions, { storage: true }), files: { sshfs: true, mounted: false, error: "gone" } })
+  const again = M.deviceSetup({ report: stopped, screen: { state: "ready", line: "" }, name: "Pixel 8", checks: [] })
+  assert.equal(M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: again, rows: again.features }]).length, 1, "granted, and it stopped: a problem")
+})
+
 test("settings status: each problem once, where its cause is; a device's line and This computer say so", () => {
   const checks = [{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed", fix: "firewall" },
     { key: "network", ok: true }, { key: "screen", ok: false, optional: true, status: "Not installed" }]
