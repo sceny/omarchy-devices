@@ -1728,6 +1728,10 @@ var FEATURES = [
 // One word for each state, everywhere.
 var FEATURE_STATES = { on: "On", setup: "Set up", attention: "Needs attention", off: "Turned off", unavailable: "Not on this device", away: "Away" }
 
+// A failure that says the device did not allow it (KDE Connect's own words
+// for a storage permission not given): not a break, an ask.
+function permissionDenied(text) { return /allow|permission|denied/i.test(String(text || "")) }
+
 // A setup item: { key, gateway, scope: "computer" | "device", label, state,
 // detail, steps }. state: "ok", "missing" (to set up), "broken" (it worked
 // and stopped: a problem), "off" (a switch turned it off), "unavailable"
@@ -1816,6 +1820,9 @@ function setupItem(key, ctx) {
     item.gateway = "storage"; item.label = "its storage mounted"
     if (!report || !report.reachable) return linked()
     if (!(report.files && report.files.mounted === false && report.files.error)) return is("ok")
+    // A mount refused for want of the permission never worked: the
+    // permission item asks for it where Gallery is used, and this is no problem.
+    if (permissionDenied(report.files.error) || (report.permissions && report.permissions.storage === false)) return is("ok")
     item.steps.push({ kind: "auto", label: "Mount its storage again", fix: { verb: "device", what: "remount" } })
     item.steps.push({ kind: "auto", label: "Restart KDE Connect", fix: { verb: "fix", what: "restart" }, fallback: true })
     return is("broken", "Its storage did not mount: " + report.files.error)

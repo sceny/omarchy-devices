@@ -101,12 +101,14 @@ Panel {
   readonly property var received: phone ? phone.received : []
   // Something to show, or a step that makes photos possible (sshfs, the
   // phone's storage permission).
-  readonly property bool photosHint: !!photoInfo && photoInfo.ok === false
+  // A refusal for want of the storage permission is not shown ahead: Gallery
+  // asks for it where it is turned on (its switch grants it).
+  readonly property bool photosHint: !!photoInfo && photoInfo.ok === false && !(photoInfo.missing !== "sshfs" && photoInfo.dead !== true && Model.permissionDenied(photoInfo.error))
   readonly property bool hasPhotos: photos.length > 0 || photosHint
   // The gallery could not read the device (a problem: the card at the top
   // has its Fix); anything else here is an ask, with its click in the section.
   readonly property bool photosError: photosHint && photoInfo.missing !== "sshfs"
-    && (photoInfo.dead === true || (!!photoInfo.error && !/allow|permission|denied/i.test(photoInfo.error)))
+    && (photoInfo.dead === true || !!photoInfo.error)
   // The keyboard cursor in Files: the photos (a grid of four), then the
   // received files.
   property int photoIndex: 0
@@ -5692,9 +5694,7 @@ Panel {
                         text: root.photoInfo && root.photoInfo.missing === "sshfs"
                           ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
                           : root.photoInfo && root.photoInfo.dead ? root.photoInfo.error
-                          : root.photoInfo && root.photoInfo.error && !/allow|permission|denied/i.test(root.photoInfo.error)
-                            ? "The gallery could not read " + Model.deviceLabel(root.device) + ": " + root.photoInfo.error
-                          : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
+                          : "The gallery could not read " + Model.deviceLabel(root.device) + (root.photoInfo && root.photoInfo.error ? ": " + root.photoInfo.error : "")
                         color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption

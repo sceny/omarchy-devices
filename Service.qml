@@ -855,6 +855,14 @@ Item {
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
     proc.running = true
   }
+  // The gallery failed for want of storage access and the device now reads
+  // as granted (the plugin's grant, or the user's): the mount is tried
+  // again at once, not after the failed mount's 10 minutes.
+  function storageGranted(id, report) {
+    var st = photoState[id]
+    if (!st || st.ok || st.loading || !device || String(device.id) !== id) return
+    if (report.permissions && report.permissions.storage === true && Model.permissionDenied(st.error)) refreshPhotos(true)
+  }
   Component {
     id: featuresComponent
     Process {
@@ -864,7 +872,10 @@ Item {
         onStreamFinished: {
           var r = null
           try { r = JSON.parse(text) } catch (e) {}
-          if (r) { var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next }
+          if (r) {
+            var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next
+            root.storageGranted(featuresProc.device, r)
+          }
           featuresProc.destroy()
         }
       }
