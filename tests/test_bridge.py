@@ -1451,6 +1451,49 @@ class Screen(unittest.TestCase):
                                 os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
                          "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
 
+    def start_daemon_with(self, unit_ok, running_after):
+        ran, spawned = [], []
+        saved = (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus, bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists)
+        up = [False]
+        def fake_run(cmd, **kw):
+            ran.append(cmd[2:])
+            if cmd[2:] == ["start", bridge.DAEMON_UNIT] and unit_ok:
+                up[0] = running_after
+            return subprocess.CompletedProcess(cmd, 0 if (cmd[2] != "start" or unit_ok) else 5, "", "")
+        def fake_popen(cmd, **kw):
+            spawned.append(cmd)
+            up[0] = running_after
+        bridge.subprocess.run = fake_run
+        bridge.subprocess.Popen = fake_popen
+        bridge.daemon_running = lambda conn: up[0]
+        bridge.bus = lambda: None
+        bridge.shutil.which = lambda name: "/usr/bin/" + name
+        bridge.time.sleep = lambda s: None
+        bridge.os.path.exists = lambda path: path == "/usr/bin/kdeconnectd"
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                code = bridge.fix("start")
+        finally:
+            (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus,
+             bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists) = saved
+        return code, ran, spawned
+
+    def test_start_reloads_the_user_manager_before_the_unit(self):
+        code, ran, spawned = self.start_daemon_with(True, True)
+        self.assertEqual(code, bridge.EXIT_OK)
+        self.assertEqual(ran, [["daemon-reload"], ["start", bridge.DAEMON_UNIT]],
+                         "the unit pacman just installed is unknown until the manager reloads")
+        self.assertEqual(spawned, [])
+
+    def test_start_falls_back_to_the_daemon_itself(self):
+        code, ran, spawned = self.start_daemon_with(False, True)
+        self.assertEqual(code, bridge.EXIT_OK)
+        self.assertEqual(spawned, [["/usr/bin/kdeconnectd"]], "Arch ships it in /usr/bin, not /usr/lib")
+
+    def test_start_fails_when_the_daemon_never_appears(self):
+        code, ran, spawned = self.start_daemon_with(False, False)
+        self.assertEqual(code, bridge.EXIT_FAILED)
+
     def test_avahi_finds_the_device(self):
         text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"
                 "=;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local;Pixel-8.local;192.168.1.20;37099;\n"
