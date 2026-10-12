@@ -227,10 +227,12 @@ Item {
   }
   onCallsToKeepChanged: if (!demo) callsToKeep.forEach(function(id) { Quickshell.execDetached([root.bridge, "call", "keep-on-phone", id]) })
   // The device whose call's audio is here now: its voice to this computer's
-  // output, the microphone to it (kdeconnect-bridge call-audio).
+  // output, the microphone to it (kdeconnect-bridge call-audio). Never while
+  // it only rings: the link can come up before Answer, and the microphone
+  // would open to a call nobody answered.
   readonly property string callAudioDevice: {
     if (demo) return ""
-    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && calls[id].state !== "ended") return id
+    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && (calls[id].state === "active" || calls[id].state === "held" || calls[id].state === "dialing")) return id
     return ""
   }
   onCallAudioDeviceChanged: {
@@ -668,7 +670,8 @@ Item {
   function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
-    var prompt = Model.aiPrompt(problems, pluginFolder)
+    var names = ((snapshot && snapshot.devices) || []).map(function(d) { return Model.deviceLabel(d) })
+    var prompt = Model.aiPrompt(problems, pluginFolder, names)
     silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
   }
 

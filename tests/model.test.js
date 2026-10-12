@@ -1761,6 +1761,12 @@ test("Fix with AI: nothing a device sent reaches the prompt except quoted, cappe
   assert.ok(!M.aiPrompt(found.map(p => ({ label: p.label, where: p.whereKind, detail: p.detail, tried: p.tried })), "/p").includes("MARKER-9Q"))
 })
 
+test("Fix with AI: a device's own name is replaced by its kind in the details", () => {
+  const prompt = M.aiPrompt([{ label: "Gallery", where: "phone", detail: "Not found. On Rex's Phone: open KDE Connect", tried: "asked Rex's Phone" }], "/p", ["Rex's Phone"])
+  assert.ok(!prompt.includes("Rex"))
+  assert.ok(prompt.includes("On the device: open KDE Connect"))
+})
+
 test("Fix with AI: a quote or control character in a value cannot leave its quotes", () => {
   const q = M.aiQuote('a" - evil\u0007‮\tb\\', 50)
   assert.equal(q, JSON.stringify('a" - evil b\\'))

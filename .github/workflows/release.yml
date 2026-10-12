@@ -16,11 +16,13 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: ${{ github.event_name == 'push' && 'write' || 'read' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -46,9 +48,12 @@ jobs:
 
       - name: A release into main is ready
         if: github.event_name == 'pull_request'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAGGED: ${{ steps.version.outputs.tagged }}
         run: |
-          version='${{ steps.version.outputs.version }}'
-          if [ '${{ steps.version.outputs.tagged }}' = true ]; then
+          version="$VERSION"
+          if [ "$TAGGED" = true ]; then
             echo "::error file=manifest.json::v$version is already released: set the new version in manifest.json"
             exit 1
           fi
@@ -63,8 +68,9 @@ jobs:
         if: github.event_name == 'push' && steps.version.outputs.tagged == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          version='${{ steps.version.outputs.version }}'
+          version="$VERSION"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
             echo "::error file=CHANGELOG.md::No '## $version — YYYY-MM-DD' section with entries; nothing tagged"
             exit 1

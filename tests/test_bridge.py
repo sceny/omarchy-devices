@@ -417,11 +417,28 @@ class OmarchyContactsApp(unittest.TestCase):
 
     def test_opened_as_omarchy_opens_a_web_app(self):
         launched = []
-        with contextlib.redirect_stdout(open(os.devnull, "w")):
-            bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
-                                     launch=launched.append)
-        self.assertEqual(launched, [["omarchy-launch-or-focus-webapp", "Google Contacts",
-                                     "https://contacts.google.com/"]])
+        saved, bridge.hypr_json = bridge.hypr_json, lambda what: []
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
+                                         launch=launched.append)
+        finally:
+            bridge.hypr_json = saved
+        self.assertEqual(launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
+
+    def test_an_open_web_app_is_focused_not_launched_again(self):
+        launched, focused = [], []
+        saved = bridge.hypr_json, bridge.focus_window
+        bridge.hypr_json = lambda what: [{"class": "chrome-contacts.google.com__-Default", "title": "Google Contacts", "address": "0xabc"}]
+        bridge.focus_window = focused.append
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
+                                         launch=launched.append)
+        finally:
+            bridge.hypr_json, bridge.focus_window = saved
+        self.assertEqual(launched, [])
+        self.assertEqual([w["address"] for w in focused], ["0xabc"])
 
     def test_a_person_opens_its_search_in_a_window_of_its_own(self):
         launched = []
@@ -440,14 +457,15 @@ class ContactVerbsOverStdin(unittest.TestCase):
 
     def setUp(self):
         self.launched = []
-        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app
+        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app, bridge.hypr_json
         bridge.launch_detached = self.launched.append
+        bridge.hypr_json = lambda what: []
         bridge.omarchy_contacts_app = lambda: {"name": "Google Contacts", "url": "https://contacts.google.com/",
                                                 "find": "https://contacts.google.com/search/{}"}
         bridge.omarchy_maps_app = lambda: None
 
     def tearDown(self):
-        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app = self.saved
+        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app, bridge.hypr_json = self.saved
 
     def run_main(self, argv, stdin=""):
         saved, sys.stdin = sys.stdin, io.StringIO(stdin)
@@ -463,7 +481,7 @@ class ContactVerbsOverStdin(unittest.TestCase):
 
     def test_a_search_in_argv_is_not_searched(self):
         self.run_main(["contacts-app", "--find", "Sam Chen"])
-        self.assertEqual(self.launched, [["omarchy-launch-or-focus-webapp", "Google Contacts", "https://contacts.google.com/"]])
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
 
     def test_a_detail_comes_from_stdin(self):
         self.assertEqual(self.run_main(["contact-open", "mail"], "alex@example.invalid\n"), bridge.EXIT_OK)
@@ -1309,7 +1327,42 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
         finally:
             bridge.screen_device, bridge.find_window, bridge.screen_status = saved
-        self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
+        self.assertEqual(launched, [["true"]], "the window is focused by its address; nothing new runs")
+
+    def test_a_hostile_title_is_one_literal_element_and_no_omarchy_launcher_gets_it(self):
+        title = "a /tmp/x/* b'$(id)' \u00b7 Pixel 8"
+        launched, calls = [], []
+        saved = bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run
+        bridge.find_window = lambda t: None
+        bridge.launch_detached = launched.append
+        bridge.subprocess.Popen = lambda cmd, *a, **k: calls.append(cmd)
+        bridge.subprocess.run = lambda cmd, *a, **k: calls.append(cmd)
+        try:
+            bridge.launch_or_focus(title, ["uwsm-app", "--", "scrcpy", "--window-title", title])
+            bridge.find_window = lambda t: {"address": "0xabc", "title": t}
+            bridge.launch_or_focus(title, ["true"])
+        finally:
+            bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run = saved
+        self.assertEqual(launched, [["uwsm-app", "--", "scrcpy", "--window-title", title]])
+        self.assertEqual(calls, [["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:0xabc" })']])
+        for cmd in launched + calls:
+            self.assertFalse(any("launch-or-focus" in str(part) for part in cmd), "no evaluating Omarchy launcher")
+
+    def test_the_bridge_never_calls_an_evaluating_omarchy_launcher(self):
+        source = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "kdeconnect-bridge")).read()
+        code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
+        self.assertEqual([line for line in code if re.search(r'"omarchy-launch-or-focus(-webapp)?"', line)], [])
+
+    def test_a_package_name_is_checked_where_the_window_opens(self):
+        saved = bridge.screen_device
+        bridge.screen_device = lambda i: self.fail("a bad package stops first")
+        try:
+            for bad in ("x'; id", "--new-display", "a b.c", "com.\u0661.x", "nodots", "com..x"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bridge.screen_open("p1", bad), bridge.EXIT_FAILED, bad)
+                    self.assertEqual(bridge.screen_sound("p1", "here", bad), bridge.EXIT_FAILED, bad)
+        finally:
+            bridge.screen_device = saved
 
     def test_the_display_as_it_is_now(self):
         self.assertEqual(bridge.parse_display("  init=1080x2316 450dpi cur=2316x1080 app=2148x1080"), (2316, 1080), "rotated")

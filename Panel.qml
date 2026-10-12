@@ -2205,7 +2205,7 @@ Panel {
                             rows: c.rows.count, reading: c.reading, syncing: c.syncing, error: c.lastError,
                             app: c.appName, card: c.openId !== "", details: c.details.count,
                             pane: contactsView ? contactsView.pane : "", cursor: contactsView && contactsView.cursorActive ? contactsView.rowCursor : -1,
-                            search: contactsView ? contactsView.searchText : "",
+                            searching: contactsView ? contactsView.searchText !== "" : false,
                             searchFocused: contactsView ? contactsView.searchFocused : false })
   }
 
@@ -3018,7 +3018,15 @@ Panel {
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, contacts: root.contactsOpen, apps: root.appsOpen, open: root.opened }) }
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
-    function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
+    // Never where Enter would focus a text field (a reply, the composer, a
+    // setting): keystrokes meant for another window would land in it.
+    function pressEnter(): string {
+      var focusesField = root.messagesOpen || root.contactsOpen || root.settingsOpen
+        || (root.mainView && root.focusSection === "notifications")
+      if (focusesField) return "refused: Enter would focus a text field here"
+      keyCatcher.activateRequested()
+      return root.appsInfo()
+    }
     function appsInfo(): string { return root.appsInfo() }
     // A feature's switch on the device page shown (as a click on it), and
     // what the main page then has of the screen.

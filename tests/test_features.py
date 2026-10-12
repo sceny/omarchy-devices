@@ -110,13 +110,13 @@ class RootPlans(unittest.TestCase):
         self.assertEqual((plan["commands"], plan["actions"][0]), ([], "Nothing to install: kdeconnect already here"))
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=[])
+        plan = bridge.root_plan("firewall", rules=[], ifaces=[])
         self.assertTrue(plan["actions"] and all("192.168.5.0/24" not in a or "from 192.168.0.0/16" in a for a in plan["actions"]))
         self.assertIn("from 192.168.0.0/16", plan["commands"][0][-1], "the private range around this network (test_network has the rest)")
 
     def test_first_run_is_one_password_for_everything(self):
         pacman = FakePacman(installed=["android-tools"], deps={})
-        plan = bridge.root_plan("ready", run=pacman, lan="192.168.5.0/24", rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
+        plan = bridge.root_plan("ready", run=pacman, rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
         self.assertEqual(len(plan["commands"]), 1, "one prompt")
         script = plan["commands"][0][-1]
         self.assertEqual(plan["commands"][0][:3], ["pkexec", "/bin/sh", "-c"])

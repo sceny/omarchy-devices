@@ -119,6 +119,7 @@ import html
 import ipaddress
 import json
 import shutil
+import stat
 import os
 import quopri
 import re
@@ -221,6 +222,9 @@ CAP_ADDRESSES = 100        # of one message
 CAP_ATTACHMENTS = 50       # of one message
 CAP_APPS = 2000
 CAP_VCARD = 1 << 20        # one contact file, read at most
+CAP_VCARDS_READ = 128 << 20   # all contact files of one read
+CAP_PHOTO_DECODES = 100       # pictures decoded in one read (the rest on the next)
+CAP_CONTACTS_OUT = 16 << 20   # bytes of the contacts the page is sent in one read
 CAP_CONTACT_FILES = 20000
 CAP_TELS = 20              # numbers of one contact
 CAP_CONTACTS = 10000       # entries in all (and names by number)
@@ -286,6 +290,7 @@ def call_event(event, number, name, at_ms):
     if not kind:
         return None
     number, name = str(number or "").strip(), str(name or "").strip()
+    number, name = cap_text(number, CAP_SHORT), cap_text(name, CAP_SHORT)
     return {"event": kind, "number": number,
             "name": "" if name == number else name, "at": int(at_ms)}
 
@@ -1644,26 +1649,31 @@ def firewall_state():
     except OSError:
         rules = []
     lan = local_network()
-    if lan:
+    if lan and not private_lan(lan):
+        allowed = True   # not a home network: the rule is never opened to it, so it is not a fault
+    elif lan:
         allowed = {"tcp", "udp"} <= covered(rules, lan)
     else:
         allowed = {"tcp", "udp"} <= set(p for r in rules for p in (("tcp", "udp") if r["proto"] == "any" else (r["proto"],)))
     return {"present": True, "active": enabled, "allowed": allowed, "rules": rules}
 
 
-def firewall_rules(rules, lan, ifaces):
+def private_lan(lan):
+    """Whether a network (a default route's) lies inside the private ranges."""
+    try:
+        net = ipaddress.ip_network(lan)
+    except ValueError:
+        return False
+    return any(net.subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS)
+
+
+def firewall_rules(rules, ifaces):
     """The ufw commands that open KDE Connect's ports to every private
     network (home, office: as Omarchy opens Sunshine's) and on each mesh's
-    interface, only those not open yet. Never to everyone. A default
-    route's network outside the private ranges is added as itself."""
-    sources = list(PRIVATE_LANS)
-    try:
-        if lan and not any(ipaddress.ip_network(lan).subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS):
-            sources.append(lan)
-    except ValueError:
-        pass
+    interface, only those not open yet. The sources are PRIVATE_LANS and
+    nothing else, whatever network this computer is on: never to everyone."""
     out = []
-    for src in sources:
+    for src in PRIVATE_LANS:
         for proto in ("tcp", "udp"):
             if proto not in covered(rules, src):
                 out.append("/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (src, KDE_PORTS, proto))
@@ -1697,12 +1707,13 @@ def doctor():
                    "fix": "" if running or not installed else "start", "fixLabel": "Start"})
     fw = firewall_state()
     lan = local_network()
+    opened_to = lan if private_lan(lan) else "private networks" if lan else "the local network"
     fw_ok = not fw["active"] or fw["allowed"]
     checks.append({"key": "firewall", "ok": fw_ok,
                    "label": "Firewall lets devices in",
-                   "status": ("Open to %s" % (lan or "the local network")) if fw["active"] and fw_ok
+                   "status": ("Open to %s" % opened_to) if fw["active"] and fw_ok
                              else ("Off" if fw["present"] else "None") if fw_ok else "Closed",
-                   "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, lan or "the local network"),
+                   "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, opened_to),
                    "fix": "" if fw_ok else "firewall", "fixLabel": "Allow"})
     checks.append({"key": "network", "ok": bool(lan), "label": "On a network",
                    "status": lan or "No network",
@@ -1823,7 +1834,7 @@ def package_installed(name, run=None):
 READY_FIXES = ("install", "sshfs", "screen")
 
 
-def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
+def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen", "bluetooth") else []
@@ -1857,10 +1868,9 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
             if will == []:
                 actions = actions[1:]
     elif what == "firewall":
-        lan = lan if lan is not None else local_network()
         existing = rules if rules is not None else firewall_state().get("rules", [])
         ifaces = ifaces if ifaces is not None else mesh_interfaces()
-        wanted = firewall_rules(existing, lan, ifaces)
+        wanted = firewall_rules(existing, ifaces)
         meshes = [m["label"] for m in MESHES.values() if m["iface"] in ifaces]
         reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
             + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
@@ -1885,9 +1895,8 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
         fw = fw if fw is not None else firewall_state()
         wanted_rules = []
         if fw.get("active") and not fw.get("allowed"):
-            lan = lan if lan is not None else local_network()
             existing = rules if rules is not None else fw.get("rules", [])
-            wanted_rules = firewall_rules(existing, lan, ifaces if ifaces is not None else mesh_interfaces())
+            wanted_rules = firewall_rules(existing, ifaces if ifaces is not None else mesh_interfaces())
         reason = "To get this computer ready for your devices"
         actions, parts = [], []
         if packages and will != []:
@@ -2892,7 +2901,7 @@ def parse_bluez(objects):
         gateway = UUID_GATEWAY in uuids
         if not gateway and d.get("Icon") != "phone":
             continue
-        phones.append({"address": str(d.get("Address", "")).upper(), "name": str(d.get("Alias") or d.get("Name") or ""),
+        phones.append({"address": str(d.get("Address", "")).upper(), "name": cap_text(d.get("Alias") or d.get("Name") or "", CAP_SHORT),
                        "paired": bool(d.get("Paired")), "connected": bool(d.get("Connected")), "gateway": gateway})
     return {"adapter": adapter, "phones": phones}
 
@@ -2913,7 +2922,8 @@ def parse_gateway(path, ifaces, calls):
         if c is None:
             continue
         out["calls"].append({"id": cpath.rsplit("/", 1)[-1], "path": cpath, "state": str(c.get("State", "")),
-                             "number": str(c.get("LineIdentification", "") or ""), "name": str(c.get("Name", "") or ""),
+                             "number": cap_text(c.get("LineIdentification", "") or "", CAP_SHORT),
+                             "name": cap_text(c.get("Name", "") or "", CAP_SHORT),
                              "multiparty": bool(c.get("Multiparty", False))})
     return out
 
@@ -3112,14 +3122,16 @@ def loopback_commands(nodes, title):
     the default output), this computer's microphone to the device. Each is
     a Communication stream, so PipeWire's own policy places it."""
     cmds = []
+    # Values are JSON strings: a name with a space or a quote stays one value.
+    q = json.dumps
     if nodes.get("source") and not nodes["linked"]["source"]:
         cmds.append(["pw-loopback", "-n", "sceny-devices-call-in",
-                     "--capture-props", "target.object=%s node.dont-reconnect=true stream.dont-remix=true" % nodes["source"]["name"],
-                     "--playback-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', "")])
+                     "--capture-props", "target.object=%s node.dont-reconnect=true stream.dont-remix=true" % q(nodes["source"]["name"]),
+                     "--playback-props", "media.role=Communication node.description=%s" % q(title)])
     if nodes.get("sink") and not nodes["linked"]["sink"]:
         cmds.append(["pw-loopback", "-n", "sceny-devices-call-out",
-                     "--capture-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', ""),
-                     "--playback-props", "target.object=%s node.dont-reconnect=true" % nodes["sink"]["name"]])
+                     "--capture-props", "media.role=Communication node.description=%s" % q(title),
+                     "--playback-props", "target.object=%s node.dont-reconnect=true" % q(nodes["sink"]["name"])])
     return cmds
 
 
@@ -3143,7 +3155,7 @@ def call_audio(device_id, sleep=time.sleep):
     procs = []
     for cmd in loopback_commands(nodes, title):
         try:
-            procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=die_with_parent))
         except OSError as error:
             return say(str(error), EXIT_FAILED)
     print(json.dumps({"audio": "here", "loopbacks": len(procs)}), flush=True)
@@ -4348,6 +4360,9 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             events.close()
 
 
+PACKAGE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+", re.A)   # an Android package, as the panel checks it
+
+
 def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
@@ -4436,13 +4451,22 @@ def window_sounds(device_id, key=None, sound=None):
     return sounds
 
 
+def focus_window(win):
+    """Brings a window forward by its address."""
+    subprocess.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = %s })" % lua_string("address:" + win["address"])],
+                   capture_output=True, timeout=5)
+
+
 def launch_or_focus(title, cmd):
-    """Omarchy's `omarchy-launch-or-focus`: the window with this title is
-    brought forward, else the command runs (it evals the command line, so
-    each part is quoted)."""
-    pattern = re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", title)
-    subprocess.Popen(["omarchy-launch-or-focus", pattern, shlex.join(cmd)], start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """The window with exactly this title is brought forward, else the
+    command runs, as an argv list: Omarchy's `omarchy-launch-or-focus`
+    evaluates the command line it is given, and a title carries device
+    text, so it is never used here."""
+    win = find_window(title)
+    if win:
+        focus_window(win)
+    else:
+        launch_detached(cmd)
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
@@ -4452,6 +4476,8 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     right, the device's shape), in a window here, and returns once the
     window is there (the click waits meanwhile). Already open: brought
     forward instead of a second one."""
+    if package and not PACKAGE_RE.fullmatch(package):
+        return say("That is not an app's package name", EXIT_FAILED)
     docked = (docked and not package) or (bool(package) and popout)
     if package:
         rect = None   # an app's pop-out is not the panel's card journey
@@ -4618,6 +4644,8 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     it."""
     if sound not in SOUND_PLACES:
         return say("A sound plays here, on the phone or both", EXIT_FAILED)
+    if package and not PACKAGE_RE.fullmatch(package):
+        return say("That is not an app's package name", EXIT_FAILED)
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
@@ -4645,7 +4673,7 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
 
     def start():
         if log:
-            open(log, "w").close()   # a fresh log for the watcher
+            os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for the watcher
         cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
         (launch or (lambda c: launch_or_focus(title, c)))(cmd)
 
@@ -5714,16 +5742,20 @@ def parse_vcard(text):
         joined = ";".join(params)
         if "QUOTED-PRINTABLE" in joined:
             # vCard 2.1: a soft break ends a line with "=".
-            while value.endswith("=") and i < len(lines):
-                value = value[:-1] + lines[i]
+            pieces = [value]
+            while pieces[-1].endswith("=") and i < len(lines):
+                pieces[-1] = pieces[-1][:-1]
+                pieces.append(lines[i])
                 i += 1
-            value = vcard_qp(value, key.upper())
+            value = vcard_qp("".join(pieces), key.upper())
         elif "BASE64" in joined or "ENCODING=B" in joined:
             # vCard 2.1 ends a base64 value with a blank line; what folding
             # left is already joined above.
+            pieces = [value]
             while i < len(lines) and lines[i].strip() and ":" not in lines[i]:
-                value += lines[i].strip()
+                pieces.append(lines[i].strip())
                 i += 1
+            value = "".join(pieces)
         value = value.strip()
         if not value:
             continue
@@ -5762,10 +5794,12 @@ def parse_vcard(text):
                 card["photo"] = b""
     if not card["name"]:
         card["name"] = " ".join([p for p in (card["first"], card["last"]) if p]).strip()
-    card["name"] = cap_text(card["name"], CAP_SHORT)
+    for key in ("name", "first", "last", "nickname", "org", "title", "birthday"):
+        card[key] = cap_text(card[key], CAP_SHORT)
+    card["note"] = cap_text(card["note"], CAP_TEXT)
     for key in ("phones", "emails", "addresses", "websites"):
         card[key] = [{"label": cap_text(v["label"], CAP_SHORT), "value": cap_text(v["value"], CAP_SHORT)}
-                     for v in card[key][:CAP_ADDRESSES]]
+                     for v in card[key][:CAP_TELS]]
     return card
 
 
@@ -5782,12 +5816,20 @@ def read_vcards(device_id):
         files = sorted(os.listdir(folder))
     except OSError:
         return cards
+    budget = CAP_VCARDS_READ
     for name in files[:min(CAP_CONTACT_FILES, CAP_CONTACTS)]:
+        if budget <= 0:
+            break
         try:
-            with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
-                text = f.read(CAP_VCARD)
+            # A regular file only: a link or a pipe in the folder is not a card.
+            fd = os.open(os.path.join(folder, name), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            with os.fdopen(fd, encoding="utf-8", errors="replace") as f:
+                if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                    continue
+                text = f.read(min(CAP_VCARD, budget))
         except OSError:
             continue
+        budget -= len(text.encode("utf-8", "replace"))
         cards.append((os.path.splitext(name)[0], parse_vcard(text)))
     return cards
 
@@ -5817,7 +5859,7 @@ def contacts_dir(device_id):
     return path
 
 
-def contact_photo(device_id, data, folder=None):
+def contact_photo(device_id, data, folder=None, fresh=None):
     """A contact's picture as a PNG made from its decoded pixels (fit_image,
     in the sandbox), kept in the cache; "" when the card has none or it
     cannot be read. The card's own bytes never reach the shell."""
@@ -5828,6 +5870,10 @@ def contact_photo(device_id, data, folder=None):
     if os.path.isfile(dst):
         os.utime(dst)
         return dst
+    if fresh is not None:
+        if fresh[0] <= 0:
+            return ""   # the rest come on the next read
+        fresh[0] -= 1
     raw = dst + ".raw"
     ok = False
     try:
@@ -5933,7 +5979,14 @@ def open_contacts_app(app=None, launch=None, find=""):
         # The last hop: the web app's launcher takes the address as an argument.
         (launch or launch_detached)(["omarchy-launch-webapp", url])
         return say("Opening %s" % app["name"])
-    (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
+    # Omarchy's `omarchy-launch-or-focus-webapp` evaluates its arguments: the
+    # window is found here by its name, else the web app's launcher runs.
+    word = re.compile(r"\b" + re.escape(app["name"]) + r"\b", re.I)
+    win = next((c for c in hypr_json("clients") if word.search(str(c.get("class") or "")) or word.search(str(c.get("title") or ""))), None)
+    if win:
+        focus_window(win)
+    else:
+        (launch or launch_detached)(["omarchy-launch-webapp", app["url"]])
     return say("Opening %s" % app["name"])
 
 
@@ -6011,9 +6064,13 @@ def contacts_list(device_id, sync=False, conn=None):
     if sync:
         contacts_sync(device_id, conn)
     out = []
+    budget = CAP_CONTACTS_OUT
+    fresh = [CAP_PHOTO_DECODES]
     for cid, card in read_vcards(device_id):
         if not card["name"] and not card["phones"] and not card["emails"]:
             continue
+        if budget <= 0:
+            break
         out.append({
             "id": cid,
             "name": card["name"],
@@ -6026,9 +6083,10 @@ def contacts_list(device_id, sync=False, conn=None):
             "websites": card["websites"],
             "birthday": card["birthday"],
             "note": card["note"],
-            "photo": contact_photo(device_id, card["photo"]),
+            "photo": contact_photo(device_id, card["photo"], fresh=fresh),
             "stored": card["stored"],
         })
+        budget -= len(json.dumps(out[-1], ensure_ascii=False).encode("utf-8"))
     out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
     return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 

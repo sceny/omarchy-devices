@@ -6,6 +6,14 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+### Highlights
+
+- **Hardening**: windows are launched and focused by exact title and address,
+  contact and call fields are capped, and the firewall rules open KDE
+  Connect's ports to private ranges only.
+
 ## 0.9.0 — 2026-10-12
 
 ### Highlights
