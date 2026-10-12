@@ -741,6 +741,29 @@ function isPhonePlayer(dbusName, identity, deviceName) {
   return id.length >= suffix.length && id.slice(-suffix.length) === suffix
 }
 
+var MAX_ART_DECODES = 2     // track art decoded at once, all players together
+var MAX_PHONE_PLAYERS = 8   // phone players shown per device
+
+// A phone player's art is decoded only from KDE Connect's own art cache: any
+// local process can export a player named kdeconnect and change its art URL
+// as fast as it likes, so the URL is checked before a process is started for
+// it. The bridge checks the real path again (`safe-art`).
+function artCacheDir(xdgCache, home) {
+  var base = String(xdgCache || "") !== "" ? String(xdgCache) : String(home || "") + "/.cache"
+  return base.replace(/\/+$/, "") + "/kdeconnect.daemon/kdeconnect/albumart/"
+}
+
+// The file path of an art URL inside `dir`, or "".
+function artPath(url, dir) {
+  var u = String(url || "")
+  if (u.indexOf("file://") !== 0 || !dir) return ""
+  var path
+  try { path = decodeURIComponent(u.slice(7)) } catch (e) { return "" }
+  if (path.indexOf(dir) !== 0 || path.length === dir.length) return ""
+  if (/(^|\/)\.\.?(\/|$)/.test(path.slice(dir.length - 1)) || path.indexOf("\0") >= 0) return ""
+  return path
+}
+
 function trackLine(title, artist) {
   var t = String(title || "").trim()
   var a = String(artist || "").trim()
@@ -2596,6 +2619,11 @@ function photosSummary(photos) {
   if (videos > 0) parts.push(videos === 1 ? "1 video" : videos + " videos")
   return parts.join(", ")
 }
+
+// Conversations the shell keeps (the newest); the bridge sends no more than
+// this, and a live thread past it pushes the oldest out.
+var CAP_THREADS = 5000
+function threadOverflow(count) { return Math.max(0, count - CAP_THREADS) }
 
 // Where the panel was when it closed, kept for a while: opened again within
 // KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the

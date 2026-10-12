@@ -5660,7 +5660,7 @@ Panel {
     // A real change of art (or a track with none) still lands, 2 s later.
     readonly property string reportedArt: player && player.trackArtUrl ? String(player.trackArtUrl) : ""
     property string artUrl: reportedArt
-    onArtUrlChanged: if (root.phone) root.phone.requestArt(artUrl)
+    onArtUrlChanged: if (root.phone) root.phone.requestArt(artUrl, player ? player.dbusName : "")
     onReportedArtChanged: {
       if (reportedArt !== "") { artUrl = reportedArt; artClear.stop() }
       else artClear.restart()
@@ -5698,7 +5698,7 @@ Panel {
     implicitHeight: cardContent.implicitHeight + Style.space(14)
     Component.onCompleted: {
       root.cardsBuilt += 1
-      if (root.phone) root.phone.requestArt(artUrl)
+      if (root.phone) root.phone.requestArt(artUrl, player ? player.dbusName : "")
     }
 
     // Drag the card sideways to page the carousel, as on the phone. Buttons
