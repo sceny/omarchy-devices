@@ -1,0 +1,883 @@
+#!/usr/bin/env python3
+"""Resilience soak for the Devices plugin, against a running rig.
+
+    dev/rig up --owner none --ttl 10800
+    dev/soak --rig <id> --out DIR            # about 30 minutes
+    dev/soak --rig <id> --out DIR --quick    # a few minutes: proves the driver
+    dev/rig --rig <id> down ; dev/rig verify-clean
+
+The rig's phone is an emulator, so every fault is free: KDE Connect's daemon
+stopped and killed, the phone's KDE Connect app killed (the device goes away),
+airplane mode on the phone, the computer's own network interface taken down,
+the emulator rebooted with its screen open, the panel opened and closed many
+times, and Back/Home used through the page stack. The panel, the processes and
+the bridge's own snapshot stream are sampled throughout; the report holds the
+numbers, the thresholds and a PASS/FAIL per criterion. It sends no text and
+places no call. Verdicts belong to Panel QA; this driver records the evidence.
+"""
+import argparse, collections, json, os, random, re, signal, statistics, subprocess, sys, threading, time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RIG = os.path.join(ROOT, "dev", "rig")
+FIXTURE = os.path.join(ROOT, "dev", "fixtures", "rigmedia", "build")
+PLAYER_PKG = "rig.media"
+KDC_PKG = "org.kde.kdeconnect_tp"
+NOTES = [("Calendar", "Team sync at 3 pm"), ("Mail", "Invoice 4471 is ready"), ("Chat", "Lunch at noon?")]
+
+# Thresholds (the driver's own definitions; the report prints them).
+MEM_GROWTH_PCT = 15
+MEM_GROWTH_FLOOR_KB = 15 * 1024
+RECOVER_TIMEOUT = 180
+NUDGE_AFTER = 100
+
+
+class Soak:
+    def __init__(self, a):
+        self.a = a
+        self.q = a.quick
+        self.out = a.out
+        os.makedirs(self.out, exist_ok=True)
+        self.t0 = time.time()
+        self.phase = "setup"
+        self.events = open(os.path.join(self.out, "events.jsonl"), "w", buffering=1)
+        self.samples = open(os.path.join(self.out, "samples.jsonl"), "w", buffering=1)
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.last_panel = {}
+        self.faults = []
+        self.checkpoints = []
+        self.stack_log = []
+        self.watch_proc = None
+        self.watch_pid = None
+        self.watch_lines = []
+        self.restore = []
+        self.resolve_rig()
+
+    # ------------------------------------------------------------ plumbing --
+    def log(self, *m):
+        print("[%6.0fs] %s" % (time.time() - self.t0, " ".join(str(x) for x in m)), flush=True)
+
+    def ev(self, kind, **kw):
+        kw.update(t=round(time.time() - self.t0, 2), kind=kind, phase=self.phase)
+        self.events.write(json.dumps(kw) + "\n")
+
+    def rig(self, *args, timeout=60, check=False):
+        r = subprocess.run([RIG, "--rig", self.rid, *args], capture_output=True, text=True, timeout=timeout)
+        if check and r.returncode:
+            raise RuntimeError("rig %s: %s" % (" ".join(args), (r.stdout + r.stderr)[-400:]))
+        return r
+
+    def resolve_rig(self):
+        r = subprocess.run([RIG, "ps", "--json"], capture_output=True, text=True)
+        rigs = json.loads(r.stdout)["rigs"]
+        m = [x for x in rigs if self.a.rig in x["id"]]
+        if len(m) != 1:
+            sys.exit("soak: --rig %r matches %d rigs (dev/rig ps)" % (self.a.rig, len(m)))
+        self.rid = m[0]["id"]
+        self.session = os.path.join("/tmp/omarchy-plugin-rig-%d" % os.getuid(), self.rid)
+        self.state = dict(l.rstrip("\n").split("=", 1) for l in open(os.path.join(self.session, "rig.state")) if "=" in l)
+        if not self.state.get("phone_device_id"):
+            sys.exit("soak: the rig has no phone")
+        self.dev = self.state["phone_device_id"]
+        self.shell_pid = int(self.state["shell_pid"])
+        self.plugin_dir = os.path.join(self.session, "home/.config/omarchy/plugins/sceny.devices")
+        self.shell_log = os.path.join(self.session, "logs/shell.log")
+        out = self.rig("exec", "--", "adb", "devices").stdout
+        m = re.search(r"^(emulator-\d+)\s+device", out, re.M)
+        self.serial = m.group(1) if m else "emulator-5554"
+
+    def ipc(self, *args, timeout=10):
+        r = subprocess.run([RIG, "--rig", self.rid, "ipc", *args], capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip()
+
+    def adb(self, *args, timeout=60):
+        return self.rig("exec", "--", "adb", "-s", self.serial, *args, timeout=timeout).stdout
+
+    def phone_sh(self, cmd, timeout=30):
+        return self.adb("shell", cmd, timeout=timeout)
+
+    def panel(self):
+        try:
+            d = json.loads(self.ipc("status", timeout=8))
+        except Exception:
+            return None
+        return {"reachable": d.get("reachable"), "daemon": d.get("daemon"), "notifications": d.get("notifications"),
+                "bubble": d.get("bubble"), "players": [p.get("title") for p in d.get("players", [])],
+                "opened": d.get("opened"), "meta": d.get("meta"), "watchError": d.get("watchError"),
+                "bar": d.get("bar")}
+
+    def navinfo(self):
+        try:
+            return json.loads(self.ipc("navInfo"))
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------ processes --
+    def procs(self):
+        """Every process carrying the rig's tag: pid -> (ppid, rss+swap in KB, cmdline). Swap is counted: a host under memory pressure pushes idle pages out, which is not the plugin shrinking."""
+        tag = ("OPR_RIG_ID=" + self.rid).encode()
+        out = {}
+        for pid in os.listdir("/proc"):
+            if not pid.isdigit():
+                continue
+            try:
+                env = open("/proc/%s/environ" % pid, "rb").read()
+                if tag + b"\0" not in env and not env.endswith(tag):
+                    continue
+                st = open("/proc/%s/status" % pid).read()
+                ppid = int(re.search(r"PPid:\s+(\d+)", st).group(1))
+                m = re.search(r"VmRSS:\s+(\d+)", st)
+                sw = re.search(r"VmSwap:\s+(\d+)", st)
+                cmd = open("/proc/%s/cmdline" % pid, "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+                out[int(pid)] = (ppid, (int(m.group(1)) if m else 0) + (int(sw.group(1)) if sw else 0), cmd)
+            except (OSError, AttributeError):
+                continue
+        return out
+
+    @staticmethod
+    def kind(cmd):
+        c = cmd
+        if "kdeconnect-bridge" in c:
+            for v in ("watch", "sms", "call-audio", "screen-watch", "screen"):
+                if re.search(r"kdeconnect-bridge\s+%s(\s|$)" % v, c):
+                    return "bridge-" + v
+            return "bridge-other"
+        if c.startswith("quickshell"):
+            return "shell"
+        if c.startswith("ip -o monitor"):
+            return "ip-monitor"
+        if c.startswith("kdeconnectd"):
+            return "kdeconnectd"
+        if "scrcpy" in c and "scrcpy-server" not in c.split(" ")[0]:
+            return "scrcpy"
+        if "qemu-system" in c:
+            return "emulator"
+        if c.startswith("Hyprland"):
+            return "hyprland"
+        if c.startswith("labwc"):
+            return "labwc"
+        if c.startswith("adb"):
+            return "adb"
+        return None
+
+    def inventory(self):
+        p = self.procs()
+        groups = collections.defaultdict(list)
+        for pid, (ppid, rss, cmd) in p.items():
+            if pid == self.watch_pid:
+                continue
+            k = self.kind(cmd)
+            if k:
+                groups[k].append((pid, ppid, rss, cmd))
+        return groups
+
+    # -------------------------------------------------------------- sampler --
+    def sampler(self):
+        while not self.stop.is_set():
+            t = time.time()
+            groups = self.inventory()
+            panel = self.panel()
+            if panel is not None:
+                self.last_panel = panel
+            rec = {"t": round(t - self.t0, 2), "phase": self.phase, "panel": panel,
+                   "rss": {k: sum(x[2] for x in v) for k, v in groups.items()},
+                   "count": {k: len(v) for k, v in groups.items()}}
+            self.samples.write(json.dumps(rec) + "\n")
+            self.stop.wait(max(0.0, self.a.interval - (time.time() - t)))
+
+    def read_samples(self, since=None, until=None):
+        out = []
+        with open(os.path.join(self.out, "samples.jsonl")) as f:
+            for l in f:
+                try:
+                    r = json.loads(l)
+                except ValueError:
+                    continue
+                if (since is None or r["t"] >= since) and (until is None or r["t"] <= until):
+                    out.append(r)
+        return out
+
+    def now(self):
+        return time.time() - self.t0
+
+    # ------------------------------------------------------- bridge recorder --
+    def start_recorder(self):
+        f = open(os.path.join(self.out, "watch.jsonl"), "w", buffering=1)
+
+        def run():
+            self.watch_proc = subprocess.Popen(
+                [RIG, "--rig", self.rid, "exec", "--", os.path.join(ROOT, "bin/kdeconnect-bridge"), "watch"],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+            for line in self.watch_proc.stdout:
+                try:
+                    d = json.loads(line)
+                    dev = next((x for x in d.get("devices", []) if x["id"] == self.dev), None)
+                    rec = {"t": round(self.now(), 2), "daemon": d.get("daemon"),
+                           "reachable": dev.get("reachable") if dev else None,
+                           "notes": sorted(n.get("title", "") + "|" + n.get("text", "") for n in (dev or {}).get("notifications", []))}
+                except Exception:
+                    continue
+                self.watch_lines.append(rec)
+                f.write(json.dumps(rec) + "\n")
+
+        threading.Thread(target=run, daemon=True).start()
+        for _ in range(60):
+            time.sleep(0.5)
+            if self.watch_proc and self.watch_proc.pid:
+                break
+        time.sleep(1)
+        self.watch_pid = None
+        # The recorder is a bridge `watch` the panel did not start: the panel's is the shell's child.
+        for pid, (ppid, rss, cmd) in self.procs().items():
+            if self.kind(cmd) == "bridge-watch" and ppid != self.shell_pid:
+                self.watch_pid = pid
+        self.log("recorder: bridge watch pid", self.watch_pid)
+
+    def stop_recorder(self):
+        if self.watch_proc:
+            try:
+                os.killpg(self.watch_proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+
+    # ------------------------------------------------------------ primitives --
+    def wait(self, secs, why=""):
+        end = time.time() + secs
+        while time.time() < end and not self.stop.is_set():
+            time.sleep(0.5)
+
+    def set_phase(self, name):
+        self.phase = name
+        self.ev("phase")
+        self.log("== phase", name)
+
+    def notes_posted(self):
+        for t, x in NOTES:
+            self.rig("phone", "notify", t, x)
+
+    def expected_notes(self):
+        return sorted(t + "|" + x for t, x in NOTES)
+
+    def player_up(self):
+        self.phone_sh("am start -n %s/.Main" % PLAYER_PKG)
+        self.phone_sh("am broadcast -a rig.media.PLAY -p %s" % PLAYER_PKG)
+
+    def state_now(self):
+        p = self.panel() or {}
+        return p
+
+    def fixtures_in_stream(self):
+        """The bridge's latest snapshot: reachable, and every fixture notification there exactly once."""
+        if not self.watch_lines:
+            return False
+        w = self.watch_lines[-1]
+        return bool(w["reachable"]) and all(w["notes"].count(n) == 1 for n in self.expected_notes())
+
+    def healthy(self):
+        """Device reachable, the fixture notifications once each, the panel agreeing with the bridge, a player shown.
+        Other notifications the phone holds (its own system ones) are allowed: they must be stable, not absent."""
+        p = self.panel()
+        if not (p and p["reachable"] and p["players"] and self.fixtures_in_stream()):
+            return False
+        return p["notifications"] == len(self.watch_lines[-1]["notes"])
+
+    def wait_healthy(self, timeout=RECOVER_TIMEOUT, nudge=None):
+        """Seconds until the panel shows the device, all notifications and the player; None on timeout."""
+        t = time.time()
+        nudged = False
+        while time.time() - t < timeout:
+            if self.healthy():
+                return round(time.time() - t, 1)
+            if nudge and not nudged and time.time() - t > NUDGE_AFTER and not (self.last_panel or {}).get("reachable"):
+                nudge()
+                nudged = True
+                self.ev("nudge", note="recovery needed a nudge from the harness")
+            time.sleep(1)
+        return None
+
+    def read_log_tail(self):
+        try:
+            return open(self.shell_log, errors="replace").read()
+        except OSError:
+            return ""
+
+    # ---------------------------------------------------------------- faults --
+    def kdeconnectd_pid(self):
+        for pid, (ppid, rss, cmd) in self.procs().items():
+            if self.kind(cmd) == "kdeconnectd":
+                return pid, cmd
+        return None, None
+
+    def write_state(self, key, value):
+        import fcntl
+        path = os.path.join(self.session, "rig.state")
+        with open(os.path.join(self.session, ".state.lock"), "w") as lk:
+            fcntl.flock(lk, fcntl.LOCK_EX)
+            lines = [l for l in open(path) if not l.startswith(key + "=")]
+            lines.append("%s=%s\n" % (key, value))
+            tmp = path + ".soak"
+            open(tmp, "w").writelines(lines)
+            os.replace(tmp, path)
+
+    def start_daemon(self, env):
+        keep = {k: v for k, v in env.items() if k in ("TMPDIR", "QT_QPA_PLATFORM", "QT_FORCE_STDERR_LOGGING", "QT_LOGGING_RULES")}
+        log = open(os.path.join(self.session, "logs/kdeconnectd.log"), "ab")
+        subprocess.Popen([RIG, "--rig", self.rid, "exec", "--", "env", *["%s=%s" % kv for kv in keep.items()], "kdeconnectd"],
+                         stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+        for _ in range(60):
+            time.sleep(0.5)
+            pid, _c = self.kdeconnectd_pid()
+            if pid:
+                self.write_state("kdeconnectd_pid", pid)
+                return pid
+        return None
+
+    def daemon_env(self, pid):
+        raw = open("/proc/%d/environ" % pid, "rb").read().split(b"\0")
+        return dict(x.decode(errors="replace").split("=", 1) for x in raw if b"=" in x)
+
+    def fault_daemon(self, graceful):
+        pid, _c = self.kdeconnectd_pid()
+        env = self.daemon_env(pid)
+
+        def down():
+            if graceful:
+                r = self.rig("exec", "--", "busctl", "--user", "call", "org.kde.kdeconnect", "/MainApplication",
+                             "org.qtproject.Qt.QCoreApplication", "quit")
+                if r.returncode:
+                    os.kill(pid, signal.SIGTERM)
+            else:
+                os.kill(pid, signal.SIGKILL)
+            for _ in range(40):
+                if not os.path.exists("/proc/%d" % pid):
+                    return
+                time.sleep(0.25)
+            os.kill(pid, signal.SIGKILL)
+
+        def up():
+            time.sleep(self.a.hold)
+            self.start_daemon(env)
+
+        return down, up, lambda: self.rig("phone", "refresh")
+
+    def fault_bridge_killed(self):
+        """The shell's own bridge watch is ended (as a crash or a shell restart ends it): it must come back, with no stray children."""
+        def down():
+            for pid, (ppid, rss, cmd) in self.procs().items():
+                if self.kind(cmd) == "bridge-watch" and ppid == self.shell_pid and pid != self.watch_pid:
+                    self.killed_watch = pid
+                    os.kill(pid, signal.SIGTERM)
+
+        def up():
+            time.sleep(self.a.hold)
+
+        return down, up, lambda: self.rig("phone", "refresh")
+
+    def fault_device_away(self):
+        def down():
+            self.phone_sh("am force-stop " + KDC_PKG)
+
+        def up():
+            time.sleep(self.a.hold)
+            self.phone_sh("am start -n %s/org.kde.kdeconnect.ui.MainActivity" % KDC_PKG)
+            time.sleep(2)
+            self.phone_sh("input keyevent KEYCODE_HOME")
+
+        return down, up, lambda: self.rig("phone", "refresh")
+
+    def fault_airplane(self):
+        def down():
+            self.phone_sh("cmd connectivity airplane-mode enable")
+            self.evidence["airplane_mode_on"] = self.phone_sh("settings get global airplane_mode_on").strip()
+
+        def up():
+            time.sleep(self.a.hold)
+            self.phone_sh("cmd connectivity airplane-mode disable")
+
+        self.restore.append(lambda: self.phone_sh("cmd connectivity airplane-mode disable"))
+        return down, up, lambda: self.rig("phone", "refresh")
+
+    def fault_computer_network(self):
+        routes = self.rig("exec", "--", "ip", "route").stdout.strip().splitlines()
+
+        def down():
+            self.rig("exec", "--", "ip", "link", "set", "dummy0", "down")
+
+        def up():
+            time.sleep(self.a.hold)
+            self.rig("exec", "--", "ip", "link", "set", "dummy0", "up")
+            have = self.rig("exec", "--", "ip", "route").stdout
+            for r in routes:
+                if r.split()[0] not in have:
+                    self.rig("exec", "--", "ip", "route", "add", *r.split())
+
+        self.restore.append(lambda: self.rig("exec", "--", "ip", "link", "set", "dummy0", "up"))
+        return down, up, lambda: self.rig("phone", "refresh")
+
+    def fault_reboot(self):
+        def down():
+            self.evidence["uptime_before_s"] = self.phone_sh("cat /proc/uptime").split(" ")[0]
+            self.adb("reboot", timeout=30)
+
+        def up():
+            self.rig("exec", "--", "adb", "-s", self.serial, "wait-for-device", timeout=240)
+            for _ in range(180):
+                if self.phone_sh("getprop sys.boot_completed", timeout=15).strip() == "1":
+                    break
+                time.sleep(2)
+            self.ev("emulator_booted")
+            self.evidence["uptime_after_boot_s"] = self.phone_sh("cat /proc/uptime").split(" ")[0]
+            self.phone_sh("input keyevent KEYCODE_WAKEUP")
+            self.phone_sh("wm dismiss-keyguard")
+            self.phone_sh("am start -n %s/org.kde.kdeconnect.ui.MainActivity" % KDC_PKG)
+            time.sleep(3)
+            self.phone_sh("input keyevent KEYCODE_HOME")
+            self.player_up()
+            self.rig("phone", "refresh")
+
+        def nudge():
+            self.rig("phone", "refresh")
+
+        return down, up, nudge
+
+    def run_fault(self, name, kit, needs_player_back=False, screen=False):
+        """Apply a fault with the panel open on its main page, restore, and time the re-sync."""
+        down, up, nudge = kit
+        self.set_phase("fault:" + name)
+        self.ipc("open")
+        self.ipc("page", "main")
+        self.wait(3)
+        pre = self.panel()
+        t_pre = self.now()
+        self.evidence = {}
+        rec = {"name": name, "pre": pre, "screen_before": None}
+        if screen:
+            rec["screen_before"] = self.screen_open()
+        self.ev("fault_down", name=name)
+        t_down = self.now()
+        try:
+            down()
+        except Exception as e:
+            rec["down_error"] = str(e)
+        away = None
+        for _ in range(int((8 if name == "bridge-watch-ended" else 60 if self.a.quick else 120) / 0.7)):
+            p = self.panel()
+            if p and not p["reachable"]:
+                away = round(self.now() - t_down, 1)
+                break
+            time.sleep(0.7)
+        rec["noticed_away_s"] = away
+        self.ev("fault_noticed", name=name, away=away)
+        t_up = self.now()
+        try:
+            up()
+        except Exception as e:
+            rec["up_error"] = str(e)
+        self.ev("fault_up", name=name)
+        rec["recovered_s"] = self.wait_healthy(nudge=nudge)
+        rec["recovered_s_from_up"] = rec["recovered_s"]
+        t_rec = self.now()
+        self.ev("fault_recovered", name=name, secs=rec["recovered_s"])
+        if rec["recovered_s"] is None:
+            self.repair()
+        self.wait(self.a.settle)
+        t_end = self.now()
+        rec.update(self.analyse(t_pre, t_down, t_up, t_rec, t_end))
+        if screen:
+            rec["screen_after"] = self.screen_state()
+        rec["evidence"] = self.evidence
+        self.faults.append(rec)
+        self.log("fault", name, json.dumps({k: rec[k] for k in ("noticed_away_s", "recovered_s", "blinks", "dupes") if k in rec}))
+        self.close_panel_if_idle()
+
+    def repair(self):
+        """After a fault that did not recover: put back only what is missing, so the next fault starts level."""
+        try:
+            self.rig("phone", "refresh")
+            self.player_up()
+            have = self.watch_lines[-1]["notes"] if self.watch_lines else []
+            for t, x in NOTES:
+                if (t + "|" + x) not in have:
+                    self.rig("phone", "notify", t, x)
+            self.wait_healthy(timeout=60)
+        except Exception:
+            pass
+
+    def close_panel_if_idle(self):
+        self.ipc("close")
+
+    def analyse(self, t_pre, t_down, t_up, t_rec, t_end):
+        """From the panel's own samples and the bridge's snapshot stream: what the user could have seen."""
+        stream = [w for w in self.watch_lines if t_up <= w["t"] <= t_end]
+        pre_notes = next((w["notes"] for w in reversed(self.watch_lines) if w["t"] <= t_down and w["reachable"]), [])
+        post_notes = next((w["notes"] for w in reversed(stream) if w["reachable"]), [])
+        want = max(len(NOTES), len(set(post_notes)), len(pre_notes))
+        expect = self.expected_notes()
+        samples = [s for s in self.read_samples(since=t_up, until=t_end) if s["panel"]]
+        # After the device is reachable again: the notification count may climb to the full set but must not fall back,
+        # nor exceed it; the player list likewise.
+        blinks, dupes, timeline = 0, 0, []
+        last = None
+        seen_reach = False
+        peak_notes = 0
+        peak_players = 0
+        for s in samples:
+            p = s["panel"]
+            if p["reachable"]:
+                seen_reach = True
+            key = (p["reachable"], p["notifications"], len(p["players"]), p["bubble"])
+            if key != last:
+                timeline.append([round(s["t"] - t_up, 1)] + list(key))
+                last = key
+            if seen_reach and p["reachable"]:
+                n, pl = p["notifications"] or 0, len(p["players"])
+                if n > want:
+                    dupes += 1
+                if n < peak_notes or pl < peak_players:
+                    blinks += 1
+                peak_notes, peak_players = max(peak_notes, n), max(peak_players, pl)
+        s_dupes = sum(1 for w in stream if w["reachable"] and len(w["notes"]) != len(set(w["notes"])))
+        s_empty_after = 0
+        full = False
+        for w in stream:
+            has_all = all(n in w["notes"] for n in expect)
+            if w["reachable"] and has_all:
+                full = True
+            elif full and w["reachable"] and not has_all:
+                s_empty_after += 1
+        gained = [n for n in set(post_notes) if n not in pre_notes]
+        lost = [n for n in set(pre_notes) if n not in post_notes] if stream else []
+        return {"gained": gained, "lost": lost, "timeline": timeline[:40], "blinks": blinks, "dupes": dupes + s_dupes, "stream_regressions": s_empty_after,
+                "stream_snapshots": len(stream), "final": self.panel()}
+
+    # ---------------------------------------------------------------- screen --
+    def screen_state(self):
+        r = self.rig("exec", "--", os.path.join(ROOT, "bin/kdeconnect-bridge"), "screen", self.dev, timeout=90)
+        try:
+            return json.loads(r.stdout).get("state")
+        except Exception:
+            return (r.stdout + r.stderr)[-120:]
+
+    def scrcpy_count(self):
+        return len(self.inventory().get("scrcpy", []))
+
+    def screen_open(self):
+        for _ in range(20):
+            if self.screen_state() == "ready":
+                break
+            time.sleep(2)
+        r = self.rig("exec", "--", os.path.join(ROOT, "bin/kdeconnect-bridge"), "screen-open", self.dev, "--tiled", "--sound", "phone", timeout=120)
+        time.sleep(4)
+        n = self.scrcpy_count()
+        self.ev("screen_open", rc=r.returncode, scrcpy=n)
+        return {"rc": r.returncode, "scrcpy": n}
+
+    def screen_close(self):
+        self.rig("exec", "--", os.path.join(ROOT, "bin/kdeconnect-bridge"), "screen-close", self.dev, timeout=90)
+        time.sleep(3)
+
+    # ----------------------------------------------------------------- churn --
+    def churn(self, n, label):
+        self.set_phase(label)
+        for i in range(n):
+            self.ipc("open")
+            for pg in random.sample(["settings", "messages", "connection", "main"], 2):
+                self.ipc("page", pg)
+            self.ipc("goBack")
+            self.ipc("goHome")
+            self.ipc("close")
+            if i % 20 == 19:
+                self.log("churn", label, i + 1, "of", n)
+
+    def stack_drill(self, n):
+        self.set_phase("stack")
+        self.ipc("open")
+        self.ipc("page", "main")
+        self.wait(1)
+        prev_depth = 0
+        bad = []
+        rng = random.Random(464)
+        pages = ["settings", "messages", "connection"]
+        for i in range(n):
+            op = rng.choice(["push", "push", "back", "back", "home"])
+            if op == "push":
+                self.ipc("page", rng.choice(pages))
+            elif op == "back":
+                self.ipc("goBack")
+            else:
+                self.ipc("goHome")
+            time.sleep(0.45)
+            nav = self.navinfo()
+            if nav is None:
+                bad.append([i, op, "no navInfo"])
+                continue
+            ok = nav["depth"] == len(nav["stack"]) and (nav["home"] == (nav["depth"] >= 2)) and len(set(nav["stack"])) == len(nav["stack"])
+            if op == "home" and nav["depth"] != (0 if prev_depth >= 2 else prev_depth):
+                ok = False
+            if op == "back" and prev_depth and nav["depth"] != prev_depth - 1:
+                ok = False
+            prev_depth = nav["depth"]
+            if not ok:
+                bad.append([i, op, nav])
+        for _ in range(12):
+            self.ipc("goBack")
+            time.sleep(0.45)
+        end = self.navinfo()
+        self.stack_log = {"ops": n, "violations": bad[:10], "violation_count": len(bad), "end": end}
+        if end is None or end["depth"] != 0:
+            self.stack_log["violation_count"] += 1
+            self.stack_log["violations"].append(["end", "back x12 did not return to the base", end])
+        self.ipc("goHome")
+        self.ipc("close")
+
+    # ------------------------------------------------------------- checkpoint --
+    def checkpoint(self, name, secs):
+        """Idle, panel closed: median RSS per process kind over the window, and the process counts."""
+        self.set_phase("idle:" + name)
+        self.ipc("close")
+        a = self.now()
+        self.wait(secs)
+        b = self.now()
+        rows = self.read_samples(since=a, until=b)
+        rss = collections.defaultdict(list)
+        cnt = collections.defaultdict(list)
+        for r in rows:
+            for k, v in r["rss"].items():
+                rss[k].append(v)
+            for k, v in r["count"].items():
+                cnt[k].append(v)
+        cp = {"name": name, "t": round(a, 1), "samples": len(rows),
+              "rss_kb": {k: int(statistics.median(v)) for k, v in rss.items()},
+              "count": {k: collections.Counter(v).most_common(1)[0][0] for k, v in cnt.items()}}
+        self.checkpoints.append(cp)
+        self.log("checkpoint", name, json.dumps(cp["rss_kb"]))
+
+    # ---------------------------------------------------------------- driver --
+    def setup(self):
+        self.set_phase("setup")
+        self.log("rig", self.rid, "device", self.dev, "serial", self.serial)
+        apk = subprocess.run([FIXTURE, os.path.join(self.out, "rigmedia-build")], capture_output=True, text=True)
+        if apk.returncode:
+            sys.exit("soak: could not build the media fixture:\n" + apk.stderr[-600:])
+        apk_path = apk.stdout.strip().splitlines()[-1]
+        self.adb("install", "-r", apk_path, timeout=120)
+        self.log_start = len(self.read_log_tail().splitlines())
+        self.baseline_log = set(self.read_log_tail().splitlines())
+        self.start_recorder()
+        t = threading.Thread(target=self.sampler, daemon=True)
+        t.start()
+        self.sampler_thread = t
+        self.notes_posted()
+        self.player_up()
+        h = self.wait_healthy(timeout=90)
+        self.ev("setup_healthy", secs=h)
+        if h is None:
+            sys.exit("soak: the rig never showed %d notifications and a player; nothing to soak" % len(NOTES))
+        self.log("healthy after", h, "s")
+
+    def run(self):
+        random.seed(464)
+        try:
+            self.setup()
+            q = self.q
+            self.churn(5 if q else 40, "warmup")
+            self.checkpoint("baseline", 20 if q else 120)
+            self.churn(10 if q else 150, "churn-A")
+            self.checkpoint("after-churn-A", 15 if q else 45)
+            self.run_fault("daemon-stop-and-start", self.fault_daemon(True))
+            self.run_fault("daemon-killed", self.fault_daemon(False))
+            self.run_fault("bridge-watch-ended", self.fault_bridge_killed())
+            self.run_fault("device-away", self.fault_device_away())
+            self.run_fault("phone-network-drop", self.fault_airplane())
+            self.run_fault("computer-network-drop", self.fault_computer_network())
+            self.checkpoint("after-faults-1", 15 if q else 60)
+            self.run_fault("emulator-reboot-screen-open", self.fault_reboot(), screen=True)
+            self.set_phase("screen-after")
+            self.screen_close()
+            self.rec_scrcpy_after_close = self.scrcpy_count()
+            self.stack_drill(12 if q else 80)
+            self.churn(10 if q else 150, "churn-B")
+            self.checkpoint("final", 20 if q else 120)
+        finally:
+            self.shutdown()
+
+    def shutdown(self):
+        self.set_phase("shutdown")
+        try:
+            self.ipc("close")
+        except Exception:
+            pass
+        for r in self.restore:
+            try:
+                r()
+            except Exception:
+                pass
+        self.stop.set()
+        self.stop_recorder()
+        time.sleep(1)
+        self.final_pids = set(self.procs())
+        self.final_inventory = {k: [(p[0], p[1], p[3][:90]) for p in v] for k, v in self.inventory().items()}
+        self.report()
+
+    # ---------------------------------------------------------------- report --
+    def log_findings(self):
+        lines = self.read_log_tail().splitlines()[self.log_start:]
+        pat = re.compile(r"ERROR|TypeError|ReferenceError|Unable to assign|is not a function|Cannot read|binding loop|"
+                         r"Cannot assign|undefined|WARN.*sceny\.devices|qml.*sceny\.devices", re.I)
+        found = collections.Counter()
+        first = {}
+        for l in lines:
+            if l in self.baseline_log or not pat.search(l):
+                continue
+            key = re.sub(r"\x1b\[[0-9;]*m", "", re.sub(r"\d{2,}", "N", l))[:220]
+            found[key] += 1
+            first.setdefault(key, l)
+        open(os.path.join(self.out, "shell-log-new.txt"), "w").write("\n".join(lines))
+        return found
+
+    def report(self):
+        out = []
+        P = out.append
+        verdict = []
+
+        def crit(name, ok, detail):
+            verdict.append((name, ok, detail))
+
+        cps = self.checkpoints
+        # Memory
+        mem_rows = []
+        mem_ok = True
+        if len(cps) >= 2:
+            base, last = cps[0], cps[-1]
+            for k in sorted(set(base["rss_kb"]) | set(last["rss_kb"])):
+                if k in ("emulator", "labwc", "hyprland", "adb", "bridge-other"):
+                    continue
+                b, e = base["rss_kb"].get(k, 0), last["rss_kb"].get(k, 0)
+                allowed = b * (1 + MEM_GROWTH_PCT / 100) + MEM_GROWTH_FLOOR_KB
+                ok = e <= allowed
+                mem_ok &= ok
+                mem_rows.append((k, b, e, e - b, ok))
+        crit("steady memory", mem_ok and len(cps) >= 2,
+             "last idle window <= baseline x %.2f + %d MB for every long-lived plugin-side process (one-shot bridge calls excluded)" % (1 + MEM_GROWTH_PCT / 100, MEM_GROWTH_FLOOR_KB // 1024))
+        # Log
+        found = self.log_findings()
+        crit("no QML errors in the shell log", not found, "%d distinct new error/warning lines" % len(found))
+        # Orphans
+        fin = self.final_inventory
+        scr = len(fin.get("scrcpy", []))
+        watch_n = len(fin.get("bridge-watch", []))
+        sms_n = len(fin.get("bridge-sms", []))
+        orphans = [(k, v) for k, vs in fin.items() if k.startswith("bridge") or k in ("scrcpy", "ip-monitor") for v in vs if v[1] not in self.final_pids]
+        extra_watch = watch_n > 1
+        ipm = len(fin.get("ip-monitor", []))
+        crit("no orphaned bridge or scrcpy", not orphans and not extra_watch and scr == 0 and sms_n <= 1 and ipm <= watch_n,
+             "final: bridge watch x%d, sms x%d, scrcpy x%d, ip monitor x%d, parentless: %d" % (watch_n, sms_n, scr, ipm, len(orphans)))
+        # Re-sync
+        bad = [f for f in self.faults if f.get("recovered_s") is None or f.get("blinks") or f.get("dupes") or f.get("stream_regressions") or f.get("lost")]
+        crit("notifications and media re-sync without a blink", not bad,
+             "%d of %d faults re-synced cleanly" % (len(self.faults) - len(bad), len(self.faults)))
+        crit("Back/Home stack", self.stack_log and self.stack_log["violation_count"] == 0,
+             "%s operations, %s violations" % (self.stack_log.get("ops"), self.stack_log.get("violation_count")))
+        crit("the shell still answers", bool(self.ipc("status")), "IPC status after the soak")
+
+        P("# Resilience soak: %s" % ("QUICK RUN (driver check, not the soak)" if self.q else "full run"))
+        P("")
+        P("Rig `%s`, started %s, ran %.1f minutes. Source: `dev/soak`." % (self.rid, time.strftime("%Y-%m-%d %H:%M", time.localtime(self.t0)), (time.time() - self.t0) / 60))
+        P("")
+        P("## Criteria (the driver's verdict; Panel QA judges)")
+        P("")
+        P("| Criterion | Result | Measured |")
+        P("|---|---|---|")
+        for n, ok, d in verdict:
+            P("| %s | %s | %s |" % (n, "PASS" if ok else "FAIL", d))
+        P("")
+        P("## Faults")
+        P("")
+        P("Panel open on the main page; 3 notifications and 1 player present before each fault.")
+        P("")
+        P("| Fault | Panel noticed away (s) | Healthy again (s after restore) | Blinks | Duplicates | Stream regressions | Notes |")
+        P("|---|---|---|---|---|---|---|")
+        for f in self.faults:
+            note = []
+            if f.get("down_error"): note.append("down: " + f["down_error"][:60])
+            if f.get("up_error"): note.append("up: " + f["up_error"][:60])
+            if f.get("recovered_after_reposting") is not None: note.append("recovered only after the harness re-posted the fixtures")
+            if f.get("gained"): note.append("gained: " + ", ".join(x.split("|")[0] for x in f["gained"]))
+            if f.get("lost"): note.append("LOST: " + ", ".join(x.split("|")[0] for x in f["lost"]))
+            if f.get("noticed_away_s") is None: note.append("the link never dropped: the panel stayed reachable")
+            if f.get("evidence"): note.append("evidence: " + json.dumps(f["evidence"]))
+            if f.get("screen_before"): note.append("screen before: %s; after: %s" % (f["screen_before"], f.get("screen_after")))
+            P("| %s | %s | %s | %s | %s | %s | %s |" % (f["name"], f.get("noticed_away_s"), f.get("recovered_s"), f.get("blinks"),
+                                                       f.get("dupes"), f.get("stream_regressions"), "; ".join(note)))
+        P("")
+        P("Rig limit: the emulator's link to KDE Connect runs through the emulator's network daemon on this computer, which keeps "
+          "the TCP connection open while the guest reboots or its radios are off. Those two faults therefore test that the panel "
+          "stays consistent with what KDE Connect reports, not a dropped link (a real network drop is on the *needs a real device* list).")
+        P("")
+        P("Panel states after each restore, as (seconds, reachable, notifications, players, bubble):")
+        P("")
+        for f in self.faults:
+            P("- **%s**: `%s`" % (f["name"], json.dumps(f["timeline"])))
+        P("")
+        P("## Memory (median RSS, KB, panel closed and nothing happening)")
+        P("")
+        P("| Checkpoint | " + " | ".join(sorted({k for c in cps for k in c["rss_kb"] if k not in ("labwc", "hyprland", "adb")})) + " |")
+        cols = sorted({k for c in cps for k in c["rss_kb"] if k not in ("labwc", "hyprland", "adb")})
+        P("|---|" + "---|" * len(cols))
+        for c in cps:
+            P("| %s | %s |" % (c["name"], " | ".join(str(c["rss_kb"].get(k, "")) for k in cols)))
+        P("")
+        P("| Process | Baseline | Final | Growth | Within threshold |")
+        P("|---|---|---|---|---|")
+        for k, b, e, g, ok in mem_rows:
+            P("| %s | %d | %d | %+d | %s |" % (k, b, e, g, "yes" if ok else "NO"))
+        P("")
+        P("## Process counts at each checkpoint")
+        P("")
+        for c in cps:
+            P("- %s: `%s`" % (c["name"], json.dumps(c["count"], sort_keys=True)))
+        P("")
+        P("Final inventory (pid, ppid, command): `%s`" % json.dumps({k: v for k, v in fin.items() if k.startswith("bridge") or k in ("scrcpy", "kdeconnectd", "shell", "ip-monitor")}))
+        P("")
+        P("## Page stack")
+        P("")
+        P("`%s`" % json.dumps(self.stack_log))
+        P("")
+        P("## New shell-log lines that look like errors (not in the log before the soak)")
+        P("")
+        if not found:
+            P("None.")
+        for k, c in found.most_common(25):
+            P("- x%d `%s`" % (c, k))
+        P("")
+        P("Raw: `samples.jsonl` (panel and process table every %.1f s), `events.jsonl`, `watch.jsonl` (the bridge's own snapshot stream), `shell-log-new.txt`." % self.a.interval)
+        text = "\n".join(out) + "\n"
+        open(os.path.join(self.out, "report.md"), "w").write(text)
+        print(text)
+        self.exit_code = 0 if all(ok for _n, ok, _d in verdict) else 1
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--rig", required=True, help="the rig's id, or a part of it (dev/rig ps)")
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--quick", action="store_true", help="short phases: checks the driver, is not the soak")
+    ap.add_argument("--interval", type=float, default=1.5, help="seconds between samples")
+    ap.add_argument("--hold", type=float, default=None, help="seconds a fault is held before it is lifted")
+    ap.add_argument("--settle", type=float, default=None, help="seconds watched after a re-sync")
+    a = ap.parse_args()
+    a.hold = a.hold if a.hold is not None else (8 if a.quick else 25)
+    a.settle = a.settle if a.settle is not None else (8 if a.quick else 25)
+    s = Soak(a)
+    s.exit_code = 2
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    signal.signal(signal.SIGINT, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    try:
+        s.run()
+    except KeyboardInterrupt:
+        pass
+    sys.exit(s.exit_code)
+
+
+if __name__ == "__main__":
+    main()
