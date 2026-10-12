@@ -82,6 +82,21 @@ and a TTL; `dev/rig reap` ends the dead ones and `dev/rig verify-clean`
 proves nothing is left. A hidden rig that shows up on the owner's desktop is a
 defect: the rig asserts it.
 
+**A cold computer.** `dev/rig cold begin` turns a rig into a computer with none
+of the plugin's packages: they are hidden from the shell's `PATH` (a directory
+of symlinks), `pacman` and `pkexec` are recording stubs that apply only the
+plan they are given (a package comes back only when `omarchy-pkg-add` is in
+the plan; a firewall rule open to everyone is refused; a second install of the
+same package is logged `ASKED-AGAIN`), ufw's rules are a private copy
+bind-mounted inside the rig's namespace, no daemon runs, and the phone's KDE
+Connect is new (data cleared, nothing granted). `dev/rig cold status` prints
+the password prompts and installs, `cold exec -- <cmd>` runs a command as the
+shell sees the computer, `cold daemon` starts the daemon for a step the plugin
+cannot take itself. The log is `cold/cold.log` in the rig's session folder.
+It cannot prove pacman's resolution, polkit's prompt, ufw's engine, user
+systemd, BlueZ or a Bluetooth radio, or real discovery. Mesh tools are hidden
+so no host peer shows in a check.
+
 **Without the phone.** `dev/rig up --no-phone` keeps the shell and plugin
 (demo mode, screenshots); `--bare` skips the plugin install too.
 
