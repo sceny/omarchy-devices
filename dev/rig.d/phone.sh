@@ -650,9 +650,17 @@ cmd_phone() {
     RIG_EMU_PID=$(rig_state_get emulator_pid || echo "")
     rig_kdc_pair
     ;;
+  accept)
+    # What a person does on the phone: open the app and accept the pairing.
+    rig_adb_shell am start -n org.kde.kdeconnect_tp/org.kde.kdeconnect.ui.MainActivity >/dev/null 2>&1
+    sleep 2
+    # A fresh install first asks for permission to show notifications.
+    rig_phone_tap_text "Allow" >/dev/null 2>&1 && sleep 1
+    rig_phone_tap_text "Accept" "Wait" "$RIG_KDC_NAME" || rig_die "phone accept: nothing to accept on the phone's screen"
+    ;;
   refresh)
     kdeconnect-cli --refresh
     ;;
-  *) rig_die "phone: unknown subcommand $sub (status, battery, notify, sms, call, hangup, shot, pair, refresh)" ;;
+  *) rig_die "phone: unknown subcommand $sub (status, battery, notify, sms, call, hangup, shot, pair, accept, refresh)" ;;
   esac
 }

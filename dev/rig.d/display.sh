@@ -523,7 +523,11 @@ rig_start_shell() {
   local log="$RIG_LOGS/shell.log"
   rig_step "starting the Omarchy shell from $OMARCHY_PATH/shell"
   printf -- '--- shell start %s ---\n' "$(date -u +%H:%M:%S)" >>"$log"
-  nohup "${RIG_IN_NS[@]}" quickshell -p "$OMARCHY_PATH/shell" >>"$log" 2>&1 &
+  # A cold rig (dev/rig cold) starts the shell on a PATH without the plugin's packages.
+  local cold_path launch=()
+  cold_path=$(rig_state_get cold_path 2>/dev/null || true)
+  [[ -n $cold_path ]] && launch=(env "PATH=$cold_path")
+  nohup "${RIG_IN_NS[@]}" "${launch[@]}" quickshell -p "$OMARCHY_PATH/shell" >>"$log" 2>&1 &
   RIG_SHELL_PID=$!
   rig_state_set shell_pid "$RIG_SHELL_PID"
 

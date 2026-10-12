@@ -82,7 +82,9 @@ Both start from the tag that is live now (`git tag`, the latest `vX.Y.Z` on
 **Cold install.** A rig with none of the plugin's dependencies: the first-run
 card, `fix ready` with one password, pairing, then each feature switch in
 turn. Every step finishes by itself or stops at the user's one step, and no
-package is asked for twice.
+package is asked for twice. `dev/rig cold begin` makes the cold computer
+(`docs/internals/development.md`); each step is a row with its evidence, and
+what the rig cannot prove goes on the *needs a real device* list.
 
 **Upgrade.** Install the live tag with a `shell.json` entry for one device
 and another for two devices with profiles, then move to the candidate. Old

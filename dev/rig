@@ -78,6 +78,8 @@ source "$RIG_DIR/rig.d/selftest.sh"
 source "$RIG_DIR/rig.d/phone.sh"
 # shellcheck source=rig.d/checks.sh
 source "$RIG_DIR/rig.d/checks.sh"
+# shellcheck source=rig.d/cold.sh
+source "$RIG_DIR/rig.d/cold.sh"
 
 # ------------------------------------------------------------------ usage ----
 
@@ -688,6 +690,7 @@ show) cmd_view visible ;;
 hide) cmd_view hidden ;;
 restart-shell) cmd_restart_shell "$@" ;;
 phone) cmd_phone "$@" ;;
+cold) cmd_cold "$@" ;;
 ipc) cmd_ipc "$@" ;;
 sync) cmd_sync "$@" ;;
 ps) cmd_ps "$@" ;;
