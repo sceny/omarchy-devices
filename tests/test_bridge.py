@@ -6,12 +6,14 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import io
 import re
 import importlib.machinery
 import importlib.util
 import os
 import subprocess
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -43,35 +45,65 @@ class Sends(unittest.TestCase):
     def tearDown(self):
         bridge.bus, bridge.call, bridge.device_name = self.saved
 
-    def run_quiet(self, argv):
-        with open(os.devnull, "w") as null:
-            with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
-                return bridge.act(argv)
+    def run_quiet(self, argv, stdin=""):
+        """The bridge as the shell runs it: text a person wrote arrives on
+        stdin, never in argv."""
+        saved = sys.stdin
+        sys.stdin = io.StringIO(stdin)
+        try:
+            with open(os.devnull, "w") as null:
+                with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
+                    return bridge.act(argv)
+        finally:
+            sys.stdin = saved
 
     def test_text_goes_whole_to_share_text(self):
-        self.assertEqual(self.run_quiet(["text", "d1", "two  spaces\nand a line"]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["text", "d1"], "two  spaces\nand a line"), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareText", ("two  spaces\nand a line",), "(s)")])
 
     def test_link_goes_to_share_url(self):
-        self.assertEqual(self.run_quiet(["url", "d1", " https://example.com/a?b=1 "]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["url", "d1"], " https://example.com/a?b=1 "), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareUrl", ("https://example.com/a?b=1",), "(s)")])
 
     def test_dial_shares_a_tel_link(self):
-        self.assertEqual(self.run_quiet(["dial", "d1", "+1 (514) 555-0123"]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["dial", "d1"], "+1 (514) 555-0123"), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareUrl", ("tel:+15145550123",), "(s)")])
 
+    def test_dial_says_nothing_of_the_number(self):
+        saved, sys.stdin = sys.stdin, io.StringIO("+1 (514) 555-0123")
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                bridge.act(["dial", "d1"])
+        finally:
+            sys.stdin = saved
+        said = out.getvalue() + err.getvalue()
+        self.assertTrue(said.strip())
+        self.assertNotIn("555", said)
+
     def test_dial_without_a_number_sends_nothing(self):
-        self.assertEqual(self.run_quiet(["dial", "d1", " - "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.run_quiet(["dial", "d1"], " - "), bridge.EXIT_CANCELLED)
         self.assertEqual(self.calls, [])
 
     def test_ping_with_and_without_a_message(self):
         self.run_quiet(["ping", "d1"])
-        self.run_quiet(["ping", "d1", "Leaving now"])
+        self.run_quiet(["ping", "d1"], "Leaving now")
         self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None),
                                       ("ping", "ping", "sendPing", ("Leaving now",), "(s)")])
 
+    def test_a_reply_takes_its_id_from_argv_and_its_message_from_stdin(self):
+        self.run_quiet(["reply", "d1", "reply-1"], "On my way")
+        self.assertEqual(self.calls, [("notifications", "notifications", "sendReply", ("reply-1", "On my way"), "(ss)")])
+
+    def test_text_in_argv_is_never_sent(self):
+        for argv in (["text", "d1", "in argv"], ["url", "d1", "https://example.com"],
+                     ["dial", "d1", "+15145550123"], ["reply", "d1", "reply-1", "in argv"]):
+            self.assertIn(self.run_quiet(argv), (bridge.EXIT_CANCELLED, bridge.EXIT_FAILED), argv)
+        self.run_quiet(["ping", "d1", "in argv"])
+        self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None)])
+
     def test_nothing_to_send_sends_nothing(self):
-        self.assertEqual(self.run_quiet(["text", "d1", "  "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.run_quiet(["text", "d1"], "  "), bridge.EXIT_CANCELLED)
         self.assertEqual(self.calls, [])
 
 
@@ -945,6 +977,39 @@ class Screen(unittest.TestCase):
 
     def test_pairing_qr_is_androids_format(self):
         self.assertEqual(bridge.pairing_qr("sceny-abc", "pw"), "WIFI:T:ADB;S:sceny-abc;P:pw;;")
+
+    def test_pairing_password_is_never_in_an_argument_list(self):
+        runs = []
+
+        def fake_run(args, **kwargs):
+            runs.append((list(args), kwargs.get("input")))
+            return subprocess.CompletedProcess(args, 0, "Successfully paired to 192.168.1.20:37099 [guid=adb-0A1B2C3D-xYz]\n", "")
+
+        saved = (bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.screen_record)
+        bridge.subprocess.run = fake_run
+        bridge.screen_tools = lambda: {"ok": True}
+        bridge.mdns_services = lambda: [{"name": n, "kind": "pairing", "host": "192.168.1.20", "port": 37099}
+                                        for n in names]
+        bridge.screen_record = lambda *a, **k: {}
+        names = []
+        events = []
+        real_urandom = os.urandom
+        try:
+            bridge.os.urandom = lambda n: b"\x01" * n
+            names.append("sceny-" + bridge.base64.b32encode(b"\x01" * 5).decode().lower().rstrip("="))
+            password = bridge.base64.b32encode(b"\x01" * 10).decode().lower().rstrip("=")
+            bridge.screen_pair("p1", wait=1, sleep=lambda s: None, emit=events.append)
+        finally:
+            bridge.os.urandom = real_urandom
+            bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.screen_record = saved
+        self.assertIn("paired", [e["ev"] for e in events])
+        pair = [(args, text) for args, text in runs if args[:2] == ["adb", "pair"]]
+        self.assertEqual(len(pair), 1)
+        self.assertEqual(pair[0][1], password + "\n", "adb is given the code on stdin")
+        qr = [(args, text) for args, text in runs if args[0] == "qrencode"]
+        self.assertIn(password, qr[0][1], "qrencode is given the code on stdin")
+        for args, _ in runs:
+            self.assertFalse(any(password in a for a in args), "the password is on no command line: %r" % args)
 
     def test_wifi_matches_by_address(self):
         devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},

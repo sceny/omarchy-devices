@@ -6,6 +6,26 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.1 — 2026-10-10
+
+### Highlights
+
+- **Private text stays off command lines**: a reply to a notification, a
+  text or link sent to the phone, a ping's message and a number to call back
+  reach the plugin's helper over stdin, never as command-line arguments,
+  which any local process can read. The one-time code for pairing a phone's
+  screen link is never on a command line either.
+
+### Issues
+
+- [#162](https://github.com/sceny/omarchy-devices/issues/162) The adb pairing password is on two command lines (qrencode, adb pair)
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review of 0.8.0: a notification reply's text was a command-line argument
+
+### Upgrading
+
+- Nothing in your settings changes. The call-back notice no longer repeats
+  the number.
+
 ## 0.8.0 — 2026-10-05
 
 ### Highlights

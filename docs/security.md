@@ -21,8 +21,9 @@ can control the phone fully: see its screen, type, open and install apps.
 So:
 
 - Pairing is your own act: a QR code here, new each time, for two minutes;
-  it pairs only with the phone that scanned it. Android allows it per
-  Wi-Fi, and turns it off when the phone restarts.
+  it pairs only with the phone that scanned it. Its password is never on
+  a command line, where another program on this computer could read it. Android
+  allows it per Wi-Fi, and turns it off when the phone restarts.
 - Take it back any time: *Developer options › Revoke USB debugging
   authorizations*, or turn Wireless debugging off.
 - With the screen set up, the plugin can allow KDE Connect a permission
