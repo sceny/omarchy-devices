@@ -3704,11 +3704,14 @@ Panel {
         onPlanChanged: if (plan) shown = plan
         z: 12
         x: (parent.width - width) / 2
-        // Centred on the panel, but never above the top of the screen.
-        y: Math.max((parent.height - height) / 2, Style.space(8) - parent.mapToItem(null, 0, 0).y)
+        // Centred on the panel, kept inside the screen: the panel of the first
+        // run is small, and the card must not take its height from it.
+        readonly property real screenHeight: Window.height > 0 ? Window.height : parent.height
+        y: Math.min(Math.max((parent.height - height) / 2, Style.space(8) - parent.mapToItem(null, 0, 0).y),
+                    screenHeight - height - Style.space(8) - parent.mapToItem(null, 0, 0).y)
         width: Math.min(parent.width - Style.space(32), Style.space(440))
         height: rootColumn.implicitHeight + Style.space(28)
-        readonly property real listRoom: Math.max(Style.space(60), parent.height - Style.space(32) - Style.space(28) - rootColumn.fixedHeight)
+        readonly property real listRoom: Math.max(Style.space(60), screenHeight * 0.8 - Style.space(28) - rootColumn.fixedHeight)
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
