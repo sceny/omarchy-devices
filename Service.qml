@@ -302,7 +302,7 @@ Item {
     if (demo) { demoRun("dial", [n], "dial"); return }
     if (isBusy("dial")) return
     setBusy("dial", true)
-    var proc = actionComponent.createObject(root, { key: "dial", command: [bridge, "dial", c.device, n] })
+    var proc = actionComponent.createObject(root, { key: "dial", hasInput: true, input: n, command: [bridge, "dial", c.device] })
     proc.running = true
   }
 
@@ -547,7 +547,9 @@ Item {
 
   // `wait` keeps the click waiting past the bridge, until the device's
   // answer shows in the snapshot: { kind, note, before } (Model.answered).
-  function run(verb, args, key, wait) {
+  // `input` is text a person wrote: it goes to the bridge over stdin, never
+  // in its arguments, which any local process can read.
+  function run(verb, args, key, wait, input) {
     if (!device || !device.reachable) return
     key = key || verb
     if (isBusy(key)) return
@@ -556,6 +558,8 @@ Item {
     var proc = actionComponent.createObject(root, {
       key: key,
       wait: wait ? Object.assign({ device: String(device.id) }, wait) : null,
+      hasInput: input !== undefined,
+      input: input === undefined ? "" : String(input),
       command: [bridge, verb, device.id].concat(args || [])
     })
     proc.running = true
@@ -1630,7 +1634,7 @@ Item {
   // A ping, with an optional message the device shows in its notification.
   function ping(message) {
     var m = String(message || "").trim()
-    run("ping", m !== "" ? [m] : [], "ping")
+    run("ping", [], "ping", null, m)
   }
   // Typed text or a link: a lone web address opens on the device, anything
   // else lands on its clipboard (Model.linkFor).
@@ -1638,8 +1642,8 @@ Item {
     var t = String(text || "")
     if (t.trim() === "") return
     var url = Model.linkFor(t)
-    if (url !== "") run("url", [url], "text")
-    else run("text", [t], "text")
+    if (url !== "") run("url", [], "text", null, url)
+    else run("text", [], "text", null, t)
   }
   function sendClipboard() { run("clipboard") }
   function sendFiles() { run("share") }
@@ -1681,7 +1685,7 @@ Item {
   function noteWait(n) { return { kind: "note", note: String(n.id), before: JSON.stringify(Model.findNotification(device, n.id)) } }
   function reply(n, text) {
     var message = String(text || "").trim()
-    if (n && n.replyId && message !== "") run("reply", [n.replyId, message], "reply:" + n.id, noteWait(n))
+    if (n && n.replyId && message !== "") run("reply", [n.replyId], "reply:" + n.id, noteWait(n), message)
   }
   function notificationAction(n, action) {
     if (n) run("action", [n.id, action], "action:" + n.id + ":" + action, noteWait(n))
@@ -1923,6 +1927,11 @@ Item {
       // Its success says nothing worth a toast (the screen's window opening
       // is the answer itself); a failure is still said.
       property bool quietSuccess: false
+      // Text a person wrote, written to stdin once started and then closed.
+      property bool hasInput: false
+      property string input: ""
+      stdinEnabled: hasInput
+      onStarted: if (proc.hasInput) { write(proc.input); proc.input = ""; proc.stdinEnabled = false }
 
       stdout: StdioCollector { id: procOut }
       stderr: StdioCollector { id: procErr }

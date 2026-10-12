@@ -13,6 +13,7 @@ import importlib.util
 import os
 import subprocess
 import shutil
+import sys
 import tempfile
 import unittest
 
@@ -44,35 +45,65 @@ class Sends(unittest.TestCase):
     def tearDown(self):
         bridge.bus, bridge.call, bridge.device_name = self.saved
 
-    def run_quiet(self, argv):
-        with open(os.devnull, "w") as null:
-            with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
-                return bridge.act(argv)
+    def run_quiet(self, argv, stdin=""):
+        """The bridge as the shell runs it: text a person wrote arrives on
+        stdin, never in argv."""
+        saved = sys.stdin
+        sys.stdin = io.StringIO(stdin)
+        try:
+            with open(os.devnull, "w") as null:
+                with contextlib.redirect_stdout(null), contextlib.redirect_stderr(null):
+                    return bridge.act(argv)
+        finally:
+            sys.stdin = saved
 
     def test_text_goes_whole_to_share_text(self):
-        self.assertEqual(self.run_quiet(["text", "d1", "two  spaces\nand a line"]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["text", "d1"], "two  spaces\nand a line"), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareText", ("two  spaces\nand a line",), "(s)")])
 
     def test_link_goes_to_share_url(self):
-        self.assertEqual(self.run_quiet(["url", "d1", " https://example.com/a?b=1 "]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["url", "d1"], " https://example.com/a?b=1 "), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareUrl", ("https://example.com/a?b=1",), "(s)")])
 
     def test_dial_shares_a_tel_link(self):
-        self.assertEqual(self.run_quiet(["dial", "d1", "+1 (514) 555-0123"]), bridge.EXIT_OK)
+        self.assertEqual(self.run_quiet(["dial", "d1"], "+1 (514) 555-0123"), bridge.EXIT_OK)
         self.assertEqual(self.calls, [("share", "share", "shareUrl", ("tel:+15145550123",), "(s)")])
 
+    def test_dial_says_nothing_of_the_number(self):
+        saved, sys.stdin = sys.stdin, io.StringIO("+1 (514) 555-0123")
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                bridge.act(["dial", "d1"])
+        finally:
+            sys.stdin = saved
+        said = out.getvalue() + err.getvalue()
+        self.assertTrue(said.strip())
+        self.assertNotIn("555", said)
+
     def test_dial_without_a_number_sends_nothing(self):
-        self.assertEqual(self.run_quiet(["dial", "d1", " - "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.run_quiet(["dial", "d1"], " - "), bridge.EXIT_CANCELLED)
         self.assertEqual(self.calls, [])
 
     def test_ping_with_and_without_a_message(self):
         self.run_quiet(["ping", "d1"])
-        self.run_quiet(["ping", "d1", "Leaving now"])
+        self.run_quiet(["ping", "d1"], "Leaving now")
         self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None),
                                       ("ping", "ping", "sendPing", ("Leaving now",), "(s)")])
 
+    def test_a_reply_takes_its_id_from_argv_and_its_message_from_stdin(self):
+        self.run_quiet(["reply", "d1", "reply-1"], "On my way")
+        self.assertEqual(self.calls, [("notifications", "notifications", "sendReply", ("reply-1", "On my way"), "(ss)")])
+
+    def test_text_in_argv_is_never_sent(self):
+        for argv in (["text", "d1", "in argv"], ["url", "d1", "https://example.com"],
+                     ["dial", "d1", "+15145550123"], ["reply", "d1", "reply-1", "in argv"]):
+            self.assertIn(self.run_quiet(argv), (bridge.EXIT_CANCELLED, bridge.EXIT_FAILED), argv)
+        self.run_quiet(["ping", "d1", "in argv"])
+        self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None)])
+
     def test_nothing_to_send_sends_nothing(self):
-        self.assertEqual(self.run_quiet(["text", "d1", "  "]), bridge.EXIT_CANCELLED)
+        self.assertEqual(self.run_quiet(["text", "d1"], "  "), bridge.EXIT_CANCELLED)
         self.assertEqual(self.calls, [])
 
 
