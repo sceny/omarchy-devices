@@ -178,7 +178,7 @@ Item {
     var verbs = { answer: ["answer"], answerPhone: ["answer-phone"], decline: ["decline", c.id], hangup: ["hangup", c.id],
                   holdAnswer: ["answer", c.other ? c.other.id : ""], endAnswer: ["end-answer"],
                   declineOther: ["decline", c.other ? c.other.id : ""], swap: ["swap"], merge: ["merge"],
-                  audioHere: ["audio-here"], tones: ["tones", String(arg || "")], volume: ["volume", String(arg)],
+                  audioHere: ["audio-here"], tones: ["tones"], volume: ["volume", String(arg)],
                   mute: ["mute", isCallMuted(id) ? "off" : "on"] }
     // A conference ends whole.
     if (key === "hangup" && c.conference) key = "hangupAll"
@@ -187,7 +187,9 @@ Item {
     if (!v) return
     if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }
     if (demo) { demoCallClick(id, key); return }
+    // The keypad's digits go over stdin, never in the arguments.
     var proc = actionComponent.createObject(root, { key: "call:" + key, quietSuccess: true,
+      hasInput: key === "tones", input: key === "tones" ? String(arg || "") : "",
       command: [bridge, "call", v[0], id].concat(v.length > 1 && v[1] ? [v[1]] : []) })
     proc.running = true
   }
@@ -208,7 +210,8 @@ Item {
     if (!id || n === "") return
     if (!callsReady(id)) { callBack({ device: String(id), number: n }); return }
     if (demo) { demoCallClick(String(id), "dial"); return }
-    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true, command: [bridge, "call", "dial", String(id), n] })
+    var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true,
+      hasInput: true, input: n, command: [bridge, "call", "dial", String(id)] })
     proc.running = true
   }
   // Between calls the audio stays on the device: a call answered there is
@@ -656,8 +659,8 @@ Item {
     agentRead.running = true
   }
   onOpenPanelsChanged: if (openPanels > 0) readAgent()
-  // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
-  // did, "" when none ran).
+  // `problems`: [{ label, where, detail, tried }] (where: what it is on, by
+  // kind; tried: what the plugin's own fix did, "" when none ran).
   function fixWithAi(problems) {
     if (demo) { report("Demo: your coding agent would open on it", false); return }
     readAgent(function() { launchAgent(problems) })
@@ -665,14 +668,7 @@ Item {
   function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
-    var lines = (problems || []).map(function(p) {
-      return "  - " + p.label + (p.detail ? ": " + p.detail : "") + (p.tried ? " (the plugin's own fix was tried: " + p.tried + ")" : "")
-    }).join("\n")
-    var prompt = "Devices, the Omarchy shell plugin sceny.devices, shows a problem on this machine and I want it fixed.\n\n"
-      + "What it shows:\n" + lines + "\n\n"
-      + "Use the setup-help skill: it covers how to investigate, how to fix it, and when it is worth reporting "
-      + "(never with personal data). If your harness has no skill mechanism, read the skill files directly and follow them instead:\n\n"
-      + "  " + pluginFolder + "/.claude/skills/setup-help/SKILL.md"
+    var prompt = Model.aiPrompt(problems, pluginFolder)
     silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
   }
 
@@ -856,6 +852,14 @@ Item {
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
     proc.running = true
   }
+  // The gallery failed for want of storage access and the device now reads
+  // as granted (the plugin's grant, or the user's): the mount is tried
+  // again at once, not after the failed mount's 10 minutes.
+  function storageGranted(id, report) {
+    var st = photoState[id]
+    if (!st || st.ok || st.loading || !device || String(device.id) !== id) return
+    if (report.permissions && report.permissions.storage === true && Model.permissionDenied(st.error)) refreshPhotos(true)
+  }
   Component {
     id: featuresComponent
     Process {
@@ -865,7 +869,10 @@ Item {
         onStreamFinished: {
           var r = null
           try { r = JSON.parse(text) } catch (e) {}
-          if (r) { var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next }
+          if (r) {
+            var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next
+            root.storageGranted(featuresProc.device, r)
+          }
           featuresProc.destroy()
         }
       }

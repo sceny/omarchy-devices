@@ -101,12 +101,14 @@ Panel {
   readonly property var received: phone ? phone.received : []
   // Something to show, or a step that makes photos possible (sshfs, the
   // phone's storage permission).
-  readonly property bool photosHint: !!photoInfo && photoInfo.ok === false
+  // A refusal for want of the storage permission is not shown ahead: Gallery
+  // asks for it where it is turned on (its switch grants it).
+  readonly property bool photosHint: !!photoInfo && photoInfo.ok === false && !(photoInfo.missing !== "sshfs" && photoInfo.dead !== true && Model.permissionDenied(photoInfo.error))
   readonly property bool hasPhotos: photos.length > 0 || photosHint
   // The gallery could not read the device (a problem: the card at the top
   // has its Fix); anything else here is an ask, with its click in the section.
   readonly property bool photosError: photosHint && photoInfo.missing !== "sshfs"
-    && (photoInfo.dead === true || (!!photoInfo.error && !/allow|permission|denied/i.test(photoInfo.error)))
+    && (photoInfo.dead === true || !!photoInfo.error)
   // The keyboard cursor in Files: the photos (a grid of four), then the
   // received files.
   property int photoIndex: 0
@@ -937,17 +939,17 @@ Panel {
   // opening resolves what changed meanwhile.
   onFeatureRowsByIdChanged: resolvePendingFeatures()
   // Fix with AI: what is wrong, and what the plugin's own fix did.
-  function aiProblem(r) { return { label: r.label, detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
+  function aiProblem(r) { return { label: r.label, where: viewedKind(), detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
+  function aiProblemOf(p) { return { label: p.label + (p.gateway ? " via " + p.gateway : ""), where: p.whereKind || "", detail: p.detail, tried: p.tried || "" } }
+  function viewedKind() { return device ? Model.deviceNoun(device) : "device" }
   function fixWithAi(what, index) {
     if (!phone) return
     var list = []
     if (what === "features") list = featureRowsFor(featureDevice()).filter(function(r) { return r.problem || r.state === "setup" }).map(aiProblem)
     else if (what === "feature") list = [aiProblem(settingsRows[index])]
-    else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
-    else if (what === "all") list = allProblems.map(function(p) {
-      return { label: p.label + (p.gateway ? " via " + p.gateway : "") + " (" + p.whereLabel + ")", detail: p.detail, tried: p.tried || "" }
-    })
-    else if (what === "gallery") list = [{ label: "Gallery", detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
+    else if (what === "check") { var c = settingsRows[index]; list = [{ label: c.label, where: "this computer", detail: (c.status || "") + (c.detail ? ": " + c.detail : ""), tried: "" }] }
+    else if (what === "all") list = allProblems.map(aiProblemOf)
+    else if (what === "gallery") list = [{ label: "Gallery", where: viewedKind(), detail: photoInfo ? (photoInfo.error || "it could not read the device") : "", tried: photoInfo && photoInfo.dead ? "it mounted the storage again once; it still did not answer" : "" }]
     if (list.length === 0) return
     phone.fixWithAi(list)
     root.close()
@@ -958,7 +960,7 @@ Panel {
   // count them.
   readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
     pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) }).map(function(d) {
-      return { id: String(d.id), title: Model.deviceLabel(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
+      return { id: String(d.id), title: Model.deviceLabel(d), noun: Model.deviceNoun(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
   readonly property int settingsIssues: allProblems.length
   // The card at the top of the main page, closed: the problems it showed
@@ -1007,7 +1009,7 @@ Panel {
   }
   function fixProblemWithAi(p) {
     if (!phone || !p) return
-    phone.fixWithAi([{ label: p.label + (p.gateway ? " via " + p.gateway : "") + " (" + p.whereLabel + ")", detail: p.detail, tried: p.tried || "" }])
+    phone.fixWithAi([aiProblemOf(p)])
     root.close()
   }
   // Using an affected action asks to fix it first: the same card over the
@@ -5692,9 +5694,7 @@ Panel {
                         text: root.photoInfo && root.photoInfo.missing === "sshfs"
                           ? "The gallery of " + Model.deviceLabel(root.device) + " needs sshfs on this computer"
                           : root.photoInfo && root.photoInfo.dead ? root.photoInfo.error
-                          : root.photoInfo && root.photoInfo.error && !/allow|permission|denied/i.test(root.photoInfo.error)
-                            ? "The gallery could not read " + Model.deviceLabel(root.device) + ": " + root.photoInfo.error
-                          : "Gallery: allow storage access in KDE Connect on " + Model.deviceLabel(root.device)
+                          : "The gallery could not read " + Model.deviceLabel(root.device) + (root.photoInfo && root.photoInfo.error ? ": " + root.photoInfo.error : "")
                         color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption

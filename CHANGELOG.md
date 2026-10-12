@@ -80,6 +80,7 @@ GitHub release with these notes.
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
 - [#129](https://github.com/sceny/omarchy-devices/issues/129) Sound: where a device's sound plays, per window, from the plugin
 - [#122](https://github.com/sceny/omarchy-devices/issues/122) Notification open: a text message opens its conversation, any other its app; the exact screen inside it needs KDE Connect's help
+- [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cut its name and wrapped its detail
 - [#152](https://github.com/sceny/omarchy-devices/issues/152) Editing a device's page offered the Screen shortcut and the Apps section while Screen and apps was off
 
 ### Upgrading

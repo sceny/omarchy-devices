@@ -435,6 +435,45 @@ class OmarchyContactsApp(unittest.TestCase):
         self.assertEqual(code, bridge.EXIT_FAILED)
 
 
+class ContactVerbsOverStdin(unittest.TestCase):
+    """A contact's value and a search arrive on stdin; one in argv is ignored."""
+
+    def setUp(self):
+        self.launched = []
+        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app
+        bridge.launch_detached = self.launched.append
+        bridge.omarchy_contacts_app = lambda: {"name": "Google Contacts", "url": "https://contacts.google.com/",
+                                                "find": "https://contacts.google.com/search/{}"}
+        bridge.omarchy_maps_app = lambda: None
+
+    def tearDown(self):
+        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app = self.saved
+
+    def run_main(self, argv, stdin=""):
+        saved, sys.stdin = sys.stdin, io.StringIO(stdin)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return bridge.main(argv)
+        finally:
+            sys.stdin = saved
+
+    def test_a_search_comes_from_stdin(self):
+        self.run_main(["contacts-app", "--find"], "Sam Chen\n")
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/search/Sam%20Chen"]])
+
+    def test_a_search_in_argv_is_not_searched(self):
+        self.run_main(["contacts-app", "--find", "Sam Chen"])
+        self.assertEqual(self.launched, [["omarchy-launch-or-focus-webapp", "Google Contacts", "https://contacts.google.com/"]])
+
+    def test_a_detail_comes_from_stdin(self):
+        self.assertEqual(self.run_main(["contact-open", "mail"], "alex@example.invalid\n"), bridge.EXIT_OK)
+        self.assertEqual(self.launched, [["uwsm-app", "--", "xdg-open", "mailto:alex@example.invalid"]])
+
+    def test_a_detail_in_argv_is_not_opened(self):
+        self.assertEqual(self.run_main(["contact-open", "mail", "alex@example.invalid"]), bridge.EXIT_FAILED)
+        self.assertEqual(self.launched, [])
+
+
 class AttachmentNames(unittest.TestCase):
     """The daemon saves fetched files without an extension; the bridge links
     them under a typed name so a viewer will open them."""
@@ -1453,6 +1492,49 @@ class Screen(unittest.TestCase):
         self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
                                 os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
                          "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
+
+    def start_daemon_with(self, unit_ok, running_after):
+        ran, spawned = [], []
+        saved = (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus, bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists)
+        up = [False]
+        def fake_run(cmd, **kw):
+            ran.append(cmd[2:])
+            if cmd[2:] == ["start", bridge.DAEMON_UNIT] and unit_ok:
+                up[0] = running_after
+            return subprocess.CompletedProcess(cmd, 0 if (cmd[2] != "start" or unit_ok) else 5, "", "")
+        def fake_popen(cmd, **kw):
+            spawned.append(cmd)
+            up[0] = running_after
+        bridge.subprocess.run = fake_run
+        bridge.subprocess.Popen = fake_popen
+        bridge.daemon_running = lambda conn: up[0]
+        bridge.bus = lambda: None
+        bridge.shutil.which = lambda name: "/usr/bin/" + name
+        bridge.time.sleep = lambda s: None
+        bridge.os.path.exists = lambda path: path == "/usr/bin/kdeconnectd"
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                code = bridge.fix("start")
+        finally:
+            (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus,
+             bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists) = saved
+        return code, ran, spawned
+
+    def test_start_reloads_the_user_manager_before_the_unit(self):
+        code, ran, spawned = self.start_daemon_with(True, True)
+        self.assertEqual(code, bridge.EXIT_OK)
+        self.assertEqual(ran, [["daemon-reload"], ["start", bridge.DAEMON_UNIT]],
+                         "the unit pacman just installed is unknown until the manager reloads")
+        self.assertEqual(spawned, [])
+
+    def test_start_falls_back_to_the_daemon_itself(self):
+        code, ran, spawned = self.start_daemon_with(False, True)
+        self.assertEqual(code, bridge.EXIT_OK)
+        self.assertEqual(spawned, [["/usr/bin/kdeconnectd"]], "Arch ships it in /usr/bin, not /usr/lib")
+
+    def test_start_fails_when_the_daemon_never_appears(self):
+        code, ran, spawned = self.start_daemon_with(False, False)
+        self.assertEqual(code, bridge.EXIT_FAILED)
 
     def test_avahi_finds_the_device(self):
         text = ("+;wlan0;IPv4;adb-0A1B2C3D-xYz;_adb-tls-connect._tcp;local\n"

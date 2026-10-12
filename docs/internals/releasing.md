@@ -40,6 +40,9 @@ below from the diff. A finding blocks the pull request.
   the event names (a player's art URL, a file the device sent).
 - No personal data in code, comments, docs, tests, screenshots or commit
   messages.
+- Nothing a device sent reaches the Fix with AI prompt except quoted, capped
+  and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
+  test feeds a device named with an instruction.
 
 The review comment names each line it checked, including the ones that do not
 apply.
