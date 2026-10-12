@@ -233,7 +233,7 @@ Item {
   function openApp(name) {
     if (bridge === "") return false
     var find = String(name || "").trim()
-    Quickshell.execDetached([bridge, "contacts-app"].concat(find !== "" ? ["--find", find] : []))
+    launch(["contacts-app"].concat(find !== "" ? ["--find"] : []), find)
     return true
   }
 
@@ -241,8 +241,27 @@ Item {
   // web), through the bridge, which refuses what is not a link.
   function openDetail(kind, value) {
     if (bridge === "") return false
-    Quickshell.execDetached([bridge, "contact-open", kind, String(value)])
+    launch(["contact-open", kind], String(value))
     return true
+  }
+
+  // A bridge verb that carries what the user searched for or a contact's
+  // value: it goes over stdin, never in the arguments, which any local
+  // process can read.
+  function launch(args, input) {
+    var p = launcher.createObject(contacts, { command: [bridge].concat(args), input: input })
+    p.running = true
+  }
+
+  Component {
+    id: launcher
+    Process {
+      id: sent
+      property string input: ""
+      stdinEnabled: input !== ""
+      onStarted: if (sent.input !== "") { write(sent.input); sent.input = ""; sent.stdinEnabled = false }
+      onExited: destroy()
+    }
   }
 
   Timer { id: errorClear; interval: 6000; onTriggered: contacts.lastError = "" }

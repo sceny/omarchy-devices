@@ -90,7 +90,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge call <what> <device> [arg]     a call through Bluetooth (PipeWire's
                                               hands-free service): answer, answer-phone,
                                               decline, hangup, hangup-all, end-answer,
-                                              dial <number>, tones <digits>, swap, merge,
+                                              dial, tones (the number or digits on stdin), swap, merge,
                                               audio-here, keep-on-phone, volume <0-15>,
                                               mute on|off
   kdeconnect-bridge call-audio <device>            while a call's audio is here: its
@@ -99,14 +99,13 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge contacts <device> [--sync]     its contacts, as JSON (from the
                                               vCards KDE Connect syncs; --sync asks
                                               the device for them again first)
-  kdeconnect-bridge contacts-app [--find <name>]   Omarchy's contacts app, opened or
+  kdeconnect-bridge contacts-app [--find]          Omarchy's contacts app, opened or
                                               brought forward (nothing when this
                                               computer has none); --find opens
-                                              its search for that person
-  kdeconnect-bridge contact-open <web|map|mail> <value>
-                                              a contact's website in the browser,
-                                              address in Omarchy's maps, email in
-                                              the mail app
+                                              its search for the name on stdin
+  kdeconnect-bridge contact-open <web|map|mail>    the value on stdin: a contact's
+                                              website in the browser, address in
+                                              Omarchy's maps, email in the mail app
 
 Actions print one human line and exit 0 on success, 1 when the user backed
 out (closed the file chooser), 2 on failure.
@@ -5771,6 +5770,7 @@ def open_contacts_app(app=None, launch=None, find=""):
         if not app.get("find"):
             return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
         url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
+        # The last hop: the web app's launcher takes the address as an argument.
         (launch or launch_detached)(["omarchy-launch-webapp", url])
         return say("Opening %s" % app["name"])
     (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
@@ -5827,6 +5827,8 @@ def contact_open(kind, value, launch=None, maps=None):
     if not link:
         return say("Nothing to open", EXIT_FAILED)
     launch = launch or launch_detached
+    # The last hop: the link is an argument of the launcher (xdg-open and the
+    # others take no stdin), so it is as short-lived as the launch itself.
     if kind == "map" and (maps if maps is not None else omarchy_maps_app()):
         launch(["omarchy-launch-webapp", link])
     elif kind == "mail":
@@ -6357,12 +6359,12 @@ def main(argv):
         print(json.dumps(contacts_list(argv[1], sync="--sync" in argv), ensure_ascii=False))
         return EXIT_OK
     if argv[0] == "contacts-app":
-        find = argv[argv.index("--find") + 1] if "--find" in argv[:-1] else ""
-        return open_contacts_app(find=find)
+        # What the user searched for arrives on stdin, never in argv.
+        return open_contacts_app(find=read_private().strip() if "--find" in argv else "")
     if argv[0] == "contact-open":
-        if len(argv) < 3:
-            return say("contact-open needs web, map or mail and a value", EXIT_FAILED)
-        return contact_open(argv[1], argv[2])
+        if len(argv) < 2:
+            return say("contact-open needs web, map or mail, and the value on stdin", EXIT_FAILED)
+        return contact_open(argv[1], read_private().strip())
     if argv[0] == "app-forget":
         if len(argv) < 3:
             return say("app-forget needs a device id and a package", EXIT_FAILED)
@@ -6400,7 +6402,9 @@ def main(argv):
     if argv[0] == "call":
         if len(argv) < 3:
             return say("call needs what and a device id", EXIT_FAILED)
-        return call_verb(argv[1], argv[2], argv[3] if len(argv) > 3 else "")
+        # A number and keypad tones arrive on stdin, never in argv.
+        private = read_private() if argv[1] in ("dial", "tones") else None
+        return call_verb(argv[1], argv[2], private if private is not None else (argv[3] if len(argv) > 3 else ""))
     if argv[0] == "call-audio":
         if len(argv) < 2:
             return say("call-audio needs a device id", EXIT_FAILED)

@@ -113,6 +113,22 @@ def private_text_in_argv(path):
             args = [a.strip() for a in m.group(1).split(",") if a.strip()]
             if len(args) > 1:
                 found.append("%s:%d: [bridge, \"%s\"] argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
+    name = os.path.basename(path)
+    line = lambda m: text.count("\n", 0, m.start()) + 1
+    # `call dial|tones <device>` and `contact-open <kind>` carry a number,
+    # digits or a contact's value; `contacts-app --find` carries a search.
+    for m in re.finditer(r'\[\s*(?:root\.)?bridge\s*,\s*"call"\s*,\s*"(?:dial|tones)"\s*([^\]]*)\]', text):
+        if len([a for a in m.group(1).split(",") if a.strip()]) > 1:
+            found.append("%s:%d: call dial/tones argv holds more than the device" % (name, line(m)))
+    for m in re.finditer(r'\btones\s*:\s*\[\s*"tones"\s*,', text):
+        found.append("%s:%d: tones carries its digits in argv" % (name, line(m)))
+    for m in re.finditer(r'\[\s*(?:root\.)?bridge\s*,\s*"contact-open"\s*([^\]]*)\]', text):
+        found.append("%s:%d: contact-open is run by a bare bridge list" % (name, line(m)))
+    for m in re.finditer(r'\[\s*"contact-open"\s*,([^\]]*)\]', text):
+        if len([a for a in m.group(1).split(",") if a.strip()]) > 1:
+            found.append("%s:%d: contact-open argv holds more than its kind" % (name, line(m)))
+    for m in re.finditer(r'"--find"\s*,', text):
+        found.append("%s:%d: --find carries its text in argv" % (name, line(m)))
     return found
 
 
@@ -126,9 +142,13 @@ class PrivateText(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
             f.write('run("reply", [n.replyId, message], k)\nrun("ping", [m], "ping")\n'
                     'x = [bridge, "dial", c.device, number]\nrun("text", [], "text", null, t)\n'
-                    'run("ping", m !== "" ? [m] : [], "ping")\n')
+                    'run("ping", m !== "" ? [m] : [], "ping")\n'
+                    'c = [bridge, "call", "dial", String(id), n]\nv = { tones: ["tones", digits] }\n'
+                    'Quickshell.execDetached([bridge, "contact-open", kind, String(value)])\n'
+                    'Quickshell.execDetached([bridge, "contacts-app"].concat(["--find", find]))\n'
+                    'ok = [bridge, "call", "dial", String(id)]\nlaunch(["contact-open", kind], value)\nlaunch(["contacts-app", "--find"], find)\n')
         try:
-            self.assertEqual(len(private_text_in_argv(f.name)), 4, private_text_in_argv(f.name))
+            self.assertEqual(len(private_text_in_argv(f.name)), 8, private_text_in_argv(f.name))
         finally:
             os.remove(f.name)
 

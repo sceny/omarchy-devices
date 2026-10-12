@@ -435,6 +435,45 @@ class OmarchyContactsApp(unittest.TestCase):
         self.assertEqual(code, bridge.EXIT_FAILED)
 
 
+class ContactVerbsOverStdin(unittest.TestCase):
+    """A contact's value and a search arrive on stdin; one in argv is ignored."""
+
+    def setUp(self):
+        self.launched = []
+        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app
+        bridge.launch_detached = self.launched.append
+        bridge.omarchy_contacts_app = lambda: {"name": "Google Contacts", "url": "https://contacts.google.com/",
+                                                "find": "https://contacts.google.com/search/{}"}
+        bridge.omarchy_maps_app = lambda: None
+
+    def tearDown(self):
+        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app = self.saved
+
+    def run_main(self, argv, stdin=""):
+        saved, sys.stdin = sys.stdin, io.StringIO(stdin)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                return bridge.main(argv)
+        finally:
+            sys.stdin = saved
+
+    def test_a_search_comes_from_stdin(self):
+        self.run_main(["contacts-app", "--find"], "Sam Chen\n")
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/search/Sam%20Chen"]])
+
+    def test_a_search_in_argv_is_not_searched(self):
+        self.run_main(["contacts-app", "--find", "Sam Chen"])
+        self.assertEqual(self.launched, [["omarchy-launch-or-focus-webapp", "Google Contacts", "https://contacts.google.com/"]])
+
+    def test_a_detail_comes_from_stdin(self):
+        self.assertEqual(self.run_main(["contact-open", "mail"], "alex@example.invalid\n"), bridge.EXIT_OK)
+        self.assertEqual(self.launched, [["uwsm-app", "--", "xdg-open", "mailto:alex@example.invalid"]])
+
+    def test_a_detail_in_argv_is_not_opened(self):
+        self.assertEqual(self.run_main(["contact-open", "mail", "alex@example.invalid"]), bridge.EXIT_FAILED)
+        self.assertEqual(self.launched, [])
+
+
 class AttachmentNames(unittest.TestCase):
     """The daemon saves fetched files without an extension; the bridge links
     them under a typed name so a viewer will open them."""
