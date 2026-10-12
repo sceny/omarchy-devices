@@ -1398,7 +1398,10 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.parse_texture("INFO: Texture: 2316x1080"), (2316, 1080))
         self.assertIsNone(bridge.parse_texture("INFO: Renderer: opengl"))
         cmd = bridge.screen_command("S1", "Pixel 8 · Screen", log="/tmp/x y.log")
-        self.assertEqual(cmd[:5], ["uwsm-app", "--", "sh", "-c", "exec stdbuf -oL -eL \"$0\" \"$@\" >>'/tmp/x y.log' 2>&1"])
+        self.assertEqual(cmd[:4], ["uwsm-app", "--", "sh", "-c"])
+        self.assertTrue(cmd[4].startswith('stdbuf -oL -eL "$0" "$@" 2>&1 | grep --line-buffered -E '), cmd[4])
+        self.assertTrue(cmd[4].endswith(">>'/tmp/x y.log'"), "the log path is quoted")
+        self.assertNotIn("exec", cmd[4])
         self.assertEqual(cmd[5:8], ["scrcpy", "--serial", "S1"])
 
     def test_turn_or_morph(self):
