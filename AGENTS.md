@@ -693,8 +693,9 @@ run in order; the detail, the checklist and the record templates are in
 - **A release closes with** a full regression on the emulator in the rig
   (a regression record; what the emulator cannot judge goes on a *needs a
   real device* list for the owner), a cold install and an upgrade from the
-  live tag, and a dedicated security review of `last-tag..candidate`, once,
-  by the security specialist.
+  live tag, and the security specialist's review: the whole plugin against
+  its threat model plus `last-tag..candidate`, every release. A FAIL rejects
+  the candidate (`docs/internals/releasing.md`).
 - **Questions from outside are answered the same day:** the maintainer's
   comments on a marketplace issue, and any open upstream report, are
   answered or routed to their owner on the day they arrive (Omar's daily
@@ -712,14 +713,19 @@ run in order; the detail, the checklist and the record templates are in
    changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
    `develop`, CI green, squash-merge.
    The candidate is the head of `develop` once that pull request is merged.
+   The security review task opens with the regression, when the release
+   branch is prepared.
    Steps 1a to 1c run on it before anything touches `main`.
 
 1a. **Regression and install checks** (`docs/internals/releasing.md`): the
    full regression on the emulator in the rig, a cold install and an
    upgrade from the live tag. Every failure is fixed on `develop` and the
    checks run again on the new head.
-1b. **Security review** of `last-tag..candidate` by the security specialist,
-   after the regression has passed. Its findings are fixed before the go.
+1b. **Security review** by the security specialist, after the regression has
+   passed: the whole plugin against its threat model, every release, plus
+   `last-tag..candidate`. A FAIL rejects the candidate: it is fixed and
+   re-reviewed on the new head, or the release does not happen; only the
+   owner can waive it.
 1c. **Bring the owner** the regression record, the security verdict and the
    *needs a real device* list, in one request, once, with every item,
    only after every agent check (review, full regression, cold install,

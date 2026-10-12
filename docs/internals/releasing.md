@@ -11,7 +11,7 @@ version to Omarchy is always the owner's call.
 | Review with a security check | Panel QA | every pull request |
 | Regression on the emulator | Panel QA | before every release |
 | Cold install and upgrade | Plugin DevOps runs, Panel QA passes | before every release |
-| Security review | the security specialist | once, when the release closes |
+| Security review | the security specialist | every release, patch included, opened with the regression |
 | Go | the owner | before anything touches `main` or the marketplace |
 
 ## Every pull request: review with a security check
@@ -97,11 +97,13 @@ Both results go into the regression record as rows.
 
 ## Security review of the release
 
-The security specialist reviews `git diff <last-tag>..<candidate>` once, when
-the release closes and the regression has passed. The review goes beyond the
-per-pull-request list, which is assumed already run: it checks the diff against
-the plugin's threat model and looks for faults nobody has met yet. It traces
-untrusted input through the whole code path, unchanged code included.
+Every release, patch included, gets a pass over the whole plugin against its
+threat model, with `git diff <last-tag>..<candidate>` on top. The task opens
+with the regression, when the release branch is prepared, and the verdict is
+given on the candidate once the regression has passed. The review goes beyond
+the per-pull-request list, which is assumed already run: it looks for faults
+nobody has met yet. It traces untrusted input through the whole code path,
+unchanged code included.
 
 The attackers:
 
@@ -113,12 +115,15 @@ The attackers:
 - The `pkexec` boundary: what root runs, and whether a user process can change
   it.
 - Supply chain and CI: packages, workflows, what the marketplace bots report.
+- Data on disk and in logs: verbose tool logs, caches, temporary files.
+- Input with no size or time limit: a cap before the shell, a bound on
+  processes and decodes.
+- Work at rest: the panel closed, hidden or folded.
+- D-Bus and MPRIS names any local process can take.
 
 The review also lists the capabilities the marketplace bot will report, for the
 maintainer's review.
 
-- Each new minor version (Y) also gets one pass over the whole plugin, not
-  only the diff.
 - A finding is reproduced where possible.
 - Every finding gets a search for the same class across the plugin.
 - An unfixed vulnerability stays off public GitHub (issues, commits, pull
@@ -127,6 +132,12 @@ maintainer's review.
 The verdict is a document on the release task: pass, or findings with file
 and line. Findings are fixed on `develop`; a fix changes the candidate, so the
 changed head is regressed again where the fix reaches.
+
+A FAIL from the Security Specialist rejects the candidate. It is fixed and re-reviewed on the new head, or the release does not happen. Nobody downgrades or waives it; only the owner can.
+
+When anyone outside finds a security issue in a released version, the security
+specialist writes on the release task why the review missed it and what class
+is added to the threat model and to the per-pull-request list above.
 
 ## The owner's request
 
