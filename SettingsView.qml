@@ -368,6 +368,31 @@ Column {
     }
   }
 
+  // ---- Keys: its row last on Settings' first page, and the page ----
+  Item { visible: root.firstIndex("keys") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("keys") >= 0; foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "keys"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "keys" ? root.rows : []
+    KeyRow {
+      required property var modelData
+      required property int index
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
   Column {
     id: groupsBox
     visible: root.hasGroups
@@ -870,6 +895,66 @@ Column {
     gap: Style.space(6)
     motion: root.motion
     onMoved: function(a, b) { var r = root.rowAt("shortcut", a); if (r) root.moveRequested(r.key, b - a) }
+  }
+
+  // A key on the Keys page: its group's heading on the group's first key,
+  // then the keys in a column of their own and what they do. Nothing to
+  // press: the cursor stops on it so the page scrolls with the keys.
+  component KeyRow: Column {
+    id: keyRow
+    property var row: ({})
+    property int rowIndex: -1
+    spacing: Style.space(2)
+
+    Item { visible: keyRow.row.group !== "" && keyRow.rowIndex > 0; width: 1; height: Style.space(6) }
+    PanelSectionHeader {
+      visible: keyRow.row.group !== ""
+      text: String(keyRow.row.group || "").toUpperCase()
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    CursorSurface {
+      width: keyRow.width
+      hasCursor: false
+      foreground: root.foreground
+      implicitHeight: keyContent.implicitHeight + Style.space(8)
+      CursorStop { here: root.cursorIndex === keyRow.rowIndex; glide: root.cursorGlide }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: root.hovered(keyRow.rowIndex)
+      }
+
+      RowLayout {
+        id: keyContent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(10)
+        anchors.rightMargin: Style.space(6)
+        spacing: Style.space(10)
+        Text {
+          textFormat: Text.PlainText
+          Layout.preferredWidth: Math.round(keyRow.width * 0.38)
+          text: keyRow.row.keys || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          elide: Text.ElideRight
+        }
+        Text {
+          textFormat: Text.PlainText
+          Layout.fillWidth: true
+          text: keyRow.row.label || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+        }
+      }
+    }
   }
 
   // A row of the device list (a device, one asking to pair, one in reach),
