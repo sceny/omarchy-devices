@@ -6,7 +6,9 @@
 
 - KDE Connect pairs the two with a key you compare on both, and encrypts
   what they send, on your own network. The firewall rule the plugin adds
-  opens KDE Connect's ports to that network only.
+  opens KDE Connect's ports to the private ranges (home and office networks)
+  and to a mesh's interface (Tailscale, NordVPN Meshnet), never to everyone
+  and never to a public network, whichever network this computer is on.
 - No account, no telemetry, no cloud. It never sends a text, rings or
   plays anything on its own. It keeps caches only
   (`~/.cache/sceny.devices/`); drafts stay in memory.

@@ -30,7 +30,7 @@ Connect's contacts plugin writes and prints every card as JSON (`--sync`
 asks the phone first); the names of text threads come from the same
 parser. A card's photo is decoded in the sandbox and cached; its own bytes
 never reach the shell. `contacts-app` opens the contacts web app Omarchy
-installs (`omarchy-launch-or-focus-webapp`) and says so when there is none.
+installs (found by its name, focused, else `omarchy-launch-webapp`) and says so when there is none.
 Nothing is written back: the phone is the truth for its cards.
 
 ## Media

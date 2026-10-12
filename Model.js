@@ -3115,8 +3115,17 @@ function aiQuote(text, cap) {
   if (t.length > n) t = t.slice(0, n - 1) + "\u2026"
   return JSON.stringify(t)
 }
-function aiPrompt(problems, folder) {
-  var lines = (problems || []).map(function(p) {
+function aiScrub(text, names) {
+  var t = String(text === undefined || text === null ? "" : text)
+  ;(names || []).forEach(function(n) {
+    var name = String(n || "")
+    if (name.length > 0) t = t.split(name).join("the device")
+  })
+  return t
+}
+function aiPrompt(problems, folder, names) {
+  var lines = (problems || []).map(function(q) {
+    var p = { label: q.label, where: q.where, detail: aiScrub(q.detail, names), tried: aiScrub(q.tried, names) }
     var where = p.where ? " (" + String(p.where).replace(/[^A-Za-z0-9 ]+/g, "").slice(0, 30) + ")" : ""
     return "  - " + String(p.label || "").replace(/[^\x20-\x7e]+/g, " ").slice(0, 80) + where
       + (p.detail ? "\n      detail: " + aiQuote(p.detail) : "")
