@@ -1767,6 +1767,8 @@ Column {
     readonly property bool failing: row.ok !== true && row.ignored !== true && !optional
     readonly property bool offering: row.ok !== true && (failing || optional)
     readonly property bool fixing: root.setupFixing[row.fix] === true
+    readonly property int buttonCount: (offering && (row.fix || "") !== "" ? 1 : 0) + (row.ok !== true && !optional ? 1 : 0) + (failing ? 1 : 0)
+    readonly property bool buttonsBelow: buttonCount > 1
     hasCursor: false
     CursorStop { here: root.cursorIndex === rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
@@ -1778,16 +1780,20 @@ Column {
       onEntered: root.hovered(checkRow.rowIndex)
     }
 
-    RowLayout {
+    GridLayout {
       id: checkContent
+      columns: 3
+      columnSpacing: Style.space(10)
+      rowSpacing: Style.space(4)
       anchors.left: parent.left
       anchors.right: parent.right
       anchors.verticalCenter: parent.verticalCenter
       anchors.leftMargin: Style.space(10)
       anchors.rightMargin: Style.space(6)
-      spacing: Style.space(10)
 
       Text {
+        Layout.row: 0
+        Layout.column: 0
         Layout.alignment: Qt.AlignVCenter
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
@@ -1797,6 +1803,9 @@ Column {
         font.pixelSize: Style.font.body
       }
       ColumnLayout {
+        Layout.row: 0
+        Layout.column: 1
+        Layout.columnSpan: checkRow.buttonsBelow ? 2 : 1
         Layout.fillWidth: true
         spacing: Style.space(1)
         RowLayout {
@@ -1830,39 +1839,46 @@ Column {
           font.pixelSize: Style.font.caption
         }
       }
-      Button {
-        visible: checkRow.offering && (checkRow.row.fix || "") !== ""
-        Layout.alignment: Qt.AlignVCenter
-        text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
-        iconText: checkRow.fixing ? "\u{F0996}" : ""
-        iconSpinning: checkRow.fixing
-        enabled: !checkRow.fixing
-        tooltipText: ["install", "firewall", "screen", "sshfs", "bluetooth"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
-        bordered: true
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: root.fixRequested(checkRow.row.fix)
-      }
-      Button {
-        visible: checkRow.row.ok !== true && !checkRow.optional
-        Layout.alignment: Qt.AlignVCenter
-        text: checkRow.row.ignored === true ? "Undo" : "Ignore"
-        tooltipText: checkRow.row.ignored === true ? "Light the gear's dot again while it fails" : "Leave it as it is; the gear's dot stops showing it"
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
-      }
-      Button {
-        visible: checkRow.failing
-        Layout.alignment: Qt.AlignVCenter
-        text: "Fix with AI"
-        tooltipText: root.aiTip
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-        fontSize: Style.font.bodySmall
-        onClicked: root.fixWithAiRequested("check", checkRow.rowIndex)
+      // Two or more buttons go under the text, so they never take the
+      // width the name and the detail need; one stays beside it.
+      RowLayout {
+        visible: checkRow.buttonCount > 0
+        Layout.row: checkRow.buttonsBelow ? 1 : 0
+        Layout.column: checkRow.buttonsBelow ? 1 : 2
+        Layout.columnSpan: checkRow.buttonsBelow ? 2 : 1
+        Layout.alignment: checkRow.buttonsBelow ? (Qt.AlignLeft | Qt.AlignVCenter) : Qt.AlignVCenter
+        spacing: Style.space(6)
+        Button {
+          visible: checkRow.offering && (checkRow.row.fix || "") !== ""
+          text: checkRow.fixing ? "Working…" : (checkRow.row.fixLabel || "Fix")
+          iconText: checkRow.fixing ? "\u{F0996}" : ""
+          iconSpinning: checkRow.fixing
+          enabled: !checkRow.fixing
+          tooltipText: ["install", "firewall", "screen", "sshfs", "bluetooth"].indexOf(checkRow.row.fix) >= 0 ? "Shows what your password is for before asking for it" : ""
+          bordered: true
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.fixRequested(checkRow.row.fix)
+        }
+        Button {
+          visible: checkRow.row.ok !== true && !checkRow.optional
+          text: checkRow.row.ignored === true ? "Undo" : "Ignore"
+          tooltipText: checkRow.row.ignored === true ? "Light the gear's dot again while it fails" : "Leave it as it is; the gear's dot stops showing it"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.ignoreRequested(checkRow.row.key, checkRow.row.ignored !== true)
+        }
+        Button {
+          visible: checkRow.failing
+          text: "Fix with AI"
+          tooltipText: root.aiTip
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          fontSize: Style.font.bodySmall
+          onClicked: root.fixWithAiRequested("check", checkRow.rowIndex)
+        }
       }
     }
   }
