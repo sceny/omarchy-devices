@@ -14,6 +14,11 @@ The panel shows what KDE Connect sends. Today it does not:
 - answer a call, carry its audio, or say when it was **answered or ended**:
   a ringing card gives up after 45 s, and a call you decline shows as
   missed ([#60](https://github.com/sceny/omarchy-devices/issues/60)).
+- keep a text field from reading the **clipboard** while you type in it: Qt
+  reads what another program copied each time the clipboard changes, whatever
+  its size, and has no switch for it. The panel's fields are editable only
+  while they have the keyboard, so this lasts only while you type in one
+  ([#170](https://github.com/sceny/omarchy-devices/issues/170)).
 
 ## The screen and apps
 
