@@ -10,7 +10,11 @@ import importlib.util
 import json
 import os
 import shutil
+import signal
+import subprocess
+import sys
 import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -321,6 +325,46 @@ class NetworkChanges(unittest.TestCase):
         self.assertTrue(watch.check())
         self.assertFalse(watch.check())
         self.assertEqual(len(changes), 1)
+
+    def test_stop_ends_the_child(self):
+        watch = bridge.NetWatch.__new__(bridge.NetWatch)
+        watch.proc = subprocess.Popen(["sleep", "60"], stdout=subprocess.PIPE, text=True)
+        child = watch.proc
+        watch.stop()
+        self.assertIsNone(watch.proc)
+        self.assertIsNotNone(child.poll())
+        watch.stop()
+
+
+def alive(pid):
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except OSError:
+        return False
+
+
+class ChildDiesWithBridge(unittest.TestCase):
+    def test_a_killed_parent_leaves_no_child(self):
+        code = ("import importlib.machinery, importlib.util, subprocess, sys, time\n"
+                "l = importlib.machinery.SourceFileLoader('b', %r)\n"
+                "m = importlib.util.module_from_spec(importlib.util.spec_from_loader('b', l)); l.exec_module(m)\n"
+                "p = subprocess.Popen(['sleep', '60'], preexec_fn=m.die_with_parent)\n"
+                "print(p.pid, flush=True)\n"
+                "time.sleep(60)\n" % BRIDGE)
+        parent = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+        try:
+            child = int(parent.stdout.readline())
+            self.assertTrue(alive(child))
+            parent.send_signal(signal.SIGKILL)
+            parent.wait()
+            deadline = time.time() + 5
+            while alive(child) and time.time() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(alive(child))
+        finally:
+            parent.kill()
+            parent.stdout.close()
 
 
 if __name__ == "__main__":
