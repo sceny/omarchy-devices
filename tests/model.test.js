@@ -1159,3 +1159,18 @@ test("features: notifications gone quiet (#95) need attention, with the remedies
   const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
   assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
 })
+
+test("a phone player's art is decoded only from KDE Connect's art cache", () => {
+  const dir = M.artCacheDir("", "/home/u")
+  assert.equal(dir, "/home/u/.cache/kdeconnect.daemon/kdeconnect/albumart/")
+  assert.equal(M.artCacheDir("/var/c/", "/home/u"), "/var/c/kdeconnect.daemon/kdeconnect/albumart/")
+  assert.equal(M.artPath("file://" + dir + "abc123", dir), dir + "abc123")
+  assert.equal(M.artPath("file://" + dir + "a%20b", dir), dir + "a b", "escapes are read")
+  assert.equal(M.artPath("file:///home/u/.ssh/id_ed25519", dir), "", "any other file is refused")
+  assert.equal(M.artPath("file://" + dir + "../../../.ssh/key", dir), "", "no climbing out")
+  assert.equal(M.artPath("file://" + dir + "%2e%2e/x", dir), "", "no climbing out, encoded")
+  assert.equal(M.artPath("file://" + dir, dir), "", "the folder itself is not an image")
+  assert.equal(M.artPath("https://example.com/a.png", dir), "", "not a local file")
+  assert.equal(M.artPath("file://" + dir + "%zz", dir), "", "a bad escape")
+  assert.equal(M.artPath("", dir), "")
+})

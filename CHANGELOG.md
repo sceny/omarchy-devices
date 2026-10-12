@@ -15,6 +15,18 @@ GitHub release with these notes.
   reply or search field no longer makes the shell read whatever another
   program put on the clipboard, however large. Typing, Esc's steps, drafts
   and suggestions work as before.
+- **No typed text or clipboard in a log**: the screen window's log keeps only
+  the two lines that tell the plugin the phone turned or folded. It is kept in
+  memory (`$XDG_RUNTIME_DIR`), readable by you alone, and removed when the
+  window closes; logs an earlier version left in the cache are removed.
+- **Text from a device is capped**: notifications (title, text, the newest
+  100, the newest 50 messages of a conversation), text messages, app names and
+  contact files are cut to a size no real device reaches before they reach the
+  panel.
+- **A track's art is read only from KDE Connect's art cache**, one picture at a
+  time per player.
+- **The cache folder is yours alone** (`~/.cache/sceny.devices`, mode 0700), and
+  the screen's stills no longer fall back to `/tmp` without a runtime folder.
 
 ### Issues
 
