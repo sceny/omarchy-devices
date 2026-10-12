@@ -31,6 +31,13 @@ below from the diff. A finding blocks the pull request.
 - The firewall opens only the private ranges and a mesh's interface.
 - No new network listener. No command, path or argument built from device
   data without a fixed verb and a checked value.
+- No third-party verbose log that records input or the clipboard. A log of
+  another program's output keeps only the lines the plugin reads
+  (`SCREEN_LOG_LINES`), in `$XDG_RUNTIME_DIR`, mode 0600.
+- Device strings are capped at the bridge (`cap_text`, one limit per kind of
+  text), before they reach the shell. A test sends oversized input.
+- No work per foreign event at rest without a rate limit and a check of what
+  the event names (a player's art URL, a file the device sent).
 - No personal data in code, comments, docs, tests, screenshots or commit
   messages.
 
