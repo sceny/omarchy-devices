@@ -6,6 +6,24 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.2 — 2026-10-11
+
+### Highlights
+
+- **Text fields no longer read the clipboard while they are not in use**: a
+  field is editable only while it has the keyboard, so a hidden composer,
+  reply or search field no longer makes the shell read whatever another
+  program put on the clipboard, however large. Typing, Esc's steps, drafts
+  and suggestions work as before.
+
+### Issues
+
+- [#170](https://github.com/sceny/omarchy-devices/issues/170) Text fields read the clipboard on every change, before any paste
+
+### Upgrading
+
+- Nothing in your settings changes.
+
 ## 0.8.1 — 2026-10-10
 
 ### Highlights
