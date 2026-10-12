@@ -658,8 +658,8 @@ Item {
     agentRead.running = true
   }
   onOpenPanelsChanged: if (openPanels > 0) readAgent()
-  // `problems`: [{ label, detail, tried }] (tried: what the plugin's own fix
-  // did, "" when none ran).
+  // `problems`: [{ label, where, detail, tried }] (where: what it is on, by
+  // kind; tried: what the plugin's own fix did, "" when none ran).
   function fixWithAi(problems) {
     if (demo) { report("Demo: your coding agent would open on it", false); return }
     readAgent(function() { launchAgent(problems) })
@@ -667,14 +667,7 @@ Item {
   function launchAgent(problems) {
     // No default agent yet: Omarchy's own choice of one, first.
     if (agentName === "") { silentComponent.createObject(root, { command: ["omarchy", "agent", "--pick"] }).running = true; return }
-    var lines = (problems || []).map(function(p) {
-      return "  - " + p.label + (p.detail ? ": " + p.detail : "") + (p.tried ? " (the plugin's own fix was tried: " + p.tried + ")" : "")
-    }).join("\n")
-    var prompt = "Devices, the Omarchy shell plugin sceny.devices, shows a problem on this machine and I want it fixed.\n\n"
-      + "What it shows:\n" + lines + "\n\n"
-      + "Use the setup-help skill: it covers how to investigate, how to fix it, and when it is worth reporting "
-      + "(never with personal data). If your harness has no skill mechanism, read the skill files directly and follow them instead:\n\n"
-      + "  " + pluginFolder + "/.claude/skills/setup-help/SKILL.md"
+    var prompt = Model.aiPrompt(problems, pluginFolder)
     silentComponent.createObject(root, { command: ["omarchy", "agent", "prompt", prompt] }).running = true
   }
 
