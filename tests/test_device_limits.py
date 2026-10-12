@@ -219,6 +219,45 @@ class DeviceTextCaps(unittest.TestCase):
                     os.environ["HOME"] = saved
 
 
+    def test_many_numbers_and_many_contacts_are_cut(self):
+        with tempfile.TemporaryDirectory() as home:
+            saved = os.environ.get("HOME")
+            os.environ["HOME"] = home
+            folder = os.path.join(home, ".local/share/kpeoplevcard/kdeconnect-dev1")
+            os.makedirs(folder)
+            try:
+                with open(os.path.join(folder, "a.vcf"), "w") as f:
+                    f.write("BEGIN:VCARD\nFN:%s\n%sEND:VCARD\n" % ("N" * 300, "TEL:5\n" * 100000))
+                names, entries = bridge.read_contacts("dev1")
+                self.assertLessEqual(len(entries), bridge.CAP_TELS)
+                for i in range(bridge.CAP_CONTACTS // bridge.CAP_TELS + 50):
+                    with open(os.path.join(folder, "c%d.vcf" % i), "w") as f:
+                        f.write("BEGIN:VCARD\nFN:Name %d\n%sEND:VCARD\n" % (
+                            i, "".join("TEL:+1 555 %04d %02d\n" % (i, j) for j in range(bridge.CAP_TELS))))
+                names, entries = bridge.read_contacts("dev1")
+                self.assertEqual(len(entries), bridge.CAP_CONTACTS)
+                self.assertLessEqual(len(names), bridge.CAP_CONTACTS)
+            finally:
+                if saved is None:
+                    del os.environ["HOME"]
+                else:
+                    os.environ["HOME"] = saved
+
+    def test_too_many_threads_are_cut_to_the_newest(self):
+        sms = bridge.Sms.__new__(bridge.Sms)
+        sms.cache, sms.latest = {}, {}
+        n = bridge.CAP_THREADS + 100
+        sms.active = lambda: [{"thread": t, "uid": t, "date": t} for t in range(n)]
+        sms.summary = lambda m: {"thread": m["thread"], "date": m["date"]}
+        sms.contacts, sms.contact_list = {}, []
+        sent = []
+        sms.out = sent.append
+        sms.emit_threads()
+        threads = sent[0]["threads"]
+        self.assertEqual(len(threads), bridge.CAP_THREADS)
+        self.assertEqual(threads[0]["date"], n - 1, "the newest are kept")
+
+
 class ArtOnlyFromTheArtCache(unittest.TestCase):
     """F3: a track's art is decoded only from a real file in KDE Connect's art cache."""
 

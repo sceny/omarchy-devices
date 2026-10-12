@@ -741,6 +741,9 @@ function isPhonePlayer(dbusName, identity, deviceName) {
   return id.length >= suffix.length && id.slice(-suffix.length) === suffix
 }
 
+var MAX_ART_DECODES = 2     // track art decoded at once, all players together
+var MAX_PHONE_PLAYERS = 8   // phone players shown per device
+
 // A phone player's art is decoded only from KDE Connect's own art cache: any
 // local process can export a player named kdeconnect and change its art URL
 // as fast as it likes, so the URL is checked before a process is started for

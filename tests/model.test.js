@@ -1173,4 +1173,6 @@ test("a phone player's art is decoded only from KDE Connect's art cache", () => 
   assert.equal(M.artPath("https://example.com/a.png", dir), "", "not a local file")
   assert.equal(M.artPath("file://" + dir + "%zz", dir), "", "a bad escape")
   assert.equal(M.artPath("", dir), "")
+  assert.equal(M.MAX_ART_DECODES, 2, "two decodes at once, all players together")
+  assert.equal(M.MAX_PHONE_PLAYERS, 8)
 })
