@@ -440,6 +440,7 @@ Item {
         if (p && Model.isPhonePlayer(p.dbusName, p.identity, deviceName) && !Model.playerHidden(pausedSince[String(p.dbusName)], Date.now())) out.push(p)
       }
       out.sort(function(a, b) { return String(a.identity || "").localeCompare(String(b.identity || "")) })
+      out = out.slice(0, Model.MAX_PHONE_PLAYERS)
     }
     var same = out.length === players.length
     for (var j = 0; same && j < out.length; j++) same = out[j] === players[j]
@@ -1867,17 +1868,41 @@ Item {
   }
   // A track's art from the phone, shown only as a safe copy the bridge makes
   // (decoded in glycin's sandbox): url -> file:// of the copy, "" while there
-  // is none. Asked once per url; a url that is not a local file has none.
+  // is none. Asked once per url, and only for a file in KDE Connect's art
+  // cache (a player is any process's to export, and its art URL its own to
+  // change as fast as it likes): one decode at a time per player and two in
+  // all, a newer url replacing the one waiting.
   property var safeArt: ({})
+  readonly property string artDir: Model.artCacheDir(Quickshell.env("XDG_CACHE_HOME"), Quickshell.env("HOME"))
+  property var artRunning: ({})
+  property var artWaiting: ({})
+  property int artActive: 0
   function artFor(url) { return safeArt[String(url || "")] || "" }
-  function requestArt(url) {
+  function requestArt(url, player) {
     var u = String(url || "")
     if (u === "" || safeArt[u] !== undefined) return
+    var path = Model.artPath(u, artDir)
+    if (path === "") return
+    var key = String(player || "")
+    if (artRunning[key] || artActive >= Model.MAX_ART_DECODES) { artWaiting[key] = u; return }
+    startArt(key, u, path)
+  }
+  function nextArt() {
+    var keys = Object.keys(artWaiting)
+    for (var i = 0; i < keys.length && artActive < Model.MAX_ART_DECODES; i++) {
+      var key = keys[i], u = artWaiting[key]
+      if (artRunning[key]) continue
+      delete artWaiting[key]
+      if (safeArt[u] === undefined) requestArt(u, key)
+    }
+  }
+  function startArt(key, u, path) {
     var next = Object.keys(safeArt).length > 200 ? {} : Object.assign({}, safeArt)
     next[u] = ""
     safeArt = next
-    if (u.indexOf("file://") !== 0) return
-    var proc = artComponent.createObject(root, { url: u, command: [bridge, "safe-image", decodeURIComponent(u.slice(7)), "512"] })
+    artRunning[key] = true
+    artActive += 1
+    var proc = artComponent.createObject(root, { url: u, player: key, command: [bridge, "safe-art", path, "512"] })
     proc.running = true
   }
   Component {
@@ -1885,12 +1910,16 @@ Item {
     Process {
       id: artProc
       property string url: ""
+      property string player: ""
       stdout: StdioCollector {
         onStreamFinished: {
           var path = String(text || "").trim()
           var next = Object.assign({}, root.safeArt)
           next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
           root.safeArt = next
+          delete root.artRunning[artProc.player]
+          root.artActive -= 1
+          root.nextArt()
           artProc.destroy()
         }
       }
