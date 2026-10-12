@@ -1688,6 +1688,12 @@ Item {
     if (volumePlayer) volumePlayer.volume = Math.max(0, Math.min(1, v))
   }
   function dismiss(n) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id) }) }
+  // Every notification that can be dismissed, each as its own X would (#194).
+  function dismissAll() {
+    var list = notifications
+    for (var i = 0; i < list.length; i++)
+      if (list[i].dismissable === true && !isBusy("dismiss:" + list[i].id)) dismiss(list[i])
+  }
   // A reply or an app action usually makes the phone update or drop the
   // notification; the clicked control waits for that, briefly.
   function noteWait(n) { return { kind: "note", note: String(n.id), before: JSON.stringify(Model.findNotification(device, n.id)) } }

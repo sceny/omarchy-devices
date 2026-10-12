@@ -10,7 +10,8 @@ buttons, from your keyboard.
 
 - **A chat** shows who said what, and *Show all* opens the rest.
 - **Reply** right there (`r`), with the app's own *Mark as read* or *Mute*
-  beside it. **Dismiss** here dismisses on the phone too (`x`).
+  beside it. **Dismiss** here dismisses on the phone too (`x`), and the
+  button by the section's title dismisses them all.
 - **A text** opens its conversation in [Messages](messages.md). **Any
   other app** opens in a window here (`o`): [Apps](apps.md).
 - **Not here:** what the phone itself hides, and a player's playback
