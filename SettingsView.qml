@@ -1088,7 +1088,7 @@ Column {
       }
 
       Text {
-        visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
+        visible: ["device", "defaults", "editPage", "connection", "addDevice", "keys"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
