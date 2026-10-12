@@ -1383,8 +1383,13 @@ def watch():
     if sysconn:
         sysconn.signal_subscribe(BLUEZ, None, None, None, None, Gio.DBusSignalFlags.NONE, on_bluez)
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
+    for number in (signal.SIGTERM, signal.SIGINT):
+        GLib.unix_signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
     emit()
-    loop.run()
+    try:
+        loop.run()
+    finally:
+        net.stop()
 
 
 def say(message, code=EXIT_OK):
@@ -2661,6 +2666,15 @@ def network_signature(run=None):
     return " ".join(sorted(out))
 
 
+def die_with_parent():
+    """For a child's `preexec_fn`: the kernel ends it with the bridge, even
+    when the bridge is killed and runs no cleanup (PR_SET_PDEATHSIG)."""
+    import ctypes
+    ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM, 0, 0, 0)
+    if os.getppid() == 1:
+        os._exit(0)
+
+
 class NetWatch:
     """Watches this computer's addresses (`ip monitor address`): after a
     network change settles, `on_change()` once. KDE Connect asks Qt whether
@@ -2678,13 +2692,28 @@ class NetWatch:
         self.proc = None
         try:
             self.proc = subprocess.Popen(["ip", "-o", "monitor", "address"], stdout=subprocess.PIPE,
-                                         stderr=subprocess.DEVNULL, text=True)
+                                         stderr=subprocess.DEVNULL, text=True, preexec_fn=die_with_parent)
             GLib.io_add_watch(self.proc.stdout.fileno(), GLib.IO_IN | GLib.IO_HUP, self._line)
         except OSError:
             self.proc = None
 
+    def stop(self):
+        """End the child: it blocks until an address changes, so left alone
+        it outlives the bridge for hours."""
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        if proc.poll() is None:
+            proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        proc.stdout.close()
+
     def _line(self, _fd, condition):
-        if condition & GLib.IO_HUP:
+        if condition & GLib.IO_HUP or self.proc is None:
             return False
         self.proc.stdout.readline()
         if self.pending:
