@@ -6,71 +6,46 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
-## Unreleased
+## 0.9.0 — 2026-10-12
 
 ### Highlights
 
-- **One card for a problem, and it closes**: whatever failed shows in the
-  same place under the device header (*Fix*, *Details*, *Fix with AI*, *+N
-  more*), and ✕ folds it away for good until something new breaks. The
-  red dot stays on the gear, the section, the shortcut and the page it
-  affects. Using an affected action (the Screen shortcut, say) brings the
-  card over the panel; Fix, and the action carries on.
-
-- **Back goes where you came from**: the pages form one stack. Esc and the
-  back arrow return to the page you left (a text started on a contact goes
-  back to that contact, with its scroll and row), the arrow's tooltip says
-  where (*Back to Contacts*), and a new **Home** button (`0`) fades in
-  from two pages deep and goes to the main page. Close and reopen within
-  five minutes and Back still goes to the previous page.
-
-- **Contacts**: the phone's address book in the panel, two panes like
-  Messages: a searchable list, each person with their photo in a circle,
-  and the full card (numbers, emails, addresses, websites, birthday, note,
-  photo).
-  *Message* starts a text, *Call* opens the dialer on the phone, an email
-  opens the mail app, an address Omarchy's Google Maps, a website the
-  browser, *Copy* takes a detail; read-only. Add the
-  *Contacts* shortcut; the card last open comes back, per device. Texts
-  take their names from the same cards. A card synced with an account
-  opens in Google Contacts; one kept on the phone only says so.
-
-- **Setup that gets out of the way**: Settings no longer shows the
-  plumbing. With one device it is that device's page: what it shares with
-  this computer, a switch each, and nothing about its state while all is
-  well. This computer's checks are diagnostics, reached from a problem
-  they cause.
-- **Asked where you use it**: notification access in Notifications, SMS
-  and contacts on the Messages page, the screen on the first *Open* of a
-  notification's app (it then opens by itself). A feature that stops says
-  so in its own section, with *Fix*, *Details* and *Fix with AI*.
-- **The first run is one card**: one password installs everything any
-  feature needs here; a new pairing lands on the phone's main page.
-- **An iPhone** shows only what it can do; the away card keeps the likely
-  causes behind *Why?*.
-- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
-  an open app's tile and the Screen shortcut say where its sound plays;
-  click (or `v`) for Here, On the phone or Both, and its volume here. The
-  window reopens in its place; an app keeps its choice.
-- **From anywhere**: the phone in the panel away from home, through
-  Tailscale (Omarchy's installer, from the panel) or NordVPN Meshnet, or an
-  address you type. Its page says how it is connected now; a new network
-  is announced at once; a Wi-Fi that keeps its devices apart is named as
-  the likely cause.
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
-  answer and make calls with the audio on this computer, over Bluetooth;
-  the card follows a call to its end, with the microphone, the keypad, the
-  volume, a second call held or joined, and music here paused meanwhile.
-  Call back or call from a conversation. Set up from the device's page:
-  Bluetooth here, the phone paired in Omarchy's Bluetooth, then it carries
-  on by itself.
-- **The panel opens at once**: a click on the chip draws the main page on
-  the first frame from what is already in memory, with no wait. It took
-  about half a second every time, and several seconds the first time
-  after the shell started; it now takes no longer than the click itself.
-- **A hidden test rig** (`dev/rig`): a second shell in its own compositor
-  and a small Android emulator as the phone, paired to a private KDE
-  Connect, so changes are tried without touching the desktop or a real phone
+  answer and make calls with the audio on this computer, over Bluetooth. The
+  card follows a call to its end: microphone, keypad, volume, a second call
+  held or joined, music here paused meanwhile. Call back, or call from a
+  conversation.
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list with each person's photo, and the full card.
+  *Message* starts a text, *Call* opens the dialer on the phone, an email, an
+  address and a website open in their app. Texts take their names from the
+  same cards.
+- **From anywhere**: the phone in the panel away from home, through Tailscale
+  or NordVPN Meshnet, or an address you type. Its page says how it is
+  connected now.
+- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
+  an open app and the Screen shortcut say where their sound plays (Here, On
+  the phone, Both), with its volume here.
+- **Setup that gets out of the way**: Settings shows no plumbing. With one
+  device it is that device's page: what it shares with this computer, a
+  switch each. What a feature needs is asked where you use it. The first run
+  is one card: one password installs everything, starts KDE Connect and goes
+  on to Add a device.
+- **One card for a problem, and it closes**: whatever failed shows in one
+  place under the device header (*Fix*, *Details*, *Fix with AI*), ✕ folds it
+  away until something new breaks, and a red dot stays on the gear, section,
+  shortcut and page it affects.
+- **Back goes where you came from**: the pages form one stack. Esc and the
+  back arrow return to the page you left, and a **Home** button (`0`) goes to
+  the main page from two pages deep.
+- **The panel opens at once**: a click on the chip draws the main page on the
+  first frame, with no wait.
+- **Private text stays private**: call numbers, keypad tones and contact
+  searches no longer go on a command line, and Fix with AI names a device by
+  its kind and quotes every detail as data.
+- **A hidden test rig** (`dev/rig`): a second shell and a small Android
+  emulator paired to a private KDE Connect, so changes are tried without
+  touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
 
 ### Issues
@@ -80,15 +55,44 @@ GitHub release with these notes.
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
 - [#129](https://github.com/sceny/omarchy-devices/issues/129) Sound: where a device's sound plays, per window, from the plugin
 - [#122](https://github.com/sceny/omarchy-devices/issues/122) Notification open: a text message opens its conversation, any other its app; the exact screen inside it needs KDE Connect's help
-- [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cut its name and wrapped its detail
+- [#153](https://github.com/sceny/omarchy-devices/issues/153) Problems: one fixed card that closes, red dots where the effect is, an ask on use
+- [#159](https://github.com/sceny/omarchy-devices/issues/159) Settings shows "Everything works" although the rules say it shows nothing while everything works
 - [#152](https://github.com/sceny/omarchy-devices/issues/152) Editing a device's page offered the Screen shortcut and the Apps section while Screen and apps was off
+- [#160](https://github.com/sceny/omarchy-devices/issues/160) MessagesView: binding loop on a picture message's "picture" property
+- [#171](https://github.com/sceny/omarchy-devices/issues/171) Call numbers, keypad tones and contact searches still go on the bridge's command line
+- [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cuts its name and wraps its detail
+- [#175](https://github.com/sceny/omarchy-devices/issues/175) First run: KDE Connect is not started after the install, so the card never goes on to Add a device
+- [#176](https://github.com/sceny/omarchy-devices/issues/176) First run: the password card shows two of the seven actions, one cut off mid-line
+- [#177](https://github.com/sceny/omarchy-devices/issues/177) Gallery shows a problem on a fresh pairing, before the user has used it
+- [#178](https://github.com/sceny/omarchy-devices/issues/178) Gallery keeps saying to allow storage after the plugin has granted it
+- [#191](https://github.com/sceny/omarchy-devices/issues/191) Bridge `watch` leaves its `ip -o monitor address` child running when it exits
+
+### Pull requests without an issue
+
+- [#143](https://github.com/sceny/omarchy-devices/pull/143) Contacts: the phone's address book in the panel (with [#144](https://github.com/sceny/omarchy-devices/pull/144), [#145](https://github.com/sceny/omarchy-devices/pull/145), [#146](https://github.com/sceny/omarchy-devices/pull/146), [#147](https://github.com/sceny/omarchy-devices/pull/147): photos, links that open in their app, Google Contacts, round photos)
+- [#148](https://github.com/sceny/omarchy-devices/pull/148) Nested navigation: Back returns to where you came from, Home from two deep
+- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator: all development goes into it
+- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once: draw from what is in memory
+- [#142](https://github.com/sceny/omarchy-devices/pull/142) Setup that gets out of the way: asked where you use it, no plumbing in Settings
+- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check that the shell runs the plugin's files, not the code it read at start
+- [#179](https://github.com/sceny/omarchy-devices/pull/179) Rig: a cold computer for the cold-install check
+- [#185](https://github.com/sceny/omarchy-devices/pull/185) Fix with AI: fence device-supplied names and details
+- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: its edges are two items, not a Repeater's delegates that move away
+- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver and its media-player fixture
+- [#150](https://github.com/sceny/omarchy-devices/pull/150), [#157](https://github.com/sceny/omarchy-devices/pull/157), [#158](https://github.com/sceny/omarchy-devices/pull/158), [#166](https://github.com/sceny/omarchy-devices/pull/166), [#167](https://github.com/sceny/omarchy-devices/pull/167), [#180](https://github.com/sceny/omarchy-devices/pull/180) Development and release docs: install follows `develop`, release procedure, security review, Contacts and Calls limits
 
 ### Upgrading
 
-- **The firewall's fix** opens KDE Connect's ports to every private
-  network (home, office) and to your mesh, instead of only the network
-  you were on. Rules you have stay.
+- **The tabs can change order after the upgrade**: a stored `deviceOrder` is
+  now honoured, so devices you reordered before show in that order.
+- **A firewall problem card can appear after the upgrade**, with *Fix*, when
+  the firewall does not let KDE Connect in.
+- **The firewall's fix** opens KDE Connect's ports to every private network
+  (home, office) and to your mesh, instead of only the network you were on.
+  Rules you have stay.
 - **This computer** has a *Mesh network* row (optional).
+- Nothing else in your settings is rewritten; new keys (`closedProblems`)
+  appear on your next change.
 
 ## 0.8.2 — 2026-10-11
 
