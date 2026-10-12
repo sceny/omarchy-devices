@@ -91,6 +91,42 @@ class Qml(unittest.TestCase):
             os.remove(f.name)
 
 
+def repeater_delegates_that_reparent(path):
+    """A Repeater's delegate that sets its own `parent:`. The Repeater stacks
+    each new item after the last, which must be a sibling; one moved away
+    makes Qt log `QQuickItem::stackAfter: Cannot stack` with no source."""
+    text = code_only(open(path).read())
+    found = []
+    for m in re.finditer(r"\bRepeater\s*\{", text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"{": 1, "}": -1}.get(text[i], 0)
+            i += 1
+        body = text[m.end():i - 1]
+        level = 0
+        for line in body.splitlines():
+            if level == 1 and re.match(r"\s*parent\s*:", line):
+                found.append("%s:%d: a Repeater's delegate sets parent:" % (
+                    os.path.basename(path), text.count("\n", 0, m.end()) + body[:body.index(line)].count("\n") + 1))
+            level += line.count("{") - line.count("}")
+    return found
+
+
+class RepeaterDelegates(unittest.TestCase):
+    def test_no_delegate_moves_itself_away(self):
+        found = [p for f in sorted(glob.glob(os.path.join(ROOT, "*.qml"))) for p in repeater_delegates_that_reparent(f)]
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_one(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  Repeater {\n    model: 2\n    Rectangle {\n      parent: other\n      Item { parent: x }\n    }\n  }\n}\n")
+        try:
+            self.assertEqual(len(repeater_delegates_that_reparent(f.name)), 1)
+        finally:
+            os.remove(f.name)
+
+
 # Verbs that carry text a person wrote. Any local process can read a command
 # line from /proc, so the text goes over stdin (`run`'s input), and the
 # arguments after the device are ids only.

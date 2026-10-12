@@ -5859,39 +5859,8 @@ Panel {
                       // More to either side: the edge fades and an arrow
                       // shows (it moves the row along), so the row reads as
                       // one that goes on even when a link ends at the edge.
-                      Repeater {
-                        model: [{ left: true }, { left: false }]
-                        Rectangle {
-                          id: albumEdge
-                          required property var modelData
-                          readonly property color panel: root.bar ? root.bar.background : Color.background
-                          parent: albumStrip
-                          anchors.left: modelData.left ? parent.left : undefined
-                          anchors.right: modelData.left ? undefined : parent.right
-                          width: Style.space(40)
-                          height: parent.height
-                          opacity: modelData.left ? (albumStrip.atXBeginning ? 0 : 1) : (albumStrip.atXEnd ? 0 : 1)
-                          visible: opacity > 0
-                          Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
-                          PanelActionButton {
-                            anchors.verticalCenter: parent.verticalCenter
-                            anchors.left: albumEdge.modelData.left ? parent.left : undefined
-                            anchors.right: albumEdge.modelData.left ? undefined : parent.right
-                            iconText: albumEdge.modelData.left ? Model.GLYPH.left : Model.GLYPH.right
-                            tooltipText: albumEdge.modelData.left ? "Earlier albums" : "More albums"
-                            size: Style.space(20)
-                            fontSize: Style.font.body
-                            foreground: root.foreground
-                            fontFamily: root.fontFamily
-                            onClicked: albumStrip.glideAlbums(albumEdge.modelData.left ? -1 : 1)
-                          }
-                          gradient: Gradient {
-                            orientation: Gradient.Horizontal
-                            GradientStop { position: 0; color: modelData.left ? panel : Qt.rgba(panel.r, panel.g, panel.b, 0) }
-                            GradientStop { position: 1; color: modelData.left ? Qt.rgba(panel.r, panel.g, panel.b, 0) : panel }
-                          }
-                        }
-                      }
+                      AlbumEdge { strip: albumStrip; leading: true }
+                      AlbumEdge { strip: albumStrip; leading: false }
                     }
                   }
                 }
@@ -6491,6 +6460,40 @@ Panel {
         else if (barMove.from === barTile.tile.pos) barMove.release()
       }
       onTranslationChanged: if (active) barMove.dragBy(translation.x, translation.y)
+    }
+  }
+
+  // The fading edge and arrow at an end of the albums row (the Flickable
+  // `strip`); drawn over it, not in its content.
+  component AlbumEdge: Rectangle {
+    id: albumEdge
+    required property var strip
+    required property bool leading
+    readonly property color panel: root.bar ? root.bar.background : Color.background
+    parent: strip
+    anchors.left: leading ? parent.left : undefined
+    anchors.right: leading ? undefined : parent.right
+    width: Style.space(40)
+    height: parent.height
+    opacity: leading ? (strip.atXBeginning ? 0 : 1) : (strip.atXEnd ? 0 : 1)
+    visible: opacity > 0
+    Behavior on opacity { NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+    PanelActionButton {
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.left: albumEdge.leading ? parent.left : undefined
+      anchors.right: albumEdge.leading ? undefined : parent.right
+      iconText: albumEdge.leading ? Model.GLYPH.left : Model.GLYPH.right
+      tooltipText: albumEdge.leading ? "Earlier albums" : "More albums"
+      size: Style.space(20)
+      fontSize: Style.font.body
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+      onClicked: strip.glideAlbums(albumEdge.leading ? -1 : 1)
+    }
+    gradient: Gradient {
+      orientation: Gradient.Horizontal
+      GradientStop { position: 0; color: leading ? panel : Qt.rgba(panel.r, panel.g, panel.b, 0) }
+      GradientStop { position: 1; color: leading ? Qt.rgba(panel.r, panel.g, panel.b, 0) : panel }
     }
   }
 
