@@ -257,6 +257,38 @@ class DeviceTextCaps(unittest.TestCase):
         self.assertEqual(len(threads), bridge.CAP_THREADS)
         self.assertEqual(threads[0]["date"], n - 1, "the newest are kept")
 
+    def test_live_threads_past_the_cap_keep_the_newest(self):
+        class Params:
+            def __init__(self, m): self.m = m
+            def get_child_value(self, i): return self
+            def get_variant(self): return self
+            def unpack(self): return self.m
+        sms = bridge.Sms.__new__(bridge.Sms)
+        sms.cache, sms.latest, sms.pending = {}, {}, {}
+        sms.path = "/sms"
+        sms.message = lambda m: m
+        sms.summary = lambda m: {"id": m["thread"], "date": m["date"]}
+        sent = []
+        sms.out = sent.append
+        n = bridge.CAP_THREADS + 100
+        for t in range(n):
+            sms.on_signal(None, None, "/sms", None, "conversationCreated",
+                          Params({"thread": t, "uid": t, "date": t + 1000}))
+        self.assertEqual(len(sms.latest), bridge.CAP_THREADS)
+        self.assertEqual(len(sms.cache), bridge.CAP_THREADS)
+        self.assertEqual(min(sms.latest), 100, "the oldest were pushed out")
+        self.assertEqual(max(sms.latest), n - 1)
+        before = len(sent)
+        sms.on_signal(None, None, "/sms", None, "conversationCreated",
+                      Params({"thread": -1, "uid": -1, "date": 1}))
+        self.assertEqual(len(sent), before, "an older thread past the cap sends nothing")
+        self.assertNotIn(-1, sms.latest)
+        self.assertNotIn(-1, sms.cache)
+
+    def test_the_shell_and_the_bridge_share_the_cap(self):
+        with open(os.path.join(HERE, "..", "Model.js")) as f:
+            self.assertIn("var CAP_THREADS = %d\n" % bridge.CAP_THREADS, f.read())
+
 
 class ArtOnlyFromTheArtCache(unittest.TestCase):
     """F3: a track's art is decoded only from a real file in KDE Connect's art cache."""

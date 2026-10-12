@@ -3573,6 +3573,11 @@ function photosSummary(photos) {
   return parts.join(", ")
 }
 
+// Conversations the shell keeps (the newest); the bridge sends no more than
+// this, and a live thread past it pushes the oldest out.
+var CAP_THREADS = 5000
+function threadOverflow(count) { return Math.max(0, count - CAP_THREADS) }
+
 // Where the panel was when it closed, kept for a while: opened again within
 // KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the
 // conversation), else it starts on its main page. Not when it must open

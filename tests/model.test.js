@@ -1715,3 +1715,11 @@ test("a phone player's art is decoded only from KDE Connect's art cache", () => 
   assert.equal(M.MAX_ART_DECODES, 2, "two decodes at once, all players together")
   assert.equal(M.MAX_PHONE_PLAYERS, 8)
 })
+
+test("threads past the cap are trimmed: the overflow is the count above CAP_THREADS", () => {
+  assert.equal(M.CAP_THREADS, 5000)
+  assert.equal(M.threadOverflow(0), 0)
+  assert.equal(M.threadOverflow(M.CAP_THREADS), 0)
+  assert.equal(M.threadOverflow(M.CAP_THREADS + 1), 1)
+  assert.equal(M.threadOverflow(M.CAP_THREADS + 100), 100)
+})

@@ -253,8 +253,11 @@ Item {
     // Keep newest first: find where this date belongs.
     var to = 0
     while (to < threadModel.count && threadModel.get(to).date > row.date && threadModel.get(to).tid !== row.tid) to++
-    if (at < 0) threadModel.insert(to, row)
-    else {
+    if (at < 0) {
+      threadModel.insert(to, row)
+      var extra = Model.threadOverflow(threadModel.count)
+      if (extra > 0) threadModel.remove(threadModel.count - extra, extra)
+    } else {
       if (to > at) to = at
       if (at !== to) threadModel.move(at, to, 1)
       threadModel.set(to, row)
@@ -463,7 +466,8 @@ Item {
     if (demo) return
     if (ev.ev === "threads") {
       threadModel.clear()
-      for (var i = 0; i < ev.threads.length; i++) threadModel.append(threadRow(ev.threads[i]))
+      var shown = Math.min(ev.threads.length, Model.CAP_THREADS)
+      for (var i = 0; i < shown; i++) threadModel.append(threadRow(ev.threads[i]))
       ready = true
       modelRevision++
     } else if (ev.ev === "thread") {
