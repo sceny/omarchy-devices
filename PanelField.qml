@@ -11,6 +11,11 @@ import qs.Ui
 // 3. then the field is left (`steppedOut`): its owner releases the focus, and the
 //    page's own Esc takes over from there.
 // Fields set these, never their own Keys.onEscapePressed.
+//
+// A field is editable only while it has the keyboard. Qt reads the whole
+// clipboard text on every clipboard change in each editable field, shown or
+// not (QQuickTextInput::q_canPasteChanged); a read-only field skips it. A
+// click or a focus call still makes it editable at once.
 TextField {
   id: field
   property string escapeStep: "keep"
@@ -18,6 +23,15 @@ TextField {
   property bool floating: false
   signal closeFloating()
   signal steppedOut()
+
+  readOnly: true
+  Component.onCompleted: readOnly = !activeFocus
+  // Qt moves the cursor to the end when readOnly changes: keep the clicked place.
+  onActiveFocusChanged: {
+    var at = cursorPosition
+    readOnly = !activeFocus
+    if (activeFocus) cursorPosition = at
+  }
 
   Keys.onEscapePressed: {
     if (floating) { closeFloating(); return }
