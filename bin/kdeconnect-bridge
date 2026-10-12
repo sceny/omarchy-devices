@@ -223,6 +223,9 @@ CAP_ATTACHMENTS = 50       # of one message
 CAP_APPS = 2000
 CAP_VCARD = 1 << 20        # one contact file, read at most
 CAP_CONTACT_FILES = 20000
+CAP_TELS = 20              # numbers of one contact
+CAP_CONTACTS = 10000       # entries in all (and names by number)
+CAP_THREADS = 5000         # conversations sent to the shell (the newest)
 
 
 def cap_text(value, limit):
@@ -5727,7 +5730,7 @@ def read_vcards(device_id):
         files = sorted(os.listdir(folder))
     except OSError:
         return cards
-    for name in files[:CAP_CONTACT_FILES]:
+    for name in files[:min(CAP_CONTACT_FILES, CAP_CONTACTS)]:
         try:
             with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
                 text = f.read(CAP_VCARD)
@@ -5746,7 +5749,9 @@ def read_contacts(device_id):
         full = card["name"]
         if not full:
             continue
-        for phone in card["phones"]:
+        for phone in card["phones"][:CAP_TELS]:
+            if len(entries) >= CAP_CONTACTS:
+                break
             k = digits_key(phone["value"])
             if k:
                 names.setdefault(k, full)
@@ -6076,7 +6081,7 @@ class Sms:
             if cur is None or m["date"] >= cur["date"]:
                 self.latest[m["thread"]] = m
         threads = sorted((self.summary(m) for m in self.latest.values()),
-                         key=lambda t: -t["date"])
+                         key=lambda t: -t["date"])[:CAP_THREADS]
         self.out({"ev": "threads", "threads": threads})
         self.out({"ev": "contacts", "count": len(self.contacts), "contacts": self.contact_list})
 
