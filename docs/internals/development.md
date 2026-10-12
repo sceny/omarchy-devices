@@ -97,6 +97,18 @@ It cannot prove pacman's resolution, polkit's prompt, ufw's engine, user
 systemd, BlueZ or a Bluetooth radio, or real discovery. Mesh tools are hidden
 so no host peer shows in a check.
 
+**The resilience soak.** `dev/soak --rig <id> --out DIR` runs about 30
+minutes against a rig with its phone (`--quick`: a few minutes, to check the
+driver). It stops and kills KDE Connect's daemon and the bridge's `watch`,
+takes the device away, the phone's and the computer's network down and
+reboots the emulator, opens and closes the panel and uses Back and Home, and
+samples the panel, the processes and the bridge's own stream. `DIR/report.md`
+holds the numbers and a PASS/FAIL per criterion (memory, QML errors in the
+log, orphaned processes, re-sync without a blink, the page stack). The
+emulator's network daemon keeps a TCP link open through a reboot or a radio
+off, so those two faults cannot drop it: a real drop is for a real device. It
+sends no text and places no call.
+
 **Without the phone.** `dev/rig up --no-phone` keeps the shell and plugin
 (demo mode, screenshots); `--bare` skips the plugin install too.
 
