@@ -913,11 +913,16 @@ Column {
       foreground: root.foreground
       fontFamily: root.fontFamily
     }
+    // One height for every key, as tall as a list row (a title and its
+    // hint): two lines of keys or of what they do, never more.
+    FontMetrics { id: keyBody; font.family: root.fontFamily; font.pixelSize: Style.font.body }
+    FontMetrics { id: keyCaption; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+    FontMetrics { id: keySmall; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall }
     CursorSurface {
       width: keyRow.width
       hasCursor: false
       foreground: root.foreground
-      implicitHeight: keyContent.implicitHeight + Style.space(8)
+      implicitHeight: Math.ceil(Math.max(keyBody.height + keyCaption.height + Style.space(1), keySmall.height * 2, keyBody.height * 2)) + Style.space(12)
       CursorStop { here: root.cursorIndex === keyRow.rowIndex; glide: root.cursorGlide }
 
       MouseArea {
@@ -937,21 +942,27 @@ Column {
         Text {
           textFormat: Text.PlainText
           Layout.preferredWidth: Math.round(keyRow.width * 0.38)
+          Layout.alignment: Qt.AlignVCenter
           text: keyRow.row.keys || ""
           color: root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           font.bold: true
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
           elide: Text.ElideRight
         }
         Text {
           textFormat: Text.PlainText
           Layout.fillWidth: true
+          Layout.alignment: Qt.AlignVCenter
           text: keyRow.row.label || ""
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
         }
       }
     }
