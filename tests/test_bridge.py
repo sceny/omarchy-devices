@@ -1453,7 +1453,7 @@ class Screen(unittest.TestCase):
 
     def start_daemon_with(self, unit_ok, running_after):
         ran, spawned = [], []
-        saved = (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus, bridge.shutil.which, bridge.time.sleep)
+        saved = (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus, bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists)
         up = [False]
         def fake_run(cmd, **kw):
             ran.append(cmd[2:])
@@ -1469,12 +1469,13 @@ class Screen(unittest.TestCase):
         bridge.bus = lambda: None
         bridge.shutil.which = lambda name: "/usr/bin/" + name
         bridge.time.sleep = lambda s: None
+        bridge.os.path.exists = lambda path: path == "/usr/bin/kdeconnectd"
         try:
             with contextlib.redirect_stdout(open(os.devnull, "w")):
                 code = bridge.fix("start")
         finally:
             (bridge.subprocess.run, bridge.subprocess.Popen, bridge.daemon_running, bridge.bus,
-             bridge.shutil.which, bridge.time.sleep) = saved
+             bridge.shutil.which, bridge.time.sleep, bridge.os.path.exists) = saved
         return code, ran, spawned
 
     def test_start_reloads_the_user_manager_before_the_unit(self):
