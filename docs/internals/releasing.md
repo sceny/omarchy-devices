@@ -43,9 +43,21 @@ class the security specialist finds is added here, with a test that fails the
 build where one can. Besides the change itself, the reviewer answers each line
 below from the diff. A finding blocks the pull request.
 
-- Private text (messages, contact names, numbers, clipboard) stays off
-  argv and out of logs. A bridge verb reads it from stdin; a test fails if it
-  reaches a command line.
+- No value a person, a device or the API wrote is on the argv of any process
+  the plugin starts, whichever process or helper starts it. A bridge verb reads
+  such text from stdin. `tests/test_argv.py` finds every place QML starts a
+  process and fails on any argument that is not a literal or on its reviewed
+  allowlist (`ARGV_ALLOWED`, with the reason each is not private text); the
+  reviewer reads every new line of that list from the diff.
+- Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
+  middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
+  type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
+  `TextField` from `qs.Ui`, and any other its folder holds), one
+  `Quickshell.clipboardText` read in `PanelField.qml` at the paste key, no
+  `wl-paste` or `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
+  `tests/test_panelfield.py` fail on each.
+- Private text (messages, contact names, numbers, clipboard) stays out of
+  logs.
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
   points at a file the device sent.
 - Root goes only through `pkexec`, described first (`--describe`) and run
