@@ -251,6 +251,7 @@ def call_event(event, number, name, at_ms):
     if not kind:
         return None
     number, name = str(number or "").strip(), str(name or "").strip()
+    number, name = cap_text(number, CAP_SHORT), cap_text(name, CAP_SHORT)
     return {"event": kind, "number": number,
             "name": "" if name == number else name, "at": int(at_ms)}
 
@@ -3274,13 +3275,27 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     return cmd
 
 
-def launch_or_focus(title, cmd):
-    """Omarchy's `omarchy-launch-or-focus`: the window with this title is
-    brought forward, else the command runs (it evals the command line, so
-    each part is quoted)."""
-    pattern = re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", title)
-    subprocess.Popen(["omarchy-launch-or-focus", pattern, shlex.join(cmd)], start_new_session=True,
+def focus_window(win):
+    """Brings a window forward by its address."""
+    subprocess.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = %s })" % lua_string("address:" + win["address"])],
+                   capture_output=True, timeout=5)
+
+
+def launch_detached(cmd):
+    subprocess.Popen(cmd, start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def launch_or_focus(title, cmd):
+    """The window with exactly this title is brought forward, else the
+    command runs, as an argv list: Omarchy's `omarchy-launch-or-focus`
+    evaluates the command line it is given, and a title carries device
+    text, so it is never used here."""
+    win = find_window(title)
+    if win:
+        focus_window(win)
+    else:
+        launch_detached(cmd)
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,

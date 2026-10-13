@@ -324,6 +324,10 @@ class Calls(unittest.TestCase):
         # KDE Connect fills contactName with the number when it knows no name.
         self.assertEqual(bridge.call_event("callReceived", "5550123", "5550123", 0)["name"], "")
 
+    def test_a_name_and_number_are_capped(self):
+        long = bridge.call_event("callReceived", "5" * 4000, "A" * 4000, 0)
+        self.assertEqual((len(long["number"]), len(long["name"])), (bridge.CAP_SHORT, bridge.CAP_SHORT))
+
     def test_other_events_are_ignored(self):
         self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
         self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))
@@ -1080,7 +1084,31 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
         finally:
             bridge.screen_device, bridge.find_window, bridge.screen_status = saved
-        self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
+        self.assertEqual(launched, [["true"]], "the window is focused by its address; nothing new runs")
+
+    def test_a_hostile_title_is_one_literal_element_and_no_omarchy_launcher_gets_it(self):
+        title = "a /tmp/x/* b'$(id)' \u00b7 Pixel 8"
+        launched, calls = [], []
+        saved = bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run
+        bridge.find_window = lambda t: None
+        bridge.launch_detached = launched.append
+        bridge.subprocess.Popen = lambda cmd, *a, **k: calls.append(cmd)
+        bridge.subprocess.run = lambda cmd, *a, **k: calls.append(cmd)
+        try:
+            bridge.launch_or_focus(title, ["uwsm-app", "--", "scrcpy", "--window-title", title])
+            bridge.find_window = lambda t: {"address": "0xabc", "title": t}
+            bridge.launch_or_focus(title, ["true"])
+        finally:
+            bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run = saved
+        self.assertEqual(launched, [["uwsm-app", "--", "scrcpy", "--window-title", title]])
+        self.assertEqual(calls, [["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:0xabc" })']])
+        for cmd in launched + calls:
+            self.assertFalse(any("launch-or-focus" in str(part) for part in cmd), "no evaluating Omarchy launcher")
+
+    def test_the_bridge_never_calls_an_evaluating_omarchy_launcher(self):
+        source = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "kdeconnect-bridge")).read()
+        code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
+        self.assertEqual([line for line in code if re.search(r'"omarchy-launch-or-focus(-webapp)?"', line)], [])
 
     def test_the_display_as_it_is_now(self):
         self.assertEqual(bridge.parse_display("  init=1080x2316 450dpi cur=2316x1080 app=2148x1080"), (2316, 1080), "rotated")

@@ -20,6 +20,15 @@ GitHub release with these notes.
   inserted, so a huge paste or a line-broken one is instant instead of
   stopping the shell. Middle-click paste and dropping text onto a field no
   longer insert anything.
+- **A window is found by its exact title**: opening the device's screen or
+  an app focuses an open window by its address and otherwise starts it
+  directly, with each part of the command kept as it is.
+- **Clipboard: a copy leaves on your click**: the Clipboard shortcut is the
+  only way a copy is sent to a device. The plugin turns KDE Connect's
+  automatic sharing off for each paired device that has no choice of its
+  own, and leaves a choice you made there alone. `docs/security.md` says so.
+- **Call details are kept short**: a caller's name and number are cut to
+  the same length as other device text before they are used.
 
 ### Issues
 
