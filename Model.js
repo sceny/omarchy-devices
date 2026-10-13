@@ -1044,11 +1044,15 @@ function withWindows(apps, openLabels, sounds, fallback) {
   })
 }
 
-// A player belongs to this phone when KDE Connect exported it and its
-// identity ends with the phone's name. With no name to match, any KDE Connect
-// player counts.
+// A player belongs to this phone when KDE Connect exported it (its bus name
+// starts with KDE Connect's own prefix; a Flatpak app may own any name under
+// org.mpris.MediaPlayer2.) and its identity ends with the phone's name. With
+// no name to match, any KDE Connect player counts.
+var PHONE_PLAYER_PREFIX = "org.mpris.MediaPlayer2.kdeconnect."
+
 function isPhonePlayer(dbusName, identity, deviceName) {
-  if (String(dbusName || "").indexOf("kdeconnect") < 0) return false
+  var name = String(dbusName || "")
+  if (name.length <= PHONE_PLAYER_PREFIX.length || name.slice(0, PHONE_PLAYER_PREFIX.length) !== PHONE_PLAYER_PREFIX) return false
   if (!deviceName) return true
   var id = String(identity || "")
   var suffix = " - " + deviceName
