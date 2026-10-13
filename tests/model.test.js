@@ -197,6 +197,12 @@ test("media: player app from identity, phone players only, track line, times", (
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), true)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_2", "Podcasts - Tablet", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.spotify", "Spotify", "Pixel 8"), false)
+  // look-alikes: a sandboxed app's id may contain "kdeconnect" anywhere
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.org.example.kdeconnect_helper", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnectfake", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.example.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts", ""), true)
   assert.equal(M.trackLine("Ep 1", "Ep 1"), "Ep 1")
   assert.equal(M.trackLine("Song", "Band"), "Song · Band")
   assert.deepEqual([0, 75, 3725].map(M.formatTime), ["0:00", "1:15", "1:02:05"])
