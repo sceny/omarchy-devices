@@ -56,6 +56,15 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertNotRegex(text, r"\breadOnly\b")
         self.assertNotRegex(text, r"\bcanPaste\b")
 
+    def test_a_field_is_capped_before_anything_reads_its_text(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        self.assertRegex(text, r"property int maximumLength:\s*32767")
+        handler = text[text.index("onTextChanged:"):]
+        cap = handler.index("maximumLength")
+        scan = handler.index("breaks.test")
+        self.assertLess(cap, scan, "the cap must run before the line-break scan")
+        self.assertRegex(handler[cap:scan], r"remove\(")
+
 
 if __name__ == "__main__":
     unittest.main()

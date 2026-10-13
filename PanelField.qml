@@ -33,6 +33,9 @@ FocusScope {
   property alias font: edit.font
   property alias cursorPosition: edit.cursorPosition
   property string placeholderText: ""
+  // QQuickTextInput capped a field at 32767 characters; a TextEdit does not,
+  // and a paste of megabytes would stall every keystroke after it.
+  property int maximumLength: 32767
   property color foreground: Color.foreground
   property color accent: Color.accent
   readonly property bool hovered: hover.hovered
@@ -87,14 +90,25 @@ FocusScope {
       verticalAlignment: TextEdit.AlignVCenter
       onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
 
-      // One line: a paste or an input method can bring a line break.
+      // Over the cap, then one line: a paste or an input method can bring
+      // more text than the cap or a line break. The cap runs first, so the
+      // line-break scan never reads more than the cap.
       readonly property var breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
       onTextChanged: {
+        var cap = Math.max(0, field.maximumLength)
+        if (length > cap) {
+          var at = cursorPosition
+          var keep = cap
+          var last = keep > 0 ? getText(keep - 1, keep).charCodeAt(0) : 0
+          if (last >= 0xD800 && last <= 0xDBFF) keep--
+          remove(keep, length)
+          cursorPosition = Math.min(at, keep)
+        }
         breaks.lastIndex = 0
         if (!breaks.test(text)) return
-        var at = cursorPosition
+        var pos = cursorPosition
         text = text.replace(breaks, " ")
-        cursorPosition = Math.min(at, text.length)
+        cursorPosition = Math.min(pos, text.length)
       }
 
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.

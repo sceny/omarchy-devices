@@ -15,7 +15,9 @@ GitHub release with these notes.
   and reads its text when you paste (Ctrl+V, middle click). Focusing a field,
   or another program copying while one has the keyboard, makes the shell read
   nothing. Typing, accented characters, Esc's steps, drafts and
-  suggestions work as before; Enter stops at the field.
+  suggestions work as before; Enter stops at the field. A field holds at most
+  32767 characters, as before, so a huge paste is cut instead of slowing
+  every keystroke after it.
 - **Hardening**: windows are launched and focused by exact title and address,
   contact and call fields are capped, and the firewall rules open KDE
   Connect's ports to private ranges only.
