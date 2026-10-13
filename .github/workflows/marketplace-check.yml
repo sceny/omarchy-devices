@@ -1,0 +1,96 @@
+name: marketplace-check
+
+# The marketplace's own validation and security baseline (the two steps its
+# "Validate plugin update" workflow runs on a verify issue), run on the head of
+# a pull request into main, so their answer reaches us before the marketplace
+# bots see the commit. The checks are the marketplace's, taken from its main;
+# dev/marketplace-check.mjs only gives them this commit (AGENTS.md, Releasing).
+# Manual run: any commit of this repository, e.g. the one the marketplace lists.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full commit SHA to check
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  marketplace-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COMMIT: ${{ github.event.pull_request.head.sha || inputs.commit }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: The marketplace's checks, from its main
+        uses: actions/checkout@v4
+        with:
+          repository: omacom/omarchy-plugin-marketplace
+          ref: main
+          path: marketplace
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install the marketplace's dependencies
+        working-directory: marketplace
+        run: npm ci
+
+      - name: Validate the commit and run the security baseline
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MARKETPLACE_DIR: ${{ github.workspace }}/marketplace
+        run: |
+          set +e
+          node dev/marketplace-check.mjs "$COMMIT" "$RUNNER_TEMP/reports"
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+
+      - name: What the marketplace bots will say
+        env:
+          STATUS: ${{ steps.check.outputs.status }}
+        run: |
+          reports="$RUNNER_TEMP/reports"
+          marketplace_sha=$(git -C marketplace rev-parse HEAD)
+          {
+            echo "## Marketplace check at \`${COMMIT:0:7}\`"
+            echo
+            echo "Marketplace checks from \`omacom/omarchy-plugin-marketplace@${marketplace_sha:0:7}\`."
+            echo
+            for f in update-validation-report.md update-security-baseline-report.md; do
+              [ -f "$reports/$f" ] && sed '/^<!--.*-->$/d' "$reports/$f" && echo
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$STATUS" != 0 ]; then
+            echo "::error::The marketplace check did not pass (exit $STATUS); see the job summary"
+            exit 1
+          fi
+          json="$reports/update-security-baseline.json"
+          outcome=$(jq -r .outcome "$json")
+          listed=$(jq -r --arg id "$(jq -r .id manifest.json)" '
+            [.sources[] | select(.plugins[$id]) | .automatedSecurityBaseline.capabilities[]] | sort | join(" ")
+          ' marketplace/registry.json)
+          now=$(jq -r '[.capabilities[] | if type == "object" then .id else . end] | sort | join(" ")' "$json")
+          echo "Security baseline: $outcome. Capabilities: ${now:-none} (listed snapshot: ${listed:-none})."
+          case "$outcome" in
+            passed) ;;
+            review-required)
+              added=$(comm -13 <(tr ' ' '\n' <<< "$listed") <(tr ' ' '\n' <<< "$now") | grep . || true)
+              if [ -n "$added" ]; then
+                echo "::warning::The maintainer reviews these capabilities again, new since the listed snapshot: $(echo $added)"
+              else
+                echo "::notice::A maintainer reviews the capabilities on each verify request (${now:-none}); none is new since the listed snapshot"
+              fi ;;
+            *) echo "::error::The marketplace security baseline says $outcome"; exit 1 ;;
+          esac

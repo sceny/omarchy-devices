@@ -86,6 +86,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
+| `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
 
 ## Rules: what the owner decided, so nobody undoes it
 
@@ -747,7 +748,9 @@ run in order; the detail, the checklist and the record templates are in
    merged with a merge commit, never squashed, so both branches keep one
    history. The `release` check on that pull request fails while the
    version in `manifest.json` is already tagged or has no CHANGELOG
-   section with entries.
+   section with entries. The `marketplace-check` job runs the marketplace's
+   own validation and security baseline on the same head and fails where
+   its bots would (`docs/internals/releasing.md`).
 3. **The `release` workflow tags and publishes** when the merge lands on
    `main`: it tags the merge commit `vX.Y.Z`, publishes the release with
    that CHANGELOG section as its notes, and brings `develop` level with
