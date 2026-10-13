@@ -3,8 +3,8 @@
 # Releasing
 
 The steps for a release are in [AGENTS.md](../../AGENTS.md), *Releasing*.
-This page holds the checks that close one, with the templates. Releasing a
-version to Omarchy is always the owner's call.
+This page holds the chain every release follows, the checks that close one,
+and their templates. Releasing a version to Omarchy is always the owner's call.
 
 | Check | Who | When |
 |---|---|---|
@@ -13,6 +13,81 @@ version to Omarchy is always the owner's call.
 | Cold install and upgrade | Plugin DevOps runs, Panel QA passes | before every release |
 | Security review | the security specialist | every release, patch included, opened with the regression |
 | Go | the owner | before anything touches `main` or the marketplace |
+
+## The release template
+
+Every release is the same chain of tasks, created together when the release is
+started. Nothing is added by hand later: a task found missing is a change to
+this template. `X.Y.Z` is the version.
+
+| Kind | When | Branch | Pull request into |
+|---|---|---|---|
+| **minor** | a new feature on `develop` | `release-X.Y.Z` from `develop` | `develop`, then `develop` into `main` |
+| **patch** | fixes only on `develop` | the same as minor | the same as minor |
+| **urgent** | a fix users need now, or a maintainer's finding on the marketplace issue; only after the owner's go for it | `fix-X.Y.Z` from `main` | `main`, then `main` into `develop` |
+
+| # | Task | Role | After | Done when |
+|---|---|---|---|---|
+| R0 | the release (holds the status page) | Omar | R1 to R7 | the freeze check is clean, the release is published, the marketplace issue is filed or not needed, both trackers are closed |
+| R1 | prepare: `dev/release-prepare X.Y.Z` (version, CHANGELOG section, branch); for urgent, the fix itself is on this pull request | Panel Engineer | | the head has the version and its CHANGELOG section; CI is green, `release` check included, on the first push |
+| R2 | review with security check (the regular pull-request review) | Panel QA | R1 | PASS on the candidate SHA; for minor and patch, merged into `develop` |
+| R3 | regression, cold install, upgrade from the live tag | Plugin DevOps runs, Panel QA gives the verdict | R2 | the regression record is PASS on the candidate SHA, with the *needs a real device* list |
+| R4 | release security review: the whole plugin, plus `last-tag..candidate` | the security specialist | R2 | PASS on the candidate SHA; a FAIL rejects the candidate |
+| R5 | the owner's machine on the candidate | Plugin DevOps | R3, R4 | the owner's folder is at the SHA, the shell is restarted and `dev/loaded-code` exits 0 |
+| R6 | the owner's go: the status page and nothing else | the chief of staff carries it to the owner | R5 | the owner said go or no for that SHA |
+| R7 | merge, tag, publish, back to `develop` (*Releasing* steps 2 and 3; the owner's machine back to `develop`) | Plugin DevOps | R6 | tag `vX.Y.Z` on a merge commit, never a squash; the release is published; `develop` is level with `main` |
+
+On R0, Omar then files or edits the marketplace issue and opens the
+`marketplace-review` tracking issue (*Releasing* step 4) and runs the freeze
+check. A step only the owner's account can do on the marketplace issue is a
+named step for the chief of staff, once, in this chain.
+
+- **The candidate is the head of R1's pull request when R2 passes.** R3 and R4
+  start only then. A new commit on it voids R2 to R6: each runs again on the
+  new head, and no task is created.
+- **R4 is always the full review.** Its kind is never decided per release.
+- **R6 is asked only when the status page reads PASS for R2, R3, R4 and R5, all
+  on one SHA.**
+- **A maintainer's finding** starts an urgent chain for the next Z. Its R1
+  fixes the class (*Every pull request: review with a security check*), not
+  only the case.
+
+## The release status page
+
+One page holds the state of a release and is kept current on R0: the owner
+and the team read it, and the go request is this page and a link to it. It
+changes when a check's verdict or the candidate changes, never because time
+passed. It holds nothing private beyond what the tasks already hold.
+
+```markdown
+# Devices X.Y.Z: <minor | patch | urgent>
+
+**Candidate:** `<full SHA>` (head of <pull request link>)  ·  **Freeze:** none | marketplace #<n> open
+**Why this release:** <one line; for urgent, the finding, linked>
+
+## Pre-go checks (all PASS on the candidate SHA before the go request)
+
+| Check | Task | Verdict | On SHA |
+|---|---|---|---|
+| CI (test, release) | <pull request checks link> | green / red | `<sha>` |
+| Review with security check | R2 | PASS / FAIL / not yet | `<sha>` |
+| Regression on the emulator | R3 | PASS / FAIL / not yet | `<sha>` |
+| Cold install, upgrade from vLAST | R3 | PASS / FAIL / not yet | `<sha>` |
+| Release security review | R4 | PASS / FAIL / not yet | `<sha>` |
+| Owner's machine on the candidate | R5 | done / not yet | `<sha>` |
+
+## Needs a real device (for the owner)
+- <item>, or *none*
+
+## Outside findings this release answers
+- <finding, link>, then <fix pull request>, then <its class test or lint>
+
+## Next
+- **<step>**, <role>, <after which task>
+```
+
+A row on another SHA than the candidate counts as not done. Nothing in the
+table is removed or shortened for any kind.
 
 ## Preparing the branch: `dev/release-prepare`
 
@@ -69,8 +144,10 @@ GITHUB_TOKEN=$(gh auth token) MARKETPLACE_DIR=/tmp/mp node dev/marketplace-check
 
 One reviewer, Panel QA. This list is the record of faults already met: each
 class the security specialist finds is added here, with a test that fails the
-build where one can. Besides the change itself, the reviewer answers each line
-below from the diff. A finding blocks the pull request.
+build where one can; a finding from outside the team (the marketplace's
+maintainer, a security report) is fixed as its class, with that test. Besides
+the change itself, the reviewer answers each line below from the diff. A
+finding blocks the pull request.
 
 - No value a person, a device or the API wrote is on the argv of any process
   the plugin starts, whichever process or helper starts it. A bridge verb reads
@@ -89,6 +166,10 @@ below from the diff. A finding blocks the pull request.
   `tests/test_panelfield.py` fail on each.
 - Private text (messages, contact names, numbers, clipboard) stays out of
   logs.
+- The on-screen display's line (`omarchy-osd`, read by any local user) names
+  nothing a device sent: a toast with a value passes its own display line
+  (`report`'s third argument, the bridge's `say(..., osd=...)`).
+  `tests/test_argv.py` (`OsdLines`) fails on a toast that does not.
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
   points at a file the device sent.
 - Root goes only through `pkexec`, described first (`--describe`) and run

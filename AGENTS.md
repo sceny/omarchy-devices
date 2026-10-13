@@ -705,6 +705,29 @@ run in order; the detail, the checklist and the record templates are in
 `docs/internals/releasing.md`. Stop at a failed check, at a frozen `main`
 (step 0) and at the owner's go (step 1d), and report.
 
+- **Every release runs the same chain**, created together at the start
+  (`docs/internals/releasing.md`, *The release template*). Three kinds: a
+  **minor** (a new feature) and a **patch** (fixes only) are a `release-X.Y.Z`
+  branch from `develop`, into `develop` and then `develop` into `main`; an
+  **urgent** fix (needed by users now, or a maintainer's finding) is a
+  `fix-X.Y.Z` branch from `main`, into `main` and then `main` into `develop`,
+  only after the owner's go. The chain: prepare (`dev/release-prepare`), the
+  review with security check, the regression with the cold install and the
+  upgrade, the release security review, the owner's machine on the candidate,
+  the owner's go, then merge, tag and publish. The review, the regression, the
+  install and upgrade checks and the security review stay in every kind; a new
+  commit on the candidate runs them again on the new head.
+- **The go request is one status page** with every pre-go check and its
+  verdict on one candidate SHA (`docs/internals/releasing.md`, *The release
+  status page*). The owner is asked only when it reads PASS for all of them
+  on that SHA; a row on another SHA counts as not done.
+- **Findings from outside become classes.** A fault the marketplace's
+  maintainer or a security report finds is fixed as its class, with a test or
+  lint that fails the build (`tests/test_argv.py`: private text on argv, the
+  clipboard, the on-screen display's line), and its line in the per-pull-request
+  review list (`docs/internals/releasing.md`). The `marketplace-check` job
+  runs the marketplace's own checks on every pull request into `main`, so a
+  finding reaches us before the bots'.
 - **Every pull request gets the regular review with a security check**
   (Panel QA, one reviewer): private text (messages, contact names,
   numbers, clipboard) stays off argv and out of logs; nothing from a
@@ -738,7 +761,8 @@ run in order; the detail, the checklist and the record templates are in
    The candidate is the head of `develop` once that pull request is merged.
    The security review task opens with the regression, when the release
    branch is prepared.
-   Steps 1a to 1c run on it before anything touches `main`.
+   Steps 1a to 1c run on it before anything touches `main`; the status page
+   holds their verdicts on that SHA.
 
 1a. **Regression and install checks** (`docs/internals/releasing.md`): the
    full regression on the emulator in the rig, a cold install and an
@@ -749,8 +773,8 @@ run in order; the detail, the checklist and the record templates are in
    `last-tag..candidate`. A FAIL rejects the candidate: it is fixed and
    re-reviewed on the new head, or the release does not happen; only the
    owner can waive it.
-1c. **Bring the owner** the regression record, the security verdict and the
-   *needs a real device* list, in one request, once, with every item,
+1c. **Bring the owner** the status page: the regression record, the security
+   verdict and the *needs a real device* list, in one request, once, with every item,
    only after every agent check (review, full regression, cold install,
    upgrade, security review) passed on **one exact candidate SHA**. The
    request names that SHA. A new commit on the candidate voids every check
