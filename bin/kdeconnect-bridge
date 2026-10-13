@@ -1240,7 +1240,7 @@ def copy_file(path):
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
-    state = {"pending": 0, "last": None}
+    state = {"pending": 0, "last": None, "clipboard": set()}
     calls = {}
     seen = load_seen(seen_path())
     # Known here only while connected: a device away at start keeps the time
@@ -1284,6 +1284,13 @@ def watch():
             dirs.update(os.path.dirname(e.get("path", "")) for e in entries)
         state["received_ids"] = ids
         folders.sync(dirs)
+        for d in snap.get("devices", []):
+            if d.get("paired") and d["id"] not in state["clipboard"]:
+                state["clipboard"].add(d["id"])
+                try:
+                    keep_clipboard_here(d["id"], conn)
+                except (GLib.Error, OSError):
+                    pass
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
@@ -1333,6 +1340,7 @@ def watch():
 
     def on_owner(*_args):
         calls.clear()
+        state["clipboard"].clear()
 
     def on_folder(kind, path, new_path):
         # A listed file renamed in its folder: its entry follows it. Gone
@@ -2181,8 +2189,123 @@ def set_plugin(device_id, plugin, on, conn=None):
     own app does): the device stops or starts sending it."""
     conn = conn or bus()
     name = plugin if plugin.startswith("kdeconnect_") else "kdeconnect_" + plugin
+    if on and name == CLIPBOARD_PLUGIN:
+        try:
+            keep_clipboard_here(device_id, conn, cycle=False)
+        except OSError:
+            pass
     call(conn, device_path(device_id), IFACE + ".device", "setPluginEnabled", (name, bool(on)), "(sb)")
     return name
+
+
+# ---- The clipboard leaves on the user's act ---------------------------------
+#
+# KDE Connect's clipboard plugin sends every copy to the device unless its
+# autoShare is off, and passwords a password manager marks unless its
+# sendPassword is. Both default to on. The Clipboard shortcut is the user's
+# act (sendClipboard), so the plugin turns both off for each device that has
+# not been given an explicit choice, and leaves an explicit one alone. KDE
+# Connect offers no D-Bus setter for it: the setting is the plugin's own
+# config file, read when the plugin loads, so a loaded plugin is turned off
+# and on once.
+
+CLIPBOARD_PLUGIN = "kdeconnect_clipboard"
+CLIPBOARD_HERE = (("autoShare", "false"), ("sendPassword", "false"))
+INI_SECTION = re.compile(r"^\s*\[([^\]]*)\]\s*$")
+
+
+def ini_key(line):
+    """The key a line of a settings file sets, "" when it sets none."""
+    text = line.strip()
+    if not text or text[0] in ";#[":
+        return ""
+    return text.partition("=")[0].strip()
+
+
+def ini_get(text, key):
+    """A top-level (or [General]) key's value in a settings file, else None."""
+    section = ""
+    for line in text.splitlines():
+        m = INI_SECTION.match(line)
+        if m:
+            section = m.group(1)
+        elif section in ("", "General") and ini_key(line) == key:
+            return line.partition("=")[2].strip()
+    return None
+
+
+def ini_fill(text, wanted):
+    """The settings file with each wanted key that is missing added to its
+    [General] section, and whether anything was added. Keys already there,
+    whatever their value, are the user's and stay."""
+    missing = [(k, v) for k, v in wanted if ini_get(text, k) is None]
+    if not missing:
+        return text, False
+    lines = text.splitlines()
+    section, last = "", -1
+    for i, line in enumerate(lines):
+        m = INI_SECTION.match(line)
+        if m:
+            if section == "General":
+                break
+            section = m.group(1)
+            if section == "General":
+                last = i
+        elif section == "General" and line.strip():
+            last = i
+    added = ["%s=%s" % kv for kv in missing]
+    if last < 0:
+        lines = ["[General]"] + added + lines
+    else:
+        lines[last + 1:last + 1] = added
+    return "\n".join(lines) + "\n", True
+
+
+def clipboard_config_path(conn, device_id):
+    """The clipboard plugin's config file for a device: beside the device's
+    plugin list, whose path KDE Connect gives."""
+    plugins_file = call(conn, device_path(device_id), IFACE + ".device", "pluginsConfigFile")[0]
+    return os.path.join(os.path.dirname(plugins_file), CLIPBOARD_PLUGIN, "config")
+
+
+def clipboard_auto_share_off(conn, device_id):
+    """Whether the loaded plugin has auto-share off; None while it is not
+    loaded."""
+    try:
+        return bool(call(conn, device_path(device_id) + "/clipboard", "org.freedesktop.DBus.Properties",
+                         "Get", (IFACE + ".device.clipboard", "isAutoShareDisabled"), "(ss)")[0])
+    except GLib.Error:
+        return None
+
+
+def keep_clipboard_here(device_id, conn=None, cycle=True):
+    """Makes a device's copies leave only when the user sends them. Returns
+    "shared" when the user chose auto-share for it, "changed" when the plugin
+    was set (and, loaded, started again), else "here"."""
+    conn = conn or bus()
+    path = clipboard_config_path(conn, device_id)
+    try:
+        with open(path) as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    if ini_get(text, "autoShare") == "true":
+        return "shared"
+    text, changed = ini_fill(text, CLIPBOARD_HERE)
+    if changed:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        tmp = path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    if cycle and clipboard_auto_share_off(conn, device_id) is False:
+        dpath = device_path(device_id)
+        call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, False), "(sb)")
+        time.sleep(0.5)
+        call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, True), "(sb)")
+        return "changed"
+    return "changed" if changed else "here"
 
 
 def grant_permission(serial, key, run=None):
