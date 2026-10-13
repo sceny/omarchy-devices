@@ -3,12 +3,14 @@
 C1, private text on a command line. Any local user reads /proc/<pid>/cmdline,
 so no value a person, a device or the API wrote may be an argument of a process
 the plugin starts. Every place QML starts a process is found (`command:`,
-`.command =`, `execDetached(`, `Quickshell.exec(`, `openUrlExternally(`, and
+`.command =`, `execDetached(`, `.exec(` on any receiver, `openUrlExternally(`, and
 the two helpers that pass an argv on: `run(` and `launch(`), the argv is
 followed through the variables, `.concat(`, `.push(` and ternaries that build
 it, and every element that is not a string literal must be in ARGV_ALLOWED
 with the reason it is not private text. A new expression fails the build until
-a reviewer reads it and adds it. (tests/test_qml.py keeps the checks on the
+a reviewer reads it and adds it. An allowed bare name (`id`) matches by its
+text, so every value it is given in its file is read too (ASSIGNED_ALLOWED).
+(tests/test_qml.py keeps the checks on the
 verbs that carry text.)
 
 C2, the clipboard read without a paste by the user. QQuickTextInput reads the
@@ -229,20 +231,28 @@ def ternary(text):
     return None
 
 
-def definitions(text, name):
-    """Every expression assigned to `name` or pushed or concatenated onto it
-    in the file (the scope is the file: more than the real one, never fewer)."""
+def assignments(text, name):
+    """(index, kind, expression) for every expression assigned to `name`, pushed
+    or concatenated onto it, or iterated into it in the file (the scope is the
+    file: more than the real one, never fewer)."""
     found = []
     word = re.escape(name)
     for m in re.finditer(r"(?<![\w.])(?:(?:var|let|const)\s+)?%s\s*=(?!=)\s*" % word, text):
-        found.append(("set", expression_at(text, m.end()).strip()))
+        found.append((m.start(), "set", expression_at(text, m.end()).strip()))
+    for m in re.finditer(r"\bfor\s*\(\s*(?:var|let|const)?\s*%s\s+(?:in|of)\s+" % word, text):
+        found.append((m.start(), "set", text[m.end():close_of(text, text.index("(", m.start()))].strip()))
     for m in re.finditer(r"(?<![\w.])%s\.push\(" % word, text):
         inner = text[m.end():close_of(text, m.end() - 1)]
-        found.extend(("push", e) for e in split_top(inner) if e)
+        found.extend((m.start(), "push", e) for e in split_top(inner) if e)
     for m in re.finditer(r"(?<![\w.])%s\.concat\(" % word, text):
         inner = text[m.end():close_of(text, m.end() - 1)]
-        found.append(("set", inner.strip()))
+        found.append((m.start(), "set", inner.strip()))
     return found
+
+
+def definitions(text, name):
+    """Every expression assigned to `name`: (kind, expression)."""
+    return [(kind, e) for _, kind, e in assignments(text, name)]
 
 
 # Function parameters that carry argv built by the function's callers; the callers are
@@ -332,7 +342,7 @@ def sinks(path):
 
     for m in re.finditer(r"(?<![\w.])command\s*:\s*|\.command\s*=(?!=)\s*", text):
         add(m.start(), expression_at(text, m.end()))
-    for m in re.finditer(r"\b(?:execDetached|Quickshell\.exec)\(", text):
+    for m in re.finditer(r"\bexecDetached\(|\.exec\(", text):
         inner = text[m.end():close_of(text, m.end() - 1)]
         first = split_top(inner)[0]
         if first.startswith("{"):
@@ -381,6 +391,119 @@ def qml_files():
     return sorted(glob.glob(os.path.join(ROOT, "*.qml")))
 
 
+# ---- C1: an allowed bare name holds what it is given ---------------------------
+# ARGV_ALLOWED matches the text of an expression, so `id` is allowed wherever a
+# local variable is called `id`. Every value an allowed bare name is given in
+# its file (`var X =`, `X =`, `for (X of`, `X.push(`) is therefore read too: a
+# literal, another allowed name, a function parameter (its call sites are
+# read), or an expression listed here with the reason it is not private text.
+# (file, name, expression) -> why.
+ASSIGNED_ALLOWED = {
+    ("Service.qml", "id", "String(c.device)"): "a call's device: its id (KDE Connect's)",
+    ("Service.qml", "id", "String(device.id)"): "a device's id (KDE Connect's)",
+    ("Service.qml", "id", "String(d.id)"): "a device's id (KDE Connect's)",
+    ("Service.qml", "id", "key.split(\":\")[1]"): "the device id in a pairing action's key (accept:<id>, reject:<id>)",
+    ("Service.qml", "id", "iconsProc.device"): "the device an app-icon read was started for: its id",
+    ("Service.qml", "id", "String(devs[j].id)"): "a device's id (KDE Connect's)",
+    ("Service.qml", "id", "calls"): "the keys of `calls` (devices that show calls), which are device ids (`out[d.id]`)",
+    ("Service.qml", "id", "root.calls"): "the keys of `calls` (devices that show calls), which are device ids",
+    ("Service.qml", "id", "m"): "the keys of `callMuted`, a copy of device ids marked muted",
+    ("Service.qml", "line", "Model.osdLine(text, osd, failed)"): "Model.osdLine: the caller's literal, or the line it wrote without a device-sent value (OsdLines); never the toast's text",
+    ("Service.qml", "path", "Model.artPath(u, artDir)"): "Model.artPath: a path under the plugin's art cache, or empty (tests/model.test.js)",
+    ("Service.qml", "path", "String(text || \"\").trim()"): "the path the bridge's safe-art wrote in the plugin's art cache",
+    ("Service.qml", "prompt", "Model.aiPrompt(problems, pluginFolder, names)"): "the Fix with AI prompt: Model.aiPrompt quotes and caps what a device sent and names a device by its kind (tests/model.test.js)",
+    ("Service.qml", "sound", "Model.screenSound(rememberedSound(id, Model.SCREEN_SOUND))"): "here, phone or both (Model.screenSound)",
+    ("Service.qml", "sound", "Model.soundPlace(sound)"): "here, phone or both (Model.soundPlace)",
+}
+
+
+def bare(expr):
+    return bool(re.fullmatch(r"[A-Za-z_]\w*", expr))
+
+
+def value_parts(expr):
+    """The expressions a value can be: through parentheses, ternaries, || && ??."""
+    expr = expr.strip()
+    while expr.startswith("(") and close_of(expr, 0) == len(expr) - 1:
+        expr = expr[1:-1].strip()
+    t = ternary(expr)
+    if t:
+        return value_parts(t[1]) + value_parts(t[2])
+    for op in ("||", "&&", "??"):
+        pieces = split_top(expr, op)
+        if len(pieces) > 1:
+            return [p for piece in pieces for p in value_parts(piece)]
+    return [normal(expr)]
+
+
+def functions(text):
+    """(start, end, name, parameters) of every function, nested ones too."""
+    out = []
+    for m in re.finditer(r"\bfunction\b\s*(\w*)\s*\(", text):
+        close = close_of(text, m.end() - 1)
+        params = [re.split(r"[\s:=]", p, maxsplit=1)[0] for p in split_top(text[m.end():close]) if p]
+        body = text.find("{", close)
+        out.append((body + 1, close_of(text, body), m.group(1), params))
+    return out
+
+
+def call_sites(name, files):
+    """(file, line, arguments) of every call of a function by its name."""
+    out = []
+    for path in files:
+        text = strip_comments(read(path))
+        for m in re.finditer(r"(?<![\w])(?:[\w.]+\.)?%s\(" % re.escape(name), text):
+            if text[:m.start()].rstrip().endswith("function"):
+                continue
+            out.append((os.path.basename(path), line_of(text, m.start()),
+                        split_top(text[m.end():close_of(text, m.end() - 1)])))
+    return out
+
+
+def laundered(path, allowed=None, reviewed=None, files=None, used=None):
+    """Values an allowed bare name is given that nobody has read."""
+    allowed = ARGV_ALLOWED if allowed is None else allowed
+    reviewed = ASSIGNED_ALLOWED if reviewed is None else reviewed
+    files = qml_files() if files is None else files
+    name = os.path.basename(path)
+    text = strip_comments(read(path))
+    names = {e for (f, _, e) in allowed if f == name and bare(e)}
+    funcs = functions(text)
+    out = []
+
+    def judge(var, where, part, line):
+        if (name, var, part) in reviewed:
+            if used is not None:
+                used.add((name, var, part))
+            return
+        if is_literal(part) or part in names:
+            return
+        inner = [f for f in funcs if f[0] <= where < f[1]]
+        fn = min(inner, key=lambda f: f[1] - f[0]) if inner else None
+        if fn and bare(part) and part in fn[3]:
+            if not fn[2]:
+                out.append("%s:%d: `%s` is given the parameter `%s` of a function with no name" % (name, line, var, part))
+                return
+            at = fn[3].index(part)
+            for cfile, cline, args in call_sites(fn[2], files):
+                if at >= len(args):
+                    continue
+                for arg in value_parts(args[at]):
+                    if (cfile, part, arg) in reviewed and used is not None:
+                        used.add((cfile, part, arg))
+                    if not (is_literal(arg) or (cfile, part, arg) in reviewed):
+                        out.append("%s:%d: `%s` is given `%s` by %s(), which `%s` receives, and is not in ASSIGNED_ALLOWED"
+                                   % (cfile, cline, var, arg, fn[2], part))
+            return
+        out.append("%s:%d: the allowed name `%s` is given `%s` and it is not in ASSIGNED_ALLOWED" % (name, line, var, part))
+
+    for var in sorted(names):
+        for index, _, expr in assignments(text, var):
+            for part in value_parts(expr):
+                judge(var, index, part, line_of(text, index))
+    return out
+
+
 class PrivateTextOnArgv(unittest.TestCase):
     def test_every_argv_element_is_a_literal_or_reviewed(self):
         found = [v for f in qml_files() for v in violations(f)]
@@ -398,8 +521,76 @@ class PrivateTextOnArgv(unittest.TestCase):
         self.assertEqual(stale, [], "taken out of the code, take out of ARGV_ALLOWED")
 
     def test_every_allowed_expression_says_why(self):
-        for key, why in ARGV_ALLOWED.items():
+        for key, why in list(ARGV_ALLOWED.items()) + list(ASSIGNED_ALLOWED.items()):
             self.assertGreater(len(why.split()), 2, key)
+
+    def test_an_allowed_name_is_given_only_what_was_read(self):
+        found = [v for f in qml_files() for v in laundered(f)]
+        self.assertEqual(found, [], "\n" + "\n".join(found))
+
+    def test_every_reviewed_assignment_is_still_used(self):
+        used = set()
+        for f in qml_files():
+            laundered(f, used=used)
+        stale = sorted(k for k in ASSIGNED_ALLOWED if k not in used)
+        self.assertEqual(stale, [], "taken out of the code, take out of ASSIGNED_ALLOWED")
+
+    def test_an_allowed_name_that_is_given_text_fails(self):
+        demo = (
+            'Item {\n'
+            '  function a(n) { var id = n.title; Quickshell.execDetached([bridge, "ring", id]) }\n'
+            '  function b(n) { for (var deviceId of n.names) run("x", [deviceId], "k") }\n'
+            '  function c(id, other) { var path = other; proc.command = ["tool", path] }\n'
+            '  function d(path) { var kind = path; proc.command = ["tool", kind] }\n'
+            '  function e(n) { Qt.callLater(function(id) { proc.command = ["tool", id] }) }\n'
+            '  function f(n) { var id = ok ? "a" : String(n.id); proc.command = ["tool", id] }\n'
+            '  function g(x) { var id = deviceId; var deviceId = "lit"; proc.command = ["tool", id] }\n'
+            '  function h(x) { var id = x; proc.command = [bridge, "tool", id]; h(x.title); h("lit") }\n'
+            '}\n')
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write(demo)
+        try:
+            n = os.path.basename(f.name)
+            allowed = {(n, "*", "id"): "a device's id", (n, "*", "deviceId"): "a device's id",
+                       (n, "*", "path"): "a path in the cache", (n, "*", "kind"): "mail, map or web"}
+            found = " ".join(laundered(f.name, allowed=allowed, reviewed={}, files=[f.name]))
+            for text in ("`n.title`", "`n.names`", "`String(n.id)`", "`x.title`"):
+                self.assertIn(text, found, text)
+            self.assertNotIn('"lit"', found)
+            self.assertNotIn('"a"', found)
+            # `path` is given the parameter `other`, which nobody passes a value to
+            self.assertNotIn("`other`", found)
+            # a reviewed expression passes
+            ok = laundered(f.name, allowed=allowed, files=[f.name],
+                           reviewed={(n, "id", "n.title"): "a title that is a device id", (n, "deviceId", "n.names"): "device ids",
+                                     (n, "id", "String(n.id)"): "a device id", (n, "x", "x.title"): "a device id"})
+            self.assertNotIn("`n.title`", " ".join(ok))
+            self.assertNotIn("`n.names`", " ".join(ok))
+        finally:
+            os.remove(f.name)
+
+    def test_a_planted_laundering_in_the_real_files_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name in qml_files():
+                shutil.copy(name, os.path.join(d, os.path.basename(name)))
+            service = os.path.join(d, "Service.qml")
+            files = [os.path.join(d, os.path.basename(n)) for n in qml_files()]
+            self.assertEqual(laundered(service, files=files), [])
+            with open(service, "a") as f:
+                f.write('\nItem {\n  function demo(n) { var id = n.title; Quickshell.execDetached([bridge, "ring", id]) }\n}\n')
+            self.assertIn("`n.title`", " ".join(laundered(service, files=files)))
+
+    def test_a_planted_exec_array_in_the_real_files_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copy(os.path.join(ROOT, "Service.qml"), d)
+            service = os.path.join(d, "Service.qml")
+            self.assertEqual(violations(service), [])
+            with open(service, "a") as f:
+                f.write('\nItem {\n  function demo(n) { someProc.exec(["x", n.title]) }\n'
+                        '  function demo2(n) { someProc.exec({ command: ["x", n.body] }) }\n}\n')
+            found = " ".join(violations(service))
+            self.assertIn("`n.title`", found)
+            self.assertIn("`n.body`", found)
 
     def test_the_sinks_are_found(self):
         total = sum(len(sinks(f)) for f in qml_files())
