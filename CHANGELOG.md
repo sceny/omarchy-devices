@@ -6,6 +6,17 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+### Highlights
+
+- **Text fields never read the clipboard until you paste**: a field is
+  built on a text edit, which asks only which formats the clipboard offers
+  and reads its text when you paste (Ctrl+V, middle click). Focusing a field,
+  or another program copying while one has the keyboard, makes the shell read
+  nothing. Typing, accented characters, Esc's steps, drafts and
+  suggestions work as before; Enter stops at the field.
+
 ## 0.8.2 — 2026-10-11
 
 ### Highlights
