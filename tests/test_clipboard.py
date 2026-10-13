@@ -117,5 +117,24 @@ class KeepHereTests(unittest.TestCase):
         self.assertEqual(seen, [("[General]\nautoShare=false\nsendPassword=false\n", (bridge.CLIPBOARD_PLUGIN, True))])
 
 
+class KeepForTests(unittest.TestCase):
+    def test_a_failed_device_is_tried_again_and_a_done_one_is_not(self):
+        calls = []
+        real = bridge.keep_clipboard_here
+
+        def fake(device_id, conn):
+            calls.append(device_id)
+            if device_id == "bad" and calls.count("bad") == 1:
+                raise OSError("read-only")
+            return "changed"
+        bridge.keep_clipboard_here = fake
+        self.addCleanup(lambda: setattr(bridge, "keep_clipboard_here", real))
+        devices = [{"id": "good", "paired": True}, {"id": "bad", "paired": True}, {"id": "gone", "paired": False}]
+        done = set()
+        bridge.keep_clipboard_for(devices, done, object())
+        bridge.keep_clipboard_for(devices, done, object())
+        self.assertEqual(calls, ["good", "bad", "bad"])
+
+
 if __name__ == "__main__":
     unittest.main()
