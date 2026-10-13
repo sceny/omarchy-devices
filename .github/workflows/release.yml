@@ -6,6 +6,11 @@ name: release
 # - when main gets a version with no tag, the pushed commit is tagged
 #   vX.Y.Z, the release is published with that CHANGELOG section as its
 #   notes, and develop is brought level with main.
+# - a release that reaches main as a single-parent commit (a squash or a
+#   rebase) fails the run once it is tagged: the release pull request is
+#   merged with a merge commit. GitHub offers no per-pull-request check of the
+#   merge method, so it is caught here, after the merge.
+# `dev/release-prepare X.Y.Z` makes a branch that passes the first check.
 # A push to main whose version is already tagged does nothing. The
 # marketplace review is still requested by hand (Releasing, step 4).
 
@@ -61,6 +66,7 @@ jobs:
             echo "::error file=CHANGELOG.md::No '## $version — YYYY-MM-DD' section with entries"
             exit 1
           fi
+          echo "::notice::Merge this pull request with a merge commit, never squash: the release run fails on a single-parent commit on main"
           echo "Release notes for v$version:"
           cat "$RUNNER_TEMP/notes.md"
 
@@ -89,4 +95,13 @@ jobs:
             git push origin "$GITHUB_SHA:refs/heads/develop"
           else
             echo "::warning::develop has commits main does not; merge main into develop by hand (AGENTS.md, Workflow: an urgent fix)"
+          fi
+
+      - name: The release arrived as a merge commit
+        if: github.event_name == 'push' && steps.version.outputs.tagged == 'false' && !cancelled()
+        run: |
+          parents=$(git rev-list --parents -n 1 "$GITHUB_SHA" | wc -w)
+          if [ "$parents" -lt 3 ]; then
+            echo "::error::$GITHUB_SHA has one parent: the release pull request was squashed or rebased. It is tagged and published as it stands; merge with a merge commit next time so main and develop keep one history"
+            exit 1
           fi

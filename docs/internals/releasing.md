@@ -14,6 +14,35 @@ version to Omarchy is always the owner's call.
 | Security review | the security specialist | every release, patch included, opened with the regression |
 | Go | the owner | before anything touches `main` or the marketplace |
 
+## Preparing the branch: `dev/release-prepare`
+
+A pull request into `main` runs the `release` check from its first push: the
+version in `manifest.json` has a `## X.Y.Z — YYYY-MM-DD` section in
+`CHANGELOG.md` with entries and no tag yet. The script makes a branch that
+passes it before anything is pushed.
+
+```bash
+dev/release-prepare 0.10.0                                         # release-0.10.0 from origin/develop
+dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 from origin/main
+```
+
+- From `develop`, `## Unreleased` becomes the version's section (it must have
+  entries). From `main` there is no Unreleased section: the section is added
+  above the newest version with each `--note` under *Fixes* (at least one).
+- It sets `"version"`, commits both files (`--no-commit` leaves them staged)
+  and prints the next step. Write the section's remaining groups after it.
+- It refuses a version already tagged (here or on origin), one not above the
+  base's version, one the base's CHANGELOG already has, an empty Unreleased
+  section, an existing branch and a tree with tracked changes.
+- Tested in `tests/test_release_prepare.py`, which runs the `release`
+  workflow's own notes extraction on what the script wrote.
+
+The release pull request into `main` is merged with a merge commit. GitHub has
+no per-pull-request check of the merge method, so the pull request's `release`
+check prints a reminder and the `release` run on `main` fails, after tagging
+and publishing, when the tagged commit has one parent. Merge `main` into
+`develop` meanwhile and use a merge commit for the next release.
+
 ## Every pull request: review with a security check
 
 One reviewer, Panel QA. This list is the record of faults already met: each

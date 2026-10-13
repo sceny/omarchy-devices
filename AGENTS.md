@@ -654,7 +654,9 @@ Keep them; change one only with the owner.
   the installed copy on a feature branch. The rig installs your working tree into its own
   throwaway plugin folder (`dev/rig sync`), so a branch is checked without
   touching the installed copy.
-- **An urgent fix for users** is a branch from `main` with a pull request
+- **An urgent fix for users** is a branch from `main` made with
+  `dev/release-prepare X.Y.Z --from main --note "…"` (`fix-X.Y.Z`, its
+  version and CHANGELOG section already in the first push) with a pull request
   into `main`, only while `main` is not frozen (*Releasing*, step 5) and
   only after the owner's go (*Releasing*, step 1d);
   afterwards merge `main` into `develop`.
@@ -706,13 +708,14 @@ run in order; the detail, the checklist and the record templates are in
    `main` is frozen: say so and release nothing.
 1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
    alone raise Z (`0.6.0` → `0.6.1`).
-   **Prepare on a branch from `develop`** (`release-X.Y.Z`): turn
-   `## Unreleased` in `CHANGELOG.md` (the guide's *What's new*, linked from
-   the README) into `## X.Y.Z — YYYY-MM-DD` with *Highlights* (a few lines
+   **Prepare on a branch from `develop`** with `dev/release-prepare X.Y.Z`:
+   it creates `release-X.Y.Z`, turns `## Unreleased` in `CHANGELOG.md` (the
+   guide's *What's new*, linked from the README) into `## X.Y.Z — YYYY-MM-DD`,
+   sets `"version": "X.Y.Z"` in `manifest.json` and commits both; it refuses
+   a version already tagged. Then write the section: *Highlights* (a few lines
    on the big things), *Issues* and *Pull requests without an issue* (each
    linked, with its title), and *Upgrading* when a setting or a default
-   changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
-   `develop`, CI green, squash-merge.
+   changes. Pull request into `develop`, CI green, squash-merge.
    The candidate is the head of `develop` once that pull request is merged.
    The security review task opens with the regression, when the release
    branch is prepared.
@@ -745,7 +748,8 @@ run in order; the detail, the checklist and the record templates are in
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
-   history. The `release` check on that pull request fails while the
+   history (a single-parent commit on `main` fails the `release` run after it
+   tags). The `release` check on that pull request fails while the
    version in `manifest.json` is already tagged or has no CHANGELOG
    section with entries.
 3. **The `release` workflow tags and publishes** when the merge lands on
