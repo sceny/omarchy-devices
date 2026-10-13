@@ -174,7 +174,7 @@ class Renotify(unittest.TestCase):
         try:
             bridge.plugin_on = lambda device, plugin, conn=None: False
             bridge.set_plugin = lambda *a, **kw: set_calls.append(a)
-            bridge.say = lambda message, code=0: code
+            bridge.say = lambda message, code=0, osd=None: code
             self.assertEqual(bridge.device_fix("renotify", "dev"), 0)
             self.assertEqual(set_calls, [], "turned off for this device: never turned on by a fix nobody clicked")
             bridge.plugin_on = lambda device, plugin, conn=None: True
@@ -223,7 +223,7 @@ class AppPopOut(unittest.TestCase):
             bridge.border_size = lambda: 2
             bridge.apps_opened = lambda *a: None
             bridge.screen_device = lambda d: {"name": "Pixel 8"}
-            bridge.say = lambda message, code=0: code
+            bridge.say = lambda message, code=0, osd=None: code
             bridge.subprocess.run = lambda cmd, **kw: rules.append(cmd[2]) if cmd[:2] == ["hyprctl", "eval"] else None
             code = bridge.screen_open("dev", "org.example.app", "Example", docked=False, launch=launched.append,
                                       sleep=lambda s: None, popout=popout)

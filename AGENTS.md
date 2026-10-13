@@ -193,6 +193,12 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
+  The OSD's line is on a command line any local user reads: it names nothing
+  a device sent (its name, a file's, an app's). `report(text, failed, osd)`
+  takes the line for a text that carries such a value, and the bridge's
+  `say(message, osd=...)` writes it after `\x1e` when asked
+  (`DEVICES_OSD_LINE`); an output without one gives "Done" or "That did not
+  work" (`tests/test_argv.py`, `OsdLines`).
 - **Orders move with a glide, never a jump.** The pill in the bar slides
   its parts to a new order too (a slot per kind, `Model.BAR_PART_KEYS`).
   Every order (devices,

@@ -1110,12 +1110,13 @@ def save_file(path, device_name):
     shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
     target = save_target(folder, os.path.basename(path), os.path.getsize(path))
     if target is None:
-        return say("Already in %s" % shown)
+        return say("Already in %s" % shown, osd="Already saved")
     try:
         shutil.copy2(path, target)
     except OSError as error:
-        return say(str(error), EXIT_FAILED)
-    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)))
+        return say(str(error), EXIT_FAILED, osd="")
+    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)),
+                osd="Saved to %s" % os.path.basename(pictures_dir()))
 
 
 def file_uri(path):
@@ -1209,11 +1210,11 @@ def open_file(path, launch=None, local=False, from_device=False):
         try:
             path = local_copy(path)
         except OSError as error:
-            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
+            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
     if default_app(path) is None:
         launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
         ext = os.path.splitext(path)[1] or "these"
-        return say("No app opens %s files here; shown in Files" % ext, EXIT_CANCELLED)
+        return say("No app opens %s files here; shown in Files" % ext, EXIT_CANCELLED, osd="No app opens this file here; shown in Files")
     launch(["uwsm-app", "--", "gio", "open", path])
     return EXIT_OK
 
@@ -1233,7 +1234,7 @@ def copy_file(path):
             subprocess.run(["wl-copy", "--type", "text/uri-list"], input=("file://" + urllib.parse.quote(path) + "\n").encode(),
                            timeout=15, check=True)
     except (OSError, subprocess.SubprocessError) as error:
-        return say(str(error), EXIT_FAILED)
+        return say(str(error), EXIT_FAILED, osd="")
     return say("Copied")
 
 
@@ -1399,7 +1400,20 @@ def watch():
         net.stop()
 
 
-def say(message, code=EXIT_OK):
+OSD_ENV = "DEVICES_OSD_LINE"
+OSD_MARK = "\x1e"
+
+
+def say(message, code=EXIT_OK, osd=None):
+    """Prints the line the panel shows. `osd` is the line Omarchy's on-screen
+    display may show, whose command line any local user reads: it names
+    nothing a device sent (a name, a file, an app). A literal message is its
+    own; "" says only that the action ended (the panel's own words). The
+    panel asks for the line with DEVICES_OSD_LINE."""
+    if osd is None:
+        osd = message
+    if os.environ.get(OSD_ENV):
+        message = "%s%s%s" % (message, OSD_MARK, osd)
     print(message, file=sys.stdout if code == EXIT_OK else sys.stderr)
     return code
 
@@ -1435,14 +1449,14 @@ def read_private():
 
 def act(argv):
     if len(argv) < 2:
-        return say(__doc__.strip(), EXIT_FAILED)
+        return say(__doc__.strip(), EXIT_FAILED, osd="")
     verb, device_id, rest = argv[0], argv[1], argv[2:]
     conn = bus()
     dpath = device_path(device_id)
     try:
         if verb == "ring":
             call(conn, dpath + "/findmyphone", IFACE + ".device.findmyphone", "ring")
-            return say("Ringing %s" % device_name(conn, device_id))
+            return say("Ringing %s" % device_name(conn, device_id), osd="Ringing the device")
 
         if verb in ("pair", "accept", "reject", "unpair"):
             method = {"pair": "requestPairing", "accept": "acceptPairing",
@@ -1452,7 +1466,9 @@ def act(argv):
             return say({"pair": "Asked %s to pair; accept on it" % name,
                         "accept": "Paired with %s" % name,
                         "reject": "Pairing with %s cancelled" % name,
-                        "unpair": "Unpaired %s" % name}[verb])
+                        "unpair": "Unpaired %s" % name}[verb],
+                       osd={"pair": "Asked the device to pair; accept on it", "accept": "Paired",
+                            "reject": "Pairing cancelled", "unpair": "Unpaired"}[verb])
 
         if verb == "ping":
             # sendPing is overloaded: no argument, or a message to show.
@@ -1462,7 +1478,7 @@ def act(argv):
                      (message,), "(s)")
             else:
                 call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")
-            return say("Pinged %s" % device_name(conn, device_id))
+            return say("Pinged %s" % device_name(conn, device_id), osd="Pinged the device")
 
         if verb in ("text", "url"):
             value = read_private()
@@ -1471,10 +1487,10 @@ def act(argv):
             if verb == "url":
                 call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
                      (value.strip(),), "(s)")
-                return say("Link sent to %s" % device_name(conn, device_id))
+                return say("Link sent to %s" % device_name(conn, device_id), osd="Link sent")
             call(conn, dpath + "/share", IFACE + ".device.share", "shareText",
                  (value,), "(s)")
-            return say("Text sent to %s" % device_name(conn, device_id))
+            return say("Text sent to %s" % device_name(conn, device_id), osd="Text sent")
 
         if verb == "dial":
             # A tel: link: the phone opens its dialer on the number (or, from
@@ -1485,7 +1501,7 @@ def act(argv):
                 return say("No number to call", EXIT_CANCELLED)
             call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
                  ("tel:" + number,), "(s)")
-            return say("%s offers to call back" % device_name(conn, device_id))
+            return say("%s offers to call back" % device_name(conn, device_id), osd="The device offers to call back")
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")
@@ -1496,23 +1512,23 @@ def act(argv):
             if not paths:
                 paths, error = pick_files("Send to %s" % device_name(conn, device_id))
                 if paths is None:
-                    return say(error, EXIT_FAILED)
+                    return say(error, EXIT_FAILED, osd="")
                 if not paths:
                     return say("Nothing sent", EXIT_CANCELLED)
             missing = [p for p in paths if not os.path.exists(p)]
             if missing:
-                return say("Not found: %s" % missing[0], EXIT_FAILED)
+                return say("Not found: %s" % missing[0], EXIT_FAILED, osd="")
             uris = [Gio.File.new_for_path(p).get_uri() for p in paths]
             call(conn, dpath + "/share", IFACE + ".device.share", "shareUrls",
                  (uris,), "(as)")
             if len(paths) == 1:
-                return say("Sending %s" % os.path.basename(paths[0]))
-            return say("Sending %d files" % len(paths))
+                return say("Sending %s" % os.path.basename(paths[0]), osd="Sending a file")
+            return say("Sending %d files" % len(paths), osd="Sending %d files" % len(paths))
 
         if verb == "media":
             action = rest[0] if rest else "PlayPause"
             if action not in ("PlayPause", "Play", "Pause", "Next", "Previous", "Stop"):
-                return say("Unknown media action %s" % action, EXIT_FAILED)
+                return say("Unknown media action %s" % action, EXIT_FAILED, osd="")
             call(conn, dpath + "/mprisremote", IFACE + ".device.mprisremote",
                  "sendAction", (action,), "(s)")
             # The play/pause glyph already shows it worked; no status line.
@@ -1537,18 +1553,19 @@ def act(argv):
                       IFACE + ".device.notifications.notification") or {}
             call(conn, dpath + "/notifications", IFACE + ".device.notifications",
                  "sendAction", (p.get("internalId", nid), action), "(ss)")
-            return say(action)
+            return say(action, osd="Done")
     except GLib.Error as error:
         message = error.message
+        osd = ""
         if "UnknownObject" in message or "No such object" in message:
-            message = "The phone does not offer that right now"
+            message = osd = "The phone does not offer that right now"
         elif "ServiceUnknown" in message:
-            message = "KDE Connect is not running"
-        return say(message, EXIT_FAILED)
+            message = osd = "KDE Connect is not running"
+        return say(message, EXIT_FAILED, osd=osd)
     except IndexError:
-        return say("Missing argument for %s" % verb, EXIT_FAILED)
+        return say("Missing argument for %s" % verb, EXIT_FAILED, osd="")
 
-    return say("Unknown command %s" % verb, EXIT_FAILED)
+    return say("Unknown command %s" % verb, EXIT_FAILED, osd="")
 
 
 # ---- Setup checks ----------------------------------------------------------
@@ -1924,9 +1941,9 @@ def run_root(what, confirm):
     """Runs a root fix's plan, only the one shown (`confirm`: its hash)."""
     plan = root_plan(what)
     if not plan:
-        return say("Unknown fix %s" % what, EXIT_FAILED)
+        return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
     if plan.get("error"):
-        return say(plan["error"], EXIT_FAILED)
+        return say(plan["error"], EXIT_FAILED, osd="")
     if not confirm or confirm != plan["hash"]:
         return say("What would run is not what was shown: look at it again", EXIT_FAILED)
     if what == "tailscale":
@@ -1935,24 +1952,25 @@ def run_root(what, confirm):
             subprocess.Popen(plan["commands"][0], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         return say("Omarchy's Tailscale installer is open: sign in there")
     for cmd in plan["commands"]:
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         except (OSError, subprocess.TimeoutExpired) as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         if out.returncode in (126, 127):
             return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
         if out.returncode != 0:
-            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED, osd="")
     if what == "firewall":
         return say("The firewall lets your devices reach KDE Connect")
     if what == "ready":
         return say("This computer is ready")
-    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "screen": "scrcpy and adb installed: set up a device's screen and apps",
-                "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed"))
+    installed = {"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
+                 "screen": "scrcpy and adb installed: set up a device's screen and apps",
+                 "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed")
+    return say(installed, osd=installed)
 
 
 # What each install fix puts on this computer, so several go in one prompt
@@ -2002,7 +2020,7 @@ def fix(what, confirm=""):
         try:
             call(bus(), ROOT, IFACE + ".daemon", "forceOnNetworkChange")
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Looking for devices on the network")
     if what == "bluetooth-on":
         # Omarchy's own switch (the rfkill block it keeps across restarts).
@@ -2019,7 +2037,7 @@ def fix(what, confirm=""):
         try:
             subprocess.run([tool], capture_output=True, text=True, timeout=90)
         except (OSError, subprocess.TimeoutExpired) as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         state = bluetooth_state()
         return say("Calls can use this computer's audio") if state["service"] else say("PipeWire's hands-free service is still not there", EXIT_FAILED)
     if what == "restart":
@@ -2030,7 +2048,7 @@ def fix(what, confirm=""):
         return say("Could not restart KDE Connect", EXIT_FAILED)
     elif what == "start":
         return start_daemon()
-    return say("Unknown fix %s" % what, EXIT_FAILED)
+    return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
 # ---- Features: what a device can do, and the steps to it -----------------
@@ -2416,7 +2434,7 @@ def reconnect(device_id, conn=None):
         screen_record(device_id, {"kdeAddress": address})
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     if wait_reachable(device_id, conn):
         return say("Connected again")
     return say("KDE Connect knows where it is now, but it did not answer", EXIT_FAILED)
@@ -2431,7 +2449,7 @@ def wake(device_id, conn=None):
     adb(["-s", serial, "shell", "cmd", "deviceidle", "whitelist", "+" + KDECONNECT_ANDROID])
     code, out = adb(["-s", serial, "shell", "monkey", "-p", KDECONNECT_ANDROID, "-c", "android.intent.category.LAUNCHER", "1"])
     if code != 0:
-        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED)
+        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED, osd="")
     try:
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error:
@@ -2738,7 +2756,7 @@ def reach(device_id, address="", conn=None, meshes=None):
     if not address:
         peer, _how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
         if not peer:
-            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED)
+            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED, osd="The device is not on your mesh yet: sign in to it with the same account")
         picked, address = peer, peer["address"]
     kind = "address" if picked else "typed"
     daemon = props(conn, ROOT, IFACE + ".daemon") or {}
@@ -2753,13 +2771,13 @@ def reach(device_id, address="", conn=None, meshes=None):
         network_record(device_id, update)
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     # Here already (at home): the address is for when it is not.
     if p.get("isReachable"):
-        return say("KDE Connect knows where to find %s away from home: %s" % (name, address))
+        return say("KDE Connect knows where to find %s away from home: %s" % (name, address), osd="KDE Connect knows where to find it away from home")
     if wait_reachable(device_id, conn):
-        return say("Connected again, through %s" % address)
-    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name))
+        return say("Connected again, through %s" % address, osd="Connected again")
+    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name), osd="KDE Connect knows its address now; it connects when it answers there")
 
 
 def unreach(device_id, kind="", conn=None):
@@ -2778,7 +2796,7 @@ def unreach(device_id, kind="", conn=None):
         if wanted != current:
             set_custom(conn, wanted)
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     clear = {k: "" for k in kinds}
     if "address" in kinds:
         clear.update(mesh="", peer="")
@@ -2885,10 +2903,10 @@ def device_fix(what, device_id, arg=""):
             try:
                 set_plugin(device_id, name, state != "off")
             except GLib.Error as error:
-                return say(error.message, EXIT_FAILED)
+                return say(error.message, EXIT_FAILED, osd="")
             done.append(name)
         on = not arg.endswith("=off")
-        return say("Turned %s for this device" % ("on" if on else "off"))
+        return say("Turned %s for this device" % ("on" if on else "off"), osd="Turned %s for this device" % ("on" if on else "off"))
     if what == "renotify":
         # The notifications plugin off and on: made again, it asks the
         # device for every notification it holds, so one dismissed there
@@ -2901,13 +2919,13 @@ def device_fix(what, device_id, arg=""):
             time.sleep(0.5)
             set_plugin(device_id, "notifications", True)
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Its notifications read again")
     if what == "reload":
         try:
             call(bus(), device_path(device_id), IFACE + ".device", "reloadPlugins")
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Reloaded its KDE Connect plugins")
     if what == "remount":
         return say("Its storage is mounted again") if remount(device_id) else say("The storage did not mount", EXIT_FAILED)
@@ -2930,7 +2948,7 @@ def device_fix(what, device_id, arg=""):
         if not serial:
             return say("Not reachable over adb", EXIT_FAILED)
         code, out = adb(["-s", serial, "shell"] + screen)
-        return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED)
+        return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED, osd="Did not open")
     if what == "relisten":
         # KDE Connect's notification listener on the device, unbound and bound
         # again: what a restart of the device does for it (#94, our #95).
@@ -2941,7 +2959,7 @@ def device_fix(what, device_id, arg=""):
         adb(["-s", serial, "shell", "cmd", "notification", "disallow_listener", LISTENER, user])
         time.sleep(1)
         code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
-        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED)
+        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED, osd="It did not work")
     if what == "reconnect":
         return reconnect(device_id)
     if what == "wake":
@@ -2955,8 +2973,8 @@ def device_fix(what, device_id, arg=""):
         if not usb:
             return say("Plug it in with a USB cable to turn Wireless debugging on from here", EXIT_FAILED)
         code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
-        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED)
-    return say("Unknown fix %s" % what, EXIT_FAILED)
+        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED, osd="It did not turn on")
+    return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
 # ---- Bluetooth calls (PipeWire's hands-free service) ------------------------
@@ -3286,7 +3304,7 @@ def call_audio(device_id, sleep=time.sleep):
         try:
             procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=die_with_parent))
         except OSError as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
     print(json.dumps({"audio": "here", "loopbacks": len(procs)}), flush=True)
 
     def stop(*_args):
@@ -3324,7 +3342,7 @@ def call_verb(what, device_id, arg="", conn=None):
     try:
         conn, g = gateway_of(device_id, conn)
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     if g is None:
         return say("Not connected for calls over Bluetooth", EXIT_FAILED)
     path = g["path"]
@@ -3339,13 +3357,15 @@ def call_verb(what, device_id, arg="", conn=None):
                 tel_call(conn, path, TEL_AG, "HoldAndAnswer")
             else:
                 tel_call(conn, c["path"], TEL_CALL, "Answer")
-            return say("Answered" + (" on the device" if what == "answer-phone" else ""))
+            answered = "Answered" + (" on the device" if what == "answer-phone" else "")
+            return say(answered, osd=answered)
         if what in ("decline", "hangup"):
             c = pick_call(g, ("incoming", "waiting") if what == "decline" else ("active", "dialing", "alerting", "held"), arg)
             if not c:
                 return say("No call", EXIT_FAILED)
             tel_call(conn, c["path"], TEL_CALL, "Hangup")
-            return say("Declined" if what == "decline" else "Hung up")
+            ended = "Declined" if what == "decline" else "Hung up"
+            return say(ended, osd=ended)
         if what == "end-answer":
             tel_call(conn, path, TEL_AG, "ReleaseAndAnswer")
             return say("Answered")
@@ -3385,17 +3405,18 @@ def call_verb(what, device_id, arg="", conn=None):
             tel_set(conn, path, TEL_AG, "SpeakerVolume", GLib.Variant("y", level))
             return EXIT_OK
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     except ValueError:
-        return say("Not a level: %s" % arg, EXIT_FAILED)
+        return say("Not a level: %s" % arg, EXIT_FAILED, osd="Not a level")
     if what == "mute":
         node = mute_target(pw_objects(), g["address"])
         if node is None:
             return say("The call's audio is not here", EXIT_FAILED)
         on = arg != "off"
         out = subprocess.run(["wpctl", "set-mute", str(node), "1" if on else "0"], capture_output=True, text=True, timeout=5)
-        return say("Microphone off" if on else "Microphone on") if out.returncode == 0 else say("Could not mute", EXIT_FAILED)
-    return say("Unknown call action %s" % what, EXIT_FAILED)
+        mic = "Microphone off" if on else "Microphone on"
+        return say(mic, osd=mic) if out.returncode == 0 else say("Could not mute", EXIT_FAILED)
+    return say("Unknown call action %s" % what, EXIT_FAILED, osd="")
 
 
 def bluetooth_fix(what, device_id, arg=""):
@@ -3421,7 +3442,7 @@ def bluetooth_fix(what, device_id, arg=""):
     try:
         subprocess.run([tool, "connect", address], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return say(str(error), EXIT_FAILED)
+        return say(str(error), EXIT_FAILED, osd="")
     for _ in range(10):
         if address in (read_telephony(bus()) or {}):
             return say("Connected for calls")
@@ -4616,7 +4637,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     launch = launch or (lambda cmd: launch_or_focus(title, cmd))
     if find_window(title):
         launch(["true"])   # focuses it; the command never runs
-        return say("%s is open" % (label or name + "'s screen"))
+        return say("%s is open" % (label or name + "'s screen"), osd="The app is open" if label else "The screen is open")
     status = screen_status(device_id)
     if status["state"] != "ready":
         return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
@@ -4631,7 +4652,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
             if not device_locked(status["serial"]):
                 break
         else:
-            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED)
+            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED, osd="The device is still locked: unlock it, then open the app again")
     top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
@@ -4650,9 +4671,9 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
             if not docked and not package and fit:
                 sleep(0.2)   # tiled into its place first
                 fit_tile(find_window(title) or win, disp)
-            return say("%s is open" % (label or name + "'s screen"))
+            return say("%s is open" % (label or name + "'s screen"), osd="The app is open" if label else "The screen is open")
         sleep(0.25)
-    return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
+    return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED, osd="The window did not open: is the device unlocked and on this Wi-Fi?")
 
 
 def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
@@ -4670,7 +4691,7 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
                    capture_output=True, timeout=5)
     if win:
         dock_window(win, docked, disp, rect)
-    return say("Opens under the bar" if docked else "Opens as a window")
+    return say("Opens under the bar" if docked else "Opens as a window", osd="Opens under the bar" if docked else "Opens as a window")
 
 
 # ---- A window's sound (#129): where it plays, changed while it is open ----
@@ -4783,10 +4804,10 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
     win = find_window(title)
     if not win:
-        return say("%s plays its sound %s next time" % (what, where))
+        return say("%s plays its sound %s next time" % (what, where), osd="The sound plays elsewhere next time")
     status = screen_status(device_id)
     if status["state"] != "ready":
-        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED)
+        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED, osd="The device is out of reach: its sound changes when it opens again")
     border = border_size()
     mons = hypr_json("monitors")
     disp = status.get("display") or device_display(status["serial"])
@@ -4807,8 +4828,8 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
         (launch or (lambda c: launch_or_focus(title, c)))(cmd)
 
     if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
-        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED)
-    return say("%s plays its sound %s" % (what, where))
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED, osd="The window did not open again: open it from the panel")
+    return say("%s plays its sound %s" % (what, where), osd="The window's sound changed")
 
 
 # Its sound here: scrcpy's PipeWire stream, found by the window's process
@@ -6103,11 +6124,11 @@ def open_contacts_app(app=None, launch=None, find=""):
         return say("This computer has no Omarchy contacts app", EXIT_FAILED)
     if find:
         if not app.get("find"):
-            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
+            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED, osd="%s cannot look a contact up" % app["name"])
         url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
         # The last hop: the web app's launcher takes the address as an argument.
         (launch or launch_detached)(["omarchy-launch-webapp", url])
-        return say("Opening %s" % app["name"])
+        return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
     # Omarchy's `omarchy-launch-or-focus-webapp` evaluates its arguments: the
     # window is found here by its name, else the web app's launcher runs.
     word = re.compile(r"\b" + re.escape(app["name"]) + r"\b", re.I)
@@ -6116,7 +6137,7 @@ def open_contacts_app(app=None, launch=None, find=""):
         focus_window(win)
     else:
         (launch or launch_detached)(["omarchy-launch-webapp", app["url"]])
-    return say("Opening %s" % app["name"])
+    return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
 
 
 def contact_link(kind, value):
@@ -6586,7 +6607,7 @@ class Sms:
 
 def main(argv):
     if not argv:
-        return say(__doc__.strip(), EXIT_FAILED)
+        return say(__doc__.strip(), EXIT_FAILED, osd="")
     if argv[0] == "watch":
         try:
             watch()
@@ -6651,7 +6672,7 @@ def main(argv):
         try:
             print(json.dumps(device_features(argv[1], with_adb="--adb" in argv)))
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return EXIT_OK
     if argv[0] == "device-fix":
         if len(argv) < 3:
@@ -6742,7 +6763,7 @@ def main(argv):
         return EXIT_OK
     if argv[0] in ("screen", "screen-pair", "screen-open"):
         if len(argv) < 2:
-            return say("%s needs a device id" % argv[0], EXIT_FAILED)
+            return say("%s needs a device id" % argv[0], EXIT_FAILED, osd="")
         if argv[0] == "screen":
             print(json.dumps(screen_status(argv[1])))
             return EXIT_OK
