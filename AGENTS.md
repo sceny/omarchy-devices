@@ -45,8 +45,9 @@ clipboard settings in KDE Connect's config (*Rules*).
   screen*`), which KDE Connect does not offer. Each second source serves
   only its feature; everything else stays KDE Connect.
 - **Omarchy only: use what Omarchy provides.** Its commands
-  (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
-  `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
+  (`omarchy-pkg-add`, `omarchy-launch-webapp`,
+  `omarchy-hyprland-window-pop`, `omarchy-osd`; never `omarchy-launch-or-focus`
+  or its `-webapp` form, which evaluate the command line they are given), the packages and services
   it installs (Avahi, `qrencode`, `uwsm-app`, ufw letting mDNS in) and its
   Hyprland (Lua dispatch). Read `/usr/share/omarchy/bin` and
   `/usr/share/omarchy/default/hypr` before writing a helper; no paths for
