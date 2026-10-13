@@ -1227,13 +1227,7 @@ def watch():
             dirs.update(os.path.dirname(e.get("path", "")) for e in entries)
         state["received_ids"] = ids
         folders.sync(dirs)
-        for d in snap.get("devices", []):
-            if d.get("paired") and d["id"] not in state["clipboard"]:
-                state["clipboard"].add(d["id"])
-                try:
-                    keep_clipboard_here(d["id"], conn)
-                except (GLib.Error, OSError):
-                    pass
+        keep_clipboard_for(snap.get("devices", []), state["clipboard"], conn)
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
@@ -1977,6 +1971,18 @@ def keep_clipboard_here(device_id, conn=None, cycle=True):
         call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, True), "(sb)")
         return "changed"
     return "changed" if changed else "here"
+
+
+def keep_clipboard_for(devices, done, conn):
+    """Sets each paired device once; a device whose setting failed is tried
+    again on the next snapshot."""
+    for d in devices:
+        if d.get("paired") and d["id"] not in done:
+            done.add(d["id"])
+            try:
+                keep_clipboard_here(d["id"], conn)
+            except (GLib.Error, OSError):
+                done.discard(d["id"])
 
 
 def grant_permission(serial, key, run=None):
