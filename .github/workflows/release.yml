@@ -15,9 +15,9 @@ name: release
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, SCE-621-proof-tmp]
   push:
-    branches: [main]
+    branches: [main, SCE-621-proof-tmp]
 
 permissions:
   contents: read
