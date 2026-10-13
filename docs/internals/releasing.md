@@ -14,6 +14,28 @@ version to Omarchy is always the owner's call.
 | Security review | the security specialist | every release, patch included, opened with the regression |
 | Go | the owner | before anything touches `main` or the marketplace |
 
+## Every pull request into `main`: the marketplace's checks
+
+The `marketplace-check` job runs the marketplace's own validation and
+security baseline (the two steps of its *Validate plugin update* workflow,
+taken from `omacom/omarchy-plugin-marketplace` `main`, not copied) on the
+pull request's head commit, so their answer reaches us before the bots'.
+`dev/marketplace-check.mjs` only gives those scripts that commit. The job
+summary holds the bots' two reports, word for word. The job fails when the
+validation fails, the baseline says it needs fixes, or the check cannot
+complete (a change in the marketplace's scripts shows up here first). A
+baseline that needs a maintainer's review passes, with a warning naming any
+capability new since the listed snapshot.
+
+Run it on any commit (the listed one, a candidate) with *Run workflow*, or
+by hand:
+
+```bash
+git clone --depth 1 https://github.com/omacom/omarchy-plugin-marketplace /tmp/mp
+(cd /tmp/mp && npm ci)
+GITHUB_TOKEN=$(gh auth token) MARKETPLACE_DIR=/tmp/mp node dev/marketplace-check.mjs <full-sha> /tmp/reports
+```
+
 ## Every pull request: review with a security check
 
 One reviewer, Panel QA. This list is the record of faults already met: each
