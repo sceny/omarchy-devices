@@ -29,19 +29,41 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
 - From `develop`, `## Unreleased` becomes the version's section (it must have
   entries). From `main` there is no Unreleased section: the section is added
   above the newest version with each `--note` under *Fixes* (at least one).
-- It sets `"version"`, commits both files (`--no-commit` leaves them staged)
+- It sets `"version"`, commits both files (`--no-commit` leaves them staged, uncommitted)
   and prints the next step. Write the section's remaining groups after it.
 - It refuses a version already tagged (here or on origin), one not above the
   base's version, one the base's CHANGELOG already has, an empty Unreleased
   section, an existing branch and a tree with tracked changes.
-- Tested in `tests/test_release_prepare.py`, which runs the `release`
-  workflow's own notes extraction on what the script wrote.
+- Tested in `tests/test_release_prepare.py`, which runs `dev/release-notes`,
+  the `release` workflow's own extraction, on what the script wrote.
 
 The release pull request into `main` is merged with a merge commit. GitHub has
 no per-pull-request check of the merge method, so the pull request's `release`
 check prints a reminder and the `release` run on `main` fails, after tagging
 and publishing, when the tagged commit has one parent. Merge `main` into
 `develop` meanwhile and use a merge commit for the next release.
+
+## Every pull request into `main`: the marketplace's checks
+
+The `marketplace-check` job runs the marketplace's own validation and
+security baseline (the two steps of its *Validate plugin update* workflow,
+taken from `omacom/omarchy-plugin-marketplace` `main`, not copied) on the
+pull request's head commit, so their answer reaches us before the bots'.
+`dev/marketplace-check.mjs` only gives those scripts that commit. The job
+summary holds the bots' two reports, word for word. The job fails when the
+validation fails, the baseline says it needs fixes, or the check cannot
+complete (a change in the marketplace's scripts shows up here first). A
+baseline that needs a maintainer's review passes, with a warning naming any
+capability new since the listed snapshot.
+
+Run it on any commit (the listed one, a candidate) with *Run workflow*, or
+by hand:
+
+```bash
+git clone --depth 1 https://github.com/omacom/omarchy-plugin-marketplace /tmp/mp
+(cd /tmp/mp && npm ci)
+GITHUB_TOKEN=$(gh auth token) MARKETPLACE_DIR=/tmp/mp node dev/marketplace-check.mjs <full-sha> /tmp/reports
+```
 
 ## Every pull request: review with a security check
 
@@ -50,9 +72,23 @@ class the security specialist finds is added here, with a test that fails the
 build where one can. Besides the change itself, the reviewer answers each line
 below from the diff. A finding blocks the pull request.
 
-- Private text (messages, contact names, numbers, clipboard) stays off
-  argv and out of logs. A bridge verb reads it from stdin; a test fails if it
-  reaches a command line.
+- No value a person, a device or the API wrote is on the argv of any process
+  the plugin starts, whichever process or helper starts it. A bridge verb reads
+  such text from stdin. `tests/test_argv.py` finds every place QML starts a
+  process and fails on any argument that is not a literal or on its reviewed
+  allowlist (`ARGV_ALLOWED`, with the reason each is not private text); an
+  allowed bare name (`id`) also has every value it is given in its file read
+  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
+  The reviewer reads every new line of either list from the diff.
+- Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
+  middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
+  type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
+  `TextField` from `qs.Ui`, and any other its folder holds), one
+  `Quickshell.clipboardText` read in `PanelField.qml` at the paste key, no
+  `wl-paste` or `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
+  `tests/test_panelfield.py` fail on each.
+- Private text (messages, contact names, numbers, clipboard) stays out of
+  logs.
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
   points at a file the device sent.
 - Root goes only through `pkexec`, described first (`--describe`) and run

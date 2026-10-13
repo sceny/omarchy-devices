@@ -26,7 +26,8 @@ permissions on the phone from adb; calls with their audio here from
 PipeWire's Bluetooth hands-free service (`org.pipewire.Telephony`, with
 BlueZ for what is paired). KDE Connect is one source among them, not
 the centre (`docs/design/setup.md`). The only files the plugin writes outside
-its folder are caches under `~/.cache/sceny.devices/`.
+its folder are caches under `~/.cache/sceny.devices/` and each device's
+clipboard settings in KDE Connect's config (*Rules*).
 
 - **The plugin takes control of what it needs** (the owner's premise): it
   does every setup step it can itself (its packages, KDE Connect's plugins
@@ -86,6 +87,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
+| `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
 
 ## Rules: what the owner decided, so nobody undoes it
 
@@ -115,6 +117,17 @@ Keep them; change one only with the owner.
   conversation: the bridge asks at start and after a KDE Connect restart,
   never per user action. When the panel acts on a text-message
   notification, it marks the conversation read itself.
+- **The clipboard leaves on the user's act.** KDE Connect's clipboard
+  plugin sends every copy to the device, passwords a password manager marks
+  included, unless its `autoShare` and `sendPassword` are off. Both default
+  to on and have no D-Bus setter, so the bridge writes them off into the
+  plugin's own config file for each paired device that has no choice of its
+  own (`keep_clipboard_here`: before the plugin is turned on, and once per
+  device when `watch` sees it, starting a loaded plugin again to read it;
+  `isAutoShareDisabled` says the result). An `autoShare=true` already in the
+  file is the user's choice and stays. The Clipboard shortcut
+  (`sendClipboard`) is the only way a copy leaves; a copy made on the device
+  still arrives here. Never turn auto-share on from the plugin.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player, which goes stale when the phone
   switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
@@ -180,6 +193,12 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
+  The OSD's line is on a command line any local user reads: it names nothing
+  a device sent (its name, a file's, an app's). `report(text, failed, osd)`
+  takes the line for a text that carries such a value, and the bridge's
+  `say(message, osd=...)` writes it after `\x1e` when asked
+  (`DEVICES_OSD_LINE`); an output without one gives "Done" or "That did not
+  work" (`tests/test_argv.py`, `OsdLines`).
 - **Orders move with a glide, never a jump.** The pill in the bar slides
   its parts to a new order too (a slot per kind, `Model.BAR_PART_KEYS`).
   Every order (devices,
@@ -751,7 +770,9 @@ run in order; the detail, the checklist and the record templates are in
    history (a single-parent commit on `main` fails the `release` run after it
    tags). The `release` check on that pull request fails while the
    version in `manifest.json` is already tagged or has no CHANGELOG
-   section with entries.
+   section with entries. The `marketplace-check` job runs the marketplace's
+   own validation and security baseline on the same head and fails where
+   its bots would (`docs/internals/releasing.md`).
 3. **The `release` workflow tags and publishes** when the merge lands on
    `main`: it tags the merge commit `vX.Y.Z`, publishes the release with
    that CHANGELOG section as its notes, and brings `develop` level with

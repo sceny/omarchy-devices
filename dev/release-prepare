@@ -16,7 +16,7 @@ From develop, `## Unreleased` (which must hold entries) becomes
 It refuses: a version already tagged (here or on origin), a version not above
 the one in manifest.json on the base, a base whose CHANGELOG already has the
 version, an Unreleased section with nothing in it, a branch that exists, and a
-working tree with tracked changes. `--no-commit` leaves the edits uncommitted.
+working tree with tracked changes. `--no-commit` leaves the edits staged, uncommitted.
 It works in any repository with a manifest.json "version" and a CHANGELOG.md
 in this format.
 """
@@ -42,7 +42,7 @@ def git(*args, check=True):
 
 
 def parse_version(text):
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", text)
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", text)
     return tuple(int(part) for part in match.groups()) if match else None
 
 
@@ -68,7 +68,7 @@ def changelog_for_develop(text, version, date):
     if len(starts) != 1:
         fail("CHANGELOG.md needs one '## Unreleased' section on develop")
     start, end = section_bounds(lines, starts[0])
-    if not any(line.strip() for line in lines[start + 1:end]):
+    if not any(line.strip() and not line.startswith("#") for line in lines[start + 1:end]):
         fail("'## Unreleased' has no entries: nothing to release")
     lines[start] = f"## {version} — {date}"
     return "\n".join(lines)
@@ -94,14 +94,14 @@ def main():
     parser.add_argument("--note", action="append", default=[], help="a CHANGELOG entry, for a fix from main (repeat)")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD, default today")
     parser.add_argument("--remote", default="origin")
-    parser.add_argument("--no-commit", action="store_true", help="leave the edits uncommitted on the new branch")
+    parser.add_argument("--no-commit", action="store_true", help="leave the edits staged, uncommitted, on the new branch")
     args = parser.parse_args()
 
     new = parse_version(args.version)
     if new is None:
         fail(f"'{args.version}' is not X.Y.Z")
     date = args.date or datetime.date.today().isoformat()
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", date):
         fail(f"'{date}' is not YYYY-MM-DD")
     if args.base == "develop" and args.note:
         fail("--note is for a fix from main; from develop the entries are the Unreleased section")

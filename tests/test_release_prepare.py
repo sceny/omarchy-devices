@@ -2,14 +2,13 @@
 release workflow's notes extraction run on what it wrote."""
 
 import os
-import re
 import subprocess
 import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "dev", "release-prepare")
-WORKFLOW = os.path.join(HERE, "..", ".github", "workflows", "release.yml")
+RELEASE_NOTES = os.path.join(HERE, "..", "dev", "release-notes")
 
 MANIFEST = '{\n  "id": "sceny.test",\n  "version": "%s",\n  "schemaVersion": 1\n}\n'
 HEAD = "# What's new\n\nIntro.\n\n"
@@ -23,13 +22,13 @@ def git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, env=ENV, capture_output=True, text=True, check=True).stdout
 
 
-def notes_of(changelog, version):
-    """The workflow's own awk, taken from release.yml."""
-    with open(WORKFLOW) as handle:
-        workflow = handle.read()
-    program = re.search(r"awk -v v=\"\$version\" '\n(.*?)\n\s*' CHANGELOG\.md", workflow, re.S).group(1)
-    done = subprocess.run(["awk", "-v", f"v={version}", program], input=changelog, capture_output=True, text=True, check=True)
-    return done.stdout.strip()
+def notes_of(work):
+    """The release workflow's own extraction (dev/release-notes) on the repository."""
+    with tempfile.TemporaryDirectory() as out:
+        notes = os.path.join(out, "notes.md")
+        subprocess.run([RELEASE_NOTES, notes], cwd=work, env=ENV, capture_output=True, text=True, check=True)
+        with open(notes) as handle:
+            return handle.read().strip()
 
 
 class ReleasePrepare(unittest.TestCase):
@@ -74,7 +73,7 @@ class ReleasePrepare(unittest.TestCase):
         changelog = self.read("CHANGELOG.md")
         self.assertIn("## 0.9.0 — 2026-10-20", changelog)
         self.assertNotIn("Unreleased", changelog)
-        self.assertEqual(notes_of(changelog, "0.9.0"), "### Highlights\n\n- New thing.")
+        self.assertEqual(notes_of(self.work), "### Highlights\n\n- New thing.")
         self.assertEqual(git(self.work, "status", "--porcelain").strip(), "")
         self.assertEqual(git(self.work, "log", "-1", "--format=%s").strip(), "Release 0.9.0: CHANGELOG and manifest version")
         self.assertEqual(git(self.work, "rev-parse", "HEAD~1"), git(self.work, "rev-parse", "origin/develop"))
@@ -85,7 +84,7 @@ class ReleasePrepare(unittest.TestCase):
         self.assertEqual(git(self.work, "branch", "--show-current").strip(), "fix-0.8.3")
         self.assertIn('"version": "0.8.3"', self.read("manifest.json"))
         changelog = self.read("CHANGELOG.md")
-        self.assertEqual(notes_of(changelog, "0.8.3"), "### Fixes\n\n- One.\n- Two.")
+        self.assertEqual(notes_of(self.work), "### Fixes\n\n- One.\n- Two.")
         self.assertLess(changelog.index("## 0.8.3 "), changelog.index("## 0.8.2 "))
         self.assertTrue(changelog.startswith(HEAD))
 
@@ -100,6 +99,7 @@ class ReleasePrepare(unittest.TestCase):
             "tagged": (["0.8.2", "--from", "main", "--note", "x"], "already tagged"),
             "not above": (["0.8.1"], "not above"),
             "not a version": (["0.9"], "not X.Y.Z"),
+            "unicode digits": (["\u0660.\u0669.\u0661"], "not X.Y.Z"),
             "fix without a note": (["0.8.3", "--from", "main"], "--note"),
             "note from develop": (["0.9.0", "--note", "x"], "--note is for a fix"),
             "bad date": (["0.9.0", "--date", "yesterday"], "YYYY-MM-DD"),
@@ -123,6 +123,14 @@ class ReleasePrepare(unittest.TestCase):
     def test_empty_unreleased_is_refused(self):
         git(self.work, "switch", "-q", "develop")
         self.commit("empty", MANIFEST % "0.8.2", HEAD + "## Unreleased\n\n" + OLD)
+        git(self.work, "push", "-q", "origin", "develop")
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no entries", done.stderr)
+
+    def test_unreleased_with_only_headings_is_refused(self):
+        git(self.work, "switch", "-q", "develop")
+        self.commit("headings", MANIFEST % "0.8.2", HEAD + "## Unreleased\n\n### Highlights\n\n" + OLD)
         git(self.work, "push", "-q", "origin", "develop")
         done = self.run_script("0.9.0")
         self.assertNotEqual(done.returncode, 0)

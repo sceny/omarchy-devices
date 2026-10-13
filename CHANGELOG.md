@@ -20,6 +20,11 @@ GitHub release with these notes.
   inserted, so a huge paste or a line-broken one is instant instead of
   stopping the shell. Middle-click paste and dropping text onto a field no
   longer insert anything.
+- **The on-screen display names nothing a device sent**: with no panel
+  open, a result shows in Omarchy's display, whose line any local user can
+  read. It now says "Saved to Pictures", "The app is open" or "Ringing the
+  device", never a received file's name, an app's label or the device's
+  name; the panel's toast keeps the full text.
 - **Hardening**: windows are launched and focused by exact title and address,
   contact and call fields are capped, and the firewall rules open KDE
   Connect's ports to private ranges only.

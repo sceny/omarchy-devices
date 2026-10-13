@@ -197,6 +197,12 @@ test("media: player app from identity, phone players only, track line, times", (
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), true)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_2", "Podcasts - Tablet", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.spotify", "Spotify", "Pixel 8"), false)
+  // look-alikes: a sandboxed app's id may contain "kdeconnect" anywhere
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.org.example.kdeconnect_helper", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnectfake", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.example.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts", ""), true)
   assert.equal(M.trackLine("Ep 1", "Ep 1"), "Ep 1")
   assert.equal(M.trackLine("Song", "Band"), "Song · Band")
   assert.deepEqual([0, 75, 3725].map(M.formatTime), ["0:00", "1:15", "1:02:05"])
@@ -318,6 +324,20 @@ test("a click is answered when its effect shows in the snapshot", () => {
   assert.equal(M.waitLimit("note", "Pixel 8").fail, "", "an action may leave the notification as it was")
   assert.equal(M.waitLimit("dismiss", "Pixel 8").fail, "Pixel 8 did not dismiss it")
   assert.equal(M.waitLimit("unpair", "Pixel 8").fail, "Pixel 8 did not answer")
+})
+
+test("the on-screen display's line names nothing a device sent", () => {
+  assert.equal(M.waitLimit("dismiss", "Pixel 8").failOsd, "The device did not dismiss it")
+  assert.equal(M.waitLimit("unpair", "Pixel 8").failOsd, "The device did not answer")
+  assert.equal(M.waitLimit("note", "Pixel 8").failOsd, "")
+  const said = M.splitOsd("Saved to Pictures/Pixel 8/IMG_1.jpg" + M.OSD_MARK + "Saved to Pictures\n")
+  assert.deepEqual(said, { text: "Saved to Pictures/Pixel 8/IMG_1.jpg", osd: "Saved to Pictures" })
+  assert.deepEqual(M.splitOsd("Traceback: /home/x/Pixel 8"), { text: "Traceback: /home/x/Pixel 8", osd: "" }, "no mark, no line")
+  assert.equal(M.osdLine("Saved to Pictures/Pixel 8/IMG_1.jpg", said.osd, false), "Saved to Pictures")
+  assert.equal(M.osdLine("Copied", undefined, false), "Copied", "a literal speaks for itself")
+  assert.equal(M.osdLine("Pixel 8 did not answer", "", true), "That did not work", "an empty line says only that it ended")
+  assert.equal(M.osdLine("Pixel 8 is open", "", false), "Done")
+  assert.ok(M.osdLine("x".repeat(500), undefined, false).length <= 120)
 })
 
 test("demo mode drops a notification from its own snapshot only", () => {

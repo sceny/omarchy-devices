@@ -415,10 +415,31 @@ function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
 
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
-  if (kind === "note") return { ms: 4000, fail: "" }
-  if (kind === "track") return { ms: 3000, fail: "" }
-  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it" }
-  return { ms: 15000, fail: name + " did not answer" }
+  if (kind === "note") return { ms: 4000, fail: "", failOsd: "" }
+  if (kind === "track") return { ms: 3000, fail: "", failOsd: "" }
+  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it", failOsd: "The device did not dismiss it" }
+  return { ms: 15000, fail: name + " did not answer", failOsd: "The device did not answer" }
+}
+
+// The bridge's lines, when asked (DEVICES_OSD_LINE), end with OSD_MARK and the
+// line Omarchy's on-screen display may show: its command line is readable by
+// every local user, so that line names nothing a device sent (a name, a file,
+// an app). A line without the mark (a crash's output) has no such line.
+var OSD_MARK = "\u001e"
+
+function splitOsd(raw) {
+  var s = String(raw || "")
+  var i = s.lastIndexOf(OSD_MARK)
+  if (i < 0) return { text: s.trim(), osd: "" }
+  return { text: s.slice(0, i).trim(), osd: s.slice(i + 1).trim() }
+}
+
+// What the on-screen display says. A caller that passes no `osd` wrote a
+// literal; "" says only that it ended.
+function osdLine(text, osd, failed) {
+  var line = osd === undefined ? String(text || "") : String(osd || "")
+  if (line === "") return failed ? "That did not work" : "Done"
+  return line.length > 120 ? line.slice(0, 119) + "…" : line
 }
 
 function charging(device) {
@@ -1044,11 +1065,15 @@ function withWindows(apps, openLabels, sounds, fallback) {
   })
 }
 
-// A player belongs to this phone when KDE Connect exported it and its
-// identity ends with the phone's name. With no name to match, any KDE Connect
-// player counts.
+// A player belongs to this phone when KDE Connect exported it (its bus name
+// starts with KDE Connect's own prefix; a Flatpak app may own any name under
+// org.mpris.MediaPlayer2.) and its identity ends with the phone's name. With
+// no name to match, any KDE Connect player counts.
+var PHONE_PLAYER_PREFIX = "org.mpris.MediaPlayer2.kdeconnect."
+
 function isPhonePlayer(dbusName, identity, deviceName) {
-  if (String(dbusName || "").indexOf("kdeconnect") < 0) return false
+  var name = String(dbusName || "")
+  if (name.length <= PHONE_PLAYER_PREFIX.length || name.slice(0, PHONE_PLAYER_PREFIX.length) !== PHONE_PLAYER_PREFIX) return false
   if (!deviceName) return true
   var id = String(identity || "")
   var suffix = " - " + deviceName
