@@ -47,8 +47,10 @@ below from the diff. A finding blocks the pull request.
   the plugin starts, whichever process or helper starts it. A bridge verb reads
   such text from stdin. `tests/test_argv.py` finds every place QML starts a
   process and fails on any argument that is not a literal or on its reviewed
-  allowlist (`ARGV_ALLOWED`, with the reason each is not private text); the
-  reviewer reads every new line of that list from the diff.
+  allowlist (`ARGV_ALLOWED`, with the reason each is not private text); an
+  allowed bare name (`id`) also has every value it is given in its file read
+  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
+  The reviewer reads every new line of either list from the diff.
 - Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
   middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
   type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
