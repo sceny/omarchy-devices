@@ -12,12 +12,14 @@ GitHub release with these notes.
 
 - **Text fields never read the clipboard until you paste**: a field is
   built on a text edit, which asks only which formats the clipboard offers
-  and reads its text when you paste (Ctrl+V, middle click). Focusing a field,
-  or another program copying while one has the keyboard, makes the shell read
-  nothing. Typing, accented characters, Esc's steps, drafts and
+  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
+  field, or another program copying while one has the keyboard, makes the
+  shell read nothing. Typing, accented characters, Esc's steps, drafts and
   suggestions work as before; Enter stops at the field. A field holds at most
-  32767 characters, as before, so a huge paste is cut instead of slowing
-  every keystroke after it.
+  32767 characters, as before, and a paste is cut to that before it is
+  inserted, so a huge paste or a line-broken one is instant instead of
+  stopping the shell. Middle-click paste and dropping text onto a field no
+  longer insert anything.
 
 ## 0.8.2 — 2026-10-11
 

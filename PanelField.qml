@@ -1,4 +1,5 @@
 import QtQuick
+import Quickshell
 import qs.Commons
 import qs.Ui
 
@@ -19,6 +20,13 @@ import qs.Ui
 // another program's clipboard could stall the shell. A TextEdit asks the
 // clipboard only which formats it offers (QQuickTextControl::canPaste), and
 // reads the text when the user pastes. The look is Omarchy's TextField's.
+//
+// Pasted text is cut to the room left before Qt sees it: Qt inserts a paste,
+// a middle click's selection or a drop whole, and a few megabytes stall the
+// shell for seconds (line breaks cost far more). So Ctrl+V and Shift+Insert
+// are handled here (`_insert`; the clipboard is read at that key and nowhere
+// else), a middle click on the field does nothing (Quickshell cannot read the
+// primary selection) and a drop onto it is refused.
 FocusScope {
   id: field
 
@@ -40,6 +48,22 @@ FocusScope {
   property color accent: Color.accent
   readonly property bool hovered: hover.hovered
   function selectAll() { edit.selectAll() }
+
+  readonly property var _breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
+
+  // Replaces the selection with `incoming` cut to the cap, on one line.
+  function _insert(incoming) {
+    if (incoming === "" || incoming === undefined || incoming === null) return
+    if (edit.selectionStart !== edit.selectionEnd) edit.remove(edit.selectionStart, edit.selectionEnd)
+    var room = Math.max(0, maximumLength - edit.length)
+    var part = incoming.slice(0, room)
+    var last = part.length > 0 ? part.charCodeAt(part.length - 1) : 0
+    if (last >= 0xD800 && last <= 0xDBFF) part = part.slice(0, -1)
+    part = part.replace(_breaks, " ")
+    var at = edit.cursorPosition
+    edit.insert(at, part)
+    edit.cursorPosition = at + part.length
+  }
 
   readonly property var _borderSpec: Border.controlSpec(
     activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"), foreground, accent)
@@ -93,7 +117,6 @@ FocusScope {
       // Over the cap, then one line: a paste or an input method can bring
       // more text than the cap or a line break. The cap runs first, so the
       // line-break scan never reads more than the cap.
-      readonly property var breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
       onTextChanged: {
         var cap = Math.max(0, field.maximumLength)
         if (length > cap) {
@@ -104,13 +127,18 @@ FocusScope {
           remove(keep, length)
           cursorPosition = Math.min(at, keep)
         }
-        breaks.lastIndex = 0
-        if (!breaks.test(text)) return
+        field._breaks.lastIndex = 0
+        if (!field._breaks.test(text)) return
         var pos = cursorPosition
-        text = text.replace(breaks, " ")
+        text = text.replace(field._breaks, " ")
         cursorPosition = Math.min(pos, text.length)
       }
 
+      Keys.onPressed: function(event) {
+        if (!event.matches(StandardKey.Paste)) return
+        event.accepted = true
+        field._insert(Quickshell.clipboardText)
+      }
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.
       Keys.forwardTo: [field]
       // Enter ends the line instead of adding one.
@@ -125,6 +153,16 @@ FocusScope {
         if (field.escapeStep === "revert") text = field.savedText
         field.steppedOut()
       }
+    }
+
+    MouseArea {
+      anchors.fill: edit
+      acceptedButtons: Qt.MiddleButton
+    }
+
+    DropArea {
+      anchors.fill: edit
+      onDropped: function(drop) { drop.accepted = false }
     }
   }
 

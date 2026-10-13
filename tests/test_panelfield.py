@@ -4,7 +4,11 @@ QQuickTextInput (TextField, TextInput) reads the clipboard's whole text in
 q_canPasteChanged: when it stops being read-only and on every clipboard change
 while it is editable, with no bound on size. QQuickTextEdit only asks which
 formats are offered and reads the text on an explicit paste. Every field is a
-PanelField, which is built on a TextEdit; nothing else is an editable input."""
+PanelField, which is built on a TextEdit; nothing else is an editable input.
+
+A TextEdit inserts a paste, a middle click's selection or a drop whole, and a
+few megabytes stall the shell for seconds, so PanelField cuts the clipboard's
+text itself at Ctrl+V, takes the middle button and refuses drops."""
 
 import glob
 import os
@@ -64,6 +68,37 @@ class PanelFieldClipboard(unittest.TestCase):
         scan = handler.index("breaks.test")
         self.assertLess(cap, scan, "the cap must run before the line-break scan")
         self.assertRegex(handler[cap:scan], r"remove\(")
+
+    def test_text_is_cut_before_qt_inserts_it(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        key = text[text.index("Keys.onPressed:"):]
+        key = key[:key.index("Keys.forwardTo")]
+        self.assertIn("StandardKey.Paste", key)
+        self.assertIn("event.accepted = true", key)
+        self.assertIn("Quickshell.clipboardText", key)
+        fn = text[text.index("function _insert"):]
+        fn = fn[:fn.index("readonly property var _borderSpec")]
+        self.assertLess(fn.index(".slice("), fn.index(".replace("),
+                        "the cut must run before the line-break scan")
+        self.assertIn("maximumLength", fn)
+        self.assertRegex(fn, r"0xD800")
+
+    def test_clipboard_text_is_read_only_at_the_paste_key(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        reads = [m.start() for m in re.finditer(r"clipboardText", text)]
+        self.assertEqual(len(reads), 1)
+        self.assertIn("StandardKey.Paste", text[:reads[0]][-300:])
+
+    def test_middle_click_and_drops_do_not_reach_the_text_edit(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        area = re.search(r"MouseArea\s*\{([^}]*)\}", text)
+        self.assertIsNotNone(area)
+        self.assertIn("acceptedButtons: Qt.MiddleButton", area.group(1))
+        self.assertIn("anchors.fill: edit", area.group(1))
+        drop = re.search(r"DropArea\s*\{(.*?)\n    \}", text, flags=re.S)
+        self.assertIsNotNone(drop)
+        self.assertIn("anchors.fill: edit", drop.group(1))
+        self.assertRegex(drop.group(1), r"drop\.accepted = false")
 
 
 if __name__ == "__main__":
