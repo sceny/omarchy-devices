@@ -6,7 +6,7 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
-## Unreleased
+## 0.8.3 — 2026-10-13
 
 ### Highlights
 
@@ -20,6 +20,10 @@ GitHub release with these notes.
   inserted, so a huge paste or a line-broken one is instant instead of
   stopping the shell. Middle-click paste and dropping text onto a field no
   longer insert anything.
+
+### Issues
+
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review: omacom/omarchy-plugin-marketplace#10096 (a focused text field made the shell read the clipboard's whole text)
 
 ## 0.8.2 — 2026-10-11
 
