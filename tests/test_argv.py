@@ -99,7 +99,7 @@ ARGV_ALLOWED = {
     ("SetupChecks.qml", "", "parent.modelData.url"): "an app's store page (Model.APP_LINKS)",
     # the on-screen display
     ("Service.qml", "omarchy-osd", "Model.deviceGlyph(device)"): "a glyph, the device's icon or an alert",
-    ("Service.qml", "omarchy-osd", "text"): "the toast's text, which can carry a device-sent name (a received file's, an app's); to be cut by SCE-617",
+    ("Service.qml", "omarchy-osd", "line"): "Model.osdLine: the caller's literal, or the line it wrote without a device-sent value (OsdLines); never the toast's text",
 }
 
 
@@ -451,6 +451,78 @@ class PrivateTextOnArgv(unittest.TestCase):
             found = " ".join(violations(os.path.join(d, "Service.qml")))
             for text in ("`device`", "`m`", "`t.title`", "`t.body`"):
                 self.assertIn(text, found, text)
+
+
+# ---- C1, the on-screen display ------------------------------------------------
+# `omarchy-osd -m` takes its line on the command line. A toast's text can carry
+# what a device sent (its name, a file's, an app's), so a `report(text, failed)`
+# whose text is not a literal passes the line the display may show as a third
+# argument, or is reviewed here. The bridge's `say(message)` does the same with
+# `osd=`.
+REPORT_ALLOWED = {
+    ("Panel.qml", "text"): "a view's own toast (Copied, Asking the device for its contacts), shown while a panel is open, when the display is not used",
+}
+
+
+def report_calls(path):
+    text = strip_comments(read(path))
+    out = []
+    for m in re.finditer(r"(?<![\w])(?:\w+\.)?report\(", text):
+        if text[:m.start()].rstrip().endswith("function"):
+            continue
+        args = split_top(text[m.end():close_of(text, m.end() - 1)])
+        out.append((line_of(text, m.start()), args))
+    return out
+
+
+def report_violations(path, allowed=None):
+    allowed = REPORT_ALLOWED if allowed is None else allowed
+    name = os.path.basename(path)
+    out = []
+    for line, args in report_calls(path):
+        if len(args) >= 3 or all(is_literal(a) for a in split_top(args[0], "+")):
+            continue
+        if (name, args[0]) in allowed:
+            continue
+        out.append("%s:%d: report(%s) can carry a device-sent value to the on-screen display: pass its line as a third argument" % (name, line, args[0]))
+    return out
+
+
+def say_violations(path):
+    import ast
+    tree = ast.parse(read(path))
+    out = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "say" and node.args
+                and not (isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str))
+                and not any(k.arg == "osd" for k in node.keywords)):
+            out.append("kdeconnect-bridge:%d: say() of text that is not a literal needs osd=" % node.lineno)
+    return out
+
+
+class OsdLines(unittest.TestCase):
+    def test_a_toast_with_a_value_passes_its_osd_line(self):
+        found = [v for f in qml_files() for v in report_violations(f)]
+        self.assertEqual(found, [], "\n" + "\n".join(found))
+
+    def test_every_reviewed_toast_is_still_used(self):
+        used = {(os.path.basename(f), a[0]) for f in qml_files() for _, a in report_calls(f)}
+        self.assertEqual(sorted(k for k in REPORT_ALLOWED if k not in used), [])
+
+    def test_the_bridge_says_what_the_display_may_show(self):
+        self.assertEqual(say_violations(os.path.join(ROOT, "bin", "kdeconnect-bridge")), [])
+
+    def test_the_check_finds_them(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write('Item {\n  function a(d) { report(Model.deviceLabel(d) + " is open", false) }\n'
+                    '  function b(d) { report(Model.deviceLabel(d) + " is open", false, "It is open") }\n'
+                    '  function c() { report("A " + "literal", false) }\n}\n')
+        try:
+            found = report_violations(f.name, allowed={})
+            self.assertEqual(len(found), 1)
+            self.assertIn("deviceLabel(d)", found[0])
+        finally:
+            os.remove(f.name)
 
 
 # ---- C2 ---------------------------------------------------------------------

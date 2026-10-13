@@ -107,6 +107,80 @@ class Sends(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class OsdLine(unittest.TestCase):
+    """The panel asks for the line Omarchy's on-screen display may show
+    (DEVICES_OSD_LINE): it names nothing a device sent."""
+
+    def said(self, osd_asked, argv, run=None):
+        saved = (bridge.bus, bridge.call, bridge.device_name, os.environ.get(bridge.OSD_ENV))
+        bridge.bus = lambda: None
+        bridge.call = lambda *a, **k: ()
+        bridge.device_name = lambda conn, device_id: "Pixel 8"
+        if osd_asked:
+            os.environ[bridge.OSD_ENV] = "1"
+        else:
+            os.environ.pop(bridge.OSD_ENV, None)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                (run or bridge.act)(*([argv] if run is None else argv))
+        finally:
+            bridge.bus, bridge.call, bridge.device_name = saved[:3]
+            if saved[3] is None:
+                os.environ.pop(bridge.OSD_ENV, None)
+            else:
+                os.environ[bridge.OSD_ENV] = saved[3]
+        return out.getvalue().rstrip("\n")
+
+    def test_the_toast_names_the_device_and_the_display_does_not(self):
+        text, _, osd = self.said(True, ["ring", "d1"]).partition(bridge.OSD_MARK)
+        self.assertEqual(text, "Ringing Pixel 8")
+        self.assertEqual(osd, "Ringing the device")
+
+    def test_a_pairing_answer_names_no_device(self):
+        for verb in ("pair", "accept", "reject", "unpair"):
+            _, _, osd = self.said(True, [verb, "d1"]).partition(bridge.OSD_MARK)
+            self.assertTrue(osd, verb)
+            self.assertNotIn("Pixel", osd, verb)
+
+    def test_a_sent_file_is_not_named(self):
+        with tempfile.NamedTemporaryFile(suffix=".txt", prefix="holiday-") as f:
+            text, _, osd = self.said(True, ["share", "d1", f.name]).partition(bridge.OSD_MARK)
+            self.assertIn(os.path.basename(f.name), text)
+            self.assertEqual(osd, "Sending a file")
+
+    def test_a_saved_file_is_not_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "IMG_1.jpg")
+            open(src, "w").close()
+            saved = bridge.pictures_dir
+            bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
+            try:
+                text, _, osd = self.said(True, [src, "Pixel 8"], run=bridge.save_file).partition(bridge.OSD_MARK)
+            finally:
+                bridge.pictures_dir = saved
+        self.assertIn("IMG_1", text)
+        self.assertEqual(osd, "Saved to Pictures")
+
+    def test_without_the_ask_the_line_is_plain(self):
+        self.assertEqual(self.said(False, ["ring", "d1"]), "Ringing Pixel 8")
+
+    def test_an_error_gives_the_generic_line(self):
+        saved = bridge.pick_files
+        bridge.pick_files = lambda title: (None, "/home/someone/Pixel 8/secret.txt: denied")
+        try:
+            out = io.StringIO()
+            os.environ[bridge.OSD_ENV] = "1"
+            bridge.bus, bridge.call, bridge.device_name = (lambda: None), (lambda *a, **k: ()), (lambda c, d: "Pixel 8")
+            with contextlib.redirect_stderr(out):
+                bridge.act(["share", "d1"])
+        finally:
+            os.environ.pop(bridge.OSD_ENV, None)
+            bridge.pick_files = saved
+        _, _, osd = out.getvalue().rstrip("\n").partition(bridge.OSD_MARK)
+        self.assertEqual(osd, "")
+
+
 class Resync(unittest.TestCase):
     """The sms bridge asks the phone again when the daemon comes back after
     a restart, retrying while the device reconnects."""

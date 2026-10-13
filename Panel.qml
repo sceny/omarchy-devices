@@ -1815,7 +1815,7 @@ Panel {
     var target = phone.findDevice(id)
     if (messagesOpen && target && !hasTexts(target)) {
       if (leaveMessages === true) closeMessagesView()
-      else { phone.report(Model.deviceLabel(target) + " has no text messages", false); return }
+      else { phone.report(Model.deviceLabel(target) + " has no text messages", false, "The device has no text messages"); return }
     }
     // Contacts follows the tab to the device's own cards (the reader follows
     // the viewed device by itself); a device that keeps its contacts has
@@ -2155,7 +2155,7 @@ Panel {
   // keystrokes into a text field (AGENTS.md).
   function openContactsView(id) {
     if (device && can.contacts !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false, "The device does not share its contacts")
       return
     }
     replyingTo = ""
@@ -2351,7 +2351,7 @@ Panel {
   function openMessagesView(threadId, typeHere, fresh) {
     // A tablet without a SIM (or a computer) has no text messages.
     if (device && can.sms !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false, "The device has no text messages")
       return
     }
     replyingTo = ""
