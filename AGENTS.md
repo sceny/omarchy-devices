@@ -22,7 +22,8 @@ the MPRIS players it exports (media); the screen and apps from scrcpy over
 adb; the gallery from KDE Connect's storage over sshfs; KDE Connect's
 permissions on the phone from adb. KDE Connect is one source among them, not
 the centre (`docs/design/setup.md`). The only files the plugin writes outside
-its folder are caches under `~/.cache/sceny.devices/`.
+its folder are caches under `~/.cache/sceny.devices/` and each device's
+clipboard settings in KDE Connect's config (*Rules*).
 
 - **The plugin takes control of what it needs** (the owner's premise): it
   does every setup step it can itself (its packages, KDE Connect's plugins
@@ -101,6 +102,17 @@ Keep them; change one only with the owner.
   conversation: the bridge asks at start and after a KDE Connect restart,
   never per user action. When the panel acts on a text-message
   notification, it marks the conversation read itself.
+- **The clipboard leaves on the user's act.** KDE Connect's clipboard
+  plugin sends every copy to the device, passwords a password manager marks
+  included, unless its `autoShare` and `sendPassword` are off. Both default
+  to on and have no D-Bus setter, so the bridge writes them off into the
+  plugin's own config file for each paired device that has no choice of its
+  own (`keep_clipboard_here`: before the plugin is turned on, and once per
+  device when `watch` sees it, starting a loaded plugin again to read it;
+  `isAutoShareDisabled` says the result). An `autoShare=true` already in the
+  file is the user's choice and stays. The Clipboard shortcut
+  (`sendClipboard`) is the only way a copy leaves; a copy made on the device
+  still arrives here. Never turn auto-share on from the plugin.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player, which goes stale when the phone
   switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.

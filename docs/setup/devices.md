@@ -22,7 +22,8 @@ also turns a feature off for that device.
 | Messages · Names · Calls | SMS · contacts · phone and call log |
 | Gallery | All files access; `sshfs` here |
 | Screen and apps | scrcpy and adb here; [Wireless debugging](screen-and-apps.md) |
-| Files, Clipboard, Ring, Battery | KDE Connect alone |
+| Files, Ring, Battery | KDE Connect alone |
+| Clipboard | Never: **Clipboard** sends it on your click |
 
 With the screen set up, the plugin allows a permission over adb itself;
 without it, the row says where the switch is on the phone.

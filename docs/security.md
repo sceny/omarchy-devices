@@ -10,6 +10,11 @@
 - No account, no telemetry, no cloud. It never sends a text, rings or
   plays anything on its own. It keeps caches only
   (`~/.cache/sceny.devices/`); drafts stay in memory.
+- What you copy here stays here until you press **Clipboard**: the plugin
+  turns off KDE Connect's automatic sharing of every copy, and of passwords
+  a password manager marks, for each device. What you copy on the phone
+  still arrives here. Turn automatic sharing back on in KDE Connect's own
+  settings and the plugin leaves it on.
 - A picture from the phone is decoded in a sandbox, and you see a copy made
   from its pixels, never the phone's file.
 
