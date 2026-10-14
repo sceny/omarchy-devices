@@ -1,7 +1,9 @@
 # 001 — The shell is never a party to a Wayland data transfer
 
-Status: accepted · 2026-10-14 · owner of the decision: Mies (architecture) ·
-implements: SCE-696 · under: SCE-694 (Devices 0.8.4), SCE-603 (marketplace #10096)
+Status: accepted · 2026-10-14, amended the same day (keyboard selection,
+§2.3; what retires when Qt fixes land, §5.1) · owner of the decision: Mies
+(architecture) · implements: SCE-696 · under: SCE-694 (Devices 0.8.4),
+SCE-603 (marketplace #10096)
 
 This is the first architecture record in the repository. It governs
 `sceny.devices` and any future panel or component the plugin ships, and it is
@@ -68,28 +70,30 @@ bounded wait and an empty result, never the GUI thread.
 
 ### 2.2 The component and its contract
 
-One QML component owns the boundary. Call it **`Clipboard`** (a singleton
-under `qs` Commons, created once). Nothing else in the plugin runs `wl-copy`
+One QML component owns the boundary: **`Clipboard`**, a singleton in the
+plugin (`Clipboard.qml`, registered in `qmldir`; sharing it beyond the plugin
+is §7's open part). Nothing else in the plugin runs `wl-copy`
 or `wl-paste`, reads `Quickshell.clipboardText`, or constructs a `Process`
 for a clipboard verb.
 
 ```
-Clipboard.copyText(text: string) -> void
+Clipboard.copyText(text: string, done?: function) -> bool  // started
     // text to the system clipboard. Runs ["wl-copy"] with `text` on stdin,
     // never on argv (private text off the command line — test_argv.py C1).
-    // stdinEnabled closed after the write. One in-flight copy at a time.
+    // stdinEnabled closed after the write. One in-flight copy at a time;
+    // `done` is called when it ended.
 
-Clipboard.copyPrimary(text: string) -> void
+Clipboard.copyPrimary(text: string, done?: function) -> bool  // started
     // same, ["wl-copy", "--primary"], for a middle-click-paste target we
     // chose to offer (today: none; reserved so a future need has a home).
 
-Clipboard.copyFileData(mime: string, path: string) -> void
-    // an image/file as data. Routed through the bridge
-    // (`kdeconnect-bridge copy-file`), which already does this out of the
-    // shell (bin/kdeconnect-bridge:1222); argv carries the path, never the
-    // bytes. Unchanged by this record; named so the inventory is complete.
+(file copy) kdeconnect-bridge copy-file <mime> <path>
+    // an image/file as data, out of the shell already
+    // (bin/kdeconnect-bridge:1222); argv carries the path, never the bytes.
+    // Called from Service.qml as today, or forwarded by Clipboard; either
+    // way the shell is not the source. Named so the inventory is complete.
 
-Clipboard.readInto(cb: function(text: string)) -> void
+Clipboard.readInto(cb: function(text: string)) -> bool  // started
     // the only clipboard read. Runs the bounded wl-paste script
     // (timeout -k 1 2 wl-paste --no-newline --type text | head -c 131072,
     // then iconv -c), calls cb(text) with what arrived in time, or cb("")
@@ -114,6 +118,35 @@ A text surface in the panel is a `TextEdit` (never `TextField` / `TextInput`
   is driven by the component itself with `edit.select(start, end)` /
   `edit.selectAll()`, which call `setTextCursor` only and touch no clipboard
   (`qquicktextedit.cpp` `select`/`selectAll`).
+- **Keyboard selection is the component's too.** Every key Qt's text control
+  handles ends at its `accept:` label, which calls `setClipboardSelection()`
+  (`qquicktextcontrol.cpp:962-965`, 6.11.2): if a selection survives the
+  key, the shell takes the primary selection, exactly as by mouse. The full
+  list of callers of `setClipboardSelection()` is six: mouse extend (×2),
+  mouse release, double click, the Select-All key, and `accept:`. Which keys
+  leave a selection standing is not a short list: **Shift+movement**
+  (`cursorMoveKeyEvent` with `KeepAnchor`, reached only with
+  `selectByKeyboard`), `Key_Direction_L`/`R`, and also Undo or Redo with
+  nothing to undo (`QTextDocument::undo` replaces the cursor only when
+  `pos >= 0`). So the rule does not list the dangerous keys; it lists the
+  safe ones:
+  - a **read-only** surface keeps `selectByKeyboard` at its read-only
+    default (`false`; `qquicktextedit.cpp` `setReadOnly`), and nothing sets
+    it `true`; its own keys (Copy, Select-All) are taken before Qt, as the
+    message bubble does;
+  - an **editable** surface (`PanelField`, the only one, plain text) takes
+    every selection key before Qt sees it (`event.matches(StandardKey.SelectNextChar)`
+    and the other `Select*` standard keys: char, word, line, line start and
+    end, document start and end, page) and moves the selection itself,
+    `edit.select(anchor, newPosition)`, keeping the anchor where the
+    selection began; `Key_Direction_L`/`R` are swallowed;
+  - **while a selection stands** on an editable surface, a key reaches Qt
+    only if it consumes the selection: text input, Backspace, Delete and the
+    `Delete*` standard keys (each removes it before `accept:`). Plain Left
+    and Right collapse it to its start or end in the component. Before any
+    other key reaches Qt (Undo, Redo, Up, Down, Home, End, a key added
+    later), the component calls `edit.deselect()`. Qt's `accept:` then
+    never finds a selection standing, whatever the key.
 - **Copy / Cut / Select-All / Paste are intercepted** at `Keys.onPressed`
   (priority `BeforeItem`, as `PanelKeyCatcher` already does) and routed to
   `Clipboard`. Qt's `copy()` / `cut()` / `paste()` are never reached, so Qt
@@ -130,7 +163,7 @@ A text surface in the panel is a `TextEdit` (never `TextField` / `TextInput`
   `data_source_send` (the gallery tile, `Panel.qml:6586`). Dragging a gallery
   file to another window is re-expressed without the shell owning the drag:
   either a copy-to-clipboard affordance (the tile's existing copy button,
-  `Clipboard.copyFileData`) or, if drag is kept, the file handed to a drag
+  the bridge's `copy-file`) or, if drag is kept, the file handed to a drag
   helper process — decided in the implementation issue, not here (§7).
 
 ## 3. What this rules out
@@ -140,15 +173,20 @@ A text surface in the panel is a `TextEdit` (never `TextField` / `TextInput`
   path named (TextInput read → focus read → paste read) and left the next
   one. Cost of continuing: one release per path, indefinitely, and a
   marketplace listing frozen the whole time.
-- **Wait for Qt.** Rejected on measurement. The source-side fix (0b3ed8ba40,
-  a 5 s write cap) shipped in **6.12.0 only, no 6.11 backport**, and the
-  installed Qt is 6.11.2. Worse, 6.12.0 does **not** fix the target side: the
-  `canPaste`/`q_canPasteChanged` in-process read and the unbounded
-  `readData` loop are byte-identical in 6.11.2, 6.12.0 and `dev`
-  (verified against the tags). Upgrading Qt would close one of the four paths
-  and leave the one the reviewer actually keeps hitting. Cost of waiting: the
-  freeze ships to users until Omarchy upgrades Qt *and* Qt fixes the read,
-  the second of which is not even on a branch.
+- **Wait for Qt.** Rejected on measurement (qtbase and qtdeclarative,
+  compared by tag and by file content). The source-side fix (qtbase
+  0b3ed8ba40, `QWaylandPipeWriteHelper::safeWriteWithTimeout`) is in
+  **6.12.0 and `dev` only**: not in 6.11.2, not on the 6.11 branch under any
+  SHA, and the installed Qt is 6.11.2. It also **bounds one stall, not the
+  attack**: each `send` request still waits up to 5 s on the GUI thread, so a
+  peer that asks again and again keeps the shell frozen 5 s at a time
+  (inferred from the code, not run). The target-side `canPaste` /
+  `q_canPasteChanged` in-process read is fixed only on qtdeclarative `dev`
+  (ef692a52e3, 2026-09-13), not in 6.12.0. The unbounded `readData` loop
+  (`Q_FOREVER`, 1 s per `poll`, no total cap) is unchanged on every branch,
+  `dev` included. Cost of waiting: the freeze ships to users until Omarchy's
+  Qt carries fixes that, on the read side, do not exist yet. What each fix
+  retires when it does land is §5.1.
 - **Keep Qt's clipboard, cap it in QML.** Rejected: the blocking `write` and
   the in-process `text()` read are below the QML surface; QML cannot wrap or
   time them out. The only lever QML has is *not reaching them*.
@@ -200,18 +238,45 @@ text surfaces are already `PanelField` or a controlled `TextEdit`, so the
 wiring has one home.
 
 **Cost to undo in three months:** low for the invariant (delete the lint,
-let components touch the clipboard again) but you would be undoing the only
-thing that stops the freeze, so the signal to undo is narrow: **Qt fixes both
-the source blocking-write *and* the target in-process/unbounded read, the
-fixed version is what Omarchy ships, and a rig freeze test passes against
-stock Qt text widgets.** Until all three hold, the invariant stands. Track it
-against qtbase `dev` `qquicktextinput.cpp` `canPaste` and
-`qwaylanddataoffer.cpp` `readData`; the day both carry a bound, re-open this
-record.
+let components touch the clipboard again), but it is the only thing that
+stops the freeze. It is undone piece by piece, as §5.1 says, never at once.
 
-**Blast radius at the seam:** the seam is "QML ↔ system clipboard." Today it
-is touched by 4 source paths and 1 read path across 4 files; after this it is
-touched by 1 component. That narrowing is the point.
+### 5.1 What retires when Qt fixes land
+
+**No fix waits for Qt.** Every piece below ships now. Retiring one is a later,
+separate change, made only when its trigger holds; a Qt fix that is announced,
+merged on `dev` or shipped in a Qt that Omarchy does not install retires
+nothing. "Omarchy's Qt" is what Omarchy installs: `pacman -Q qt6-base
+qt6-declarative` on a current Omarchy, 6.11.2 today.
+
+| Piece (ships now) | Qt defect it covers | Upstream, measured 2026-10-14 | Retires when |
+|---|---|---|---|
+| Copy and cut through `Clipboard.copyText` (`wl-copy`); Copy and Cut keys taken before Qt; no QML call to a text item's `copy()`/`cut()` | The shell as clipboard source: blocking `write` on the GUI thread (`data_source_send`) | qtbase 0b3ed8ba40 in 6.12.0: a 5 s cap **per request**, still on the GUI thread | Omarchy's Qt serves a selection without the GUI thread waiting on the peer (asynchronous, or a total bound across requests), **and** C-clip-3(a) passes with Qt's own `copy()`. 6.12.0 alone does not meet it. |
+| `selectByMouse: false`, component-driven selection | The shell as primary-selection source (`setClipboardSelection`, mouse paths) | Same as above | Same trigger as the row above, **and** C-clip-3(c) passes with `selectByMouse: true`. |
+| Selection keys taken by `PanelField`; `selectByKeyboard` never `true` on read-only text | The shell as primary-selection source (`accept:` → `setClipboardSelection`) | Same as above | Same trigger as the first row, **and** C-clip-3(c) passes with Qt's own Shift+movement. |
+| No `Drag.Automatic` / `Drag.active` (gallery drag-out dropped, copy kept) | The shell as drag source (same `data_source_send`, inside `QDrag::exec`'s nested event loop) | Same as above | Same trigger as the first row, **and** a null-reading drop target cannot stall the shell in the rig. |
+| Paste through `Clipboard.readInto` (bounded `wl-paste`); Paste key taken before Qt; no QML call to `paste()` | The shell as reader: `QWaylandMimeData::readData`, `Q_FOREVER` with 1 s per `poll`, no total time or byte cap | **No fix on any branch**: identical in 6.11.2, 6.11, 6.12.0 and `dev` | Omarchy's Qt bounds the read in total time and bytes, or reads off the GUI thread, **and** C-clip-3(b) passes with Qt's own `paste()`. |
+| Middle click swallowed on every text surface | Qt's middle-button paste of the primary selection (the same read) | Same as above | Same trigger as the row above. |
+| Drops refused (`DropArea`) | A drop read in-process (the same read) | Same as above | Same trigger as the paste row. |
+| No `TextField` / `TextInput` / `TextArea` | `QQuickTextInput::canPaste` / `q_canPasteChanged` read the payload on every clipboard change, no gesture needed | qtdeclarative ef692a52e3 (2026-09-13) on `dev` only; not in 6.12.0 | Omarchy's Qt carries ef692a52e3. Then `TextInput` is allowed **under every rule above**, no fewer; it is the cheapest piece to keep, and the last worth retiring. |
+
+**Never retires:** the `Clipboard` component (the one door; once the copy
+and paste rows retire, its insides may call Qt's clipboard, and its callers
+do not change), the rule that `wl-copy`/`wl-paste` appear only in it, and
+C-clip-3, which is both the proof a row's trigger asks for and the guard
+after a row is gone.
+
+**Who looks:** the release regression records Omarchy's Qt versions
+(`pacman -Q qt6-base qt6-declarative`) beside the candidate. When one meets a
+trigger above, the regression's author files the retirement as its own
+issue for Panel Engineer, naming the row. Nobody re-opens this record for
+it.
+
+**Blast radius at the seam:** the seam is "QML ↔ system clipboard." Before
+this record it was touched by five source paths (copy and cut, mouse
+selection, keyboard selection, the Select-All key, the gallery drag) and
+three read paths (paste, middle click, a drop) across four files; after it,
+by one component. That narrowing is the point.
 
 ## 6. The check
 
@@ -226,6 +291,13 @@ the rig proof that the invariant actually holds at runtime.
 - no `TextField`/`TextInput`/`TextArea` instantiation (already in
   `test_panelfield.py:51`);
 - no `selectByMouse: true` (new);
+- no `selectByKeyboard: true` (new);
+- no call to a text item's own `copy()`, `cut()` or `paste()` (new; the
+  pattern `\.(copy|cut|paste)\(\)` outside `Clipboard.qml`, so a context-menu
+  item cannot reach Qt's clipboard);
+- `PanelField.qml`'s key handler matches every `StandardKey.Select*` (new;
+  the list in §2.3) and `Key_Direction_L`/`R`, and calls `deselect()` on
+  the path where a key reaches Qt while a selection stands;
 - no `Drag.dragType` / `Drag.Automatic` / `Drag.active` / `Drag.mimeData`
   (new);
 - no `Quickshell.clipboardText` (already in `test_panelfield.py:109`);
@@ -247,7 +319,16 @@ clipboard/primary reader that holds the pipe, and assert
 `dev/rig ipc status` answers within a small bound (the omacom/omarchy#8753
 method: compare the IPC round-trip against a cold baseline, assert no multi-
 second stall); (b) a paste from a provider that never finishes returns within
-the `timeout` and inserts nothing, the shell still answering. Panel QA owns
+the `timeout` and inserts nothing, the shell still answering; (c) **the shell
+never takes the primary selection**: put a marker there first
+(`wl-copy --primary <marker>` under `dev/rig exec`), make each selection
+gesture in the panel (a mouse drag, a double click, Shift+Left/Right,
+Shift+Home/End, Ctrl+Shift+Left, Ctrl+A, on a `PanelField` and on a message
+bubble; then, with a selection standing in a fresh `PanelField`, Ctrl+Z,
+Ctrl+Shift+Z, Home, End, Up, Down, and Left at the start of the text), and
+after each, `wl-paste --primary` still returns the marker. If
+any Qt path, listed in §2.3 or not, makes the shell the owner, the selected
+text comes back instead and the check fails. Panel QA owns
 building this from this spec; the PoC reader is a few lines of
 `wl-paste`/a null-reading data-control client run under `dev/rig exec`.
 
@@ -260,7 +341,7 @@ test is.
 - **The gallery drag (`Panel.qml:6586`).** I did not decide its
   replacement, only that the shell must not be the Qt DnD source. Default set
   so work continues: **drop `Drag.Automatic` and keep the existing copy
-  button** (`Clipboard.copyFileData`) as the way a photo leaves to another
+  button** (the bridge's `copy-file`) as the way a photo leaves to another
   window; "drag the tile into a window" loses the drag and keeps the copy.
   What would settle it otherwise: if a real drag-out is judged necessary,
   hand the file to a drag-source helper **process** (the shell still not the
