@@ -17,9 +17,11 @@ C2, the clipboard read without a paste by the user. QQuickTextInput reads the
 clipboard on focus and on every change, so no type built on it may be used:
 TextInput, TextField, TextArea, and every type of Omarchy's `qs.Ui` that
 contains one (NumberField, MultiSelect, SearchableDropdown, TextField).
-`Quickshell.clipboardText` is read once, in PanelField.qml, at the paste key.
-No `wl-paste` or `cliphist` anywhere the plugin runs code. (tests/test_panelfield.py
-keeps the checks on PanelField itself.)"""
+`Quickshell.clipboardText` is read nowhere: it reads the whole clipboard in the
+shell's process, with no byte limit and no deadline. The paste key runs
+`wl-paste` out of the shell, bounded, in PanelField.qml only; no `wl-paste` or
+`cliphist` anywhere else the plugin runs code. (tests/test_panelfield.py keeps
+the checks on PanelField itself.)"""
 
 import glob
 import os
@@ -782,17 +784,25 @@ class ClipboardOnlyOnPaste(unittest.TestCase):
         self.assertEqual(used, [], "a text input of Omarchy's Ui is used")
         self.assertEqual(sorted(missing), [], "add to KNOWN_WRAPPERS so CI knows them too")
 
-    def test_clipboard_text_is_read_once_in_panelfield(self):
+    def test_clipboard_text_is_read_nowhere(self):
         reads = {os.path.basename(f): clipboard_reads(f) for f in qml_files()}
         reads = {k: v for k, v in reads.items() if v}
-        self.assertEqual(list(reads), ["PanelField.qml"], reads)
-        self.assertEqual(len(reads["PanelField.qml"]), 1)
+        self.assertEqual(reads, {}, "Quickshell.clipboardText reads the clipboard in the shell, unbounded; "
+                                    "PanelField reads it out of process, bounded")
 
     def test_no_paste_tool_where_the_plugin_runs_code(self):
-        files = qml_files() + [os.path.join(ROOT, "Model.js")] + [
+        files = [f for f in qml_files() if os.path.basename(f) != "PanelField.qml"] + [
+            os.path.join(ROOT, "Model.js")] + [
             p for p in glob.glob(os.path.join(ROOT, "bin", "*")) if os.path.isfile(p)]
         found = ["%s:%d" % (os.path.basename(f), n) for f in files for n in paste_tools(f)]
         self.assertEqual(found, [], "wl-paste / cliphist read the clipboard without a paste")
+
+    def test_wl_paste_is_in_panelfield_once_and_bounded(self):
+        found = paste_tools(os.path.join(ROOT, "PanelField.qml"))
+        self.assertEqual(len(found), 1, found)
+        text = strip_comments(read(os.path.join(ROOT, "PanelField.qml")))
+        self.assertRegex(text, r"timeout -k \d+ \d+ wl-paste")
+        self.assertRegex(text, r"head -c \d+")
 
     def test_the_check_finds_them(self):
         with tempfile.TemporaryDirectory() as d:

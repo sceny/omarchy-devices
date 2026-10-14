@@ -160,9 +160,11 @@ finding blocks the pull request.
 - Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
   middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
   type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
-  `TextField` from `qs.Ui`, and any other its folder holds), one
-  `Quickshell.clipboardText` read in `PanelField.qml` at the paste key, no
-  `wl-paste` or `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
+  `TextField` from `qs.Ui`, and any other its folder holds), no
+  `Quickshell.clipboardText` read anywhere (it reads the whole clipboard in
+  the shell, unbounded, waiting for the program that offers it), `wl-paste`
+  only in `PanelField.qml`, at the paste key, out of the shell with a byte
+  limit and a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
   `tests/test_panelfield.py` fail on each.
 - Private text (messages, contact names, numbers, clipboard) stays out of
   logs.

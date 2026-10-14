@@ -20,6 +20,12 @@ GitHub release with these notes.
   inserted, so a huge paste or a line-broken one is instant instead of
   stopping the shell. Middle-click paste and dropping text onto a field no
   longer insert anything.
+- **A paste never makes the shell wait on the clipboard**: the text is read
+  when you paste, outside the shell, with a size limit (128 KiB) and a
+  deadline (a few seconds), and the shell goes on meanwhile. A clipboard that
+  is slow, empty or not text inserts nothing, and the text is cut to the
+  field's length as before
+  ([marketplace review](https://github.com/omacom/omarchy-plugin-marketplace/issues/10096)).
 - **The on-screen display names nothing a device sent**: with no panel
   open, a result shows in Omarchy's display, whose line any local user can
   read. It now says "Saved to Pictures", "The app is open" or "Ringing the
