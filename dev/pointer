@@ -21,6 +21,11 @@ HEIGHT = int(os.environ.get("HEIGHT", "720"))
 BTN_LEFT = 0x110
 BTN_MIDDLE = 0x112
 
+# Only the rig's compositor: on the owner's desktop this would click (or take
+# the clipboard) for real. `dev/rig exec` sets OPR_RIG_ID.
+if not os.environ.get("OPR_RIG_ID"):
+    sys.exit("%s runs only inside the rig: dev/rig exec -- %s ..." % (sys.argv[0], sys.argv[0]))
+
 
 class Wire:
     def __init__(self):
