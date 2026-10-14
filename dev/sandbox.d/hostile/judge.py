@@ -214,14 +214,18 @@ elif kind == "gitconfig":
 elif kind == "pngs":
     shots = os.path.join(ud, "shots")
     names = sorted(os.listdir(shots)) if os.path.isdir(shots) else []
-    check("only the picture that decodes arrives, and under its own name; the malformed, the oversized, the lying header, the 3 GB inflate, the GIF named .png, the random bytes, the JPEG and the SVG do not",
-          names == ["good.png"], names)
+    check("only pictures that decode arrive, under their own names: the good one and the 3 GB inflate (its decoder stops at the 4000x4000 the header declares); the malformed, the oversized, the GIF named .png, the random bytes, the JPEG and the SVG do not",
+          names == ["good.png", "inflates.png"], names)
+    inflated = os.path.join(shots, "inflates.png")
+    idata = open(inflated, "rb").read() if os.path.exists(inflated) else b""
+    check("the inflate arrives as a small plain 4000x4000 PNG, written again by the decoder, not the 3 GB stream",
+          idata[:8] == b"\x89PNG\r\n\x1a\n" and idata[16:24] == (4000).to_bytes(4, "big") * 2 and len(idata) < (8 << 20), {"bytes": len(idata)})
     good = os.path.join(shots, "good.png")
     data = open(good, "rb").read() if os.path.exists(good) else b""
     check("what arrives is a plain PNG written again by the decoder: the signature is right and the text chunk the contributor put in is gone",
           data[:8] == b"\x89PNG\r\n\x1a\n" and b"HOSTILE-TEXT-CHUNK" not in data and b"tEXt" not in data, {"bytes": len(data)})
     text = skipped_text()
-    wanted = ["truncated.png", "wide.png", "inflates.png", "gif-named-png.png", "random.png", "photo.jpg", "drawing.svg"]
+    wanted = ["truncated.png", "wide.png", "gif-named-png.png", "random.png", "photo.jpg", "drawing.svg"]
     check("each dropped picture is listed in SKIPPED.txt", all(w in text for w in wanted), [w for w in wanted if w not in text])
     stray = [os.path.relpath(os.path.join(r, f), out) for r, _d, fs in os.walk(out) for f in fs if f.lower().endswith((".jpg", ".svg", ".gif"))]
     check("no JPEG, SVG or GIF is on disk", stray == [], stray)
