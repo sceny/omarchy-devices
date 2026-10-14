@@ -13,6 +13,7 @@ import os
 import re
 import socket
 import stat
+import subprocess
 import sys
 import unittest
 
@@ -50,6 +51,34 @@ def write_fail(path):
         return "WROTE"
     except OSError as e:
         return errno.errorcode.get(e.errno, str(e))
+
+
+def new_user_namespace_attempts(libc):
+    """Each way a process makes a user namespace of its own; every one must fail."""
+    CLONE_NEWUSER = 0x10000000
+    res = {}
+    # in a child, so that a namespace made here would not change this process
+    pid = os.fork()
+    if pid == 0:
+        os._exit(0 if libc.unshare(CLONE_NEWUSER) != 0 else 1)
+    res["unshare_syscall"] = "OK" if os.waitpid(pid, 0)[1] != 0 else "REFUSED"
+    # clone(2) with no new stack runs like fork: the child returns here
+    pid = libc.syscall(56, CLONE_NEWUSER | 17, 0, 0, 0, 0)
+    if pid == 0:
+        os._exit(0)
+    if pid > 0:
+        os.waitpid(pid, 0)
+    res["clone_syscall"] = "OK" if pid > 0 else "REFUSED"
+    for name, argv in (
+        ("unshare_cli", ["unshare", "-Ur", "true"]),
+        ("unshare_cli_mount", ["unshare", "-Urm", "mount", "-t", "tmpfs", "none", "/mnt"]),
+        ("bwrap_unshare_user", ["bwrap", "--unshare-user", "--ro-bind", "/", "/", "true"]),
+    ):
+        try:
+            res[name] = "OK" if subprocess.run(argv, capture_output=True, timeout=20).returncode == 0 else "REFUSED"
+        except (OSError, subprocess.SubprocessError) as e:
+            res[name] = "NOT RUN: " + type(e).__name__
+    return res
 
 
 def probe():
@@ -160,6 +189,7 @@ def probe():
     libc = ctypes.CDLL(None, use_errno=True)
     mount = libc.mount(b"none", b"/mnt", b"tmpfs", 0, None)
     r["mount_tmpfs"] = "OK" if mount == 0 else errno.errorcode.get(ctypes.get_errno())
+    r["userns"] = new_user_namespace_attempts(libc)
     r["setuid_0"] = "OK" if libc.setuid(0) == 0 else errno.errorcode.get(ctypes.get_errno())
     r["ptrace_init"] = "OK" if libc.ptrace(16, 1, 0, 0) == 0 else errno.errorcode.get(ctypes.get_errno())
     r["reboot"] = "OK" if libc.reboot(0x01234567) == 0 else errno.errorcode.get(ctypes.get_errno())
@@ -190,6 +220,82 @@ def probe():
         f.write("an ordinary result\n")
     r["tar_traversal_names"] = "see SKIPPED.txt"
     return r
+
+
+def host_stream(n):
+    """The container's real stdout (1) or stderr (2): init's descriptor, same uid as this test."""
+    return os.open(f"/proc/1/fd/{n}", os.O_WRONLY)
+
+
+def stdout_flood():
+    """Write far more than the host accepts into the pipe that carries the results."""
+    fd = host_stream(1)
+    chunk = b"\0" * (1 << 20)
+    written = 0
+    try:
+        for _ in range(256):
+            written += os.write(fd, chunk)
+    except OSError as e:
+        return {"written_mb": written >> 20, "stopped_by": errno.errorcode.get(e.errno, str(e))}
+    return {"written_mb": written >> 20, "stopped_by": "nothing"}
+
+
+def stderr_escape():
+    """Terminal control sequences and a marker line on the stream the operator reads."""
+    fd = host_stream(2)
+    payload = (
+        "\x1b]0;HOSTILE-OSC-TITLE\x07"
+        "\x1b]52;c;aGVsbG8=\x07"
+        "\x1b[2J\x1b[35;1mHOSTILE-SGR\x1b[0m"
+        "\x1bPHOSTILE-DCS\x1b\\"
+        "overwritten\rHOSTILE-CR"
+        "\u009b31mHOSTILE-C1\u202eHOSTILE-RLO\x00\x08\x7f\n"
+        "HOSTILE-VISIBLE-LINE\n"
+    )
+    os.write(fd, payload.encode() + b"\x9d52;c;raw\x07\n")
+    return {"written": True}
+
+
+def stderr_flood():
+    """48 MB without a newline, 48 MB of short lines, then a line that must not arrive."""
+    fd = host_stream(2)
+    chunk = b"A" * (1 << 20)
+    lines = (b"B" * 79 + b"\n") * (1 << 14)
+    written = 0
+    try:
+        for _ in range(48):
+            written += os.write(fd, chunk)
+        for _ in range(48):
+            written += os.write(fd, lines)
+        os.write(fd, b"\nHOSTILE-AFTER-THE-FLOOD\n")
+    except OSError as e:
+        return {"written_mb": written >> 20, "stopped_by": errno.errorcode.get(e.errno, str(e))}
+    return {"written_mb": written >> 20, "stopped_by": "nothing"}
+
+
+def many_dirs():
+    """A hundred thousand empty directories in the result tree."""
+    os.makedirs(OUT + "/many")
+    for i in range(100_000):
+        os.mkdir(OUT + f"/many/d{i}")
+    return {"dirs": 100_000}
+
+
+def rewrite_the_verdict():
+    """Rewrite the checks and the verdict files, as a test that wants to pass would."""
+    res = {}
+    for name, path, content in (
+        ("rig_rewritten", "/work/src/dev/rig", "#!/bin/bash\nexit 0\n"),
+        ("results_written", OUT + "/results.tsv", "planted-pass\t0\t1\nrig-ci\t0\t1\n"),
+        ("summary_written", OUT + "/summary.json", '{"passed": true, "planted": true}\n'),
+    ):
+        try:
+            with open(path, "w") as f:
+                f.write(content)
+            res[name] = True
+        except OSError as e:
+            res[name] = errno.errorcode.get(e.errno, str(e))
+    return res
 
 
 def memory_bomb():
@@ -250,6 +356,16 @@ class Hostile(unittest.TestCase):
         elif MODE == "memory":
             memory_bomb()
             result = {}
+        elif MODE == "stdout-flood":
+            result = stdout_flood()
+        elif MODE == "stderr-escape":
+            result = stderr_escape()
+        elif MODE == "stderr-flood":
+            result = stderr_flood()
+        elif MODE == "many-dirs":
+            result = many_dirs()
+        elif MODE == "rewrite":
+            result = rewrite_the_verdict()
         elif MODE == "processes":
             result = fork_bomb()
         elif MODE == "disk":

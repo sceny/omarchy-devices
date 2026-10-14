@@ -32,12 +32,26 @@
 #     picks it). Memory, CPU, processes, tmpfs sizes and
 #     time are limited; the root filesystem is read-only; every capability is
 #     dropped.
-#   * Results leave as a tar on the container's stdout, read as data by this
-#     script (regular files only, names and sizes checked), never executed.
-#   * The container is removed after the run. `verify-clean` proves it.
+#   * Every unit (unit-model, unit-bridge, qml-parse, manifest, rig-ci, script)
+#     runs in a container of its own, from a fresh unpack of the commit and
+#     develop's dev/. The verdict is the container's exit code, taken by this
+#     script on the host; it writes results.tsv and summary.json itself. A
+#     pass says the checks ran and exited 0: it does not make the commit safe
+#     or correct (a test can always report itself as passing), so the diff is
+#     read first.
+#   * Results leave as a tar on the container's stdout, capped on the host
+#     (SB_MAX_RESULT, then the run fails) and read as data by this script
+#     (regular files only, names, sizes and member count checked), never
+#     executed. The container's stderr reaches the terminal as filtered text
+#     (dev/sandbox.d/filter-stderr.py).
+#   * The tests step cannot make a user namespace (seccomp, dev/sandbox.d/
+#     seccomp.py). The rig and script steps can: the rig's phone side runs in
+#     one (`unshare -Urn`). No unit gets a capability.
+#   * Each container is removed after its unit. `verify-clean` proves it.
 #
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
-# SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s), SANDBOX_TMP_SIZE (12g).
+# SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
+# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
 # SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox).
 
 set -uo pipefail
@@ -58,7 +72,9 @@ SB_PIDS=${SANDBOX_PIDS:-2048}
 SB_TIMEOUT=${SANDBOX_TIMEOUT:-2700}
 SB_TMP_SIZE=${SANDBOX_TMP_SIZE:-12g}
 SB_MAX_ARCHIVE=$((256 * 1024 * 1024))
-SB_MAX_RESULT=$((1024 * 1024 * 1024))
+SB_MAX_RESULT=${SANDBOX_MAX_RESULT:-$((1024 * 1024 * 1024))}
+SB_MAX_MEMBERS=20000
+E_SANDBOX=72   # a unit the host failed itself (output over a limit, no time left)
 
 # Repositories whose pull requests this sandbox runs.
 SB_REPOS=(sceny/omarchy-devices sceny/omarchy-paperclipai)
@@ -89,6 +105,7 @@ require_tools() {
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
   done
   ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]}"
+  [[ $SB_MAX_RESULT =~ ^[0-9]+$ ]] && ((SB_MAX_RESULT >= 1)) || die "SANDBOX_MAX_RESULT must be a number of bytes"
   mkdir -p "$SB_STATE/storage" "$SB_STATE/runs" "$SB_STATE/mirrors" "$SB_RUNTIME"
   chmod 700 "$SB_STATE"
 }
@@ -165,59 +182,80 @@ make_archive() {
 }
 
 # The result tar, read as data: regular files and directories only, plain
-# names, bounded sizes. Nothing from it is ever executed or followed.
+# names, bounded sizes, a bounded number of members (every kind counts). What
+# earlier units already put in the destination counts against the same limits.
+# The top-level names the host writes itself are never taken from a unit.
 read_result() {
-  python3 - "$1" "$2" "$SB_MAX_RESULT" <<'PY'
+  python3 - "$1" "$2" "$SB_MAX_RESULT" "$SB_MAX_MEMBERS" <<'PY'
 import os, re, sys, tarfile
 
-archive, dest, limit = sys.argv[1], sys.argv[2], int(sys.argv[3])
+archive, dest, limit, max_members = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 part = re.compile(r'^[A-Za-z0-9._@+=,-]{1,120}$')
+reserved = {'results.tsv', 'summary.json', 'SKIPPED.txt'}
 per_file = 200 * 1024 * 1024
-skipped, total, count = [], 0, 0
+skipped, total, count, members = [], 0, 0, 0
 os.makedirs(dest, exist_ok=True)
+for root, dirs, files in os.walk(dest):
+    members += len(dirs) + len(files)
+    for f in files:
+        total += os.lstat(os.path.join(root, f)).st_size
+status = 0
 try:
     tf = tarfile.open(archive, 'r:')
 except (tarfile.TarError, OSError) as e:
     print(f'unreadable: {e}')
     sys.exit(3)
 with tf:
-    for m in tf:
-        name = m.name[2:] if m.name.startswith('./') else m.name
-        if name in ('', '.'):
-            continue
-        parts = name.split('/')
-        if len(parts) > 12 or not all(part.match(p) and p not in ('.', '..') for p in parts):
-            skipped.append(f'{m.name}: name')
-            continue
-        target = os.path.join(dest, *parts)
-        if m.isdir():
-            os.makedirs(target, mode=0o755, exist_ok=True)
-            continue
-        if not m.isreg():
-            skipped.append(f'{m.name}: not a regular file')
-            continue
-        if m.size > per_file or total + m.size > limit:
-            skipped.append(f'{m.name}: too large ({m.size} bytes)')
-            continue
-        os.makedirs(os.path.dirname(target), mode=0o755, exist_ok=True)
-        src = tf.extractfile(m)
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-        try:
-            fd = os.open(target, flags, 0o644)
-        except OSError as e:
-            skipped.append(f'{m.name}: {e.strerror}')
-            continue
-        with os.fdopen(fd, 'wb') as out:
-            while True:
-                chunk = src.read(1 << 20)
-                if not chunk:
-                    break
-                out.write(chunk)
-        total += m.size
-        count += 1
-with open(os.path.join(dest, 'SKIPPED.txt'), 'w') as f:
+    try:
+        for m in tf:
+            members += 1
+            if members > max_members:
+                skipped.append(f'more than {max_members} members: the rest was not read')
+                status = 4
+                break
+            name = m.name[2:] if m.name.startswith('./') else m.name
+            if name in ('', '.'):
+                continue
+            parts = name.split('/')
+            if len(parts) > 12 or not all(part.match(p) and p not in ('.', '..') for p in parts):
+                skipped.append(f'{m.name[:80]}: name')
+                continue
+            if parts[0] in reserved:
+                skipped.append(f'{m.name}: written by the host')
+                continue
+            target = os.path.join(dest, *parts)
+            if m.isdir():
+                os.makedirs(target, mode=0o755, exist_ok=True)
+                continue
+            if not m.isreg():
+                skipped.append(f'{m.name}: not a regular file')
+                continue
+            if m.size > per_file or total + m.size > limit:
+                skipped.append(f'{m.name}: too large ({m.size} bytes)')
+                continue
+            os.makedirs(os.path.dirname(target), mode=0o755, exist_ok=True)
+            src = tf.extractfile(m)
+            flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
+            try:
+                fd = os.open(target, flags, 0o644)
+            except OSError as e:
+                skipped.append(f'{m.name}: {e.strerror}')
+                continue
+            with os.fdopen(fd, 'wb') as out:
+                while True:
+                    chunk = src.read(1 << 20)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            total += m.size
+            count += 1
+    except (tarfile.TarError, OSError, EOFError) as e:
+        skipped.append(f'the archive stops early: {e}')
+        status = 3
+with open(os.path.join(dest, 'SKIPPED.txt'), 'a') as f:
     f.write('\n'.join(skipped) + ('\n' if skipped else ''))
 print(f'{count} files, {total} bytes, {len(skipped)} skipped')
+sys.exit(status)
 PY
 }
 
@@ -230,6 +268,144 @@ run_cleanup() {
     rm -rf -- "$SB_RUN_DIR"
   fi
   SB_RUN_NAME="" SB_RUN_DIR=""
+}
+
+# Podman's default seccomp profile without new user namespaces, made for the run.
+make_seccomp() {
+  python3 "$SB_DIR/sandbox.d/seccomp.py" /usr/share/containers/seccomp.json "$SB_RUN_DIR/seccomp.json" ||
+    die "run: could not make the seccomp profile from /usr/share/containers/seccomp.json"
+  chmod 0444 "$SB_RUN_DIR/seccomp.json"
+}
+
+# Set by run_unit for the caller.
+UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
+# Set by cmd_run: 1 for the tests step, whose units get the profile without user namespaces.
+UNIT_NO_USERNS=0
+
+# run_unit <unit> <timeout> <out dir> [device args...]: one unit in a container
+# of its own. The verdict (UNIT_EXIT, UNIT_NOTE) is the container's exit code
+# and what the host measured; nothing the unit wrote is part of it.
+run_unit() {
+  local unit=$1 timeout=$2 out=$3
+  shift 3
+  local devices=("$@")
+  UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
+  local id started=$SECONDS rc=0 tarfile="$SB_RUN_DIR/out.tar"
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  SB_RUN_NAME="sceny-sandbox-$id"
+  rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
+
+  local seccomp=()
+  ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
+  local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
+  [[ -f $SB_RUN_DIR/script.sh ]] &&
+    mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
+
+  step "unit $unit (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
+  # The container's stdout is the result tar, cut at the cap by head; its
+  # stderr is filtered text. Both pass through the host, so neither is trusted.
+  (
+    timeout --signal=KILL $((timeout + 90)) \
+      env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --network none --no-hosts \
+      --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+      --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      "${seccomp[@]}" \
+      "${devices[@]}" \
+      --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
+      --ulimit core=0 --ulimit nofile=65536:65536 \
+      --init --hostname sandbox --timeout "$timeout" --stop-timeout 5 \
+      --shm-size 512m \
+      --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$SB_TMP_SIZE,mode=1777" \
+      --tmpfs "/home/sandbox:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+      --tmpfs "/work:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+      --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
+      --tmpfs "/run:rw,nosuid,nodev,size=64m,mode=0755" \
+      --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
+      "${mounts[@]}" \
+      --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
+      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
+      --workdir /work \
+      "$SB_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
+    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
+  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  rc=$(cat "$SB_RUN_DIR/rc" 2>/dev/null)
+  [[ $rc =~ ^[0-9]+$ ]] || rc=125
+
+  local info oom exit_code
+  info=$(pm inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' "$SB_RUN_NAME" 2>/dev/null || echo "unknown unknown")
+  read -r oom exit_code <<<"$info"
+  pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
+  SB_RUN_NAME=""
+
+  UNIT_SECONDS=$((SECONDS - started))
+  [[ $oom == true ]] && UNIT_OOM=true
+  [[ $exit_code =~ ^[0-9]+$ ]] || exit_code=$rc
+  UNIT_EXIT=$exit_code
+  ((rc != 0 && UNIT_EXIT == 0)) && UNIT_EXIT=$rc
+  UNIT_STDOUT=$(stat -c %s "$tarfile" 2>/dev/null || echo 0)
+  ((UNIT_SECONDS >= timeout)) && UNIT_TIMED_OUT=true
+  step "unit $unit ended after ${UNIT_SECONDS} s (exit ${exit_code}, client exit ${rc}, killed for memory: ${oom}, ${UNIT_STDOUT} bytes out)"
+
+  if ((UNIT_STDOUT > SB_MAX_RESULT)); then
+    UNIT_NOTE="its output is over the limit of $SB_MAX_RESULT bytes"
+    ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+    fail "$unit: $UNIT_NOTE"
+  elif [[ $UNIT_STDOUT -eq 0 ]]; then
+    UNIT_NOTE="no results left the container (timed out or killed)"
+    ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+    fail "$unit: $UNIT_NOTE"
+  elif ! read_result "$tarfile" "$out" >/dev/null; then
+    UNIT_NOTE="its results were not readable or over a limit (see SKIPPED.txt)"
+    ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+    fail "$unit: $UNIT_NOTE"
+  fi
+  rm -f -- "$tarfile"
+  [[ $UNIT_OOM == true ]] && UNIT_NOTE="${UNIT_NOTE:+$UNIT_NOTE; }killed for memory"
+  return 0
+}
+
+# The units each step runs, in order.
+units_of_step() {
+  case $1 in
+  tests) echo unit-model unit-bridge qml-parse manifest ;;
+  rig) echo rig-ci ;;
+  script) echo script ;;
+  esac
+}
+
+# The verdict, written here from what the host measured.
+write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file>
+  python3 - "$@" <<'PY'
+import json, os, sys
+out, repo, sha, steps, harness, secs, timeout, rows_file = sys.argv[1:]
+rows = []
+for line in open(rows_file):
+    step, code, secs, oom, timed_out, stdout, note = (line.rstrip('\n').split('\t') + [''] * 7)[:7]
+    rows.append({'step': step, 'exit': int(code), 'seconds': int(secs), 'oom_killed': oom == 'true',
+                 'timed_out': timed_out == 'true', 'stdout_bytes': int(stdout), 'note': note})
+with open(os.path.join(out, 'results.tsv'), 'w') as f:
+    for r in rows:
+        f.write(f"{r['step']}\t{r['exit']}\t{r['seconds']}\n")
+oom = any(r['oom_killed'] for r in rows)
+summary = {
+    'repo': repo, 'sha': sha, 'steps': steps.split(','), 'harness': harness,
+    'oom_killed': oom, 'seconds': int(secs), 'timeout': int(timeout),
+    'timed_out': any(r['timed_out'] for r in rows) or int(secs) >= int(timeout),
+    'results': rows,
+    'passed': bool(rows) and all(r['exit'] == 0 and not r['note'] for r in rows) and not oom,
+}
+with open(os.path.join(out, 'summary.json'), 'w') as f:
+    json.dump(summary, f, indent=2)
+    f.write('\n')
+for r in rows:
+    print(f"  {'PASS' if r['exit'] == 0 and not r['note'] else 'FAIL'}  {r['step']}  (exit {r['exit']}, {r['seconds']} s){'  ' + r['note'] if r['note'] else ''}")
+print('  overall:', 'PASS' if summary['passed'] else 'FAIL')
+sys.exit(0 if summary['passed'] else 1)
+PY
 }
 
 cmd_run() {
@@ -310,93 +486,46 @@ cmd_run() {
   stamp=$(date -u +%Y%m%d-%H%M%S)
   [[ -n $out ]] || out="$PWD/sandbox-out/${sha:0:12}-$stamp"
   [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "run: $out exists and is not empty"
-  SB_RUN_NAME="sceny-sandbox-$id"
   SB_RUN_DIR="$SB_STATE/runs/$id"
+  SB_HARNESS=$harness SB_SHA=$sha
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
   mkdir -p -m 700 "$SB_RUN_DIR"
+  mkdir -p "$out"
 
   say "sandbox run $id: $repo ${sha:0:12} (steps $steps, harness $harness)"
   make_archive "$repo" "$sha" "$from" "$SB_RUN_DIR/src.tar"
-  local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
-  if [[ -n $script ]]; then
-    install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
-    mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
-  fi
+  make_seccomp
+  [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
 
-  step "starting the container (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
-  local started=$SECONDS rc=0
-  timeout --signal=KILL $((timeout + 90)) \
-    env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-    --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
-    --network none --no-hosts \
-    --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
-    --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-    "${devices[@]}" \
-    --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
-    --ulimit core=0 --ulimit nofile=65536:65536 \
-    --init --hostname sandbox --timeout "$timeout" --stop-timeout 5 \
-    --shm-size 512m \
-    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$SB_TMP_SIZE,mode=1777" \
-    --tmpfs "/home/sandbox:rw,exec,nosuid,nodev,size=1g,mode=1777" \
-    --tmpfs "/work:rw,exec,nosuid,nodev,size=1g,mode=1777" \
-    --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
-    --tmpfs "/run:rw,nosuid,nodev,size=64m,mode=0755" \
-    --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
-    "${mounts[@]}" \
-    --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
-    --env "SANDBOX_STEPS=$steps" --env "SANDBOX_HARNESS=$harness" --env "SANDBOX_SHA=$sha" \
-    --workdir /work \
-    "$SB_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; tar -C /out -cf - .' \
-    >"$SB_RUN_DIR/out.tar" 2> >(sed -u 's/^/    /' >&2)
-  rc=$?
-  wait
+  # One container per unit; the time limit is for all of them together.
+  local started=$SECONDS unit step_name left unit_devices
+  : >"$SB_RUN_DIR/rows.tsv"
+  local IFS_SAVE=$IFS
+  IFS=, read -ra wanted <<<"$steps"
+  IFS=$IFS_SAVE
+  for step_name in "${wanted[@]}"; do
+    for unit in $(units_of_step "$step_name"); do
+      left=$((timeout - (SECONDS - started)))
+      if ((left < 5)); then
+        UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
+        fail "$unit: $UNIT_NOTE"
+      else
+        unit_devices=()
+        UNIT_NO_USERNS=1
+        [[ $step_name == tests ]] || { unit_devices=("${devices[@]}"); UNIT_NO_USERNS=0; }
+        run_unit "$unit" "$left" "$out" "${unit_devices[@]}"
+      fi
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$unit" "$UNIT_EXIT" "$UNIT_SECONDS" "$UNIT_OOM" "$UNIT_TIMED_OUT" "$UNIT_STDOUT" "$UNIT_NOTE" \
+        >>"$SB_RUN_DIR/rows.tsv"
+    done
+  done
 
-  local info oom exit_code
-  info=$(pm inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' "$SB_RUN_NAME" 2>/dev/null || echo "unknown unknown")
-  read -r oom exit_code <<<"$info"
-  pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
-  SB_RUN_NAME=""
-
-  local result=0
-  step "container ended after $((SECONDS - started)) s (exit ${exit_code}, killed for memory: ${oom}, client exit ${rc})"
-  if [[ -s $SB_RUN_DIR/out.tar ]]; then
-    read_result "$SB_RUN_DIR/out.tar" "$out" || result=2
-  else
-    fail "the run produced no results (timed out or killed)"
-    mkdir -p "$out"
-    result=2
-  fi
-  python3 - "$out" "$repo" "$sha" "$steps" "$harness" "$exit_code" "$oom" "$((SECONDS - started))" "$timeout" <<'PY'
-import json, os, sys
-out, repo, sha, steps, harness, code, oom, secs, timeout = sys.argv[1:]
-rows = []
-p = os.path.join(out, 'results.tsv')
-if os.path.exists(p):
-    for line in open(p):
-        parts = line.rstrip('\n').split('\t')
-        if len(parts) == 3:
-            rows.append({'step': parts[0], 'exit': int(parts[1]), 'seconds': int(parts[2])})
-summary = {
-    'repo': repo, 'sha': sha, 'steps': steps.split(','), 'harness': harness,
-    'container_exit': code, 'oom_killed': oom == 'true', 'seconds': int(secs), 'timeout': int(timeout),
-    'timed_out': int(secs) >= int(timeout), 'results': rows,
-    'passed': bool(rows) and all(r['exit'] == 0 for r in rows) and oom != 'true' and int(secs) < int(timeout),
-}
-with open(os.path.join(out, 'summary.json'), 'w') as f:
-    json.dump(summary, f, indent=2)
-    f.write('\n')
-for r in rows:
-    print(f"  {'PASS' if r['exit'] == 0 else 'FAIL'}  {r['step']}  (exit {r['exit']}, {r['seconds']} s)")
-print('  overall:', 'PASS' if summary['passed'] else 'FAIL')
-sys.exit(0 if summary['passed'] else 1)
-PY
+  write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
   local verdict=$?
   run_cleanup
   trap - EXIT INT TERM
   say "results in $out"
-  ((result)) && return "$result"
   return "$verdict"
 }
 

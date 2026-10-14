@@ -84,7 +84,8 @@ PY
     git -C "$SB_DIR/.." archive HEAD -- . ':(exclude)tests' ':(exclude)dev' ':(exclude)docs' | tar -x
     printf '#!/bin/bash\n# HARNESS-FROM-THE-HOSTILE-COMMIT\nexit 0\n' >dev/rig
     chmod +x dev/rig
-    # the rig's package step refuses a tracked symlink, so only the tests-step commit has one
+    # the rig's package step refuses a tracked symlink, so every commit but the rig probe's has one
+    # (the rewrite commit's rig step fails by it, quickly, whatever its test rewrote)
     if [[ $mode == rigprobe ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
     git add -f -A >/dev/null
     git -c user.name=hostile -c user.email=hostile@invalid commit -q -m "hostile: $mode"
@@ -125,7 +126,7 @@ cmd_hostile_test() {
     case $1 in
     --quick) quick=1 ;;
     --keep) keep=1 ;;
-    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang)}; shift ;;
+    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang,stdout-flood,stderr-escape,stderr-flood,many-dirs,rewrite)}; shift ;;
     *) die "hostile-test: unknown option '$1'" ;;
     esac
     shift
@@ -170,15 +171,16 @@ json.dump({
     'secret_name': sname, 'secret_sha256': hashlib.sha256(svalue.encode()).hexdigest(),
     'lan_ip': lan_ip, 'lan_gateway': gateway, 'lan_port': l['lan_port'], 'loopback_port': l['loopback_port'],
     'unix_path': l['unix_path'], 'abstract_name': l['abstract_name'], 'host_paths': host_paths,
+    'max_result': 64 * 1024 * 1024,
 }, open(os.path.join(work, 'targets.json'), 'w'))
 PY
 
   git init -q -b main "$HOSTILE_WORK/repo"
   local mode
-  for mode in probe rigprobe memory processes disk hang; do
+  for mode in probe rigprobe memory processes disk hang stdout-flood stderr-escape stderr-flood many-dirs rewrite; do
     hostile_commit "$HOSTILE_WORK/repo" "$mode" >"$HOSTILE_WORK/sha-$mode" || die "could not build the hostile commit ($mode)"
   done
-  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and five more)"
+  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and ten more)"
 
   export "$secret_name=$secret_value"
 
@@ -217,8 +219,32 @@ PY
     hostile_run hang hang --steps tests --timeout 40
   fi
 
+  if want stdout-flood; then
+    say "7. a flood into the results pipe (cap 64 MB for this run)"
+    local saved_max=$SB_MAX_RESULT
+    SB_MAX_RESULT=$((64 * 1024 * 1024))
+    hostile_run stdout-flood stdout-flood --steps tests
+    SB_MAX_RESULT=$saved_max
+  fi
+  if want stderr-escape; then
+    say "8. terminal control sequences on the container's stderr"
+    hostile_run stderr-escape stderr-escape --steps tests
+  fi
+  if want stderr-flood; then
+    say "9. a 96 MB stderr flood, half of it without a newline"
+    hostile_run stderr-flood stderr-flood --steps tests
+  fi
+  if want many-dirs; then
+    say "10. a result tree of 100,000 directories"
+    hostile_run many-dirs many-dirs --steps tests
+  fi
+  if want rewrite; then
+    say "11. a test that rewrites dev/rig and the verdict files"
+    hostile_run rewrite rewrite --steps tests,rig
+  fi
+
   unset "$secret_name"
-  say "7. nothing is left"
+  say "12. nothing is left"
   local clean=0
   cmd_verify_clean || clean=1
   if ((clean == 0)); then

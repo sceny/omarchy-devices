@@ -3,14 +3,17 @@
 
 usage: judge.py <work dir> <kind> <out dir>
 kinds: probe (tests step, no device), probe-rig (inside the rig step's script),
-       memory, processes, disk, hang
+       memory, processes, disk, hang, stdout-flood, stderr-escape, stderr-flood,
+       many-dirs, rewrite
 
 Prints one line per check: PASS<TAB>what, FAIL<TAB>what<TAB>evidence,
 INFO<TAB>text. The out dir is the sandbox's own result directory: data only.
 """
 import json
 import os
+import re
 import sys
+import unicodedata
 
 work, kind, out = sys.argv[1:4]
 T = json.load(open(os.path.join(work, "targets.json")))
@@ -71,9 +74,14 @@ if kind in ("probe", "probe-rig"):
     else:
         ok = "kvm" in extra and "dri" in extra and not (extra - {"kvm", "dri"})
         check("only /dev/kvm and one render node among the devices", ok, sorted(extra))
-    check("mount, setuid(0), ptrace of init and reboot are refused",
+    check("in the container's own namespace, mount, setuid(0), ptrace of init and reboot are refused",
           all(p[k] != "OK" for k in ("mount_tmpfs", "setuid_0", "ptrace_init", "reboot")),
           {k: p[k] for k in ("mount_tmpfs", "setuid_0", "ptrace_init", "reboot")})
+    if kind == "probe":
+        check("no new user namespace: unshare(2), clone(2), `unshare -Ur`, `unshare -Urm` and bwrap are refused (nothing is mounted in a namespace of its own)",
+              all(v == "REFUSED" for v in p["userns"].values()), p["userns"])
+    else:
+        info("in the rig step a user namespace can be made (the rig's phone side runs in one): " + json.dumps(p["userns"]))
     check("writes to /etc, /usr, /opt, the commit's tar, /sys, /proc/sys and /boot fail",
           all(v != "WROTE" for v in p["write_outside"].values()), p["write_outside"])
     check("only the scratch trees are writable (/tmp, /out, /work, the home)", all(v == "WROTE" for v in p["write_allowed"].values()), p["write_allowed"])
@@ -89,7 +97,7 @@ if kind in ("probe", "probe-rig"):
           not os.path.lexists(os.path.join(work, "evil")) and not os.path.lexists(os.path.join(os.path.dirname(out), "evil")))
     if kind == "probe-rig":
         results = {r["step"]: r["exit"] for r in summary.get("results", [])}
-        check("the rig was up while the hostile script ran", results.get("script-up") == 0, results)
+        check("the rig was up while the hostile script ran (the script unit exits 0 only then)", results.get("script") == 0, results)
 
 elif kind == "memory":
     progress = open(os.path.join(out, "mem-progress")).read() if os.path.exists(os.path.join(out, "mem-progress")) else "0"
@@ -114,5 +122,56 @@ elif kind == "hang":
     check("a commit that never ends is killed at the timeout (no results leave)",
           summary.get("timed_out") is True or not os.path.exists(os.path.join(out, "results.tsv")), summary)
     info(f"run lasted {summary.get('seconds')} s with a {summary.get('timeout')} s timeout")
+
+elif kind == "stdout-flood":
+    row = {r["step"]: r for r in summary.get("results", [])}.get("unit-bridge", {})
+    cap = T["max_result"]
+    check("a flood into the results pipe is cut at the cap on the host: the unit fails, and the run with it",
+          row.get("exit", 0) != 0 and "over the limit" in row.get("note", "") and summary.get("passed") is False, row)
+    check("no more than the cap (plus one byte, to see the overflow) was kept from the pipe",
+          row.get("stdout_bytes") == cap + 1, {"stdout_bytes": row.get("stdout_bytes"), "cap": cap})
+
+elif kind == "stderr-escape":
+    text = open(os.path.join(work, f"run-{kind}.log"), "rb").read().decode("utf-8", "replace")
+    own = re.sub(r"\x1b\[(?:1|36|32|33|31|0)m", "", text)
+    bad = sorted({hex(ord(c)) for c in own if c not in "\n\t" and unicodedata.category(c) in ("Cc", "Cf")})
+    check("escape sequences, bell, carriage return, C1 and bidirectional controls from the container's stderr never reach the terminal",
+          bad == [], bad)
+    check("the text around them does arrive (the control bytes are dropped, not the line)",
+          "HOSTILE-VISIBLE-LINE" in text and "HOSTILE-OSC-TITLE" in text, text[-400:])
+
+elif kind == "stderr-flood":
+    path = os.path.join(work, f"run-{kind}.log")
+    raw = open(path, "rb").read()
+    text = raw.decode("utf-8", "replace")
+    longest = max((len(l) for l in raw.split(b"\n")), default=0)
+    check("a 96 MB stderr flood (48 MB without a newline, 48 MB of lines) is cut at 16 MB, and the writer is drained, not blocked",
+          len(raw) < 17 * 1024 * 1024 and "[further output dropped]" in text, {"log_bytes": len(raw)})
+    check("no line on the terminal is longer than about 4 KB", longest < 4300, {"longest": longest})
+    check("what was written after the flood does not arrive", "HOSTILE-AFTER-THE-FLOOD" not in text)
+    info(f"log {len(raw) >> 20} MB, longest line {longest} bytes")
+
+elif kind == "many-dirs":
+    row = {r["step"]: r for r in summary.get("results", [])}.get("unit-bridge", {})
+    many = os.path.join(out, "many")
+    made = len(os.listdir(many)) if os.path.isdir(many) else 0
+    skipped_path = os.path.join(out, "SKIPPED.txt")
+    skipped = open(skipped_path).read() if os.path.exists(skipped_path) else ""
+    check("a tar of 100,000 empty directories is read up to 20,000 members and then refused: the unit and the run fail",
+          0 < made <= 20000 and row.get("exit", 0) != 0 and summary.get("passed") is False, {"dirs_on_host": made, "row": row})
+    check("the refusal is written down", "more than 20000 members" in skipped, skipped[:200])
+
+elif kind == "rewrite":
+    p = load("probe.json")
+    rows = {r["step"]: r for r in summary.get("results", [])}
+    check("the test did rewrite dev/rig, results.tsv and summary.json in its container (the attack is real here)",
+          p == {"rig_rewritten": True, "results_written": True, "summary_written": True}, p)
+    check("the rig step fails: it ran develop's own dev/rig from a fresh unpack, not the one the test rewrote",
+          rows.get("rig-ci", {}).get("exit", 0) != 0, rows.get("rig-ci"))
+    tsv_path = os.path.join(out, "results.tsv")
+    tsv = open(tsv_path).read() if os.path.exists(tsv_path) else ""
+    check("results.tsv and summary.json are the host's: nothing the test planted is in them, and the run fails",
+          tsv != "" and "planted" not in tsv and "planted" not in json.dumps(summary) and summary.get("passed") is False,
+          {"tsv": tsv[:200], "passed": summary.get("passed")})
 
 print("\n".join(lines))

@@ -91,7 +91,8 @@ class Isolation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        text = open(SANDBOX).read()
+        with open(SANDBOX) as f:
+            text = f.read()
         start = text.index('--runroot "$SB_RUNTIME" run')
         end = text.index('"$SB_IMAGE" bash -c')
         cls.run_cmd = text[start:end]
@@ -152,18 +153,17 @@ class Isolation(unittest.TestCase):
     def test_devices_are_only_what_the_rig_needs(self):
         self.assertEqual(self.script.count("--device"), 2)
         self.assertIn('devices=(--device /dev/kvm --device "$node")', self.script)
+        self.assertIn('[[ $step_name == tests ]] || { unit_devices=("${devices[@]}")', self.script)
         self.assertIn('$node == /dev/dri/renderD*', self.script)
         self.assertNotIn("--device /dev/dri/card", self.script)
 
     def test_podman_runs_in_an_empty_environment(self):
-        self.assertIn("env -i", self.script[self.script.index("timeout --signal=KILL"):].split("podman")[0])
+        self.assertIn("env -i", self.script[self.script.index("timeout --signal=KILL $((timeout"):].split("podman")[0])
         self.assertIn("env -i PATH=/usr/bin:/usr/local/bin HOME", self.script.split("pm() {")[1].split("}")[0])
 
     def test_the_container_is_given_only_its_own_variables(self):
         env = re.findall(r'--env "?([A-Z_]+)=', self.run_cmd)
-        self.assertEqual(
-            sorted(env), ["HOME", "LANG", "SANDBOX_HARNESS", "SANDBOX_SHA", "SANDBOX_STEPS", "TERM"]
-        )
+        self.assertEqual(sorted(env), ["HOME", "LANG", "SANDBOX_HARNESS", "SANDBOX_SHA", "SANDBOX_UNIT", "TERM"])
 
     def test_the_commit_enters_as_an_archive(self):
         self.assertIn("archive --format=tar", self.script)
@@ -174,6 +174,149 @@ class Isolation(unittest.TestCase):
         self.assertIn("O_NOFOLLOW", self.script)
         self.assertIn("isreg()", self.script)
         self.assertNotIn("tar -x", self.script.split("read_result() {")[1].split("PY\n}")[0])
+
+    def test_the_tests_step_runs_with_the_seccomp_profile_without_user_namespaces(self):
+        self.assertIn('seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")', self.script)
+        self.assertIn('"${seccomp[@]}"', self.run_cmd)
+        self.assertIn("UNIT_NO_USERNS=1", self.script)
+        self.assertNotIn("seccomp=unconfined", self.script)
+        self.assertIn("seccomp.py", self.script.split("make_seccomp() {")[1].split("}")[0])
+
+
+class Verdict(unittest.TestCase):
+    """The host takes the verdict; the container's streams are capped on the way."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+
+    def test_stdout_is_cut_by_head_at_the_cap(self):
+        self.assertIn("head -c $((SB_MAX_RESULT + 1))", self.script)
+
+    def test_stderr_goes_through_the_filter(self):
+        self.assertIn("2>&1 1>&4 | python3 \"$SB_DIR/sandbox.d/filter-stderr.py\" >&2", self.script)
+
+    def test_the_exit_code_is_podmans_and_not_a_file_from_the_container(self):
+        self.assertIn('PIPESTATUS[0]', self.script)
+        self.assertIn("{{.State.ExitCode}}", self.script)
+        with open(os.path.join(ROOT, "dev", "sandbox.d", "inside.sh")) as f:
+            inside = f.read()
+        self.assertNotIn("results.tsv", inside.replace("# ", ""))
+        self.assertNotIn("summary.json", inside.replace("# ", ""))
+
+    def test_the_host_writes_the_verdict_files(self):
+        body = self.script.split("write_verdict() {")[1].split("PY\n}")[0]
+        self.assertIn("results.tsv", body)
+        self.assertIn("summary.json", body)
+
+    def test_a_result_cannot_replace_the_verdict_files(self):
+        body = self.script.split("read_result() {")[1].split("PY\n}")[0]
+        for name in ("results.tsv", "summary.json", "SKIPPED.txt"):
+            self.assertIn(name, body)
+
+    def test_the_member_count_is_capped(self):
+        self.assertIn("SB_MAX_MEMBERS=20000", self.script)
+
+    def test_the_result_cap_must_be_a_number(self):
+        r = subprocess.run(
+            ["bash", SANDBOX, "build"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/nonexistent"), "SANDBOX_MAX_RESULT": "$(id)"},
+        )
+        self.assertNotEqual(r.returncode, 0)
+
+
+FILTER = os.path.join(ROOT, "dev", "sandbox.d", "filter-stderr.py")
+SECCOMP = os.path.join(ROOT, "dev", "sandbox.d", "seccomp.py")
+
+
+def filtered(data):
+    return subprocess.run(["python3", FILTER], input=data, capture_output=True, timeout=60).stdout
+
+
+class StderrFilter(unittest.TestCase):
+    def test_control_bytes_are_dropped_and_text_stays(self):
+        out = filtered("\x1b]0;title\x07\x1b[2Jtext\roverwrite\u009b\u202e\x00\nnext\tline\n".encode())
+        text = out.decode()
+        for c in ("\x1b", "\x07", "\r", "\u009b", "\u202e", "\x00"):
+            self.assertNotIn(c, text)
+        self.assertIn("text", text)
+        self.assertIn("next\tline", text)
+
+    def test_a_long_line_is_cut(self):
+        out = filtered(b"A" * 100000 + b"\nshort\n")
+        longest = max(len(l) for l in out.split(b"\n"))
+        self.assertLess(longest, 4200)
+        self.assertIn(b"short", out)
+
+    def test_a_flood_is_cut_at_the_total(self):
+        data = (b"A" * 99 + b"\n") * (200 * 1024) + b"AFTER\n"
+        out = filtered(data)
+        self.assertLessEqual(len(out), 16 * 1024 * 1024 + 100)
+        self.assertIn(b"[further output dropped]", out)
+        self.assertNotIn(b"AFTER", out)
+
+    def test_a_flood_without_a_newline_is_one_short_line(self):
+        out = filtered(b"A" * (20 * 1024 * 1024) + b"\nAFTER\n")
+        self.assertLess(len(out), 5000)
+        self.assertIn(b"AFTER", out)
+
+    def test_a_multibyte_character_split_across_reads_survives(self):
+        out = filtered(("é" * 70000 + "\n").encode())
+        self.assertNotIn("\ufffd", out.decode())
+
+
+class Seccomp(unittest.TestCase):
+    def profile(self, *rules):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("seccomp", SECCOMP)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        base = {"defaultAction": "SCMP_ACT_ERRNO", "syscalls": list(rules)}
+        return mod, mod.without_new_user_namespaces(base)
+
+    def names(self, profile, action):
+        return [n for r in profile["syscalls"] if r["action"] == action and "args" not in r for n in r["names"]]
+
+    def test_clone_and_unshare_are_allowed_only_without_the_user_namespace_flag(self):
+        import platform
+
+        if platform.machine() != "x86_64":
+            self.skipTest("written for x86_64")
+        _, p = self.profile({"names": ["read", "clone", "clone3", "unshare"], "action": "SCMP_ACT_ALLOW"})
+        self.assertEqual(self.names(p, "SCMP_ACT_ALLOW"), ["read"])
+        conditional = [r for r in p["syscalls"] if "args" in r]
+        self.assertEqual(len(conditional), 1)
+        self.assertEqual(sorted(conditional[0]["names"]), ["clone", "unshare"])
+        arg = conditional[0]["args"][0]
+        self.assertEqual((arg["index"], arg["value"], arg["valueTwo"], arg["op"]), (0, 0x10000000, 0, "SCMP_CMP_MASKED_EQ"))
+        self.assertEqual([r for r in p["syscalls"] if r["names"] == ["clone3"]][0]["errnoRet"], 38)
+
+    def test_the_real_default_profile_keeps_no_unconditional_clone(self):
+        import platform
+
+        path = "/usr/share/containers/seccomp.json"
+        if platform.machine() != "x86_64" or not os.path.exists(path):
+            self.skipTest("no default profile here")
+        import json
+
+        mod, _ = self.profile()
+        with open(path) as f:
+            p = mod.without_new_user_namespaces(json.load(f))
+        for r in p["syscalls"]:
+            if r["action"] == "SCMP_ACT_ALLOW" and "args" not in r:
+                self.assertFalse(set(r["names"]) & {"clone", "clone3", "unshare"}, r["names"])
+
+
+class ReadResult(unittest.TestCase):
+    def test_the_member_cap_counts_directories(self):
+        with open(SANDBOX) as f:
+            body = f.read().split("read_result() {")[1].split("PY\n}")[0]
+        self.assertIn("members", body)
 
 
 if __name__ == "__main__":
