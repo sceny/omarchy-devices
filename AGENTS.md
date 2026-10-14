@@ -637,6 +637,29 @@ Keep them; change one only with the owner.
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
+- **Contributor code runs only after the owner has read about it and
+  approved it, head by head.** Contributor code is any commit not written
+  by the owner or a Sceny agent: a fork's pull request, an outside
+  author's commit, a bot's dependency bump. A Sceny branch holding such a
+  commit counts as contributor code until that commit has merged into
+  `develop` through this rule.
+  1. **Each new head is reviewed inside Sceny first, by reading only.**
+     Panel QA reviews the code and the Plugin Security Reviewer evaluates
+     its safety, both from the diff, without checking it out or running
+     anything. Both results go on the Paperclip task only, never on GitHub.
+  2. **Nothing goes on the pull request meanwhile:** no comment, review,
+     label or CI approval, until the owner has read both results.
+  3. **The owner's go is *Approve workflows to run* on that head.** No
+     agent ever presses it. Each new push needs a new approval (the
+     repository requires approval for all external contributors).
+  4. **After the go, for that head only:** CI runs, and Panel QA runs the
+     head in the sandbox (`dev/sandbox run`): its tests, the rig check and
+     screenshots. Never in the plain rig, never on the host. Then Panel QA
+     posts the review on the pull request. A newer head starts again at 1.
+  5. **It merges into `develop`** (which reaches the owner's installed
+     copy) only after the sandbox run passes on an approved head. Until
+     `dev/sandbox` has passed its security review, contributor code runs
+     nowhere on this machine, even after the go; only CI runs.
 - **Without the rig** (a cloud session, a machine without Omarchy, `labwc`
   or an Android SDK), do the rest (code, tests, CI, the pull request), say in
   the pull request that the change is not checked in a running shell, and
