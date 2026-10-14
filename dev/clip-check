@@ -177,6 +177,13 @@ if [ "$c" = MARK-C ] || [ -z "$c" ]; then info "drag across the field: MISSED (n
 else pass "drag across the field selected ${#c} characters"; fi
 unowned "drag across the field" copied
 
+# Words, so a double click (one word) and a triple (all of it) read apart.
+WORDS="alpha bravo charlie delta echo foxtrot golf hotel india juliett"
+ex sh -c "printf '%s' '$WORDS' | wl-copy"
+sleep 0.4
+key -M ctrl a -m ctrl
+key -M ctrl v -m ctrl
+sleep 1
 for clicks in --double --triple; do
   mark
   ex dev/pointer click 550 "$(y 208)" "$clicks"
@@ -184,7 +191,11 @@ for clicks in --double --triple; do
   key -M ctrl c -m ctrl
   c=$(clipboard)
   if [ "$c" = MARK-C ] || [ -z "$c" ]; then info "${clicks#--} click in the field: MISSED (nothing selected)"
-  else pass "${clicks#--} click in the field selected ${#c} characters"; fi
+  elif [ "$clicks" = --double ]; then
+    if [[ "$c" != *" "* && " $WORDS " == *" $c "* ]]; then pass "double click in the field selected the word \"$c\""
+    else fail "double click in the field selected \"${c:0:24}\", not one word"; fi
+  elif [ "$c" = "$WORDS" ]; then pass "triple click in the field selected all of it"
+  else fail "triple click in the field selected \"${c:0:24}\", not all of it"; fi
 done
 
 echo "== reading: an owner that never writes"

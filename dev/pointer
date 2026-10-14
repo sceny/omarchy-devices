@@ -103,6 +103,15 @@ def move(w, pointer, x, y):
     w.send(pointer, 4)
 
 
+def arrive(w, pointer, x, y):
+    # Arrive from a pixel away, so the shell sees a motion before the first
+    # press even when the cursor is already there (else a press can be lost).
+    move(w, pointer, int(x) + 1, y)
+    time.sleep(0.05)
+    move(w, pointer, x, y)
+    time.sleep(0.4)
+
+
 def button(w, pointer, down, code=BTN_LEFT):
     w.send(pointer, 2, struct.pack("<III", millis(), code, 1 if down else 0))
     w.send(pointer, 4)
@@ -116,8 +125,7 @@ def main(argv):
     if verb == "move":
         move(w, p, argv[1], argv[2])
     elif verb == "click":
-        move(w, p, argv[1], argv[2])
-        time.sleep(0.4)
+        arrive(w, p, argv[1], argv[2])
         code = BTN_MIDDLE if "--middle" in argv else BTN_LEFT
         for _ in range(3 if "--triple" in argv else 2 if "--double" in argv else 1):
             button(w, p, True, code)
@@ -126,8 +134,7 @@ def main(argv):
             time.sleep(0.08)
     elif verb == "drag":
         x1, y1, x2, y2 = (int(v) for v in argv[1:5])
-        move(w, p, x1, y1)
-        time.sleep(0.4)
+        arrive(w, p, x1, y1)
         button(w, p, True)
         for step in range(1, 11):
             time.sleep(0.03)
