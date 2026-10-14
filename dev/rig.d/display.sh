@@ -322,6 +322,9 @@ rig_start_compositor() {
   # The hidden start can lose a race inside Aquamarine (see rig_start_compositor_once);
   # it is cheap to try again, so it does, a bounded number of times.
   local attempt status=0 max=${RIG_COMPOSITOR_ATTEMPTS:-20}
+  [[ $max =~ ^[0-9]+$ ]] || max=20
+  max=$((10#$max))
+  ((max >= 1)) || max=20
   [[ $RIG_VIEW == visible ]] && max=1
   for ((attempt = 1; attempt <= max; attempt++)); do
     rig_start_compositor_once "$attempt" && return 0
