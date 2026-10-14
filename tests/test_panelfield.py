@@ -6,9 +6,10 @@ while it is editable, with no bound on size. QQuickTextEdit only asks which
 formats are offered and reads the text on an explicit paste. Every field is a
 PanelField, which is built on a TextEdit; nothing else is an editable input.
 
-A TextEdit inserts a paste, a middle click's selection or a drop whole, and a
-few megabytes stall the shell for seconds, so PanelField cuts the clipboard's
-text itself at Ctrl+V, takes the middle button and refuses drops.
+A TextEdit inserts a paste whole, and a few megabytes stall the shell for
+seconds, so PanelField cuts the clipboard's text itself at Ctrl+V; the mouse
+never reaches its TextEdit, so a middle click pastes nothing, and a TextEdit
+takes no drops.
 
 The read is out of the shell: `Quickshell.clipboardText` reads the whole
 clipboard in the shell's process, waiting for the program that offers it, with
@@ -18,9 +19,10 @@ deadline, collected without blocking the shell. The script is run here against
 a fake `wl-paste`.
 
 Nothing in the shell is a party to a Wayland data transfer: no text item owns
-the primary selection (`selectByMouse`), copies, cuts or pastes by itself, and
-nothing starts a drag out (`Drag.Automatic`). `ShippedQml` lints every shipped
-QML file for it and names file:line."""
+the primary selection or the clipboard (Qt does on its own selection, by mouse
+or by key, and on its own copy), reads it (paste, middle click, a drop), or
+starts a drag out. `ShippedQml` lints every shipped QML file for it and names
+file:line; `dev/clip-check` shows it in a running rig."""
 
 import glob
 import os
@@ -175,23 +177,47 @@ class PanelFieldClipboard(unittest.TestCase):
         text = code(os.path.join(ROOT, "PanelField.qml"))
         edit = body(text, re.search(r"\bTextEdit\s*\{", text).end())
         self.assertRegex(edit, r"selectByMouse:\s*false")
-        for key in ("Paste", "Copy", "Cut", "SelectAll"):
-            self.assertIn("StandardKey.%s" % key, edit)
-        # Shift and a movement key select through `edit.select`, not Qt's key
-        # handling, which owns the primary selection on every step.
-        self.assertIn("field._extend(", edit)
-        self.assertIn("edit.select(", text)
+        key = edit[edit.index("Keys.onPressed:"):edit.index("Keys.forwardTo")]
+        for name in ("Paste", "Copy", "Cut", "SelectAll"):
+            self.assertIn("StandardKey.%s" % name, key)
+        # Every selection key Qt would act on is the field's: Qt's handling of
+        # it ends at `accept:`, which makes the shell the primary selection's
+        # owner (qquicktextcontrol.cpp, setClipboardSelection).
+        target = text[text.index("function _selectTarget"):text.index("function _low")]
+        for name in SELECT_KEYS:
+            self.assertIn("StandardKey.%s" % name, target, name)
+        self.assertIn("field._selectTarget(event)", key)
+        self.assertIn("moveCursorSelection(", key)
+        self.assertRegex(key, r"Qt\.Key_Direction_L \|\| event\.key === Qt\.Key_Direction_R\) \{\s*event\.accepted = true")
+        # While a selection stands, any other key finds it gone.
+        rest = key[key.index("!field._keepsSelection(event)"):]
+        self.assertIn("else deselect()", rest)
 
-    def test_middle_click_and_drops_do_not_reach_the_text_edit(self):
+    def test_only_keys_that_remove_a_selection_reach_qt_with_one(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
-        area = re.search(r"MouseArea\s*\{(.*?)\n  \}", text, flags=re.S)
-        self.assertIsNotNone(area)
-        self.assertIn("Qt.MiddleButton", area.group(1))
-        self.assertRegex(area.group(1), r"if \(m\.button !== Qt\.LeftButton\) return")
-        drop = re.search(r"DropArea\s*\{(.*?)\n    \}", text, flags=re.S)
-        self.assertIsNotNone(drop)
-        self.assertIn("anchors.fill: edit", drop.group(1))
-        self.assertRegex(drop.group(1), r"drop\.accepted = false")
+        keeps = text[text.index("function _keepsSelection"):text.index("function _anchor")]
+        for name in ("Delete", "DeleteStartOfWord", "DeleteEndOfWord", "DeleteEndOfLine"):
+            self.assertIn("StandardKey.%s" % name, keeps)
+        self.assertIn("Qt.Key_Backspace && !(event.modifiers & ~Qt.ShiftModifier)", keeps)
+        self.assertNotRegex(keeps, r"Undo|Redo|Key_Home|Key_End|Key_Up|Key_Down")
+
+    def test_the_mouse_never_reaches_the_text_edit(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        area = body(text, re.search(r"\bMouseArea\s*\{", text).end())
+        self.assertIn("anchors.fill: parent", area)
+        self.assertIn("Qt.LeftButton | Qt.MiddleButton", area)
+        self.assertRegex(area, r"if \(m\.button !== Qt\.LeftButton\) return")
+        self.assertIn("field._selectWord(", area)
+        self.assertIn("edit.selectAll()", area)
+        self.assertGreater(text.index("MouseArea"), text.index("TextEdit {"), "the MouseArea is over the TextEdit")
+        self.assertNotIn("DropArea", text)
+
+
+# Every selection key of QKeySequence::StandardKey.
+SELECT_KEYS = ("SelectNextChar", "SelectPreviousChar", "SelectNextWord", "SelectPreviousWord",
+               "SelectStartOfLine", "SelectEndOfLine", "SelectStartOfBlock", "SelectEndOfBlock",
+               "SelectStartOfDocument", "SelectEndOfDocument", "SelectNextLine", "SelectPreviousLine",
+               "SelectNextPage", "SelectPreviousPage")
 
 
 SKIP_DIRS = {"dev", "tests", ".git", ".claude", ".paperclip", "docs", "node_modules"}
@@ -215,7 +241,10 @@ def clipboard_door_problems(path, text=None):
     text = code(path) if text is None else text
     rules = [
         (r"\bselectByMouse:\s*true\b", "selectByMouse: true makes Qt own the primary selection"),
-        (r"\bDrag\.Automatic\b", "Drag.Automatic makes the shell the source of a drag"),
+        (r"\bselectByKeyboard:\s*true\b", "selectByKeyboard: true makes Qt own the primary selection"),
+        (r"\bDrag\.(?:Automatic|dragType|mimeData)\b|\bstartDrag\(", "a system drag makes the shell its source"),
+        (r"\bDropArea\b", "a DropArea makes the shell a drop target (a TextEdit takes no drops)"),
+        (r"\.(?:copy|cut|paste)\(\s*\)", "a text item's own copy, cut or paste: the shell serves or reads it"),
         (r"\bclipboardText\b", "Quickshell.clipboardText reads the clipboard in the shell, unbounded"),
     ]
     if os.path.basename(path) != "Clipboard.qml":
@@ -227,8 +256,9 @@ def clipboard_door_problems(path, text=None):
         inner = body(text, m.end())
         if not re.search(r"\bselectByMouse:\s*false\b", inner):
             found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, line_of(text, m.start())))
-        if not re.search(r"StandardKey\.Copy", inner) and "PanelField.qml" not in name:
-            found.append("%s:%d: a TextEdit takes the copy key itself (Keys.onPressed, StandardKey.Copy)" % (name, line_of(text, m.start())))
+        if re.search(r"\breadOnly:\s*true\b", inner) and not re.search(r"\bactiveFocusOnPress:\s*false\b", inner):
+            found.append("%s:%d: a read-only TextEdit takes no focus (activeFocusOnPress: false): "
+                         "Qt's copy and Select-All keys check no flag" % (name, line_of(text, m.start())))
     return found
 
 
@@ -248,11 +278,14 @@ class ShippedQml(unittest.TestCase):
             with open(path, "w") as f:
                 f.write("Item {\n  TextEdit { selectByMouse: true }\n  Item { Drag.dragType: Drag.Automatic }\n"
                         "  onX: y = Quickshell.clipboardText\n  Process { command: [\"wl-copy\", note] }\n"
-                        "  TextEdit { readOnly: true }\n  // selectByMouse: true in a comment\n}\n")
+                        "  TextEdit { readOnly: true; selectByMouse: false }\n  // selectByMouse: true in a comment\n"
+                        "  DropArea { }\n  function f() { edit.copy(); edit.paste() }\n"
+                        "  TextEdit { selectByMouse: false; selectByKeyboard: true }\n"
+                        "  TextEdit { readOnly: true; selectByMouse: false; activeFocusOnPress: false }\n}\n")
             found = clipboard_door_problems(path)
-            for line in (2, 3, 4, 5, 6):
+            for line in (2, 3, 4, 5, 6, 8, 9, 10):
                 self.assertTrue(any(":%d:" % line in one for one in found), (line, found))
-            self.assertFalse(any(":7:" in one for one in found), found)
+            self.assertFalse(any(":7:" in one or ":11:" in one for one in found), found)
 
 
 if __name__ == "__main__":

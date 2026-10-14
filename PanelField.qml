@@ -21,13 +21,20 @@ import qs.Ui
 // reads the text when the user pastes. The look is Omarchy's TextField's.
 //
 // Nothing here is a party to a Wayland data transfer (docs/architecture/001):
-// Qt's own copy, cut, paste, mouse selection (it owns the primary selection) and
-// middle click would make the shell serve or read a selection, with a blocking
-// call and no bound. So Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and their Insert keys are
-// handled here, through `Clipboard` (the one door: bounded wl-copy and wl-paste
-// out of the shell); the mouse selects by `edit.select` (a click, a drag; Ctrl+A
-// for all of it), which touches no clipboard; a middle click on the field does
-// nothing and a drop onto it is refused.
+// Qt's own copy, cut, paste and selection would make the shell serve or read a
+// selection, with a blocking call and no bound. Qt makes the shell the primary
+// selection's owner whenever one of its keys or clicks leaves a selection
+// standing (setClipboardSelection). So:
+// - Ctrl+C, Ctrl+X, Ctrl+V and their Insert keys go through `Clipboard` (the one
+//   door: bounded wl-copy and wl-paste out of the shell);
+// - the selection is this field's: Ctrl+A, Shift with a movement key (every
+//   StandardKey.Select*), and the mouse (a drag, Shift+click, a word on a double
+//   click, all on a triple) move it with `select`, which touches no clipboard;
+// - while a selection stands, a key reaches Qt only if it removes it (text,
+//   Backspace, Delete) or is a modifier alone; Left and Right collapse it here,
+//   and any other key finds it gone (`deselect`);
+// - the mouse never reaches the TextEdit, so a middle click pastes nothing.
+// A TextEdit takes no drops, so nothing here is a drop target.
 //
 // Pasted text is cut to the room left before Qt sees it (`_insert`): Qt inserts
 // a paste whole, and a few megabytes stall the shell for seconds (line breaks
@@ -54,32 +61,56 @@ FocusScope {
   readonly property bool hovered: hover.hovered
   function selectAll() { edit.selectAll() }
 
-  readonly property var _moves: [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
-    Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown]
-
-  // Shift + a movement key extends the selection here. Qt's own key handling
-  // would make the shell the primary selection's owner on every such step.
-  function _extend(key, byWord) {
-    var cursor = edit.cursorPosition
-    var anchor = edit.selectionStart === edit.selectionEnd ? cursor
-      : (cursor === edit.selectionStart ? edit.selectionEnd : edit.selectionStart)
-    var pos = cursor
-    if (key === Qt.Key_Left) {
-      var before = edit.text.slice(0, cursor)
-      var word = before.match(/(\S+\s*|\s+)$/)
-      pos = byWord ? (word ? cursor - word[0].length : 0) : Math.max(0, cursor - 1)
-      if (!byWord && pos > 0 && /[\uDC00-\uDFFF]/.test(before.charAt(pos)) && /[\uD800-\uDBFF]/.test(before.charAt(pos - 1))) pos--
-    } else if (key === Qt.Key_Right) {
-      var rest = edit.text.slice(cursor)
-      var next = rest.match(/^(\S+\s*|\s+)/)
-      pos = byWord ? (next ? cursor + next[0].length : edit.length) : Math.min(edit.length, cursor + 1)
-      if (!byWord && pos < edit.length && /[\uD800-\uDBFF]/.test(rest.charAt(0)) && /[\uDC00-\uDFFF]/.test(rest.charAt(1))) pos++
-    } else if (key === Qt.Key_Home || key === Qt.Key_Up || key === Qt.Key_PageUp) {
-      pos = 0
-    } else {
-      pos = edit.length
+  // Where a selection key moves the cursor (-1: not one). Positions count
+  // UTF-16 units, and a step never splits a surrogate pair.
+  function _selectTarget(event) {
+    var p = edit.cursorPosition, t = edit.text
+    if (event.matches(StandardKey.SelectPreviousChar)) {
+      var back = Math.max(0, p - 1)
+      return back > 0 && _low(t.charCodeAt(back)) ? back - 1 : back
     }
-    edit.select(anchor, pos)
+    if (event.matches(StandardKey.SelectNextChar)) {
+      var on = Math.min(edit.length, p + 1)
+      return on < edit.length && _low(t.charCodeAt(on)) ? on + 1 : on
+    }
+    if (event.matches(StandardKey.SelectPreviousWord)) return p - t.slice(0, p).match(/\S*\s*$/)[0].length
+    if (event.matches(StandardKey.SelectNextWord)) return p + t.slice(p).match(/^\S*\s*/)[0].length
+    if (event.matches(StandardKey.SelectStartOfLine) || event.matches(StandardKey.SelectStartOfBlock)
+        || event.matches(StandardKey.SelectStartOfDocument) || event.matches(StandardKey.SelectPreviousLine)
+        || event.matches(StandardKey.SelectPreviousPage)) return 0
+    if (event.matches(StandardKey.SelectEndOfLine) || event.matches(StandardKey.SelectEndOfBlock)
+        || event.matches(StandardKey.SelectEndOfDocument) || event.matches(StandardKey.SelectNextLine)
+        || event.matches(StandardKey.SelectNextPage)) return edit.length
+    return -1
+  }
+  function _low(c) { return c >= 0xDC00 && c <= 0xDFFF }
+
+  readonly property var _modifierKeys: [Qt.Key_Shift, Qt.Key_Control, Qt.Key_Meta, Qt.Key_Alt, Qt.Key_AltGr,
+    Qt.Key_Super_L, Qt.Key_Super_R, Qt.Key_Hyper_L, Qt.Key_Hyper_R, Qt.Key_CapsLock, Qt.Key_NumLock, Qt.Key_ScrollLock]
+
+  // A key Qt may have while a selection stands: one that removes it before
+  // Qt's `accept:` (typed text, Backspace, Delete and its kinds, as Qt reads
+  // them), or a modifier alone, which Qt ignores and which must not end the
+  // selection Ctrl+C is about to copy.
+  function _keepsSelection(event) {
+    if (_modifierKeys.indexOf(event.key) >= 0) return true
+    if (event.key === Qt.Key_Backspace && !(event.modifiers & ~Qt.ShiftModifier)) return true
+    if (event.matches(StandardKey.Delete) || event.matches(StandardKey.DeleteStartOfWord)
+        || event.matches(StandardKey.DeleteEndOfWord) || event.matches(StandardKey.DeleteEndOfLine)) return true
+    var ctrl = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
+    return event.text !== "" && event.text.charCodeAt(0) >= 0x20 && event.text.charCodeAt(0) !== 0x7F && !ctrl
+  }
+
+  // The selection's fixed end: where it began.
+  function _anchor() {
+    if (edit.selectionStart === edit.selectionEnd) return edit.cursorPosition
+    return edit.cursorPosition === edit.selectionStart ? edit.selectionEnd : edit.selectionStart
+  }
+
+  // The word at `p` (a run without spaces), for a double click.
+  function _selectWord(p) {
+    var t = edit.text
+    edit.select(p - t.slice(0, p).match(/\S*$/)[0].length, p + t.slice(p).match(/^\S*/)[0].length)
   }
 
   readonly property var _breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
@@ -171,21 +202,23 @@ FocusScope {
         if (event.matches(StandardKey.Paste)) {
           event.accepted = true
           Clipboard.readInto(function(incoming) { if (edit.activeFocus) field._insert(incoming) })
-        } else if (event.matches(StandardKey.Copy)) {
+        } else if (event.matches(StandardKey.Copy) || event.matches(StandardKey.Cut)) {
           event.accepted = true
-          if (selectionStart !== selectionEnd) Clipboard.copyText(selectedText)
-        } else if (event.matches(StandardKey.Cut)) {
-          event.accepted = true
-          if (selectionStart !== selectionEnd) {
-            Clipboard.copyText(selectedText)
-            remove(selectionStart, selectionEnd)
-          }
+          if (selectionStart === selectionEnd) return
+          Clipboard.copyText(selectedText)
+          if (event.matches(StandardKey.Cut)) remove(selectionStart, selectionEnd)
         } else if (event.matches(StandardKey.SelectAll)) {
           event.accepted = true
           selectAll()
-        } else if ((event.modifiers & Qt.ShiftModifier) && field._moves.indexOf(event.key) >= 0) {
+        } else if (field._selectTarget(event) >= 0) {
           event.accepted = true
-          field._extend(event.key, (event.modifiers & Qt.ControlModifier) !== 0)
+          moveCursorSelection(field._selectTarget(event))
+        } else if (event.key === Qt.Key_Direction_L || event.key === Qt.Key_Direction_R) {
+          event.accepted = true
+        } else if (selectionStart !== selectionEnd && !field._keepsSelection(event)) {
+          if (event.matches(StandardKey.MoveToPreviousChar)) { event.accepted = true; cursorPosition = selectionStart }
+          else if (event.matches(StandardKey.MoveToNextChar)) { event.accepted = true; cursorPosition = selectionEnd }
+          else deselect()
         }
       }
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.
@@ -203,11 +236,6 @@ FocusScope {
         field.steppedOut()
       }
     }
-
-    DropArea {
-      anchors.fill: edit
-      onDropped: function(drop) { drop.accepted = false }
-    }
   }
 
   Text {
@@ -224,21 +252,28 @@ FocusScope {
 
   HoverHandler { id: hover; cursorShape: Qt.IBeamCursor }
   // The mouse places the cursor and selects here, never through Qt's
-  // selectByMouse, which would own the primary selection. The middle button
-  // is taken and ignored (no primary paste).
+  // selectByMouse, which would own the primary selection. It takes the middle
+  // button too, and does nothing with it: no primary paste.
   MouseArea {
     anchors.fill: parent
     acceptedButtons: Qt.LeftButton | Qt.MiddleButton
     property int anchorAt: 0
+    property int clicks: 0
     function _at(m) { var p = mapToItem(edit, m.x, m.y); return edit.positionAt(p.x, p.y) }
+    Timer { id: clickRun; interval: Qt.styleHints.mouseDoubleClickInterval }
     onPressed: function(m) {
       if (m.button !== Qt.LeftButton) return
       edit.forceActiveFocus()
-      anchorAt = _at(m)
-      edit.cursorPosition = anchorAt
+      clicks = clickRun.running ? clicks + 1 : 1
+      clickRun.restart()
+      var at = _at(m)
+      anchorAt = clicks === 1 && (m.modifiers & Qt.ShiftModifier) ? field._anchor() : at
+      if (clicks === 2) field._selectWord(at)
+      else if (clicks > 2) edit.selectAll()
+      else edit.select(anchorAt, at)
     }
     onPositionChanged: function(m) {
-      if (pressed && (pressedButtons & Qt.LeftButton)) edit.select(anchorAt, _at(m))
+      if (clicks === 1 && (pressedButtons & Qt.LeftButton)) edit.select(anchorAt, _at(m))
     }
   }
 }

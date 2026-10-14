@@ -1306,6 +1306,7 @@ Item {
             width: Math.min(implicitWidth, bubble.maxWidth - bubble.padX * 2)
             readOnly: true
             selectByMouse: false
+            activeFocusOnPress: false
             persistentSelection: true
             textFormat: TextEdit.PlainText
             wrapMode: TextEdit.Wrap
@@ -1318,8 +1319,9 @@ Item {
             // Never Qt's selection (it would own the primary selection, the
             // shell serving it): a double click selects the message by
             // `selectAll` and copies it through Clipboard; the highlight
-            // fades after a moment. The keys, middle click and drops are
-            // taken here so Qt's own copy and paste never run.
+            // fades after a moment. It takes no focus, so no key reaches
+            // Qt's own copy or Select-All (they check no flag); read-only,
+            // it has no middle-click paste.
             function copyAll() {
               selectAll()
               view.copyText(text)
@@ -1327,12 +1329,6 @@ Item {
             }
             Timer { id: unselect; interval: 900; onTriggered: bodyText.deselect() }
             TapHandler { onDoubleTapped: bodyText.copyAll() }
-            MouseArea { anchors.fill: parent; acceptedButtons: Qt.MiddleButton }
-            DropArea { anchors.fill: parent; onDropped: function(drop) { drop.accepted = false } }
-            Keys.onPressed: function(event) {
-              if (event.matches(StandardKey.Copy)) { event.accepted = true; bodyText.copyAll() }
-              else if (event.matches(StandardKey.SelectAll)) { event.accepted = true; selectAll() }
-            }
           }
         }
       }
