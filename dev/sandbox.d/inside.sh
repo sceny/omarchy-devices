@@ -93,6 +93,14 @@ qml-parse)
   unit qml-parse bash -c 'fmt=/usr/lib/qt6/bin/qmlformat; for f in *.qml; do "$fmt" "$f" >/dev/null || { echo "$f does not parse"; exit 1; }; done' || status=$?
   ;;
 manifest) unit manifest bash -c 'jq -e ".id == \"sceny.devices\" and .schemaVersion == 1" manifest.json' || status=$? ;;
+rig-ci | script)
+  # These two units keep podman's default seccomp profile, which allows a new
+  # user namespace: the rig's phone side runs in one (`unshare -Urn`,
+  # dev/rig.d/phone.sh:94) and glycin's loaders start bwrap in one. A filter that
+  # refuses it cannot tell those from hostile code, so the tests units get
+  # the stricter profile (dev/sandbox.d/seccomp.py) and these do not. What
+  # holds instead: no capability, no network, no host path, limits.
+  ;;&
 rig-ci)
   git_tree || exit "$E_PREPARE"
   seed_rig

@@ -15,11 +15,14 @@ HOSTILE_PASS=0
 HOSTILE_FAIL=0
 HOSTILE_WORK=""
 HOSTILE_LISTENER_PID=""
+HOSTILE_SAMPLER_PID=""
 HOSTILE_CANARIES=()
 
 hostile_cleanup() {
   [[ -n $HOSTILE_LISTENER_PID ]] && kill "$HOSTILE_LISTENER_PID" 2>/dev/null
   HOSTILE_LISTENER_PID=""
+  [[ -n $HOSTILE_SAMPLER_PID ]] && kill "$HOSTILE_SAMPLER_PID" 2>/dev/null
+  HOSTILE_SAMPLER_PID=""
   local f
   for f in "${HOSTILE_CANARIES[@]}"; do rm -f -- "$f"; done
   HOSTILE_CANARIES=()
@@ -120,13 +123,65 @@ hostile_run() {
   done < <(python3 "$SB_DIR/sandbox.d/hostile/judge.py" "$HOSTILE_WORK" "$kind" "$out")
 }
 
+# Host MemAvailable every half second while a run goes: what the host lost,
+# measured from outside the container.
+hostile_sample_start() {
+  : >"$HOSTILE_WORK/memavail.log"
+  (while :; do
+    awk '/^MemAvailable:/ {print $2}' /proc/meminfo >>"$HOSTILE_WORK/memavail.log"
+    sleep 0.5
+  done) &
+  HOSTILE_SAMPLER_PID=$!
+}
+hostile_sample_stop() {
+  [[ -n ${HOSTILE_SAMPLER_PID:-} ]] && kill "$HOSTILE_SAMPLER_PID" 2>/dev/null
+  wait "$HOSTILE_SAMPLER_PID" 2>/dev/null
+  HOSTILE_SAMPLER_PID=""
+}
+
+# --out inside a git repository is refused, and the default is not in a checkout.
+hostile_out_dir() {
+  local sha inside rc
+  sha=$(cat "$HOSTILE_WORK/sha-probe")
+  inside="$HOSTILE_WORK/repo/results"
+  (cmd_run sceny/omarchy-devices "$sha" --from "$HOSTILE_WORK/repo" --out "$inside" --steps tests) >"$HOSTILE_WORK/run-out-dir.log" 2>&1
+  rc=$?
+  if ((rc != 0)) && grep -q "inside a git repository" "$HOSTILE_WORK/run-out-dir.log" && [[ ! -e $inside/results.tsv ]]; then
+    ok "--out inside a git work tree is refused before anything runs"
+    HOSTILE_PASS=$((HOSTILE_PASS + 1))
+  else
+    fail "--out inside a git work tree was not refused"
+    sed 's/^/    /' "$HOSTILE_WORK/run-out-dir.log" >&2
+    HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+  fi
+  local bare="$HOSTILE_WORK/bare-out"
+  mkdir -p "$bare/objects" "$bare/refs"
+  printf 'ref: refs/heads/main\n' >"$bare/HEAD"
+  (cmd_run sceny/omarchy-devices "$sha" --from "$HOSTILE_WORK/repo" --out "$bare/sub" --steps tests) >"$HOSTILE_WORK/run-out-bare.log" 2>&1
+  rc=$?
+  if ((rc != 0)) && grep -q "inside a git repository" "$HOSTILE_WORK/run-out-bare.log"; then
+    ok "--out inside a bare repository is refused"
+    HOSTILE_PASS=$((HOSTILE_PASS + 1))
+  else
+    fail "--out inside a bare repository was not refused"
+    HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+  fi
+  if grep -q 'out="\$SB_STATE/results/' "$SB_DIR/sandbox" && ! grep -q 'PWD/sandbox-out' "$SB_DIR/sandbox"; then
+    ok "the default results directory is under the sandbox's store ($SB_STATE/results), never the working directory"
+    HOSTILE_PASS=$((HOSTILE_PASS + 1))
+  else
+    fail "the default results directory is not under the sandbox's store"
+    HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+  fi
+}
+
 cmd_hostile_test() {
   local quick=0 only="" keep=0
   while (($#)); do
     case $1 in
     --quick) quick=1 ;;
     --keep) keep=1 ;;
-    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang,stdout-flood,stderr-escape,stderr-flood,many-dirs,rewrite)}; shift ;;
+    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang,stdout-flood,stderr-escape,stderr-flood,many-dirs,rewrite,gitconfig,pngs,gpu,out-dir)}; shift ;;
     *) die "hostile-test: unknown option '$1'" ;;
     esac
     shift
@@ -177,10 +232,10 @@ PY
 
   git init -q -b main "$HOSTILE_WORK/repo"
   local mode
-  for mode in probe rigprobe memory processes disk hang stdout-flood stderr-escape stderr-flood many-dirs rewrite; do
+  for mode in probe rigprobe memory processes disk hang stdout-flood stderr-escape stderr-flood many-dirs rewrite gitconfig pngs gpu; do
     hostile_commit "$HOSTILE_WORK/repo" "$mode" >"$HOSTILE_WORK/sha-$mode" || die "could not build the hostile commit ($mode)"
   done
-  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and ten more)"
+  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and thirteen more)"
 
   export "$secret_name=$secret_value"
 
@@ -243,8 +298,32 @@ PY
     hostile_run rewrite rewrite --steps tests,rig
   fi
 
+  if want gitconfig; then
+    say "12. a result tree that would run code or give orders to whoever opens it (.git, .envrc, CLAUDE.md, a bare repository)"
+    hostile_run gitconfig gitconfig --steps tests
+  fi
+  if want pngs; then
+    say "13. pictures made to hurt a decoder (malformed, a lying header, a 3 GB inflate, a GIF named .png, a JPEG, an SVG)"
+    hostile_run pngs pngs --steps tests
+  fi
+  if want gpu; then
+    say "14. graphics memory allocated through the render node (3 GB at most), host MemAvailable sampled from outside"
+    if ((quick)); then
+      warn "skipped (--quick)"
+    else
+      printf '#!/bin/bash\ncd /work/src && python3 -m unittest discover -s tests\nexit 0\n' >"$HOSTILE_WORK/probe-script.sh"
+      hostile_sample_start
+      hostile_run gpu gpu --steps script --script "$HOSTILE_WORK/probe-script.sh"
+      hostile_sample_stop
+    fi
+  fi
+  if want out-dir; then
+    say "15. where results may go: not inside a git repository, and by default under the sandbox's own store"
+    hostile_out_dir
+  fi
+
   unset "$secret_name"
-  say "12. nothing is left"
+  say "16. nothing is left"
   local clean=0
   cmd_verify_clean || clean=1
   if ((clean == 0)); then

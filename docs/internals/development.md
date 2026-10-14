@@ -182,9 +182,23 @@ code under test writes can say it passed. The container's stdout is capped
 terminal as plain, length-capped text, and the result tree is capped at 20000
 members.
 
+The result tree is data the host reads later, so it is never able to act on
+the host (`dev/sandbox.d/read_result.py`): each unit lands in its own
+directory made by the host; only regular files and directories arrive; every
+name part starts with a letter or a digit (no `.git`, `.envrc`, `.claude`);
+the names that tools load as instructions or settings (`CLAUDE.md`,
+`AGENTS.md`, `GEMINI.md`, `mise.toml`, `conftest.py` ...) and the markers of a
+bare repository (`HEAD`, `objects`, `refs`) are refused in any case. Each
+refusal is a line in `SKIPPED.txt`, the name escaped, never copied. A PNG is
+decoded and saved again in a second container (no contributor code, no
+network, no device, limits on size and pixels) and only that copy arrives; a
+picture that fails is listed; other image formats are refused. The default
+`--out` is `~/.local/share/sceny-sandbox/results/`, and an `--out` inside a git
+repository is refused.
+
 ```bash
 dev/sandbox build                                  # once, and after develop's dev/ changes
-dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ./sandbox-out/<sha>-<time>
+dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ~/.local/share/sceny-sandbox/results/<sha>-<time>
 dev/sandbox run <repo> <sha> --steps tests         # unit tests only, no device passed in
 dev/sandbox run <repo> <sha> --steps script --script qa.sh  # your QA script, with the rig up
 dev/sandbox verify-clean                           # nothing left behind
@@ -206,7 +220,10 @@ dev/sandbox verify-clean                           # nothing left behind
   passing; read the diff first, and treat a pass as what the code did when it
   ran, not as a statement that it is safe.
 - **`dev/sandbox hostile-test`** proves the isolation from inside with a
-  hostile commit written here: run it after any change to `dev/sandbox`.
+  hostile commit written here: run it after any change to `dev/sandbox`. Its
+  modes include a result tree of dangerous names, malformed and oversized
+  PNGs, `--out` placed in a repository, and GPU memory allocated through the
+  render node (the host's free memory is recorded before, lowest and after).
 
 ## Screenshots
 
