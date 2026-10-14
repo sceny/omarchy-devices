@@ -46,6 +46,8 @@ fi
 # The archive is files only. dev/rig packages the tracked tree of a git
 # checkout, so make one; -f because the commit's own .gitignore would otherwise
 # drop files the commit tracks.
+# the rig's compositor start-up race is lost more often in a container
+export RIG_COMPOSITOR_ATTEMPTS=60
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 export GIT_AUTHOR_NAME=sandbox GIT_AUTHOR_EMAIL=sandbox@invalid GIT_COMMITTER_NAME=sandbox GIT_COMMITTER_EMAIL=sandbox@invalid
 (
