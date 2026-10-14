@@ -171,7 +171,9 @@ class PanelFieldClipboard(unittest.TestCase):
         started = time.monotonic()
         stalled = self.run_paste("stall")
         self.assertEqual(stalled.stdout, b"")
-        self.assertLess(time.monotonic() - started, 5)
+        # The deadline is 2 s (then a kill at 3 s); 10 s leaves room for a
+        # loaded machine and still fails a provider held for its 30 s.
+        self.assertLess(time.monotonic() - started, 10)
 
     def test_the_text_edit_takes_no_selection_from_qt(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
@@ -240,8 +242,8 @@ def clipboard_door_problems(path, text=None):
     name = os.path.relpath(path, ROOT)
     text = code(path) if text is None else text
     rules = [
-        (r"\bselectByMouse:\s*true\b", "selectByMouse: true makes Qt own the primary selection"),
-        (r"\bselectByKeyboard:\s*true\b", "selectByKeyboard: true makes Qt own the primary selection"),
+        (r"\bselectByMouse\s*[:=]\s*true\b", "selectByMouse: true makes Qt own the primary selection"),
+        (r"\bselectByKeyboard\s*[:=]\s*true\b", "selectByKeyboard: true makes Qt own the primary selection"),
         (r"\bDrag\.(?:Automatic|dragType|mimeData)\b|\bstartDrag\(", "a system drag makes the shell its source"),
         (r"\bDropArea\b", "a DropArea makes the shell a drop target (a TextEdit takes no drops)"),
         (r"\.(?:copy|cut|paste)\(\s*\)", "a text item's own copy, cut or paste: the shell serves or reads it"),
@@ -254,9 +256,9 @@ def clipboard_door_problems(path, text=None):
         found += ["%s:%d: %s" % (name, line_of(text, m.start()), why) for m in re.finditer(pattern, text)]
     for m in re.finditer(r"\bTextEdit\s*\{", text):
         inner = body(text, m.end())
-        if not re.search(r"\bselectByMouse:\s*false\b", inner):
+        if not re.search(r"\bselectByMouse\s*:\s*false\b", inner):
             found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, line_of(text, m.start())))
-        if re.search(r"\breadOnly:\s*true\b", inner) and not re.search(r"\bactiveFocusOnPress:\s*false\b", inner):
+        if re.search(r"\breadOnly\s*:\s*true\b", inner) and not re.search(r"\bactiveFocusOnPress\s*:\s*false\b", inner):
             found.append("%s:%d: a read-only TextEdit takes no focus (activeFocusOnPress: false): "
                          "Qt's copy and Select-All keys check no flag" % (name, line_of(text, m.start())))
     return found
@@ -281,9 +283,11 @@ class ShippedQml(unittest.TestCase):
                         "  TextEdit { readOnly: true; selectByMouse: false }\n  // selectByMouse: true in a comment\n"
                         "  DropArea { }\n  function f() { edit.copy(); edit.paste() }\n"
                         "  TextEdit { selectByMouse: false; selectByKeyboard: true }\n"
-                        "  TextEdit { readOnly: true; selectByMouse: false; activeFocusOnPress: false }\n}\n")
+                        "  TextEdit { readOnly: true; selectByMouse: false; activeFocusOnPress: false }\n"
+                        "  TextEdit { selectByMouse : true }\n  function g() { edit.selectByMouse = true }\n"
+                        "  Item { function h() { Drag.startDrag() } }\n}\n")
             found = clipboard_door_problems(path)
-            for line in (2, 3, 4, 5, 6, 8, 9, 10):
+            for line in (2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14):
                 self.assertTrue(any(":%d:" % line in one for one in found), (line, found))
             self.assertFalse(any(":7:" in one or ":11:" in one for one in found), found)
 
