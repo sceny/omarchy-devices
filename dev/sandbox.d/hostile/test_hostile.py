@@ -137,7 +137,7 @@ def probe():
     # The owner's session: sockets and services that a process on the desktop reaches.
     paths = {}
     for p in T["host_paths"]:
-        paths[p] = "EXISTS" if os.path.lexists(p) else "ABSENT"
+        paths[p] = "EXISTS" if os.path.lexists(p) and (p != "/etc/shadow" or os.access(p, os.R_OK)) else "ABSENT"
     for base in ("/run/user", "/tmp/.X11-unix", "/tmp/hypr", "/var/run"):
         if os.path.isdir(base):
             paths["listing " + base] = sorted(os.listdir(base))
@@ -218,21 +218,22 @@ def fork_bomb():
 def fill(path, limit_mb):
     n = 0
     stopped = "nothing"
-    with open(path, "wb") as f:
-        try:
-            while n < limit_mb:
-                f.write(b"\0" * (1 << 20))
-                f.flush()
-                n += 1
-        except OSError as e:
-            stopped = errno.errorcode.get(e.errno, str(e))
-    os.unlink(path)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        while n < limit_mb:
+            os.write(fd, b"\0" * (1 << 20))
+            n += 1
+    except OSError as e:
+        stopped = errno.errorcode.get(e.errno, str(e))
+    finally:
+        os.close(fd)
+        os.unlink(path)
     return {"mb": n, "stopped_by": stopped}
 
 
 class Hostile(unittest.TestCase):
     def test_hostile(self):
-        if MODE == "probe":
+        if MODE in ("probe", "rigprobe"):
             result = probe()
         elif MODE == "memory":
             memory_bomb()

@@ -106,6 +106,7 @@ run_script() {
   [[ -r /in/script.sh ]] || return 0
   seed_rig
   step script-up env dev/rig up --owner none --ttl 3000
+  cp -r /tmp/omarchy-plugin-rig-"$(id -u)"/last-failed-up "$OUT/rig-up-failed" 2>/dev/null
   step script env SANDBOX_OUT="$OUT" bash /in/script.sh
   step script-down dev/rig down
 }
