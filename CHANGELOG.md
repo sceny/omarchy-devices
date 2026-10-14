@@ -6,6 +6,34 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.3 — 2026-10-13
+
+### Highlights
+
+- **Text fields never read the clipboard until you paste**: a field is
+  built on a text edit, which asks only which formats the clipboard offers
+  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
+  field, or another program copying while one has the keyboard, makes the
+  shell read nothing. Typing, accented characters, Esc's steps, drafts and
+  suggestions work as before; Enter stops at the field. A field holds at most
+  32767 characters, as before, and a paste is cut to that before it is
+  inserted, so a huge paste or a line-broken one is instant instead of
+  stopping the shell. Middle-click paste and dropping text onto a field no
+  longer insert anything.
+- **A window is found by its exact title**: opening the device's screen or
+  an app focuses an open window by its address and otherwise starts it
+  directly, with each part of the command kept as it is.
+- **Clipboard: a copy leaves on your click**: the Clipboard shortcut is the
+  only way a copy is sent to a device. The plugin turns KDE Connect's
+  automatic sharing off for each paired device that has no choice of its
+  own, and leaves a choice you made there alone. `docs/security.md` says so.
+- **Call details are kept short**: a caller's name and number are cut to
+  the same length as other device text before they are used.
+
+### Issues
+
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review: omacom/omarchy-plugin-marketplace#10096 (a focused text field made the shell read the clipboard's whole text)
+
 ## 0.8.2 — 2026-10-11
 
 ### Highlights
