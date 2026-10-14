@@ -4,7 +4,8 @@ QQuickTextInput (TextField, TextInput) reads the clipboard's whole text in
 q_canPasteChanged: when it stops being read-only and on every clipboard change
 while it is editable, with no bound on size. QQuickTextEdit only asks which
 formats are offered and reads the text on an explicit paste. Every field is a
-PanelField, which is built on a TextEdit; nothing else is an editable input.
+PanelField, which is built on the one TextEdit; read-only text is a Text, which
+has no selection, copy or keys in Qt.
 
 A TextEdit inserts a paste whole, and a few megabytes stall the shell for
 seconds, so PanelField cuts the clipboard's text itself at Ctrl+V; the mouse
@@ -58,16 +59,6 @@ class PanelFieldClipboard(unittest.TestCase):
             name = os.path.basename(path)
             self.assertIsNone(re.search(r"\b(TextField|TextInput|TextArea)\s*\{", code(path)),
                               f"{name}: use PanelField, which is not built on QQuickTextInput")
-
-    def test_other_text_edits_are_read_only(self):
-        for path in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
-            name = os.path.basename(path)
-            if name == "PanelField.qml":
-                continue
-            text = code(path)
-            for m in re.finditer(r"\bTextEdit\s*\{", text):
-                self.assertRegex(body(text, m.end()), r"\breadOnly:\s*true\b",
-                                 f"{name}: a TextEdit outside PanelField must be read-only")
 
     def test_panelfield_is_one_plain_text_edit_that_never_toggles_read_only(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
@@ -249,32 +240,7 @@ def literal(prop, value):
     return r"\b%s\s*:\s*%s(?=\s*(?:[;}]|\n|$))" % (prop, value)
 
 
-FOCUS_PROPS = r"(?:focus|activeFocusOnTab|activeFocusOnPress|readOnly)"
-# What a read-only TextEdit's id is used for: where it is, what it shows, its
-# own copy. Any other use (the id alone, as a Binding's or a PropertyChanges'
-# target, in KeyNavigation or Keys.forwardTo, a member by name or not listed
-# here) can give it focus, and Qt's copy and Select-All keys check no flag.
-READ_ONLY_TEXT_MEMBERS = {"visible", "x", "y", "width", "height", "implicitWidth", "implicitHeight",
-                          "contentWidth", "contentHeight", "lineCount", "text", "copyAll", "deselect"}
-
-
-def given_focus(text, start, inner):
-    """(offset in text, why) where a read-only TextEdit (body inner, at start) may get focus."""
-    own = top_level(inner)
-    why = "Qt's copy and Select-All keys check no flag"
-    given = [(start + g.start(), why) for g in re.finditer(r"\b(?:focus|activeFocusOnTab)\s*:", own)
-             if not re.match(literal(r"\w+", "false"), own[g.start():])]
-    given += [(start + g.start(), why) for g in re.finditer(
-        r"\bforceActiveFocus\b|\b%s\s*=(?!=)|\bon\s+%s\b|\bproperty\s*:\s*[\"']%s[\"']"
-        % (FOCUS_PROPS, FOCUS_PROPS, FOCUS_PROPS), inner)]
-    ident = re.search(r"\bid\s*:\s*(\w+)", own)
-    if ident:
-        declared = start + ident.start(1)
-        why = "its id is used only for %s" % ", ".join(sorted(READ_ONLY_TEXT_MEMBERS))
-        for use in re.finditer(r"(?<![.\w\"'])%s\b(?![\"'])(\s*\.\s*(\w+))?" % ident.group(1), text):
-            if use.start() != declared and use.group(2) not in READ_ONLY_TEXT_MEMBERS:
-                given.append((use.start(), why))
-    return given
+PANELFIELD = os.path.abspath(os.path.join(ROOT, "PanelField.qml"))
 
 
 def clipboard_door_problems(path, text=None):
@@ -295,23 +261,16 @@ def clipboard_door_problems(path, text=None):
     for pattern, why in rules:
         found += ["%s:%d: %s" % (name, line_of(text, m.start()), why) for m in re.finditer(pattern, text)]
     for m in re.finditer(r"\bTextEdit\s*\{", text):
-        inner = body(text, m.end())
         at = line_of(text, m.start())
-        if not re.search(literal("selectByMouse", "false"), top_level(inner)):
+        # The one TextEdit is PanelField's, which owns its selection, keys and
+        # mouse. Anywhere else, Qt's own copy and Select-All keys (they check
+        # no flag) or its mouse selection would make the shell the owner;
+        # read-only text is a Text, which has no selection, copy or keys.
+        if os.path.abspath(path) != PANELFIELD:
+            found.append("%s:%d: a TextEdit outside PanelField: read-only text is a Text "
+                         "(no selection, copy or keys in Qt)" % (name, at))
+        elif not re.search(literal("selectByMouse", "false"), top_level(body(text, m.end()))):
             found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, at))
-        if os.path.basename(path) == "PanelField.qml":
-            continue
-        # Every other TextEdit is read-only text that never has focus: Qt's
-        # copy and Select-All keys check no flag, so with focus Ctrl+A or
-        # Ctrl+C makes the shell own the selection.
-        own = top_level(inner)
-        if not re.search(literal("readOnly", "true"), own):
-            found.append("%s:%d: a TextEdit outside PanelField says readOnly: true" % (name, at))
-        if not re.search(literal("activeFocusOnPress", "false"), own):
-            found.append("%s:%d: a read-only TextEdit takes no focus (activeFocusOnPress: false): "
-                         "Qt's copy and Select-All keys check no flag" % (name, at))
-        found += ["%s:%d: a read-only TextEdit is never given focus: %s" % (name, line, why)
-                  for line, why in sorted({(line_of(text, g), why) for g, why in given_focus(text, m.end(), inner)})]
     return found
 
 
@@ -334,7 +293,7 @@ class ShippedQml(unittest.TestCase):
                         "  TextEdit { readOnly: true; selectByMouse: false }\n  // selectByMouse: true in a comment\n"
                         "  DropArea { }\n  function f() { edit.copy(); edit.paste() }\n"
                         "  TextEdit { selectByMouse: false; selectByKeyboard: true }\n"
-                        "  TextEdit { readOnly: true; selectByMouse: false; activeFocusOnPress: false }\n"
+                        "  Text { textFormat: Text.PlainText; wrapMode: TextEdit.Wrap }\n"
                         "  TextEdit { selectByMouse : true }\n  function g() { edit.selectByMouse = true }\n"
                         "  Item { function h() { Drag.startDrag() } }\n}\n")
             found = clipboard_door_problems(path)
@@ -342,68 +301,32 @@ class ShippedQml(unittest.TestCase):
                 self.assertTrue(any(":%d:" % line in one for one in found), (line, found))
             self.assertFalse(any(":7:" in one or ":11:" in one for one in found), found)
 
-    def test_a_read_only_text_edit_is_never_given_focus(self):
-        quiet = "readOnly: true; selectByMouse: false; activeFocusOnPress: false"
-        shown = "TextEdit { id: shown; %s }\n" % quiet
-        given = [
-            ("TextEdit { %s\n  focus: true }" % quiet, 2),
-            ("TextEdit { %s\n  activeFocusOnTab: true }" % quiet, 2),
-            ("TextEdit { %s\n  focus: bubble.sent || true }" % quiet, 2),
-            ("TextEdit { %s\n  focus: !false }" % quiet, 2),
-            ("TextEdit { %s\n  focus: 1 }" % quiet, 2),
-            ("TextEdit { %s\n  TapHandler { onTapped: forceActiveFocus() } }" % quiet, 2),
-            ("TextEdit { %s\n  TapHandler { onTapped: parent.focus = true } }" % quiet, 2),
-            ("TextEdit { %s\n  Component.onCompleted: { focus = true } }" % quiet, 2),
-            ("TextEdit { %s\n  Binding on focus { value: true } }" % quiet, 2),
-            ("TextEdit { %s\n  Binding { property: \"readOnly\"; value: false } }" % quiet, 2),
-            (shown + "function f() { shown.forceActiveFocus() }", 2),
-            (shown + "function f() { shown.focus = true }", 2),
-            (shown + "function f() { Qt.callLater(shown.forceActiveFocus) }", 2),
-            (shown + "function f() { shown['focus'] = true }", 2),
-            (shown + "Binding { target: shown; property: \"focus\"; value: true }", 2),
-            (shown + "states: State { PropertyChanges { target: shown; focus: true } }", 2),
-            (shown + "Item { KeyNavigation.tab: shown }", 2),
-            (shown + "Item { Keys.forwardTo: [shown] }", 2),
-            (shown + "property alias body: shown", 2),
-            (shown + "function f() { shown.readOnly = false }", 2),
-        ]
-        quiet_cases = [
-            "TextEdit { id: shown; %s; focus: false; Timer { id: later; onTriggered: shown.deselect() } }\n"
-            "function f() { if (shown.visible) other.forceActiveFocus(); return shown.width + shown.height }" % quiet,
-            "TextEdit { id: shown; %s; Item { focus: true } }\nText { text: \"shown\" }" % quiet,
-            "TextEdit { id: shown; %s; TapHandler { onDoubleTapped: shown.copyAll() } }" % quiet,
-        ]
-        with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "Bad.qml")
-
-            def lint(source):
-                with open(path, "w") as f:
-                    f.write("Item {\n" + source + "\n}\n")
-                return clipboard_door_problems(path)
-            for source, line in given:
-                found = lint(source)
-                self.assertTrue(any(":%d: a read-only TextEdit is never given focus" % (line + 1) in one
-                                    for one in found), (source, found))
-            for source in quiet_cases:
-                self.assertEqual(lint(source), [], source)
-
-    def test_a_text_edit_outside_panelfield_is_written_read_only_and_unfocusable(self):
+    def test_the_one_text_edit_is_panelfields(self):
+        # Read-only text outside PanelField is a Text: a TextEdit there, however
+        # it is written, fails at its line, so no rule about its focus is needed.
         cases = [
-            ("readOnly: false; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
-            ("readOnly: view.locked; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
-            ("readOnly: true || x; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
-            ("selectByMouse: false; activeFocusOnPress: false; Item { readOnly: true }", "readOnly: true"),
-            ("readOnly: true; selectByMouse: false; activeFocusOnPress: true", "activeFocusOnPress: false"),
-            ("readOnly: true; selectByMouse: false; activeFocusOnPress: !true", "activeFocusOnPress: false"),
-            ("readOnly: true; activeFocusOnPress: false; Item { selectByMouse: false }", "selectByMouse: false"),
+            "TextEdit { readOnly: true; selectByMouse: false; activeFocusOnPress: false; focus: false }",
+            "TextEdit { id: shown; readOnly: true; selectByMouse: false }",
+            "Item { TextEdit { } }",
+            "Component { TextEdit { readOnly: true } }",
+            "TextEdit{ }",
+        ]
+        quiet = [
+            "Text { textFormat: Text.PlainText; wrapMode: TextEdit.Wrap }",
+            "PanelField { }",
+            "// TextEdit { in a comment }",
         ]
         with tempfile.TemporaryDirectory() as d:
-            path = os.path.join(d, "Bad.qml")
-            for props, says in cases:
+            path = os.path.join(d, "PanelField.qml")
+            for source in cases:
                 with open(path, "w") as f:
-                    f.write("Item {\n  TextEdit { %s }\n}\n" % props)
+                    f.write("Item {\n  %s\n}\n" % source)
                 found = clipboard_door_problems(path)
-                self.assertTrue(any(":2: " in one and says in one for one in found), (props, found))
+                self.assertTrue(any(":2: a TextEdit outside PanelField" in one for one in found), (source, found))
+            for source in quiet:
+                with open(path, "w") as f:
+                    f.write("Item {\n  %s\n}\n" % source)
+                self.assertEqual(clipboard_door_problems(path), [], source)
 
 
 if __name__ == "__main__":

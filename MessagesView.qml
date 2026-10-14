@@ -1298,37 +1298,41 @@ Item {
             }
           }
 
-          TextEdit {
+          // Lights the message a moment once it is copied.
+          Rectangle {
+            x: bodyText.x
+            y: bodyText.y
+            width: bodyText.width
+            height: bodyText.height
+            visible: bodyText.visible
+            color: Style.selectionFillFor(view.foreground, Color.accent)
+            opacity: copied.running ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+
+          // A Text, not a TextEdit: Qt's Text has no selection, no copy and
+          // no keys, so nothing done to it makes the shell own a selection.
+          // A double click copies the whole message through Clipboard.
+          Text {
             id: bodyText
             visible: bubble.body !== ""
             x: bubble.padX
             y: bubble.padY + (fileColumn.visible ? fileColumn.height + Style.space(6) : 0)
             width: Math.min(implicitWidth, bubble.maxWidth - bubble.padX * 2)
-            readOnly: true
-            selectByMouse: false
-            activeFocusOnPress: false
-            persistentSelection: true
-            textFormat: TextEdit.PlainText
-            wrapMode: TextEdit.Wrap
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
             text: bubble.body
             color: view.foreground
-            selectionColor: Style.selectionFillFor(view.foreground, Color.accent)
             font.family: view.fontFamily
             font.pixelSize: Style.font.body
 
-            // Never Qt's selection (it would own the primary selection, the
-            // shell serving it): a double click selects the message by
-            // `selectAll` and copies it through Clipboard; the highlight
-            // fades after a moment. It takes no focus, so no key reaches
-            // Qt's own copy or Select-All (they check no flag); read-only,
-            // it has no middle-click paste.
-            function copyAll() {
-              selectAll()
-              view.copyText(text)
-              unselect.restart()
+            Timer { id: copied; interval: 900 }
+            TapHandler {
+              onDoubleTapped: {
+                view.copyText(bodyText.text)
+                copied.restart()
+              }
             }
-            Timer { id: unselect; interval: 900; onTriggered: bodyText.deselect() }
-            TapHandler { onDoubleTapped: bodyText.copyAll() }
           }
         }
       }

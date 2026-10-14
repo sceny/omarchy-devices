@@ -163,11 +163,11 @@ finding blocks the pull request.
   (`NumberField`, `MultiSelect`, `SearchableDropdown`, `TextField` from
   `qs.Ui`, and any other its folder holds), no `Quickshell.clipboardText`
   read anywhere (it reads the whole clipboard in the shell, unbounded,
-  waiting for the program that offers it), `selectByMouse: false` written
-  on every `TextEdit` (the default is true; Qt would own the primary
-  selection), no `selectByKeyboard: true`, a read-only `TextEdit` takes no
-  focus, no text item's own `copy()`, `cut()` or `paste()`, no `DropArea`,
-  no system drag (`Drag.Automatic`), `wl-copy` and `wl-paste` only in
+  waiting for the program that offers it), no `TextEdit` but `PanelField`'s
+  and no Omarchy type with one inside (read-only text is a `Text`),
+  `selectByMouse: false` written on it (the default is true; Qt would own
+  the primary selection), no `selectByKeyboard: true`, no text item's own
+  `copy()`, `cut()` or `paste()`, no `DropArea`, no system drag (`Drag.Automatic`), `wl-copy` and `wl-paste` only in
   `Clipboard.qml`, the copy's text on stdin, the read with a byte limit and
   a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`)
   and `tests/test_panelfield.py` (`ShippedQml`, naming file:line) fail on
