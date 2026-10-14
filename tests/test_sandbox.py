@@ -153,7 +153,7 @@ class Isolation(unittest.TestCase):
     def test_devices_are_only_what_the_rig_needs(self):
         self.assertEqual(self.script.count("--device"), 2)
         self.assertIn('devices=(--device /dev/kvm --device "$node")', self.script)
-        self.assertIn('[[ $step_name == tests ]] || unit_devices=("${devices[@]}")', self.script)
+        self.assertIn('[[ $step_name == tests ]] || { unit_devices=("${devices[@]}")', self.script)
         self.assertIn('$node == /dev/dri/renderD*', self.script)
         self.assertNotIn("--device /dev/dri/card", self.script)
 
@@ -175,8 +175,11 @@ class Isolation(unittest.TestCase):
         self.assertIn("isreg()", self.script)
         self.assertNotIn("tar -x", self.script.split("read_result() {")[1].split("PY\n}")[0])
 
-    def test_a_unit_runs_with_the_seccomp_profile_without_user_namespaces(self):
-        self.assertIn('--security-opt "seccomp=$SB_RUN_DIR/seccomp.json"', self.run_cmd)
+    def test_the_tests_step_runs_with_the_seccomp_profile_without_user_namespaces(self):
+        self.assertIn('seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")', self.script)
+        self.assertIn('"${seccomp[@]}"', self.run_cmd)
+        self.assertIn("UNIT_NO_USERNS=1", self.script)
+        self.assertNotIn("seccomp=unconfined", self.script)
         self.assertIn("seccomp.py", self.script.split("make_seccomp() {")[1].split("}")[0])
 
 

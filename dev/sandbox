@@ -45,7 +45,8 @@
 #     executed. The container's stderr reaches the terminal as filtered text
 #     (dev/sandbox.d/filter-stderr.py).
 #   * The tests step cannot make a user namespace (seccomp, dev/sandbox.d/
-#     seccomp.py); no unit gets a capability.
+#     seccomp.py). The rig and script steps can: the rig's phone side runs in
+#     one (`unshare -Urn`). No unit gets a capability.
 #   * Each container is removed after its unit. `verify-clean` proves it.
 #
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
@@ -278,6 +279,8 @@ make_seccomp() {
 
 # Set by run_unit for the caller.
 UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
+# Set by cmd_run: 1 for the tests step, whose units get the profile without user namespaces.
+UNIT_NO_USERNS=0
 
 # run_unit <unit> <timeout> <out dir> [device args...]: one unit in a container
 # of its own. The verdict (UNIT_EXIT, UNIT_NOTE) is the container's exit code
@@ -292,6 +295,8 @@ run_unit() {
   SB_RUN_NAME="sceny-sandbox-$id"
   rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
 
+  local seccomp=()
+  ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
   local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
   [[ -f $SB_RUN_DIR/script.sh ]] &&
     mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
@@ -307,7 +312,7 @@ run_unit() {
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-      --security-opt "seccomp=$SB_RUN_DIR/seccomp.json" \
+      "${seccomp[@]}" \
       "${devices[@]}" \
       --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
       --ulimit core=0 --ulimit nofile=65536:65536 \
@@ -507,7 +512,8 @@ cmd_run() {
         fail "$unit: $UNIT_NOTE"
       else
         unit_devices=()
-        [[ $step_name == tests ]] || unit_devices=("${devices[@]}")
+        UNIT_NO_USERNS=1
+        [[ $step_name == tests ]] || { unit_devices=("${devices[@]}"); UNIT_NO_USERNS=0; }
         run_unit "$unit" "$left" "$out" "${unit_devices[@]}"
       fi
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$unit" "$UNIT_EXIT" "$UNIT_SECONDS" "$UNIT_OOM" "$UNIT_TIMED_OUT" "$UNIT_STDOUT" "$UNIT_NOTE" \

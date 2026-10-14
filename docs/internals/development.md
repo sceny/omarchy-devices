@@ -169,8 +169,9 @@ the owner's session (`dev/rig` runs as the owner's user and sees their home).
 namespace, no network, no host mount but the commit's `git archive` (read-only),
 no environment passed in, limits on CPU, memory, processes, disk and time.
 Only `/dev/kvm` and one render node are passed in, and only for the rig step.
-No process in it can make a user namespace of its own (a seccomp rule on
-`clone`, `clone3` and `unshare`).
+In the tests step no process can make a user namespace of its own (a seccomp
+rule on `clone`, `clone3` and `unshare`). The rig and script steps can: the
+rig's phone side runs in one.
 
 Each unit (the four test units, `rig-ci`, a QA script) runs in its own
 container from a fresh unpack of the commit, so nothing one test changes

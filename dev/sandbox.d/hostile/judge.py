@@ -77,8 +77,11 @@ if kind in ("probe", "probe-rig"):
     check("in the container's own namespace, mount, setuid(0), ptrace of init and reboot are refused",
           all(p[k] != "OK" for k in ("mount_tmpfs", "setuid_0", "ptrace_init", "reboot")),
           {k: p[k] for k in ("mount_tmpfs", "setuid_0", "ptrace_init", "reboot")})
-    check("no new user namespace: unshare(2), clone(2), `unshare -Ur`, `unshare -Urm` and bwrap are refused (nothing is mounted in a namespace of its own)",
-          all(v == "REFUSED" for v in p["userns"].values()), p["userns"])
+    if kind == "probe":
+        check("no new user namespace: unshare(2), clone(2), `unshare -Ur`, `unshare -Urm` and bwrap are refused (nothing is mounted in a namespace of its own)",
+              all(v == "REFUSED" for v in p["userns"].values()), p["userns"])
+    else:
+        info("in the rig step a user namespace can be made (the rig's phone side runs in one): " + json.dumps(p["userns"]))
     check("writes to /etc, /usr, /opt, the commit's tar, /sys, /proc/sys and /boot fail",
           all(v != "WROTE" for v in p["write_outside"].values()), p["write_outside"])
     check("only the scratch trees are writable (/tmp, /out, /work, the home)", all(v == "WROTE" for v in p["write_allowed"].values()), p["write_allowed"])
