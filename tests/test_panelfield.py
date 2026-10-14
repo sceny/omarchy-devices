@@ -8,11 +8,21 @@ PanelField, which is built on a TextEdit; nothing else is an editable input.
 
 A TextEdit inserts a paste, a middle click's selection or a drop whole, and a
 few megabytes stall the shell for seconds, so PanelField cuts the clipboard's
-text itself at Ctrl+V, takes the middle button and refuses drops."""
+text itself at Ctrl+V, takes the middle button and refuses drops.
+
+The read is out of the shell: `Quickshell.clipboardText` reads the whole
+clipboard in the shell's process, waiting for the program that offers it, with
+no byte limit and no deadline. PanelField runs `wl-paste` in a Process instead,
+cut at a byte limit, stopped at a deadline, collected without blocking the
+shell. The script is run here against a fake `wl-paste`."""
 
 import glob
 import os
 import re
+import shutil
+import subprocess
+import tempfile
+import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -75,7 +85,8 @@ class PanelFieldClipboard(unittest.TestCase):
         key = key[:key.index("Keys.forwardTo")]
         self.assertIn("StandardKey.Paste", key)
         self.assertIn("event.accepted = true", key)
-        self.assertIn("Quickshell.clipboardText", key)
+        self.assertIn("pasteRead.running = true", key)
+        self.assertNotIn("clipboardText", key)
         fn = text[text.index("function _insert"):]
         fn = fn[:fn.index("readonly property var _borderSpec")]
         self.assertLess(fn.index(".slice("), fn.index(".replace("),
@@ -83,11 +94,71 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertIn("maximumLength", fn)
         self.assertRegex(fn, r"0xD800")
 
-    def test_clipboard_text_is_read_only_at_the_paste_key(self):
+    def test_the_clipboard_is_read_out_of_the_shell_at_the_paste_key(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
-        reads = [m.start() for m in re.finditer(r"clipboardText", text)]
-        self.assertEqual(len(reads), 1)
-        self.assertIn("StandardKey.Paste", text[:reads[0]][-300:])
+        self.assertNotIn("clipboardText", text)
+        self.assertEqual(len(re.findall(r"\bwl-paste\b", text)), 1)
+        self.assertEqual(len(re.findall(r"pasteRead\.running = true", text)), 1)
+        self.assertIn("StandardKey.Paste", text[:text.index("pasteRead.running = true")][-300:])
+        proc = body(text, re.search(r"\bProcess\s*\{", text).end())
+        self.assertIn("StdioCollector", proc)
+        self.assertRegex(proc, r"timeout -k \d+ \d+ wl-paste")
+        self.assertRegex(proc, r"head -c \d+")
+        self.assertRegex(proc, r"iconv -f UTF-8 -t UTF-8 -c")
+
+    def test_no_qml_file_reads_quickshell_clipboard_text(self):
+        for path in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
+            self.assertNotRegex(code(path), r"\bclipboardText\b",
+                                f"{os.path.basename(path)}: Quickshell.clipboardText reads the clipboard in the shell, unbounded")
+
+    def test_the_paste_waits_for_nothing_in_the_shell_and_only_into_a_focused_field(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        self.assertRegex(text, r"if \(!pasteRead\.running\) pasteRead\.running = true")
+        self.assertRegex(text, r"onStreamFinished:\s*if \(edit\.activeFocus\) field\._insert\(text\)")
+
+    def paste_script(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        m = re.search(r'command:\s*\["bash",\s*"-c",\s*"((?:[^"\\]|\\.)*)"\]', text)
+        self.assertIsNotNone(m)
+        return re.sub(r"\\(.)", r"\1", m.group(1))
+
+    def run_paste(self, mode):
+        script = self.paste_script()
+        with tempfile.TemporaryDirectory(dir=ROOT) as d:
+            fake = os.path.join(d, "wl-paste")
+            with open(fake, "w") as f:
+                f.write("#!/bin/sh\ncase \"$MODE\" in\n"
+                        " text) printf 'h\\303\\251llo\\nworld' ;;\n"
+                        " endless) exec yes 'x' ;;\n"
+                        " euro) yes \"$(printf '\\342\\202\\254')\" | tr -d '\\n' ;;\n"
+                        " stall) printf partial; exec sleep 30 ;;\n"
+                        " fail) printf partial; exit 1 ;;\n"
+                        "esac\n")
+            os.chmod(fake, 0o755)
+            return subprocess.run(["bash", "-c", "export PATH=%s:$PATH; %s" % (d, script)],
+                                  env={**os.environ, "MODE": mode}, capture_output=True,
+                                  timeout=20)
+
+    @unittest.skipUnless(shutil.which("timeout") and shutil.which("iconv"), "needs coreutils and iconv")
+    def test_the_read_script_against_a_fake_clipboard(self):
+        ok = self.run_paste("text")
+        self.assertEqual(ok.stdout.decode(), "h\u00e9llo\nworld")
+        self.assertEqual(ok.stderr, b"")
+        endless = self.run_paste("endless")
+        self.assertIn(len(endless.stdout), (131071, 131072))
+        euro = self.run_paste("euro").stdout
+        self.assertLessEqual(len(euro), 131072)
+        euro.decode("utf-8")
+        self.assertEqual(len(euro), 131070)
+        self.assertTrue(euro.endswith("\u20ac".encode()))
+        self.assertEqual(self.run_paste("fail").stdout, b"")
+
+    @unittest.skipUnless(shutil.which("timeout") and shutil.which("iconv"), "needs coreutils and iconv")
+    def test_a_stalled_provider_inserts_nothing_after_the_deadline(self):
+        started = time.monotonic()
+        stalled = self.run_paste("stall")
+        self.assertEqual(stalled.stdout, b"")
+        self.assertLess(time.monotonic() - started, 5)
 
     def test_middle_click_and_drops_do_not_reach_the_text_edit(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
