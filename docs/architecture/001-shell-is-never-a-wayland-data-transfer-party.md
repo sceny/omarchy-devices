@@ -3,7 +3,8 @@
 Status: accepted · 2026-10-14, amended the same day (keyboard selection,
 §2.3; what retires when Qt fixes land, §5.1; measured in the rig, §2.4, with
 the corrections it brought: no `DropArea`, read-only text takes no focus,
-`selectByMouse` set on every `TextEdit`) · owner of the decision: Mies
+`selectByMouse` set on every `TextEdit`; read-only text's focus rule closed,
+§6) · owner of the decision: Mies
 (architecture) · implements: SCE-696 · under: SCE-694 (Devices 0.8.4),
 SCE-603 (marketplace #10096)
 
@@ -89,9 +90,9 @@ Clipboard.copyPrimary(text: string, done?: function) -> bool  // started
     // same, ["wl-copy", "--primary"], for a middle-click-paste target we
     // chose to offer (today: none; reserved so a future need has a home).
 
-(file copy) kdeconnect-bridge copy-file <mime> <path>
-    // an image/file as data, out of the shell already
-    // (bin/kdeconnect-bridge:1222); argv carries the path, never the bytes.
+(file copy) kdeconnect-bridge copy-file <path>
+    // an image/file as data, out of the shell already (the bridge's
+    // `copy-file` verb, `copy_file`); argv carries the path, never the bytes.
     // Called from Service.qml as today, or forwarded by Clipboard; either
     // way the shell is not the source. Named so the inventory is complete.
 
@@ -341,8 +342,12 @@ the rig proof that the invariant actually holds at runtime.
 - every `TextEdit` **writes** `selectByMouse: false` (new: the default is
   `true`, so banning `true` is not enough);
 - no `selectByKeyboard: true` (new);
-- a read-only `TextEdit` writes `activeFocusOnPress: false`, and none is
-  given focus (new);
+- a `TextEdit` outside `PanelField` writes `readOnly: true` and
+  `activeFocusOnPress: false` as literals, and none is given focus (new): it
+  writes `focus` and `activeFocusOnTab` only as `false`, assigns or binds no
+  focus property and calls no `forceActiveFocus` in its body, and its id is
+  used only for where it is, what it shows and its own copy (a closed list
+  of members; any other use, the id alone included, fails);
 - no `DropArea` (new);
 - no call to a text item's own `copy()`, `cut()` or `paste()` (new; the
   pattern `\.(copy|cut|paste)\(\)` outside `Clipboard.qml`, so a context-menu
