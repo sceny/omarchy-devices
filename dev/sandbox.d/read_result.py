@@ -30,11 +30,13 @@ import argparse
 import os
 import re
 import sys
+import struct
 import tarfile
+import zlib
 
 PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+=,-]{0,119}$")
 LOADED_BY_TOOLS = {
-    "claude.md", "claude.local.md", "agents.md", "gemini.md", "copilot-instructions.md",
+    "claude.md", "claude.local.md", "agents.md", "agents.override.md", "gemini.md", "mise", "copilot-instructions.md",
     "mise.toml", "mise.local.toml", "conftest.py", "sitecustomize.py", "usercustomize.py",
     "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "package.json", "makefile",
     "justfile", "head", "objects", "refs",
@@ -42,6 +44,50 @@ LOADED_BY_TOOLS = {
 OTHER_IMAGES = (".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff", ".ico", ".avif", ".heic", ".apng", ".xpm", ".ppm")
 PER_FILE = 200 * 1024 * 1024
 MAX_DEPTH = 12
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+PNG_KEPT = (b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND")
+PNG_MAX_BYTES = 64 * 1024 * 1024
+PNG_MAX_EDGE = 16384
+PNG_MAX_PIXELS = 40_000_000
+
+
+def clean_png(data):
+    """The picture of a PNG the re-encoder wrote, as a PNG of image chunks only; ValueError when it is not one.
+
+    The signature, the order of chunks (IHDR first, IEND last and alone), every
+    CRC and the size limits are checked; only IHDR, PLTE, tRNS, IDAT and IEND
+    are kept, so no text, profile or unknown chunk reaches a viewer on the host.
+    """
+    if len(data) > PNG_MAX_BYTES or data[:8] != PNG_SIGNATURE:
+        raise ValueError("not a PNG within the limits")
+    out, pos, seen_idat, ended = [PNG_SIGNATURE], 8, False, False
+    while pos < len(data):
+        if ended or pos + 12 > len(data):
+            raise ValueError("bytes outside the chunks")
+        (length,) = struct.unpack(">I", data[pos:pos + 4])
+        kind = data[pos + 4:pos + 8]
+        end = pos + 12 + length
+        if length > PNG_MAX_BYTES or end > len(data):
+            raise ValueError("a chunk runs past the end")
+        body = data[pos + 8:pos + 8 + length]
+        if struct.unpack(">I", data[end - 4:end])[0] != zlib.crc32(kind + body):
+            raise ValueError("a chunk fails its checksum")
+        if pos == 8:
+            if kind != b"IHDR" or length != 13:
+                raise ValueError("IHDR is not first")
+            w, h = struct.unpack(">II", body[:8])
+            if not (0 < w <= PNG_MAX_EDGE and 0 < h <= PNG_MAX_EDGE and w * h <= PNG_MAX_PIXELS):
+                raise ValueError("picture too large")
+        elif kind == b"IHDR":
+            raise ValueError("a second IHDR")
+        seen_idat = seen_idat or kind == b"IDAT"
+        ended = kind == b"IEND"
+        if kind in PNG_KEPT:
+            out.append(data[pos:end])
+        pos = end
+    if not (seen_idat and ended):
+        raise ValueError("no image data or no IEND")
+    return b"".join(out)
 
 
 def refusal(parts):
@@ -51,7 +97,7 @@ def refusal(parts):
     for p in parts:
         if not PART.match(p):
             return "name"
-        if p.lower() in LOADED_BY_TOOLS:
+        if p.lower() in LOADED_BY_TOOLS or re.match(r"^mise\.[a-z0-9._-]+\.toml$", p.lower()):
             return "name: a file that tools load as instructions or settings"
     return None
 
@@ -146,20 +192,30 @@ def main(argv):
                 if m.size > PER_FILE or total + m.size > a.limit:
                     skip(m.name, f"too large ({m.size} bytes)")
                     continue
-                os.makedirs(os.path.dirname(target), mode=0o755, exist_ok=True)
                 src = tf.extractfile(m)
+                picture = None
+                if a.only_png:
+                    try:
+                        picture = clean_png(src.read(PNG_MAX_BYTES + 1))
+                    except ValueError as e:
+                        skip(m.name, f"the re-encoded picture fails the check: {e}")
+                        continue
+                os.makedirs(os.path.dirname(target), mode=0o755, exist_ok=True)
                 try:
                     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
                 except OSError as e:
                     skip(m.name, e.strerror or "cannot be written")
                     continue
                 with os.fdopen(fd, "wb") as out:
-                    while True:
-                        chunk = src.read(1 << 20)
-                        if not chunk:
-                            break
-                        out.write(chunk)
-                total += m.size
+                    if picture is not None:
+                        out.write(picture)
+                    else:
+                        while True:
+                            chunk = src.read(1 << 20)
+                            if not chunk:
+                                break
+                            out.write(chunk)
+                total += len(picture) if picture is not None else m.size
                 count += 1
         except (tarfile.TarError, OSError, EOFError) as e:
             skipped.append(f"{a.label}: the archive stops early: {e!r}"[:200])
