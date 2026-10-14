@@ -10,7 +10,7 @@
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name)
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
-#   dev/sandbox hostile-test             run a hostile commit written here and prove what it
+#   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
 #                                        could not reach (the sandbox's own acceptance test)
 #   dev/sandbox status                   the image, its pins, the limits
 #   dev/sandbox remove-image             delete the image and its storage
