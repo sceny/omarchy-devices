@@ -106,6 +106,11 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertRegex(proc, r"head -c \d+")
         self.assertRegex(proc, r"iconv -f UTF-8 -t UTF-8 -c")
 
+    def test_no_qml_file_reads_quickshell_clipboard_text(self):
+        for path in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
+            self.assertNotRegex(code(path), r"\bclipboardText\b",
+                                f"{os.path.basename(path)}: Quickshell.clipboardText reads the clipboard in the shell, unbounded")
+
     def test_the_paste_waits_for_nothing_in_the_shell_and_only_into_a_focused_field(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
         self.assertRegex(text, r"if \(!pasteRead\.running\) pasteRead\.running = true")
