@@ -2,7 +2,7 @@
 # C-clip-3 (docs/architecture/001): the shell is never a party to a Wayland
 # data transfer. Run against a rig (any plugin code synced into it):
 #
-#   dev/clip-check --rig <id>
+#   dev/clip-check --rig <id> [--dy N]
 #
 # Every gesture that could make the shell own the primary selection or the
 # clipboard is made, in a message bubble and in a field. Before each, another
@@ -12,20 +12,23 @@
 # writes (dev/clip-peer stall) must be read by wl-paste, never by the shell's
 # own process, and the shell must keep answering.
 #
-# The gestures use the demo's layout at the rig's 1280x720; each one checks it
-# did what it should (a selection to copy, a message copied), so a moved layout
-# reads as MISSED, never as a pass. Exit status: the number of failures.
+# The gestures use the demo's layout at the rig's 1280x720 (--dy moves every
+# point down by N pixels, up when negative: the 0.8 panel, with no contacts
+# banner, is --dy -75); each one checks it did what it should (a selection to
+# copy, a message copied), so a moved layout reads as MISSED, never as a pass.
+# Exit status: the number of failures.
 set -u
 cd "$(dirname "$0")/.."
 
-RIG=""
+RIG="" DY=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --rig) RIG="$2"; shift 2 ;;
-    *) echo "usage: dev/clip-check --rig <id>" >&2; exit 64 ;;
+    --dy) DY="$2"; shift 2 ;;
+    *) echo "usage: dev/clip-check --rig <id> [--dy N]" >&2; exit 64 ;;
   esac
 done
-[ -n "$RIG" ] || { echo "usage: dev/clip-check --rig <id>" >&2; exit 64; }
+[ -n "$RIG" ] || { echo "usage: dev/clip-check --rig <id> [--dy N]" >&2; exit 64; }
 
 R=(dev/rig --rig "$RIG")
 LIMIT_MS=1500
@@ -34,6 +37,7 @@ trap 'rm -f "$LOG"' EXIT
 FAILS=0
 
 ex() { "${R[@]}" exec -- "$@"; }
+y() { echo $(( $1 + DY )); }
 key() { ex wtype "$@"; sleep 0.3; }
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILS=$((FAILS + 1)); }
@@ -105,12 +109,12 @@ alive "baseline"
 
 echo "== a message bubble"
 mark
-ex dev/pointer drag 740 570 1000 570
+ex dev/pointer drag 740 "$(y 570)" 1000 "$(y 570)"
 unowned "drag across a bubble"
 attack --primary "drag across a bubble"
 
 mark
-ex dev/pointer click 1100 299 --double
+ex dev/pointer click 1100 "$(y 299)" --double
 sleep 0.6
 c=$(clipboard)
 if [ "$c" = MARK-C ]; then info "double click on a bubble: MISSED (nothing copied; the layout moved?)"
@@ -166,7 +170,7 @@ for k in "ctrl+z" "ctrl+shift+z" "Home" "End" "Up" "Down" "Left" "Right" "Escape
 done
 
 mark
-ex dev/pointer drag 420 208 650 208
+ex dev/pointer drag 420 "$(y 208)" 650 "$(y 208)"
 key -M ctrl c -m ctrl
 c=$(clipboard)
 if [ "$c" = MARK-C ] || [ -z "$c" ]; then info "drag across the field: MISSED (nothing selected; the layout moved?)"
@@ -175,7 +179,7 @@ unowned "drag across the field" copied
 
 for clicks in --double --triple; do
   mark
-  ex dev/pointer click 550 208 "$clicks"
+  ex dev/pointer click 550 "$(y 208)" "$clicks"
   unowned "${clicks#--} click in the field"
   key -M ctrl c -m ctrl
   c=$(clipboard)
@@ -188,7 +192,7 @@ echo "== reading: an owner that never writes"
 ex dev/clip-peer stall --primary --seconds 5 2>>"$LOG" &
 sleep 1.5
 echo "--- middle click" >>"$LOG"
-ex dev/pointer click 550 208 --middle
+ex dev/pointer click 550 "$(y 208)" --middle
 alive "middle click while the primary's owner never writes"
 wait
 read -r bad ok < <(shell_reads_after "--- middle click")
