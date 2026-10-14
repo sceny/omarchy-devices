@@ -237,6 +237,13 @@ def line_of(text, index):
     return text.count("\n", 0, index) + 1
 
 
+def top_level(inner):
+    """An object's body without its children's bodies."""
+    while re.search(r"\{[^{}]*\}", inner):
+        inner = re.sub(r"\{[^{}]*\}", "", inner)
+    return inner
+
+
 def clipboard_door_problems(path, text=None):
     """file:line of every way a QML file takes part in a clipboard transfer."""
     name = os.path.relpath(path, ROOT)
@@ -258,9 +265,22 @@ def clipboard_door_problems(path, text=None):
         inner = body(text, m.end())
         if not re.search(r"\bselectByMouse\s*:\s*false\b", inner):
             found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, line_of(text, m.start())))
-        if re.search(r"\breadOnly\s*:\s*true\b", inner) and not re.search(r"\bactiveFocusOnPress\s*:\s*false\b", inner):
+        if not re.search(r"\breadOnly\s*:\s*true\b", inner):
+            continue
+        # Qt's copy and Select-All keys check no flag: a read-only TextEdit
+        # with focus makes the shell own the selection on Ctrl+A or Ctrl+C.
+        own = top_level(inner)
+        if not re.search(r"\bactiveFocusOnPress\s*:\s*false\b", own):
             found.append("%s:%d: a read-only TextEdit takes no focus (activeFocusOnPress: false): "
                          "Qt's copy and Select-All keys check no flag" % (name, line_of(text, m.start())))
+        given = [m.start() for _ in re.finditer(r"\b(?:focus|activeFocusOnTab)\s*:\s*true\b", own)]
+        given += [m.end() + g.start() for g in re.finditer(r"\bforceActiveFocus\s*\(", inner)]
+        ident = re.search(r"\bid\s*:\s*(\w+)", own)
+        if ident:
+            given += [g.start() for g in re.finditer(
+                r"\b%s\s*\.\s*(?:forceActiveFocus\s*\(|(?:focus|activeFocusOnTab)\s*=(?!=))" % ident.group(1), text)]
+        found += ["%s:%d: a read-only TextEdit is never given focus: Qt's copy and Select-All keys "
+                  "check no flag" % (name, line) for line in sorted({line_of(text, at) for at in given})]
     return found
 
 
@@ -290,6 +310,29 @@ class ShippedQml(unittest.TestCase):
             for line in (2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14):
                 self.assertTrue(any(":%d:" % line in one for one in found), (line, found))
             self.assertFalse(any(":7:" in one or ":11:" in one for one in found), found)
+
+    def test_a_read_only_text_edit_is_never_given_focus(self):
+        quiet = "readOnly: true; selectByMouse: false; activeFocusOnPress: false"
+        cases = [
+            ("TextEdit { %s; focus: true }" % quiet, 1),
+            ("TextEdit { %s; activeFocusOnTab: true }" % quiet, 1),
+            ("TextEdit { %s; TapHandler { onTapped: forceActiveFocus() } }" % quiet, 1),
+            ("TextEdit { id: shown; %s }\nfunction f() { shown.forceActiveFocus() }" % quiet, 2),
+            ("TextEdit { id: shown; %s }\nfunction f() { shown.focus = true }" % quiet, 2),
+            ("TextEdit { id: shown; %s; Timer { id: later } }\nfunction f() { if (shown.focus == x) other.forceActiveFocus() }" % quiet, 0),
+            ("TextEdit { id: shown; %s; Item { focus: true } }" % quiet, 0),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "Bad.qml")
+            for source, line in cases:
+                with open(path, "w") as f:
+                    f.write("Item {\n" + source + "\n}\n")
+                found = clipboard_door_problems(path)
+                if line:
+                    self.assertTrue(any(":%d: a read-only TextEdit is never given focus" % (line + 1) in one
+                                        for one in found), (source, found))
+                else:
+                    self.assertEqual(found, [], source)
 
 
 if __name__ == "__main__":
