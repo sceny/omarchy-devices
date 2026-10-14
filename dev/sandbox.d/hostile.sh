@@ -80,9 +80,12 @@ t = json.load(open(sys.argv[1]))
 t['mode'] = sys.argv[2]
 json.dump(t, sys.stdout)
 PY
+    # the plugin's own files (not its tests or docs), so the rig can package the commit
+    git -C "$SB_DIR/.." archive HEAD -- . ':(exclude)tests' ':(exclude)dev' ':(exclude)docs' | tar -x
     printf '#!/bin/bash\n# HARNESS-FROM-THE-HOSTILE-COMMIT\nexit 0\n' >dev/rig
     chmod +x dev/rig
-    ln -sf /etc/passwd link-out-of-the-tree
+    # the rig's package step refuses a tracked symlink, so only the tests-step commit has one
+    [[ $mode == rigprobe ]] || ln -sf /etc/passwd link-out-of-the-tree
     git add -f -A >/dev/null
     git -c user.name=hostile -c user.email=hostile@invalid commit -q -m "hostile: $mode"
     git rev-parse HEAD
@@ -117,8 +120,17 @@ hostile_run() {
 }
 
 cmd_hostile_test() {
-  local quick=0
-  [[ ${1:-} == --quick ]] && quick=1
+  local quick=0 only="" keep=0
+  while (($#)); do
+    case $1 in
+    --quick) quick=1 ;;
+    --keep) keep=1 ;;
+    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang)}; shift ;;
+    *) die "hostile-test: unknown option '$1'" ;;
+    esac
+    shift
+  done
+  want() { [[ -z $only || ,$only, == *",$1,"* ]]; }
   require_tools
   pm image exists "$SB_IMAGE" || die "hostile-test: no image; run 'dev/sandbox build' first"
   HOSTILE_WORK=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile.XXXXXX")
@@ -162,35 +174,47 @@ PY
 
   git init -q -b main "$HOSTILE_WORK/repo"
   local mode
-  for mode in probe memory processes disk hang; do
+  for mode in probe rigprobe memory processes disk hang; do
     hostile_commit "$HOSTILE_WORK/repo" "$mode" >"$HOSTILE_WORK/sha-$mode" || die "could not build the hostile commit ($mode)"
   done
-  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and four more)"
+  step "hostile commits built in a throwaway repository ($(cut -c1-12 "$HOSTILE_WORK/sha-probe") and five more)"
 
   export "$secret_name=$secret_value"
 
-  say "1. the hostile commit's probes, in the tests step (no device passed in)"
-  hostile_run probe probe --steps tests
-
-  say "2. the same probes, run by a script while the rig and its emulator are up (kvm and a render node passed in)"
-  if ((quick)); then
-    warn "skipped (--quick)"
-  else
-    printf '#!/bin/bash\ncd /work/src && python3 -m unittest discover -s tests\nexit 0\n' >"$HOSTILE_WORK/probe-script.sh"
-    hostile_run probe-rig probe --steps script --script "$HOSTILE_WORK/probe-script.sh"
+  if want probe; then
+    say "1. the hostile commit's probes, in the tests step (no device passed in)"
+    hostile_run probe probe --steps tests
   fi
 
-  say "3. a memory bomb (limit 1 GB)"
-  local saved_memory=$SB_MEMORY
-  SB_MEMORY=1g
-  hostile_run memory memory --steps tests
-  SB_MEMORY=$saved_memory
-  say "4. a fork bomb (limit $SB_PIDS processes)"
-  hostile_run processes processes --steps tests
-  say "5. filling every writable tree"
-  hostile_run disk disk --steps tests
-  say "6. a commit that never ends (timeout 40 s)"
-  hostile_run hang hang --steps tests --timeout 40
+  if want probe-rig; then
+    say "2. the same probes, run by a script while the rig and its emulator are up (kvm and a render node passed in)"
+    if ((quick)); then
+      warn "skipped (--quick)"
+    else
+      printf '#!/bin/bash\ncd /work/src && python3 -m unittest discover -s tests\nexit 0\n' >"$HOSTILE_WORK/probe-script.sh"
+      hostile_run probe-rig rigprobe --steps script --script "$HOSTILE_WORK/probe-script.sh"
+    fi
+  fi
+
+  if want memory; then
+    say "3. a memory bomb (limit 1 GB)"
+    local saved_memory=$SB_MEMORY
+    SB_MEMORY=1g
+    hostile_run memory memory --steps tests
+    SB_MEMORY=$saved_memory
+  fi
+  if want processes; then
+    say "4. a fork bomb (limit $SB_PIDS processes)"
+    hostile_run processes processes --steps tests
+  fi
+  if want disk; then
+    say "5. filling every writable tree"
+    hostile_run disk disk --steps tests
+  fi
+  if want hang; then
+    say "6. a commit that never ends (timeout 40 s)"
+    hostile_run hang hang --steps tests --timeout 40
+  fi
 
   unset "$secret_name"
   say "7. nothing is left"
@@ -215,6 +239,10 @@ PY
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
   fi
   say "hostile test: $HOSTILE_PASS passed, $HOSTILE_FAIL failed"
+  if ((keep)); then
+    step "kept for reading: $HOSTILE_WORK"
+    HOSTILE_WORK=""
+  fi
   hostile_cleanup
   ((HOSTILE_FAIL == 0))
 }
