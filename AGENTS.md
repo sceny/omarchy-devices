@@ -29,7 +29,7 @@ the centre (`docs/design/setup.md`). The only files the plugin writes outside
 its folder are caches under `~/.cache/sceny.devices/` and each device's
 clipboard settings in KDE Connect's config (*Rules*).
 
-- **The plugin takes control of what it needs** (the owner's premise): it
+- **The plugin takes control of what it needs:** it
   does every setup step it can itself (its packages, KDE Connect's plugins
   per device, the phone's permissions over adb, the mount) and asks only for
   what it cannot, one step at a time, then carries on by itself. KDE
@@ -44,7 +44,7 @@ clipboard settings in KDE Connect's config (*Rules*).
   KDE Connect specialist, linking every KDE report, merge request, branch
   and fork) and a plugin issue (`bug`) (`diagnose-panel`, step 5). The
   plugin's handling goes when KDE Connect has its own fix.
-- **Second sources, one feature each, by the owner's decision.** The
+- **Second sources serve one feature each.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
   screen*`), which KDE Connect does not offer. Calls come from PipeWire's
   Bluetooth hands-free service (`kdeconnect-bridge call*`, #59): a call's
@@ -89,10 +89,10 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `manifest.json` | id, entry points, settings and their defaults |
 | `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
 
-## Rules: what the owner decided, so nobody undoes it
+## Rules
 
-Each rule is a decision the owner made or guards against a known fault.
-Keep them; change one only with the owner.
+Each rule guards a design decision or a known fault. Keep them; change
+one only with the owner.
 
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
@@ -241,8 +241,8 @@ Keep them; change one only with the owner.
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
-- **Setup never shows plumbing** (`docs/design/setup.md`, the owner's
-  decision after a new user installed dependencies by hand): the engine
+- **Setup never shows plumbing** (`docs/design/setup.md`): nobody
+  installs a dependency by hand; the engine
   (gateways, items, states) runs unseen, and the panel shows only the
   thing working, the one act only the user can do when they reach for it,
   and their preferences. Settings says nothing while everything works:
@@ -402,7 +402,7 @@ Keep them; change one only with the owner.
 - **Each window chooses where its sound plays** (#129): *Here*
   (scrcpy's default: the device's whole output, the device quiet), *On
   the phone* (`--no-audio`) or *Both* (`--audio-source=playback
-  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  --audio-dup`, Android 13; an option that is easy to take
   out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
   the Screen shortcut's speaker for the screen), on a card over the
   panel. scrcpy cannot switch while running, so a choice closes the
