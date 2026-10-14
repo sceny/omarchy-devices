@@ -85,7 +85,7 @@ PY
     printf '#!/bin/bash\n# HARNESS-FROM-THE-HOSTILE-COMMIT\nexit 0\n' >dev/rig
     chmod +x dev/rig
     # the rig's package step refuses a tracked symlink, so only the tests-step commit has one
-    [[ $mode == rigprobe ]] || ln -sf /etc/passwd link-out-of-the-tree
+    if [[ $mode == rigprobe ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
     git add -f -A >/dev/null
     git -c user.name=hostile -c user.email=hostile@invalid commit -q -m "hostile: $mode"
     git rev-parse HEAD
@@ -166,6 +166,7 @@ host_paths = [f'/run/user/{uid}/bus', f'/run/user/{uid}/wayland-0', f'/run/user/
               home + '/.gitconfig', home + '/.android', '/etc/shadow']
 json.dump({
     'canary_paths': [c1, c2, c3], 'canary_prefix': 'SANDBOX-CANARY-', 'canary_name_prefix': 'sandbox-canary-',
+    'canary_sha256': hashlib.sha256(('SANDBOX-CANARY-' + os.path.basename(c1).rsplit('-', 1)[1]).encode()).hexdigest(),
     'secret_name': sname, 'secret_sha256': hashlib.sha256(svalue.encode()).hexdigest(),
     'lan_ip': lan_ip, 'lan_gateway': gateway, 'lan_port': l['lan_port'], 'loopback_port': l['loopback_port'],
     'unix_path': l['unix_path'], 'abstract_name': l['abstract_name'], 'host_paths': host_paths,

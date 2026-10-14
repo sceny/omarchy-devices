@@ -10,6 +10,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import socket
 import stat
 import sys
@@ -64,31 +65,42 @@ def probe():
     # The owner's files: by path, by name and by content, over the whole tree.
     r["canary_paths"] = {p: ("READABLE" if os.access(p, os.R_OK) else "NO") for p in T["canary_paths"]}
     r["home_listing"] = sorted(os.listdir(os.path.dirname(T["canary_paths"][0]))) if os.path.isdir(os.path.dirname(T["canary_paths"][0])) else "NO SUCH DIRECTORY"
-    found = []
-    skip = ("/proc", "/sys", "/dev", "/work", "/in")
-    prefix = T["canary_prefix"].encode()
-    name_prefix = T["canary_name_prefix"]
-    content_roots = ("/home", "/tmp", "/var", "/run", "/etc", "/root", "/mnt", "/srv", "/media", "/out")
-    for root, dirs, files in os.walk("/", followlinks=False):
-        if root.startswith(skip):
-            dirs[:] = []
-            continue
-        for f in files:
-            p = os.path.join(root, f)
-            if name_prefix in f:
-                found.append(p)
+
+    def search(sha):
+        found = []
+        skip = ("/proc", "/sys", "/dev", "/work", "/in")
+        prefix = T["canary_prefix"].encode()
+        canary_re = re.compile(rb"SANDBOX-CANARY-[0-9a-f]{16}")
+        name_prefix = T["canary_name_prefix"]
+        content_roots = ("/home", "/tmp", "/var", "/run", "/etc", "/root", "/mnt", "/srv", "/media", "/out")
+        for root, dirs, files in os.walk("/", followlinks=False):
+            if root.startswith(skip):
+                dirs[:] = []
                 continue
-            if not p.startswith(content_roots):
-                continue
-            try:
-                if os.path.islink(p) or os.path.getsize(p) > 2_000_000:
+            for f in files:
+                p = os.path.join(root, f)
+                if name_prefix in f:
+                    found.append(p)
                     continue
-                with open(p, "rb") as fh:
-                    if prefix in fh.read():
+                if not p.startswith(content_roots):
+                    continue
+                try:
+                    if os.path.islink(p) or os.path.getsize(p) > 2_000_000:
+                        continue
+                    with open(p, "rb") as fh:
+                        data = fh.read()
+                    if prefix in data and any(hashlib.sha256(m).hexdigest() == sha for m in canary_re.findall(data)):
                         found.append(p)
-            except OSError:
-                pass
-    r["canary_found_anywhere"] = found
+                except OSError:
+                    pass
+        return found
+
+    r["canary_found_anywhere"] = search(T["canary_sha256"])
+    control = "/home/sandbox/control-canary"
+    with open(control, "w") as fh:
+        fh.write("SANDBOX-CANARY-0123456789abcdef\n")
+    r["canary_search_control"] = control in search(hashlib.sha256(b"SANDBOX-CANARY-0123456789abcdef").hexdigest())
+    os.unlink(control)
 
     # The environment, this process's and every visible process's.
     bad = []

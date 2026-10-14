@@ -45,7 +45,8 @@ if kind in ("probe", "probe-rig"):
     extra = set(p["dev"]) - usual
     check("a canary file in the owner's home (and two more, in the runtime dir and /tmp) is not readable",
           all(v == "NO" for v in p["canary_paths"].values()), p["canary_paths"])
-    check("the canary is not found anywhere in the container, by name or by content", p["canary_found_anywhere"] == [], p["canary_found_anywhere"])
+    check("the canary is not found anywhere in the container, by name or by content (the search finds a canary planted inside as a control)",
+          p["canary_found_anywhere"] == [] and p["canary_search_control"] is True, (p["canary_found_anywhere"], p["canary_search_control"]))
     check("the owner's home directory does not exist inside", p["home_listing"] == "NO SUCH DIRECTORY", p["home_listing"])
     check("an unprivileged uid, with the owner's uid not mapped at all", p["uid"] == 1000 and p["uid_map"][:3] == ["0", "1", "65536"], p["uid_map"])
     check("no capability, no_new_privs, a seccomp filter",
