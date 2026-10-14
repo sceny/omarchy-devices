@@ -163,14 +163,17 @@ finding blocks the pull request.
   (`NumberField`, `MultiSelect`, `SearchableDropdown`, `TextField` from
   `qs.Ui`, and any other its folder holds), no `Quickshell.clipboardText`
   read anywhere (it reads the whole clipboard in the shell, unbounded,
-  waiting for the program that offers it), no `selectByMouse: true` (Qt
-  would own the primary selection), no `Drag.Automatic`, `wl-copy` and
-  `wl-paste` only in `Clipboard.qml`, the copy's text on stdin, the read
-  with a byte limit and a deadline, no `cliphist`. `tests/test_argv.py`
-  (`ClipboardOnlyOnPaste`) and `tests/test_panelfield.py` (`ShippedQml`,
-  naming file:line) fail on each; `dev/clipboard-freeze-proof --rig ID`
-  shows it in a running rig (a stopped reader and a provider that never
-  answers leave the shell answering).
+  waiting for the program that offers it), `selectByMouse: false` written
+  on every `TextEdit` (the default is true; Qt would own the primary
+  selection), no `selectByKeyboard: true`, a read-only `TextEdit` takes no
+  focus, no text item's own `copy()`, `cut()` or `paste()`, no `DropArea`,
+  no system drag (`Drag.Automatic`), `wl-copy` and `wl-paste` only in
+  `Clipboard.qml`, the copy's text on stdin, the read with a byte limit and
+  a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`)
+  and `tests/test_panelfield.py` (`ShippedQml`, naming file:line) fail on
+  each; `dev/clip-check --rig ID` shows it in a running rig (every
+  selection gesture, a reader that never reads, an owner that never
+  writes).
 - Private text (messages, contact names, numbers, clipboard) stays out of
   logs.
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
@@ -218,6 +221,12 @@ pass or fail against its rule in AGENTS.md, not only what changed.
 Calls and texts go only as far as the *Never* rules allow: the D-Bus argument
 types (`tests/test_calls.py`) and demo mode (`demoCall`, `pressCall`). The
 panel is looked at, not only measured (`slowMotion 10` for a transition).
+
+The clipboard is a row of its own: `dev/clip-check --rig ID` passes on the
+candidate, and the row records Omarchy's Qt beside it (`pacman -Q qt6-base
+qt6-declarative`). When that Qt meets a trigger in
+`docs/architecture/001` (section 5.1), the regression's author files the
+retirement it names as its own issue for Panel Engineer.
 
 The record is a document on the release task:
 

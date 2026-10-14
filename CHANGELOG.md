@@ -30,10 +30,11 @@ GitHub release with these notes.
   selecting text go through one door that runs the system's clipboard tools
   outside the shell, with a size limit and a deadline, so a program that
   never reads what you copied (or never finishes what it pastes) cannot
-  freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V and Ctrl+A work as
-  before, and the mouse still places the cursor and selects (click, drag;
-  Shift with the arrow keys). A message in a conversation is copied by a
-  double click; it can no longer be selected by dragging. A gallery photo is
+  freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with
+  the arrow keys work as before, and the mouse still places the cursor and
+  selects (a drag, Shift+click, a word on a double click, all on a triple).
+  A message in a conversation is copied by a double click; it can no longer
+  be selected by dragging. A gallery photo is
   no longer dragged out of the panel: use its copy button, then paste it
   where you want it.
 - **The on-screen display names nothing a device sent**: with no panel

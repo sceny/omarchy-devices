@@ -109,6 +109,14 @@ emulator's network daemon keeps a TCP link open through a reboot or a radio
 off, so those two faults cannot drop it: a real drop is for a real device. It
 sends no text and places no call.
 
+**The clipboard check.** `dev/clip-check --rig <id>` (demo, no phone needed)
+makes every gesture that could make the shell own the clipboard or the
+primary selection, in a field and a message bubble, and runs a reader that
+never reads (`dev/clip-peer hold`) and an owner that never writes
+(`dev/clip-peer stall`) against it: the shell must own nothing, read nothing
+itself, and keep answering (`docs/architecture/001`). It clicks with
+`dev/pointer` and types with `wtype`, at the demo's layout.
+
 **Without the phone.** `dev/rig up --no-phone` keeps the shell and plugin
 (demo mode, screenshots); `--bare` skips the plugin install too.
 

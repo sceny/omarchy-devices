@@ -383,15 +383,20 @@ Keep them; change one only with the owner.
   `Clipboard` (`copyText`, `readInto`): a short-lived `wl-copy` with the
   text on stdin, a `wl-paste` stopped at a deadline and cut at a byte
   limit, in a Process; `wl-copy` and `wl-paste` appear in no other file. No
-  text item copies, cuts, pastes or selects through Qt: `selectByMouse` is
-  `false` (a `PanelField` selects with `edit.select` from the mouse and
-  Shift with a movement key, handles Ctrl+C, X, V, A itself, takes the
-  middle button and refuses drops; a message bubble is read-only and
-  copies on a double click), and nothing starts a drag out
-  (`Drag.Automatic`). A new text item follows `PanelField` or the bubble;
+  text item copies, cuts, pastes or selects through Qt, since Qt makes the
+  shell the owner whenever its own key or click leaves a selection
+  standing. Every `TextEdit` writes `selectByMouse: false` (it defaults to
+  true). `PanelField` owns its selection: Ctrl+A, every Shift selection key
+  and the mouse move it with `select`, a key that would leave one standing
+  finds it gone, and the mouse never reaches its TextEdit (no middle-click
+  paste). A read-only `TextEdit` takes no focus, so no key reaches it (the
+  message bubble copies on a double click). No `DropArea`, no drag out of
+  the window. A new text item follows `PanelField` or the bubble;
   `tests/test_panelfield.py` (`ShippedQml`) and `tests/test_argv.py` fail
-  the build naming file:line, and `dev/clipboard-freeze-proof` shows it in
-  the rig.
+  the build naming file:line, and `dev/clip-check --rig ID` shows it in the
+  rig: a reader that never reads does not stop the shell. The shell's own
+  read of a new clipboard while any panel has the keyboard is Omarchy's
+  (omacom/omarchy#8753), not ours.
 - **Apps are windows of their own, tiled by default** (no setting;
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
   floating and pinned at the top right in the device's shape; its sound
