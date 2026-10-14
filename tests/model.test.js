@@ -536,6 +536,19 @@ test("keys page: every key once per group, each group headed once, named in Back
   assert.equal(M.navLabel("settings/keys"), "Keys")
 })
 
+test("keys page: every key the panel's text-key handler answers to is listed", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "..", "Panel.qml"), "utf8")
+  const start = panel.indexOf("onTextKey: function(t) {")
+  assert.ok(start >= 0, "the handler is found")
+  const body = panel.slice(start, panel.indexOf("\n      }\n", start))
+  const handled = new Set([...body.matchAll(/t === "(.)"/g)].map(m => m[1]))
+  assert.ok(handled.has("?") && handled.has("c") && handled.has("]"), "the handler's keys are read")
+  // A key on the page is a token of its keys, Shift+X as X.
+  const listed = new Set(M.KEYS.flatMap(g => g.keys.flatMap(k => k[0].split(/[\s·]+/).map(s => s.replace(/^Shift\+/, "")))))
+  const allowed = new Set(["+"]) // the alias of =
+  assert.deepEqual([...handled].filter(k => !listed.has(k) && !allowed.has(k)), [], "handled but not on the Keys page")
+})
+
 test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {
   const fresh = Object.assign(M.demoFeatures(), {
     files: { sshfs: true, mounted: false, error: "Permissions missing: filesystem access" },
