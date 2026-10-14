@@ -15,10 +15,17 @@ The hostile test (`dev/sandbox hostile-test`) proves the same from inside a
 real container; this one runs in CI, where there is no podman.
 """
 
+import importlib.util
+import io
+import json
 import os
 import re
+import struct
 import subprocess
+import tarfile
+import tempfile
 import unittest
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SANDBOX = os.path.join(ROOT, "dev", "sandbox")
@@ -146,7 +153,7 @@ class Isolation(unittest.TestCase):
         self.assertTrue(mounts)
         for m in mounts:
             with self.subTest(mount=m):
-                self.assertTrue(m.startswith("type=bind,src=$SB_RUN_DIR/"), m)
+                self.assertTrue(m.startswith(("type=bind,src=$SB_RUN_DIR/", "type=bind,src=$png,", "type=bind,src=$SB_DIR/sandbox.d/reencode.py,")), m)
                 self.assertTrue(m.endswith(",ro"), m)
         self.assertNotIn("--mount", self.run_cmd.replace('"${mounts[@]}"', ""))
 
@@ -171,9 +178,34 @@ class Isolation(unittest.TestCase):
         self.assertNotIn("git checkout", self.script)
 
     def test_results_are_read_as_data(self):
-        self.assertIn("O_NOFOLLOW", self.script)
-        self.assertIn("isreg()", self.script)
-        self.assertNotIn("tar -x", self.script.split("read_result() {")[1].split("PY\n}")[0])
+        with open(READ_RESULT) as f:
+            reader = f.read()
+        self.assertIn("O_NOFOLLOW", reader)
+        self.assertIn("isreg()", reader)
+        self.assertNotIn("extractall", reader)
+        self.assertIn("read_result.py", self.script.split("read_result() {")[1].split("\n}")[0])
+        self.assertNotIn("tar -x", self.script.split("read_result() {")[1].split("\n}")[0])
+
+    def test_the_picture_container_has_what_the_unit_container_has_and_less(self):
+        text = self.script
+        start = text.index("reencode_pngs() {")
+        body = text[start : text.index("\n}\n", start)]
+        for flag in ("--network none", "--cap-drop all", "--security-opt no-new-privileges", "--read-only", "--uidmap 0:1:65536",
+                     "--user 1000:1000", "--pull never", "--memory", "--pids-limit", "--timeout", "--no-hosts", "env -i"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, body)
+        for flag in ("--device", "--privileged", "--cap-add", "--env SANDBOX", "src.tar", "script.sh", "--network host"):
+            with self.subTest(flag=flag):
+                self.assertNotIn(flag, body)
+
+    def test_the_results_go_where_git_and_shells_do_not_look(self):
+        self.assertIn('out="$SB_STATE/results/', self.script)
+        self.assertNotIn("sandbox-out", self.script.replace("# ", ""))
+        self.assertIn("out_in_git", self.script.split("cmd_run() {")[1])
+
+    def test_each_unit_has_a_directory_of_its_own_made_by_the_host(self):
+        self.assertIn('mkdir -p -m 755 "$out/$unit"', self.script)
+        self.assertIn('read_result "$tarfile" "$out/$unit" "$out" "$unit"', self.script)
 
     def test_the_tests_step_runs_with_the_seccomp_profile_without_user_namespaces(self):
         self.assertIn('seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")', self.script)
@@ -211,9 +243,10 @@ class Verdict(unittest.TestCase):
         self.assertIn("summary.json", body)
 
     def test_a_result_cannot_replace_the_verdict_files(self):
-        body = self.script.split("read_result() {")[1].split("PY\n}")[0]
-        for name in ("results.tsv", "summary.json", "SKIPPED.txt"):
-            self.assertIn(name, body)
+        # the verdict files are in the run's directory; a unit's files go one level down
+        body = self.script.split("write_verdict() {")[1].split("PY\n}")[0]
+        self.assertIn("os.path.join(out, 'results.tsv')", body)
+        self.assertIn('"$out/$unit"', self.script)
 
     def test_the_member_count_is_capped(self):
         self.assertIn("SB_MAX_MEMBERS=20000", self.script)
@@ -312,11 +345,218 @@ class Seccomp(unittest.TestCase):
                 self.assertFalse(set(r["names"]) & {"clone", "clone3", "unshare"}, r["names"])
 
 
+READ_RESULT = os.path.join(ROOT, "dev", "sandbox.d", "read_result.py")
+REENCODE = os.path.join(ROOT, "dev", "sandbox.d", "reencode.py")
+
+
+def tar_of(members):
+    """members: name -> bytes (a file), None (a directory), ("link", target), or ("fifo",)."""
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as t:
+        for name, what in members.items():
+            info = tarfile.TarInfo(name)
+            if what is None:
+                info.type = tarfile.DIRTYPE
+                info.mode = 0o755
+                t.addfile(info)
+            elif isinstance(what, tuple) and what[0] == "link":
+                info.type = tarfile.SYMTYPE
+                info.linkname = what[1]
+                t.addfile(info)
+            elif isinstance(what, tuple) and what[0] == "fifo":
+                info.type = tarfile.FIFOTYPE
+                t.addfile(info)
+            else:
+                info.size = len(what)
+                t.addfile(info, io.BytesIO(what))
+    return buf.getvalue()
+
+
+def png(width, height, text=None):
+    def chunk(kind, body):
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+
+    raw = zlib.compress(b"".join(b"\x00" + b"\x10\x20\x30" * width for _ in range(height)))
+    out = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    if text:
+        out += chunk(b"tEXt", text)
+    return out + chunk(b"IDAT", raw) + chunk(b"IEND", b"")
+
+
 class ReadResult(unittest.TestCase):
-    def test_the_member_cap_counts_directories(self):
+    """read_result.py on tars a hostile unit could send."""
+
+    def read(self, members, *extra, label="unit-bridge", limit=1 << 30, max_members=20000):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = os.path.join(self.tmp.name, "out")
+        dest = os.path.join(root, label)
+        os.makedirs(dest)
+        archive = os.path.join(self.tmp.name, "r.tar")
+        with open(archive, "wb") as f:
+            f.write(tar_of(members) if isinstance(members, dict) else members)
+        r = subprocess.run(["python3", READ_RESULT, archive, dest, root, label, str(limit), str(max_members), *extra],
+                           capture_output=True, text=True, timeout=60)
+        skipped = os.path.join(root, "SKIPPED.txt")
+        self.skipped = ""
+        if os.path.exists(skipped):
+            with open(skipped) as f:
+                self.skipped = f.read()
+        self.root, self.dest = root, dest
+        return r
+
+    def on_disk(self):
+        found = []
+        for r, dirs, files in os.walk(self.dest):
+            found += [os.path.relpath(os.path.join(r, n), self.dest) for n in dirs + files]
+        return sorted(found)
+
+    def test_an_ordinary_tree_arrives(self):
+        r = self.read({"./": None, "./logs": None, "./logs/unit.log": b"ok\n", "./notes/a.txt": b"x"})
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(self.dest, "logs", "unit.log"), "rb") as f:
+            self.assertEqual(f.read(), b"ok\n")
+        self.assertTrue(os.path.isfile(os.path.join(self.dest, "notes", "a.txt")))
+        self.assertEqual(self.skipped, "")
+
+    def test_a_result_tree_never_holds_what_git_a_shell_or_an_agent_acts_on(self):
+        hostile = {
+            ".git/config": b"[core]\n\tfsmonitor = touch /tmp/x\n", ".git/HEAD": b"ref: refs/heads/main\n", ".git": None,
+            ".envrc": b"x", "CLAUDE.md": b"x", "claude.MD": b"x", "Agents.md": b"x", "GEMINI.md": b"x", ".claude/settings.json": b"{}",
+            "mise.toml": b"x", ".tool-versions": b"x", "conftest.py": b"x", "HEAD": b"ref: refs/heads/main\n", "objects/x": b"x",
+            "refs/x": b"x", "sub/.hidden": b"x", "-rf": b"x", "_underscore": b"x", "fine/ok.txt": b"ok",
+        }
+        self.read(hostile)
+        self.assertEqual(self.on_disk(), ["fine", "fine/ok.txt"])
+        for name in (".git/config", ".envrc", "CLAUDE.md", "claude.MD", "Agents.md", "GEMINI.md", ".claude/settings.json", "mise.toml",
+                     ".tool-versions", "conftest.py", "refs/x", "objects/x", "sub/.hidden", "-rf"):
+            self.assertIn(name, self.skipped)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CEILING_DIRECTORIES": self.tmp.name}
+        for d in (self.root, self.dest):
+            self.assertNotEqual(subprocess.run(["git", "-C", d, "rev-parse", "--git-dir"], capture_output=True, env=env).returncode, 0)
+
+    def test_no_name_starts_with_anything_but_a_letter_or_digit(self):
+        self.read({"-a": b"x", ".a": b"x", "_a": b"x", "@a": b"x", "a/-b": b"x", "a1": b"x"})
+        self.assertEqual(self.on_disk(), ["a1"])
+
+    def test_skipped_lists_a_names_as_escaped_text(self):
+        self.read({"evil\x1b]0;OSC-TITLE\x07name": b"x", "bell\x07": b"x", "bidi\u202e": b"x", "carriage\rreturn": b"x"})
+        self.assertNotRegex(self.skipped, "[\x00-\x08\x0b-\x1f\x7f\u202e]")
+        self.assertIn("\\x1b]0;OSC-TITLE\\x07name", self.skipped)
+        self.assertIn("unit-bridge: ", self.skipped)
+
+    def test_only_regular_files_and_directories(self):
+        self.read({"link": ("link", "/etc/passwd"), "fifo": ("fifo",), "dir/": None, "dir/file": b"x"})
+        self.assertEqual(self.on_disk(), ["dir", "dir/file"])
+        self.assertIn("'link'", self.skipped)
+        self.assertIn("'fifo'", self.skipped)
+
+    def test_the_member_cap_counts_directories_and_stops_the_read(self):
+        r = self.read({f"d{i}/": None for i in range(50)}, max_members=20)
+        self.assertEqual(r.returncode, 4)
+        self.assertLessEqual(len(self.on_disk()), 20)
+        self.assertIn("more than 20 members", self.skipped)
+
+    def test_a_file_over_the_limit_is_not_written(self):
+        self.read({"big": b"x" * 1000, "small": b"x"}, limit=500)
+        self.assertEqual(self.on_disk(), ["small"])
+        self.assertIn("too large", self.skipped)
+
+    def test_a_cut_archive_is_reported(self):
+        data = tar_of({"a": b"x" * 4000, "b": b"y" * 4000})
+        r = self.read(data[:6500])
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("stops early", self.skipped)
+
+    def test_nothing_that_is_not_a_tar_is_read(self):
+        r = self.read(b"not a tar at all")
+        self.assertEqual(r.returncode, 3)
+        self.assertEqual(self.on_disk(), [])
+
+    def test_a_png_goes_to_the_quarantine_and_other_images_are_refused(self):
+        quarantine = tempfile.mkdtemp()
+        self.addCleanup(subprocess.run, ["rm", "-rf", quarantine])
+        self.read({"shots/a.png": png(2, 2), "shots/b.JPG": b"\xff\xd8", "shots/c.svg": b"<svg/>", "shots/d.gif": b"GIF89a", "e.txt": b"x"},
+                  "--png-dir", quarantine)
+        self.assertEqual(self.on_disk(), ["e.txt"])
+        self.assertTrue(os.path.isfile(os.path.join(quarantine, "shots", "a.png")))
+        for name in ("b.JPG", "c.svg", "d.gif"):
+            self.assertIn(name, self.skipped)
+
+    def test_a_png_with_nowhere_to_be_re_encoded_is_dropped(self):
+        self.read({"a.png": png(2, 2)})
+        self.assertEqual(self.on_disk(), [])
+        self.assertIn("nowhere to be re-encoded", self.skipped)
+
+    def test_a_picture_that_does_not_come_back_from_the_re_encode_is_listed(self):
+        sent = os.path.join(tempfile.mkdtemp(), "sent")
+        os.makedirs(os.path.join(sent, "shots"))
+        for n in ("good.png", "bad.png"):
+            with open(os.path.join(sent, "shots", n), "wb") as f:
+                f.write(b"x")
+        self.read({"shots/good.png": png(2, 2), "shots/notes.txt": b"x", "shots/ghost.jpg": b"x"}, "--only-png", "--expect", sent)
+        self.assertEqual(self.on_disk(), ["shots", "shots/good.png"])
+        self.assertIn("'shots/bad.png'", self.skipped)
+        self.assertNotIn("good.png", self.skipped)
+
+
+class OutputPlace(unittest.TestCase):
+    def test_a_git_directory_is_found_from_the_nearest_existing_ancestor(self):
         with open(SANDBOX) as f:
-            body = f.read().split("read_result() {")[1].split("PY\n}")[0]
-        self.assertIn("members", body)
+            text = f.read()
+        func = "out_in_git() {" + text.split("out_in_git() {")[1].split("\n}\n")[0] + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            work = os.path.join(tmp, "work")
+            bare = os.path.join(tmp, "bare")
+            plain = os.path.join(tmp, "plain")
+            for d in (work, bare, plain):
+                os.makedirs(d)
+            env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CEILING_DIRECTORIES": tmp, "HOME": tmp}
+            subprocess.run(["git", "init", "-q", work], check=True, env=env)
+            os.makedirs(os.path.join(bare, "objects"))
+            os.makedirs(os.path.join(bare, "refs"))
+            with open(os.path.join(bare, "HEAD"), "w") as f:
+                f.write("ref: refs/heads/main\n")
+
+            def inside(path):
+                r = subprocess.run(["bash", "-c", func + f'SB_HOME={tmp}; out_in_git "$1"', "x", path], env=env, capture_output=True)
+                return r.returncode == 0
+
+            self.assertTrue(inside(os.path.join(work, "results", "run")))
+            self.assertTrue(inside(os.path.join(work, ".git")))
+            self.assertTrue(inside(os.path.join(bare, "sub", "run")))
+            self.assertFalse(inside(os.path.join(plain, "results", "run")))
+
+
+class Reencode(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("reencode", REENCODE)
+        try:
+            cls.mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(cls.mod)
+        except (ImportError, ValueError) as e:
+            raise unittest.SkipTest(f"no GdkPixbuf here: {e}")
+
+    def write(self, data):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "a.png")
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_the_header_limits_come_before_any_decoding(self):
+        self.assertEqual(self.mod.decode(self.write(png(30000, 1)[:60]), "/nonexistent/x.png"), "picture too large (30000x1)")
+        self.assertEqual(self.mod.decode(self.write(b"GIF89a" + b"\0" * 40), "/nonexistent/x.png"), "not a PNG")
+        self.assertEqual(self.mod.decode(self.write(png(8000, 8000)[:60]), "/nonexistent/x.png"), "picture too large (8000x8000)")
+
+    def test_a_good_picture_comes_back_without_its_text(self):
+        out = os.path.join(tempfile.mkdtemp(), "b.png")
+        self.assertIsNone(self.mod.decode(self.write(png(4, 4, b"Comment\x00HOSTILE-TEXT")), out))
+        with open(out, "rb") as f:
+            data = f.read()
+        self.assertTrue(data.startswith(b"\x89PNG"))
+        self.assertNotIn(b"HOSTILE-TEXT", data)
 
 
 if __name__ == "__main__":

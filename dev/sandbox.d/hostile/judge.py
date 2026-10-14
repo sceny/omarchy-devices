@@ -4,7 +4,10 @@
 usage: judge.py <work dir> <kind> <out dir>
 kinds: probe (tests step, no device), probe-rig (inside the rig step's script),
        memory, processes, disk, hang, stdout-flood, stderr-escape, stderr-flood,
-       many-dirs, rewrite
+       many-dirs, rewrite, gitconfig, pngs, gpu
+A unit's files are in <out dir>/<unit>/ (unit-bridge for the tests step's
+hostile test, script for the rig step's); SKIPPED.txt, results.tsv and
+summary.json are the host's, in <out dir>.
 
 Prints one line per check: PASS<TAB>what, FAIL<TAB>what<TAB>evidence,
 INFO<TAB>text. The out dir is the sandbox's own result directory: data only.
@@ -12,12 +15,15 @@ INFO<TAB>text. The out dir is the sandbox's own result directory: data only.
 import json
 import os
 import re
+import subprocess
 import sys
 import unicodedata
 
 work, kind, out = sys.argv[1:4]
 T = json.load(open(os.path.join(work, "targets.json")))
 lines = []
+UNIT = "script" if kind in ("probe-rig", "gpu") else "unit-bridge"
+ud = os.path.join(out, UNIT)
 
 
 def check(name, ok, detail=""):
@@ -31,12 +37,17 @@ def info(text):
     lines.append(f"INFO\t{text}")
 
 
-def load(name):
-    path = os.path.join(out, name)
+def load(name, base=None):
+    path = os.path.join(base or ud, name)
     return json.load(open(path)) if os.path.exists(path) else None
 
 
-summary = load("summary.json") or {}
+def skipped_text():
+    path = os.path.join(out, "SKIPPED.txt")
+    return open(path).read() if os.path.exists(path) else ""
+
+
+summary = load("summary.json", out) or {}
 
 if kind in ("probe", "probe-rig"):
     p = load("probe.json")
@@ -86,13 +97,13 @@ if kind in ("probe", "probe-rig"):
           all(v != "WROTE" for v in p["write_outside"].values()), p["write_outside"])
     check("only the scratch trees are writable (/tmp, /out, /work, the home)", all(v == "WROTE" for v in p["write_allowed"].values()), p["write_allowed"])
     check("the commit's own dev/rig is replaced by develop's", p["harness_replaced_by_commit"] is False, p["harness_replaced_by_commit"])
-    skipped = [s for s in open(os.path.join(out, "SKIPPED.txt")).read().split("\n") if s] if os.path.exists(os.path.join(out, "SKIPPED.txt")) else []
+    skipped = [s for s in skipped_text().split("\n") if s]
     left = [n for n in ("evil-symlink", "evil-fifo", "evil-hardlink", "huge-sparse", "has space", "n" * 200)
-            if os.path.lexists(os.path.join(out, "probe", n))]
+            if os.path.lexists(os.path.join(ud, "probe", n))]
     check("what leaves is read as data: a symlink, a fifo, a hard link, a 200-character name, a space in a name and a 210 MB file are not materialised",
           left == [] and len(skipped) >= 5, {"materialised": left, "skipped": [s[:70] for s in skipped]})
     check("an ordinary result file does arrive",
-          os.path.exists(os.path.join(out, "probe", "fine.txt")) and open(os.path.join(out, "probe", "fine.txt")).read() == "an ordinary result\n")
+          os.path.exists(os.path.join(ud, "probe", "fine.txt")) and open(os.path.join(ud, "probe", "fine.txt")).read() == "an ordinary result\n")
     check("nothing the commit wrote reached outside the output directory",
           not os.path.lexists(os.path.join(work, "evil")) and not os.path.lexists(os.path.join(os.path.dirname(out), "evil")))
     if kind == "probe-rig":
@@ -100,7 +111,7 @@ if kind in ("probe", "probe-rig"):
         check("the rig was up while the hostile script ran (the script unit exits 0 only then)", results.get("script") == 0, results)
 
 elif kind == "memory":
-    progress = open(os.path.join(out, "mem-progress")).read() if os.path.exists(os.path.join(out, "mem-progress")) else "0"
+    progress = open(os.path.join(ud, "mem-progress")).read() if os.path.exists(os.path.join(ud, "mem-progress")) else "0"
     limit_mb = 1024
     check("a memory bomb is stopped at the memory limit (the host did not swap or stall)",
           summary.get("oom_killed") is True or int(progress or 0) <= limit_mb + 256, {"allocated_mb": progress, "oom": summary.get("oom_killed")})
@@ -153,10 +164,9 @@ elif kind == "stderr-flood":
 
 elif kind == "many-dirs":
     row = {r["step"]: r for r in summary.get("results", [])}.get("unit-bridge", {})
-    many = os.path.join(out, "many")
+    many = os.path.join(ud, "many")
     made = len(os.listdir(many)) if os.path.isdir(many) else 0
-    skipped_path = os.path.join(out, "SKIPPED.txt")
-    skipped = open(skipped_path).read() if os.path.exists(skipped_path) else ""
+    skipped = skipped_text()
     check("a tar of 100,000 empty directories is read up to 20,000 members and then refused: the unit and the run fail",
           0 < made <= 20000 and row.get("exit", 0) != 0 and summary.get("passed") is False, {"dirs_on_host": made, "row": row})
     check("the refusal is written down", "more than 20000 members" in skipped, skipped[:200])
@@ -170,8 +180,75 @@ elif kind == "rewrite":
           rows.get("rig-ci", {}).get("exit", 0) != 0, rows.get("rig-ci"))
     tsv_path = os.path.join(out, "results.tsv")
     tsv = open(tsv_path).read() if os.path.exists(tsv_path) else ""
+    planted = [n for n in ("results.tsv", "summary.json") if os.path.exists(os.path.join(ud, n))]
+    info(f"the test's own results.tsv/summary.json arrive only under {UNIT}/ ({', '.join(planted) or 'neither did'}), where the verdict never looks")
     check("results.tsv and summary.json are the host's: nothing the test planted is in them, and the run fails",
           tsv != "" and "planted" not in tsv and "planted" not in json.dumps(summary) and summary.get("passed") is False,
           {"tsv": tsv[:200], "passed": summary.get("passed")})
 
+elif kind == "gitconfig":
+    forbidden = {".git", ".envrc", ".claude", ".tool-versions", "claude.md", "agents.md", "gemini.md", "mise.toml", "conftest.py", "head", "objects", "refs"}
+    found = []
+    for r, dirs, files in os.walk(out):
+        for n in dirs + files:
+            if n.lower() in forbidden or n.startswith(".") or n.startswith("-") or "\x1b" in n:
+                found.append(os.path.relpath(os.path.join(r, n), out))
+    check("nothing a shell, git, an editor or an agent acts on is on disk: no .git, .envrc, .claude, CLAUDE.md in any case, AGENTS.md, GEMINI.md, mise.toml, conftest.py, no dot-name, no HEAD/objects/refs, no name with an escape",
+          found == [], found)
+    text = skipped_text()
+    wanted = [".git/config", ".envrc", "CLAUDE.md", "claude.MD", "Agents.md", ".claude/settings.json", "mise.toml", ".tool-versions", "conftest.py", "refs/heads", "objects/pack", "sub/.hidden", "-rf"]
+    check("each is listed in SKIPPED.txt", all(w in text for w in wanted), [w for w in wanted if w not in text])
+    check("the name with an escape in it is listed escaped (as text, \\x1b), never as the byte", "\\x1b" in text and "\x1b" not in text, text[:300])
+    check("an ordinary result file still arrives", os.path.exists(os.path.join(ud, "tree", "fine", "ok.txt")))
+    rc = []
+    for d in (out, ud, os.path.join(ud, "tree")):
+        r = subprocess.run(["git", "-C", d, "rev-parse", "--git-dir"], capture_output=True,
+                           env={"PATH": "/usr/bin:/usr/local/bin", "GIT_CEILING_DIRECTORIES": os.path.dirname(out),
+                                "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"})
+        rc.append((os.path.relpath(d, out), r.returncode))
+    check("git does not see a repository in the result tree, at any level (rev-parse; nothing is run that a config could hook)",
+          all(code != 0 for _, code in rc), rc)
+    check("nothing the planted files ask for ran on this machine",
+          not any(os.path.exists(f"/tmp/HOSTILE-{m}") for m in ("FSMONITOR-RAN", "ENVRC-RAN", "CLAUDE-MD")))
+
+elif kind == "pngs":
+    shots = os.path.join(ud, "shots")
+    names = sorted(os.listdir(shots)) if os.path.isdir(shots) else []
+    check("only the picture that decodes arrives, and under its own name; the malformed, the oversized, the lying header, the 3 GB inflate, the GIF named .png, the random bytes, the JPEG and the SVG do not",
+          names == ["good.png"], names)
+    good = os.path.join(shots, "good.png")
+    data = open(good, "rb").read() if os.path.exists(good) else b""
+    check("what arrives is a plain PNG written again by the decoder: the signature is right and the text chunk the contributor put in is gone",
+          data[:8] == b"\x89PNG\r\n\x1a\n" and b"HOSTILE-TEXT-CHUNK" not in data and b"tEXt" not in data, {"bytes": len(data)})
+    text = skipped_text()
+    wanted = ["truncated.png", "wide.png", "inflates.png", "gif-named-png.png", "random.png", "photo.jpg", "drawing.svg"]
+    check("each dropped picture is listed in SKIPPED.txt", all(w in text for w in wanted), [w for w in wanted if w not in text])
+    stray = [os.path.relpath(os.path.join(r, f), out) for r, _d, fs in os.walk(out) for f in fs if f.lower().endswith((".jpg", ".svg", ".gif"))]
+    check("no JPEG, SVG or GIF is on disk", stray == [], stray)
+    row = {r["step"]: r for r in summary.get("results", [])}.get("unit-bridge", {})
+    info(f"unit-bridge exit {row.get('exit')}, run passed {summary.get('passed')}")
+
+elif kind == "gpu":
+    p = load("probe.json") or {}
+    check("the probe ran in the rig step and reached the render node", p.get("node") is not None and p.get("device") is True, p)
+    mb = 1 << 20
+    alloc = p.get("allocated_mb", 0)
+    check("it could allocate and touch graphics memory (otherwise nothing was measured)", alloc > 0, p)
+    if alloc > 0:
+        charged = ((p.get("cgroup_high") or 0) - (p.get("cgroup_before") or 0)) / mb
+        host_drop = (p.get("avail_before_kb", 0) - p.get("avail_lowest_kb", 0)) / 1024
+        check("the graphics memory is charged to the container's memory limit (its memory.current rose by at least 80% of what was allocated), so SANDBOX_MEMORY bounds it",
+              charged >= 0.8 * alloc,
+              {"allocated_mb": alloc, "container_memory_rose_mb": round(charged), "host_available_fell_mb": round(host_drop)})
+        info(f"allocated {alloc} MB through {p.get('node')}; the container's memory.current rose {round(charged)} MB; stopped by {p.get('stopped_by')}")
+        info(f"MemAvailable seen by the probe: before {p.get('avail_before_kb', 0) // 1024} MB, lowest {p.get('avail_lowest_kb', 0) // 1024} MB, after {p.get('avail_after_kb', 0) // 1024} MB")
+    samples_path = os.path.join(work, "memavail.log")
+    samples = [int(x) for x in open(samples_path).read().split() if x.isdigit()] if os.path.exists(samples_path) else []
+    if samples:
+        info(f"MemAvailable sampled on the host every 0.5 s for the whole run ({len(samples)} samples): start {samples[0] // 1024} MB, lowest {min(samples) // 1024} MB, end {samples[-1] // 1024} MB (the rig and its emulator are in this too)")
+    check("the host sampler ran", len(samples) > 5, len(samples))
+
+text = skipped_text()
+bad = sorted({hex(ord(c)) for c in text if c != "\n" and unicodedata.category(c) in ("Cc", "Cf")})
+check("SKIPPED.txt holds no control character, escape or bidirectional mark: a contributor's names are written escaped", bad == [], bad)
 print("\n".join(lines))
