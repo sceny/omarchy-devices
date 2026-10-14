@@ -19,9 +19,10 @@ TextInput, TextField, TextArea, and every type of Omarchy's `qs.Ui` that
 contains one (NumberField, MultiSelect, SearchableDropdown, TextField).
 `Quickshell.clipboardText` is read nowhere: it reads the whole clipboard in the
 shell's process, with no byte limit and no deadline. The paste key runs
-`wl-paste` out of the shell, bounded, in PanelField.qml only; no `wl-paste` or
-`cliphist` anywhere else the plugin runs code. (tests/test_panelfield.py keeps
-the checks on PanelField itself.)"""
+`wl-paste` out of the shell, bounded, in Clipboard.qml only; no `wl-paste` or
+`cliphist` anywhere else the plugin runs code. `wl-copy` is in Clipboard.qml
+only, and the text it copies goes over its stdin, never its command line.
+(tests/test_panelfield.py keeps the checks on the clipboard door itself.)"""
 
 import glob
 import os
@@ -764,6 +765,11 @@ def clipboard_reads(path):
 NO_PASTE_TOOLS = re.compile(r"\b(?:wl-paste|cliphist)\b")
 
 
+def copy_tools(path):
+    text = strip_comments(read(path))
+    return [line_of(text, m.start()) for m in re.finditer(r"\bwl-copy\b", text)]
+
+
 def paste_tools(path):
     text = strip_comments(read(path))
     if not path.endswith(".qml") and not path.endswith(".js"):
@@ -791,18 +797,34 @@ class ClipboardOnlyOnPaste(unittest.TestCase):
                                     "PanelField reads it out of process, bounded")
 
     def test_no_paste_tool_where_the_plugin_runs_code(self):
-        files = [f for f in qml_files() if os.path.basename(f) != "PanelField.qml"] + [
+        files = [f for f in qml_files() if os.path.basename(f) != "Clipboard.qml"] + [
             os.path.join(ROOT, "Model.js")] + [
             p for p in glob.glob(os.path.join(ROOT, "bin", "*")) if os.path.isfile(p)]
         found = ["%s:%d" % (os.path.basename(f), n) for f in files for n in paste_tools(f)]
         self.assertEqual(found, [], "wl-paste / cliphist read the clipboard without a paste")
 
-    def test_wl_paste_is_in_panelfield_once_and_bounded(self):
-        found = paste_tools(os.path.join(ROOT, "PanelField.qml"))
+    def test_wl_paste_is_in_clipboard_once_and_bounded(self):
+        found = paste_tools(os.path.join(ROOT, "Clipboard.qml"))
         self.assertEqual(len(found), 1, found)
-        text = strip_comments(read(os.path.join(ROOT, "PanelField.qml")))
+        text = strip_comments(read(os.path.join(ROOT, "Clipboard.qml")))
         self.assertRegex(text, r"timeout -k \d+ \d+ wl-paste")
         self.assertRegex(text, r"head -c \d+")
+
+    def test_wl_copy_is_in_clipboard_only(self):
+        files = [f for f in qml_files() if os.path.basename(f) != "Clipboard.qml"]
+        found = ["%s:%d" % (os.path.basename(f), n) for f in files for n in copy_tools(f)]
+        self.assertEqual(found, [], "a copy goes out through Clipboard (the one door)")
+
+    def test_wl_copy_carries_no_text_on_its_command_line(self):
+        path = os.path.join(ROOT, "Clipboard.qml")
+        text = strip_comments(read(path))
+        lists = re.findall(r'\[\s*"wl-copy"[^\]]*\]', text)
+        self.assertTrue(lists)
+        for one in lists:
+            self.assertRegex(one, r'^\[\s*"wl-copy"(\s*,\s*"--[a-z-]+")*\s*\]$',
+                             "only literal flags: the text goes over stdin")
+        self.assertRegex(text, r"\bwrite\(")
+        self.assertEqual(violations(path), [])
 
     def test_the_check_finds_them(self):
         with tempfile.TemporaryDirectory() as d:
@@ -818,6 +840,9 @@ class ClipboardOnlyOnPaste(unittest.TestCase):
             self.assertEqual(clipboard_reads(write("C.qml", "Item { // clipboardText\n }\n")), [])
             self.assertEqual(paste_tools(write("D.qml", 'Process { command: ["wl-paste"] }\n// cliphist\n')), [1])
             self.assertEqual(paste_tools(write("tool", "subprocess.run(['cliphist', 'list'])\n# wl-paste\n")), [1])
+            self.assertEqual(copy_tools(write("E.qml", 'Process { command: ["wl-copy", note] }\n// wl-copy\n')), [1])
+            private = write("F.qml", 'Item { function copy(note) { Quickshell.execDetached(["wl-copy", note]) } }\n')
+            self.assertEqual(len(violations(private)), 1, violations(private))
             # a wrapper of Omarchy's found by reading its folder, one level through another
             ui = os.path.join(d, "Ui"); os.mkdir(ui)
             write("Ui/Plain.qml", "Item { }\n")

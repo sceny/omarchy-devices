@@ -19,6 +19,7 @@ state, and writes nothing outside its folder but caches in
 | `BarWidget.qml`, `Panel.qml` | The pill; the panel, keyboard, settings and IPC. |
 | `SettingsView.qml`, `MessagesView.qml`, `SetupChecks.qml` | Settings (the first run's card, diagnostics and Add a device are among its pages), messages, the steps on a new device (and the app's QR code, from `qrencode`, part of Omarchy). |
 | `PanelField.qml` | Every text field: Esc steps back the same way everywhere. |
+| `Clipboard.qml` | The one clipboard door: bounded `wl-copy` and `wl-paste` out of the shell. |
 | `CursorGlide.qml`, `CursorStop.qml` | The keyboard cursor, drawn once per page and sliding to where it stops. |
 | `ScreenSetup.qml`, `ScreenTurn.qml` | A device's Screen and apps page; the docked screen turning or folding. |
 | `AppsView.qml`, `AppTile.qml`, `AppPinRow.qml`, `KeyedApps.qml` | All apps, an app's tile, the pinned row, a row's tiles kept as it changes. |

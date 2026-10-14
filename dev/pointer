@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+"""A virtual pointer for the rig's compositor, over wlr-virtual-pointer: the
+rig has a virtual keyboard (wtype) but no way to click.
+
+  dev/rig exec -- dev/pointer click X Y [--double|--triple] [--middle]
+  dev/rig exec -- dev/pointer drag X1 Y1 X2 Y2
+  dev/rig exec -- dev/pointer move X Y
+
+X and Y are pixels of the rig's screen (the size of `dev/rig screenshot`),
+read from the WIDTH and HEIGHT environment variables (1280x720 by default).
+It talks to $WAYLAND_DISPLAY, which inside `dev/rig exec` is the rig's own."""
+
+import os
+import socket
+import struct
+import sys
+import time
+
+WIDTH = int(os.environ.get("WIDTH", "1280"))
+HEIGHT = int(os.environ.get("HEIGHT", "720"))
+BTN_LEFT = 0x110
+BTN_MIDDLE = 0x112
+
+# Only the rig's compositor: on the owner's desktop this would click (or take
+# the clipboard) for real. `dev/rig exec` sets OPR_RIG_ID.
+if not os.environ.get("OPR_RIG_ID"):
+    sys.exit("%s runs only inside the rig: dev/rig exec -- %s ..." % (sys.argv[0], sys.argv[0]))
+
+
+class Wire:
+    def __init__(self):
+        path = os.environ["WAYLAND_DISPLAY"]
+        if not path.startswith("/"):
+            path = os.path.join(os.environ["XDG_RUNTIME_DIR"], path)
+        self.sock = socket.socket(socket.AF_UNIX)
+        self.sock.connect(path)
+        self.next_id = 2
+        self.buf = b""
+
+    def new_id(self):
+        self.next_id += 1
+        return self.next_id - 1
+
+    def send(self, obj, opcode, payload=b""):
+        self.sock.sendall(struct.pack("<II", obj, ((8 + len(payload)) << 16) | opcode) + payload)
+
+    @staticmethod
+    def string(text):
+        raw = text.encode() + b"\0"
+        return struct.pack("<I", len(raw)) + raw + b"\0" * (-len(raw) % 4)
+
+    def events(self):
+        self.sock.settimeout(0.5)
+        try:
+            self.buf += self.sock.recv(65536)
+        except socket.timeout:
+            pass
+        while len(self.buf) >= 8:
+            obj, word = struct.unpack("<II", self.buf[:8])
+            size = word >> 16
+            if len(self.buf) < size:
+                break
+            body, self.buf = self.buf[8:size], self.buf[size:]
+            yield obj, word & 0xFFFF, body
+
+
+def connect():
+    w = Wire()
+    registry = w.new_id()
+    w.send(1, 1, struct.pack("<I", registry))
+    globals_ = {}
+    time.sleep(0.2)
+    for obj, opcode, body in w.events():
+        if obj == registry and opcode == 0:
+            name, length = struct.unpack("<II", body[:8])
+            iface = body[8:8 + length - 1].decode()
+            globals_[iface] = (name, struct.unpack("<I", body[8 + length + (-length % 4):][:4])[0])
+    for need in ("wl_seat", "zwlr_virtual_pointer_manager_v1"):
+        if need not in globals_:
+            sys.exit("the rig's compositor has no " + need)
+
+    def bind(iface):
+        name, version = globals_[iface]
+        oid = w.new_id()
+        w.send(registry, 0, struct.pack("<I", name) + Wire.string(iface) + struct.pack("<II", min(version, 1), oid))
+        return oid
+
+    seat, manager, pointer = bind("wl_seat"), bind("zwlr_virtual_pointer_manager_v1"), w.new_id()
+    w.send(manager, 0, struct.pack("<II", seat, pointer))
+    # The seat has no pointer until a device exists; the shell binds one only
+    # after it hears so.
+    time.sleep(float(os.environ.get("POINTER_WAIT", "1")))
+    list(w.events())
+    return w, pointer
+
+
+def millis():
+    return int(time.monotonic() * 1000) & 0xFFFFFFFF
+
+
+def move(w, pointer, x, y):
+    w.send(pointer, 1, struct.pack("<IIIII", millis(), int(x), int(y), WIDTH, HEIGHT))
+    w.send(pointer, 4)
+
+
+def button(w, pointer, down, code=BTN_LEFT):
+    w.send(pointer, 2, struct.pack("<III", millis(), code, 1 if down else 0))
+    w.send(pointer, 4)
+
+
+def main(argv):
+    if not argv:
+        sys.exit(__doc__)
+    w, p = connect()
+    verb = argv[0]
+    if verb == "move":
+        move(w, p, argv[1], argv[2])
+    elif verb == "click":
+        move(w, p, argv[1], argv[2])
+        time.sleep(0.4)
+        code = BTN_MIDDLE if "--middle" in argv else BTN_LEFT
+        for _ in range(3 if "--triple" in argv else 2 if "--double" in argv else 1):
+            button(w, p, True, code)
+            time.sleep(0.05)
+            button(w, p, False, code)
+            time.sleep(0.08)
+    elif verb == "drag":
+        x1, y1, x2, y2 = (int(v) for v in argv[1:5])
+        move(w, p, x1, y1)
+        time.sleep(0.4)
+        button(w, p, True)
+        for step in range(1, 11):
+            time.sleep(0.03)
+            move(w, p, x1 + (x2 - x1) * step / 10, y1 + (y2 - y1) * step / 10)
+        time.sleep(0.05)
+        button(w, p, False)
+    else:
+        sys.exit(__doc__)
+    time.sleep(0.2)
+    list(w.events())
+
+
+main(sys.argv[1:])
