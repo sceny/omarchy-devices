@@ -83,7 +83,7 @@ KDE Connect finds a device by broadcast, which stays on one network. The
   KDE Connect talks only to a device showing its paired certificate.
 - **KDE Connect's custom devices** (its daemon's `customDevices`, a
   writable D-Bus property, which its own settings write) get the peer's
-  address, or one the user typed (#8). The address this plugin gave before
+  address, or one the user typed (#8). The address this plugin gave
   is replaced; the user's own stay.
 - **The firewall** (`fix firewall`): KDE Connect's ports from the private
   ranges (10/8, 172.16/12, 192.168/16, as Omarchy opens Sunshine's) and
