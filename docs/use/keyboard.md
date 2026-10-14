@@ -10,14 +10,16 @@ field, so a stray keystroke never becomes a sent text.
 |---|---|
 | `j` `k` / arrows · PgUp PgDn · `g` `G` | Move · a page · first, last |
 | `h` `l` | Sideways: shortcuts, players, into a conversation |
-| Enter · Shift+Enter | Activate · an app popped out |
+| Enter or Space · Shift+Enter | Activate · an app popped out |
+| Tab · Shift+Tab | The next · previous panel in the bar |
 | Esc · `0` | Back to where you came from, one step at a time; then close · Home (the main page, from two pages deep) |
 | `c` | Fold the section under the cursor |
-| `r` · `x` · `e` · `o` | Reply · dismiss · show all · open its app |
+| `r` · `x` · `e` · `o` | Reply · dismiss (a notification or a received file) · show all · open its app |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |
 | `/` · `u` · `n` · `i` · `p` | Search · unread · new message · reply · pin |
-| `1`–`9` · `Shift+H` `Shift+L` | Switch device · next device, or move a pinned app |
+| `r` | Refresh (Contacts) |
+| `1`–`9` · `Shift+H` `Shift+L` | Switch device · previous · next device, or move a pinned app |
 | `Shift+K` `Shift+J` | Move a section, a device, a shortcut |
 | `?` | Keys: every key, in the panel |
 

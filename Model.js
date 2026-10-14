@@ -2988,7 +2988,8 @@ var KEYS = [
     ["j k · ↑ ↓", "Move"],
     ["h l · ← →", "Sideways: shortcuts, players, into a conversation"],
     ["PgUp PgDn", "A page at a time"],
-    ["Enter", "Activate"],
+    ["Enter · Space", "Activate"],
+    ["Tab Shift+Tab", "Next · previous panel in the bar"],
     ["Esc", "Back where you came from, then close"],
     ["0", "Home, from two pages deep"],
     ["?", "This page"]] },
@@ -2996,10 +2997,10 @@ var KEYS = [
     ["c", "Fold the section under the cursor"],
     ["m · a · s", "Messages · all apps · Settings"],
     ["E", "Edit the page; again when done"],
-    ["1–9 · Shift+H Shift+L", "Switch device · next device"]] },
+    ["1–9 · Shift+H Shift+L", "Switch device · previous · next device"]] },
   { group: "Notifications", keys: [
     ["r", "Reply"],
-    ["x", "Dismiss"],
+    ["x", "Dismiss (a notification or a received file)"],
     ["e", "Show all of it"],
     ["o", "Open its app or conversation"]] },
   { group: "Now playing", keys: [
@@ -3016,6 +3017,10 @@ var KEYS = [
     ["/ · u", "Search · unread only"],
     ["n · i", "New message · write a reply"],
     ["g G", "First · last"]] },
+  { group: "Contacts", keys: [
+    ["/ · r", "Search · refresh"],
+    ["g G", "First · last"],
+    ["m", "Messages"]] },
   { group: "Editing and Settings", keys: [
     ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
     ["Esc", "Put back what was there (editing)"]] }
