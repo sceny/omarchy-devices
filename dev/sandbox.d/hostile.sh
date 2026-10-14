@@ -87,9 +87,9 @@ PY
     git -C "$SB_DIR/.." archive HEAD -- . ':(exclude)tests' ':(exclude)dev' ':(exclude)docs' | tar -x
     printf '#!/bin/bash\n# HARNESS-FROM-THE-HOSTILE-COMMIT\nexit 0\n' >dev/rig
     chmod +x dev/rig
-    # the rig's package step refuses a tracked symlink, so every commit but the rig probe's has one
+    # the rig's package step refuses a tracked symlink, so every commit but the two that run a rig and its script has one
     # (the rewrite commit's rig step fails by it, quickly, whatever its test rewrote)
-    if [[ $mode == rigprobe ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
+    if [[ $mode == rigprobe || $mode == gpu ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
     git add -f -A >/dev/null
     git -c user.name=hostile -c user.email=hostile@invalid commit -q -m "hostile: $mode"
     git rev-parse HEAD

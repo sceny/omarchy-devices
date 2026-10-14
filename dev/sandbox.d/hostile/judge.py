@@ -241,9 +241,10 @@ elif kind == "gpu":
     if alloc > 0:
         charged = ((p.get("cgroup_high") or 0) - (p.get("cgroup_before") or 0)) / mb
         host_drop = (p.get("avail_before_kb", 0) - p.get("avail_lowest_kb", 0)) / 1024
-        check("the graphics memory is charged to the container's memory limit (its memory.current rose by at least 80% of what was allocated), so SANDBOX_MEMORY bounds it",
-              charged >= 0.8 * alloc,
-              {"allocated_mb": alloc, "container_memory_rose_mb": round(charged), "host_available_fell_mb": round(host_drop)})
+        outside = host_drop - charged
+        check("the graphics memory is charged to the container's memory limit: its memory.current rose by at least 70% of what was allocated, and the host lost at most 20% of it beyond that, so SANDBOX_MEMORY bounds it",
+              charged >= 0.7 * alloc and outside <= 0.2 * alloc,
+              {"allocated_mb": alloc, "container_memory_rose_mb": round(charged), "host_available_fell_mb": round(host_drop), "outside_the_cgroup_mb": round(outside)})
         info(f"allocated {alloc} MB through {p.get('node')}; the container's memory.current rose {round(charged)} MB; stopped by {p.get('stopped_by')}")
         info(f"MemAvailable seen by the probe: before {p.get('avail_before_kb', 0) // 1024} MB, lowest {p.get('avail_lowest_kb', 0) // 1024} MB, after {p.get('avail_after_kb', 0) // 1024} MB")
     samples_path = os.path.join(work, "memavail.log")
