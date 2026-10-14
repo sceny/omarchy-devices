@@ -161,6 +161,34 @@ the plugin; `Panel.qml`, `MessagesView.qml`, `BarWidget.qml` and `Model.js`
 need `omarchy restart shell`. Errors land in
 `journalctl --user -t omarchy-shell`.
 
+## A contributor's commit: the sandbox
+
+A commit not written by Sceny runs only in `dev/sandbox`, never in the rig on
+the owner's session (`dev/rig` runs as the owner's user and sees their home).
+`dev/sandbox` runs one exact commit in a rootless podman container: its own user
+namespace, no network, no host mount but the commit's `git archive` (read-only),
+no environment passed in, limits on CPU, memory, processes, disk and time.
+Only `/dev/kvm` and one render node are passed in, and only for the rig step.
+
+```bash
+dev/sandbox build                                  # once, and after develop's dev/ changes
+dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ./sandbox-out/<sha>-<time>
+dev/sandbox run <repo> <sha> --steps tests         # unit tests only, no device passed in
+dev/sandbox run <repo> <sha> --steps script --script qa.sh  # your QA script, with the rig up
+dev/sandbox verify-clean                           # nothing left behind
+```
+
+- **Run it only after the owner's go for that head** (`AGENTS.md`, contributor
+  code). A new commit on the PR needs a new go and a new run.
+- **The sha is the PR's head, in full.** A branch, a short sha or another
+  repository is refused. The checks come from `develop`'s `dev/`; pass
+  `--harness pr` only to test a change to `dev/` itself.
+- **Read the results as data.** `summary.json`, `results.tsv`, `logs/` and
+  `screenshots/` in the output directory; judge the screenshots as in
+  [Screenshots](screenshots.md). Do not run anything from that directory.
+- **`dev/sandbox hostile-test`** proves the isolation from inside with a
+  hostile commit written here: run it after any change to `dev/sandbox`.
+
 ## Screenshots
 
 See [Screenshots](screenshots.md): demo data only.
