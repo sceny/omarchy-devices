@@ -1,5 +1,5 @@
 import QtQuick
-import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -25,8 +25,10 @@ import qs.Ui
 // a middle click's selection or a drop whole, and a few megabytes stall the
 // shell for seconds (line breaks cost far more). So Ctrl+V and Shift+Insert
 // are handled here (`_insert`; the clipboard is read at that key and nowhere
-// else), a middle click on the field does nothing (Quickshell cannot read the
-// primary selection) and a drop onto it is refused.
+// else, by `wl-paste` out of the shell, bounded in bytes and time, never by
+// `Quickshell.clipboardText`, which reads it all in the shell, waiting for the
+// provider), a middle click on the field does nothing (the primary selection is
+// not read) and a drop onto it is refused.
 FocusScope {
   id: field
 
@@ -63,6 +65,18 @@ FocusScope {
     var at = edit.cursorPosition
     edit.insert(at, part)
     edit.cursorPosition = at + part.length
+  }
+
+  // The clipboard is read out of the shell, at the paste key: wl-paste, stopped
+  // after 2 s (and 1 s more) and cut at 128 KiB, its text cut to whole UTF-8
+  // characters, and printed only when the read ended in time (status 0, or 141:
+  // wl-paste stopped by the cut). A slow or failed read prints nothing.
+  Process {
+    id: pasteRead
+    command: ["bash", "-c", "exec 2>/dev/null; set -o pipefail; buf=$(timeout -k 1 2 wl-paste --no-newline --type text | head -c 131072); case $? in 0|141) printf %s \"$buf\" | iconv -f UTF-8 -t UTF-8 -c;; esac"]
+    stdout: StdioCollector {
+      onStreamFinished: if (edit.activeFocus) field._insert(text)
+    }
   }
 
   readonly property var _borderSpec: Border.controlSpec(
@@ -137,7 +151,7 @@ FocusScope {
       Keys.onPressed: function(event) {
         if (!event.matches(StandardKey.Paste)) return
         event.accepted = true
-        field._insert(Quickshell.clipboardText)
+        if (!pasteRead.running) pasteRead.running = true
       }
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.
       Keys.forwardTo: [field]
