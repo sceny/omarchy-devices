@@ -187,7 +187,7 @@ elif kind == "rewrite":
           {"tsv": tsv[:200], "passed": summary.get("passed")})
 
 elif kind == "gitconfig":
-    forbidden = {".git", ".envrc", ".claude", ".tool-versions", "claude.md", "agents.md", "gemini.md", "mise.toml", "conftest.py", "head", "objects", "refs"}
+    forbidden = {".git", ".envrc", ".claude", ".tool-versions", "claude.md", "agents.md", "gemini.md", "mise.toml", "mise", "agents.override.md", "conftest.py", "head", "objects", "refs"}
     found = []
     for r, dirs, files in os.walk(out):
         for n in dirs + files:
@@ -196,7 +196,7 @@ elif kind == "gitconfig":
     check("nothing a shell, git, an editor or an agent acts on is on disk: no .git, .envrc, .claude, CLAUDE.md in any case, AGENTS.md, GEMINI.md, mise.toml, conftest.py, no dot-name, no HEAD/objects/refs, no name with an escape",
           found == [], found)
     text = skipped_text()
-    wanted = [".git/config", ".envrc", "CLAUDE.md", "claude.MD", "Agents.md", ".claude/settings.json", "mise.toml", ".tool-versions", "conftest.py", "refs/heads", "objects/pack", "sub/.hidden", "-rf"]
+    wanted = [".git/config", ".envrc", "CLAUDE.md", "claude.MD", "Agents.md", ".claude/settings.json", "mise.toml", "mise/config.toml", "AGENTS.override.md", ".tool-versions", "conftest.py", "refs/heads", "objects/pack", "sub/.hidden", "-rf"]
     check("each is listed in SKIPPED.txt", all(w in text for w in wanted), [w for w in wanted if w not in text])
     check("the name with an escape in it is listed escaped (as text, \\x1b), never as the byte", "\\x1b" in text and "\x1b" not in text, text[:300])
     check("an ordinary result file still arrives", os.path.exists(os.path.join(ud, "tree", "fine", "ok.txt")))

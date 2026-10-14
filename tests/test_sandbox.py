@@ -499,6 +499,25 @@ class ReadResult(unittest.TestCase):
         self.assertIn("'shots/bad.png'", self.skipped)
         self.assertNotIn("good.png", self.skipped)
 
+    def test_a_re_encoded_picture_is_checked_again_and_keeps_image_chunks_only(self):
+        good = png(2, 2, b"Comment\x00HOSTILE-TEXT")
+        bad_crc = good[:-5] + b"\x01" + good[-4:]
+        bomb = png(30000, 30000)
+        trailing = png(2, 2) + b"extra"
+        self.read({"ok.png": good, "crc.png": bad_crc, "bomb.png": bomb, "trail.png": trailing, "nothing.png": b"\x89PNG\r\n\x1a\n"},
+                  "--only-png")
+        self.assertEqual(self.on_disk(), ["ok.png"])
+        with open(os.path.join(self.dest, "ok.png"), "rb") as f:
+            data = f.read()
+        self.assertNotIn(b"HOSTILE-TEXT", data)
+        self.assertTrue(data.startswith(b"\x89PNG") and data.endswith(b"IEND\xaeB`\x82"))
+        for name in ("crc.png", "bomb.png", "trail.png", "nothing.png"):
+            self.assertIn(name, self.skipped)
+
+    def test_mise_and_codex_instruction_names_are_refused(self):
+        self.read({"mise/config.toml": b"x", "AGENTS.override.md": b"x", "mise.dev.toml": b"x", "fine/ok.txt": b"ok"})
+        self.assertEqual(self.on_disk(), ["fine", "fine/ok.txt"])
+
 
 class OutputPlace(unittest.TestCase):
     def test_a_git_directory_is_found_from_the_nearest_existing_ancestor(self):

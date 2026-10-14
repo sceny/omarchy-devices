@@ -312,6 +312,8 @@ def result_tree_names():
         "GEMINI.md": "x\n",
         ".claude/settings.json": "{}\n",
         "mise.toml": "[tasks.x]\nrun = 'true'\n",
+        "mise/config.toml": "[tasks.x]\nrun = 'true'\n",
+        "AGENTS.override.md": "x\n",
         ".tool-versions": "x 1\n",
         "conftest.py": "raise SystemExit\n",
         "HEAD": "ref: refs/heads/main\n",
