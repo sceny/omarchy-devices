@@ -728,14 +728,14 @@ TEXT_INPUT_BASES = ("TextInput", "TextField", "TextArea")
 KNOWN_WRAPPERS = ("NumberField", "MultiSelect", "SearchableDropdown", "TextField")
 
 
-def omarchy_text_types(folder=OMARCHY_UI):
-    """Types of Omarchy's Ui folder that contain a text input, or another such
-    type, in code (not in a comment)."""
+def omarchy_text_types(folder=OMARCHY_UI, bases=TEXT_INPUT_BASES):
+    """Types of Omarchy's Ui folder that contain one of bases (a text input),
+    or another such type, in code (not in a comment)."""
     if not os.path.isdir(folder):
         return set()
     bodies = {os.path.basename(p)[:-4]: strip_comments(read(p))
               for p in glob.glob(os.path.join(folder, "*.qml"))}
-    bad = set(TEXT_INPUT_BASES)
+    bad = set(bases)
     changed = True
     while changed:
         changed = False
@@ -789,6 +789,14 @@ class ClipboardOnlyOnPaste(unittest.TestCase):
         used = [f for f in qml_files() for t in missing if re.search(r"(?<![\w.])%s\s*\{" % t, strip_comments(read(f)))]
         self.assertEqual(used, [], "a text input of Omarchy's Ui is used")
         self.assertEqual(sorted(missing), [], "add to KNOWN_WRAPPERS so CI knows them too")
+
+    def test_no_omarchy_type_with_a_text_edit_inside(self):
+        # Its TextEdit would select and copy through Qt: the one TextEdit is
+        # PanelField's (docs/architecture/001).
+        wrappers = omarchy_text_types(bases=("TextEdit",))
+        used = ["%s: %s" % (os.path.basename(f), t) for f in qml_files() for t in sorted(wrappers)
+                if re.search(r"(?<![\w.])%s\s*\{" % t, strip_comments(read(f)))]
+        self.assertEqual(used, [], "a type of Omarchy's Ui with a TextEdit inside is used")
 
     def test_clipboard_text_is_read_nowhere(self):
         reads = {os.path.basename(f): clipboard_reads(f) for f in qml_files()}
@@ -850,6 +858,8 @@ class ClipboardOnlyOnPaste(unittest.TestCase):
             write("Ui/Wrapped.qml", "Item { Edit { } }\n")
             write("Ui/Comment.qml", "Item { // TextField {\n }\n")
             self.assertEqual(omarchy_text_types(ui), {"Edit", "Wrapped"} | set(), omarchy_text_types(ui))
+            write("Ui/Shown.qml", "Item { TextEdit { readOnly: true } }\n")
+            self.assertEqual(omarchy_text_types(ui, bases=("TextEdit",)), {"Shown"})
 
 
 if __name__ == "__main__":
