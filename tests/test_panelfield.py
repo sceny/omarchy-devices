@@ -238,10 +238,43 @@ def line_of(text, index):
 
 
 def top_level(inner):
-    """An object's body without its children's bodies."""
+    """An object's body with its children's bodies blanked, offsets kept."""
     while re.search(r"\{[^{}]*\}", inner):
-        inner = re.sub(r"\{[^{}]*\}", "", inner)
+        inner = re.sub(r"\{[^{}]*\}", lambda m: re.sub(r"[^\n]", " ", m.group(0)), inner)
     return inner
+
+
+# A property written as this literal and nothing more.
+def literal(prop, value):
+    return r"\b%s\s*:\s*%s(?=\s*(?:[;}]|\n|$))" % (prop, value)
+
+
+FOCUS_PROPS = r"(?:focus|activeFocusOnTab|activeFocusOnPress|readOnly)"
+# What a read-only TextEdit's id is used for: where it is, what it shows, its
+# own copy. Any other use (the id alone, as a Binding's or a PropertyChanges'
+# target, in KeyNavigation or Keys.forwardTo, a member by name or not listed
+# here) can give it focus, and Qt's copy and Select-All keys check no flag.
+READ_ONLY_TEXT_MEMBERS = {"visible", "x", "y", "width", "height", "implicitWidth", "implicitHeight",
+                          "contentWidth", "contentHeight", "lineCount", "text", "copyAll", "deselect"}
+
+
+def given_focus(text, start, inner):
+    """(offset in text, why) where a read-only TextEdit (body inner, at start) may get focus."""
+    own = top_level(inner)
+    why = "Qt's copy and Select-All keys check no flag"
+    given = [(start + g.start(), why) for g in re.finditer(r"\b(?:focus|activeFocusOnTab)\s*:", own)
+             if not re.match(literal(r"\w+", "false"), own[g.start():])]
+    given += [(start + g.start(), why) for g in re.finditer(
+        r"\bforceActiveFocus\b|\b%s\s*=(?!=)|\bon\s+%s\b|\bproperty\s*:\s*[\"']%s[\"']"
+        % (FOCUS_PROPS, FOCUS_PROPS, FOCUS_PROPS), inner)]
+    ident = re.search(r"\bid\s*:\s*(\w+)", own)
+    if ident:
+        declared = start + ident.start(1)
+        why = "its id is used only for %s" % ", ".join(sorted(READ_ONLY_TEXT_MEMBERS))
+        for use in re.finditer(r"(?<![.\w\"'])%s\b(?![\"'])(\s*\.\s*(\w+))?" % ident.group(1), text):
+            if use.start() != declared and use.group(2) not in READ_ONLY_TEXT_MEMBERS:
+                given.append((use.start(), why))
+    return given
 
 
 def clipboard_door_problems(path, text=None):
@@ -263,24 +296,22 @@ def clipboard_door_problems(path, text=None):
         found += ["%s:%d: %s" % (name, line_of(text, m.start()), why) for m in re.finditer(pattern, text)]
     for m in re.finditer(r"\bTextEdit\s*\{", text):
         inner = body(text, m.end())
-        if not re.search(r"\bselectByMouse\s*:\s*false\b", inner):
-            found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, line_of(text, m.start())))
-        if not re.search(r"\breadOnly\s*:\s*true\b", inner):
+        at = line_of(text, m.start())
+        if not re.search(literal("selectByMouse", "false"), top_level(inner)):
+            found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, at))
+        if os.path.basename(path) == "PanelField.qml":
             continue
-        # Qt's copy and Select-All keys check no flag: a read-only TextEdit
-        # with focus makes the shell own the selection on Ctrl+A or Ctrl+C.
+        # Every other TextEdit is read-only text that never has focus: Qt's
+        # copy and Select-All keys check no flag, so with focus Ctrl+A or
+        # Ctrl+C makes the shell own the selection.
         own = top_level(inner)
-        if not re.search(r"\bactiveFocusOnPress\s*:\s*false\b", own):
+        if not re.search(literal("readOnly", "true"), own):
+            found.append("%s:%d: a TextEdit outside PanelField says readOnly: true" % (name, at))
+        if not re.search(literal("activeFocusOnPress", "false"), own):
             found.append("%s:%d: a read-only TextEdit takes no focus (activeFocusOnPress: false): "
-                         "Qt's copy and Select-All keys check no flag" % (name, line_of(text, m.start())))
-        given = [m.start() for _ in re.finditer(r"\b(?:focus|activeFocusOnTab)\s*:\s*true\b", own)]
-        given += [m.end() + g.start() for g in re.finditer(r"\bforceActiveFocus\s*\(", inner)]
-        ident = re.search(r"\bid\s*:\s*(\w+)", own)
-        if ident:
-            given += [g.start() for g in re.finditer(
-                r"\b%s\s*\.\s*(?:forceActiveFocus\s*\(|(?:focus|activeFocusOnTab)\s*=(?!=))" % ident.group(1), text)]
-        found += ["%s:%d: a read-only TextEdit is never given focus: Qt's copy and Select-All keys "
-                  "check no flag" % (name, line) for line in sorted({line_of(text, at) for at in given})]
+                         "Qt's copy and Select-All keys check no flag" % (name, at))
+        found += ["%s:%d: a read-only TextEdit is never given focus: %s" % (name, line, why)
+                  for line, why in sorted({(line_of(text, g), why) for g, why in given_focus(text, m.end(), inner)})]
     return found
 
 
@@ -313,26 +344,66 @@ class ShippedQml(unittest.TestCase):
 
     def test_a_read_only_text_edit_is_never_given_focus(self):
         quiet = "readOnly: true; selectByMouse: false; activeFocusOnPress: false"
-        cases = [
-            ("TextEdit { %s; focus: true }" % quiet, 1),
-            ("TextEdit { %s; activeFocusOnTab: true }" % quiet, 1),
-            ("TextEdit { %s; TapHandler { onTapped: forceActiveFocus() } }" % quiet, 1),
-            ("TextEdit { id: shown; %s }\nfunction f() { shown.forceActiveFocus() }" % quiet, 2),
-            ("TextEdit { id: shown; %s }\nfunction f() { shown.focus = true }" % quiet, 2),
-            ("TextEdit { id: shown; %s; Timer { id: later } }\nfunction f() { if (shown.focus == x) other.forceActiveFocus() }" % quiet, 0),
-            ("TextEdit { id: shown; %s; Item { focus: true } }" % quiet, 0),
+        shown = "TextEdit { id: shown; %s }\n" % quiet
+        given = [
+            ("TextEdit { %s\n  focus: true }" % quiet, 2),
+            ("TextEdit { %s\n  activeFocusOnTab: true }" % quiet, 2),
+            ("TextEdit { %s\n  focus: bubble.sent || true }" % quiet, 2),
+            ("TextEdit { %s\n  focus: !false }" % quiet, 2),
+            ("TextEdit { %s\n  focus: 1 }" % quiet, 2),
+            ("TextEdit { %s\n  TapHandler { onTapped: forceActiveFocus() } }" % quiet, 2),
+            ("TextEdit { %s\n  TapHandler { onTapped: parent.focus = true } }" % quiet, 2),
+            ("TextEdit { %s\n  Component.onCompleted: { focus = true } }" % quiet, 2),
+            ("TextEdit { %s\n  Binding on focus { value: true } }" % quiet, 2),
+            ("TextEdit { %s\n  Binding { property: \"readOnly\"; value: false } }" % quiet, 2),
+            (shown + "function f() { shown.forceActiveFocus() }", 2),
+            (shown + "function f() { shown.focus = true }", 2),
+            (shown + "function f() { Qt.callLater(shown.forceActiveFocus) }", 2),
+            (shown + "function f() { shown['focus'] = true }", 2),
+            (shown + "Binding { target: shown; property: \"focus\"; value: true }", 2),
+            (shown + "states: State { PropertyChanges { target: shown; focus: true } }", 2),
+            (shown + "Item { KeyNavigation.tab: shown }", 2),
+            (shown + "Item { Keys.forwardTo: [shown] }", 2),
+            (shown + "property alias body: shown", 2),
+            (shown + "function f() { shown.readOnly = false }", 2),
+        ]
+        quiet_cases = [
+            "TextEdit { id: shown; %s; focus: false; Timer { id: later; onTriggered: shown.deselect() } }\n"
+            "function f() { if (shown.visible) other.forceActiveFocus(); return shown.width + shown.height }" % quiet,
+            "TextEdit { id: shown; %s; Item { focus: true } }\nText { text: \"shown\" }" % quiet,
+            "TextEdit { id: shown; %s; TapHandler { onDoubleTapped: shown.copyAll() } }" % quiet,
         ]
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "Bad.qml")
-            for source, line in cases:
+
+            def lint(source):
                 with open(path, "w") as f:
                     f.write("Item {\n" + source + "\n}\n")
+                return clipboard_door_problems(path)
+            for source, line in given:
+                found = lint(source)
+                self.assertTrue(any(":%d: a read-only TextEdit is never given focus" % (line + 1) in one
+                                    for one in found), (source, found))
+            for source in quiet_cases:
+                self.assertEqual(lint(source), [], source)
+
+    def test_a_text_edit_outside_panelfield_is_written_read_only_and_unfocusable(self):
+        cases = [
+            ("readOnly: false; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
+            ("readOnly: view.locked; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
+            ("readOnly: true || x; selectByMouse: false; activeFocusOnPress: false", "readOnly: true"),
+            ("selectByMouse: false; activeFocusOnPress: false; Item { readOnly: true }", "readOnly: true"),
+            ("readOnly: true; selectByMouse: false; activeFocusOnPress: true", "activeFocusOnPress: false"),
+            ("readOnly: true; selectByMouse: false; activeFocusOnPress: !true", "activeFocusOnPress: false"),
+            ("readOnly: true; activeFocusOnPress: false; Item { selectByMouse: false }", "selectByMouse: false"),
+        ]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "Bad.qml")
+            for props, says in cases:
+                with open(path, "w") as f:
+                    f.write("Item {\n  TextEdit { %s }\n}\n" % props)
                 found = clipboard_door_problems(path)
-                if line:
-                    self.assertTrue(any(":%d: a read-only TextEdit is never given focus" % (line + 1) in one
-                                        for one in found), (source, found))
-                else:
-                    self.assertEqual(found, [], source)
+                self.assertTrue(any(":2: " in one and says in one for one in found), (props, found))
 
 
 if __name__ == "__main__":
