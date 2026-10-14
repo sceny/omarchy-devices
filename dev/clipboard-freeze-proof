@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# The shell is never a Wayland data-transfer party (docs/architecture/001), shown
+# in a running rig. Run with the rig up: dev/clipboard-freeze-proof --rig ID
+# (a script is its own owner, so it names the rig; `dev/rig list` has the id).
+#
+#  (a) a bubble's text is selected and copied, a reader of the clipboard and of
+#      the primary selection is stopped holding its end open (never drains), a
+#      text field is selected too: the shell owns no selection, and `ipc status`
+#      answers as fast as on a cold shell;
+#  (b) a paste from a provider that never answers: the shell asks through its
+#      bounded read, inserts nothing, and keeps answering.
+#
+# Pointer and keys go through the rig's own compositor (dev/pointer, wtype).
+set -u
+cd "$(dirname "$0")/.."
+RIG=(dev/rig "$@")
+BOUND_MS=${BOUND_MS:-1500}
+fail=0
+
+ms() { python3 -c 'import time; print(int(time.monotonic()*1000))'; }
+status_ms() { local t0 t1; t0=$(ms); timeout 10 "${RIG[@]}" ipc status >/dev/null 2>&1 || { echo 99999; return; }; t1=$(ms); echo $((t1 - t0)); }
+worst_of() { local w=0 i v; for i in 1 2 3 4 5; do v=$(status_ms); ((v > w)) && w=$v; done; echo "$w"; }
+say() { printf '%s\n' "$*"; }
+check() { if "$@"; then :; else fail=1; fi; }
+ok() { say "  ok   $*"; }
+bad() { say "  FAIL $*"; fail=1; }
+inrig() { "${RIG[@]}" exec -- "$@"; }
+primary() { inrig bash -c 'timeout 2 wl-paste --primary --no-newline 2>&1'; }
+clip() { inrig bash -c 'timeout 2 wl-paste --no-newline 2>&1'; }
+
+"${RIG[@]}" ipc demo on >/dev/null 2>&1; sleep 2
+"${RIG[@]}" ipc messages >/dev/null 2>&1; sleep 2
+inrig bash -c 'wl-copy --clear; wl-copy --primary --clear; true'
+
+say "baseline"
+base=$(worst_of)
+((base < 99999)) || { say "FAIL the rig does not answer: pass --rig ID"; exit 1; }
+say "  ipc status, worst of 5 on a cold shell: ${base} ms"
+
+say "(a) a stopped reader, a selection in a bubble and in a field"
+"${RIG[@]}" ipc openThread 9001 >/dev/null 2>&1; sleep 2
+# A double click on the first bubble copies its text; a drag over it and over
+# the search field select. None of it may make the shell a selection's owner.
+inrig python3 dev/pointer click 900 246 --double >/dev/null 2>&1; sleep 1
+inrig python3 dev/pointer drag 740 246 1060 246 >/dev/null 2>&1; sleep 0.5
+copied=$(clip)
+if [[ $copied == *"games night"* ]]; then ok "a double click on a bubble copied its text"; else bad "the bubble's text did not reach the clipboard"; fi
+inrig python3 dev/pointer click 550 208 >/dev/null 2>&1
+inrig python3 dev/pointer click 550 208 >/dev/null 2>&1
+inrig wtype "freeze proof" >/dev/null 2>&1
+inrig wtype -M shift -k Home -m shift >/dev/null 2>&1; sleep 0.5
+# The reader: starts, asks for the selection, is stopped without draining.
+inrig bash -c 'wl-paste --no-newline > /dev/null & r1=$!; wl-paste --primary --no-newline > /dev/null & r2=$!; kill -STOP $r1 $r2; echo $r1 $r2 > "$XDG_RUNTIME_DIR/freeze-readers"; true'
+sleep 0.5
+held=$(worst_of)
+say "  ipc status, worst of 5 with the readers stopped: ${held} ms"
+if ((held <= base + BOUND_MS)); then ok "answers within ${BOUND_MS} ms of the baseline"; else bad "answered ${held} ms against ${base} ms"; fi
+p=$(primary)
+if [[ $p == "Nothing is copied" ]]; then ok "the primary selection has no owner"; else bad "the primary selection is owned: it holds ${#p} characters"; fi
+inrig bash -c 'for p in $(cat "$XDG_RUNTIME_DIR/freeze-readers"); do kill -CONT "$p"; kill "$p"; done; rm -f "$XDG_RUNTIME_DIR/freeze-readers"; true'
+"${RIG[@]}" screenshot /tmp/clipboard-freeze-a.png >/dev/null 2>&1 && say "  render: /tmp/clipboard-freeze-a.png"
+
+say "(b) a paste from a provider that never answers"
+inrig bash -c 'printf %s "never-arrives" | wl-copy --foreground & echo $! > "$XDG_RUNTIME_DIR/freeze-provider"; sleep 1; kill -STOP "$(cat "$XDG_RUNTIME_DIR/freeze-provider")"; true'
+# The field is empty: Esc clears it, a click focuses it.
+inrig wtype -M ctrl -k a -m ctrl >/dev/null 2>&1; inrig wtype -k BackSpace >/dev/null 2>&1
+t0=$(ms)
+inrig wtype -M ctrl -k v -m ctrl >/dev/null 2>&1
+during=$(worst_of)
+say "  ipc status, worst of 5 while the paste waits: ${during} ms"
+if ((during <= base + BOUND_MS)); then ok "the shell keeps answering during the paste"; else bad "answered ${during} ms against ${base} ms"; fi
+sleep 5
+t1=$(ms)
+after=$(status_ms)
+if ((after <= base + BOUND_MS)); then ok "answers after the timeout (${after} ms, $((t1 - t0)) ms after the key)"; else bad "answered ${after} ms after the timeout"; fi
+"${RIG[@]}" screenshot /tmp/clipboard-freeze-b.png >/dev/null 2>&1 && say "  render: /tmp/clipboard-freeze-b.png (the field must be empty)"
+inrig bash -c 'p=$(cat "$XDG_RUNTIME_DIR/freeze-provider"); kill -CONT "$p"; kill "$p"; rm -f "$XDG_RUNTIME_DIR/freeze-provider"; true'
+# Not wedged: the next paste works.
+inrig bash -c 'printf %s "after-proof" | wl-copy' >/dev/null 2>&1; sleep 0.5
+inrig wtype -M ctrl -k v -m ctrl >/dev/null 2>&1; sleep 1.5
+"${RIG[@]}" screenshot /tmp/clipboard-freeze-c.png >/dev/null 2>&1 && say "  render: /tmp/clipboard-freeze-c.png (the field must read: after-proof)"
+
+inrig bash -c 'wl-copy --clear; wl-copy --primary --clear; true'
+if ((fail)); then say "FAIL"; exit 1; fi
+say "PASS (read the renders: (b) empty, then after-proof)"

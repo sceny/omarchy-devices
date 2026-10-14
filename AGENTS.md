@@ -83,6 +83,7 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `Clipboard.qml`, `qmldir` | the one clipboard door (a singleton): copy and bounded read through `wl-copy` / `wl-paste` out of the shell |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
@@ -375,6 +376,22 @@ Keep them; change one only with the owner.
   (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
+- **The shell is never a Wayland data-transfer party** (the owner's
+  decision, `docs/architecture/001`): Qt serves a selection with a blocking
+  write and reads one on the GUI thread without a bound, so a program that
+  never reads or never answers freezes the bar. Every crossing goes through
+  `Clipboard` (`copyText`, `readInto`): a short-lived `wl-copy` with the
+  text on stdin, a `wl-paste` stopped at a deadline and cut at a byte
+  limit, in a Process; `wl-copy` and `wl-paste` appear in no other file. No
+  text item copies, cuts, pastes or selects through Qt: `selectByMouse` is
+  `false` (a `PanelField` selects with `edit.select` from the mouse and
+  Shift with a movement key, handles Ctrl+C, X, V, A itself, takes the
+  middle button and refuses drops; a message bubble is read-only and
+  copies on a double click), and nothing starts a drag out
+  (`Drag.Automatic`). A new text item follows `PanelField` or the bubble;
+  `tests/test_panelfield.py` (`ShippedQml`) and `tests/test_argv.py` fail
+  the build naming file:line, and `dev/clipboard-freeze-proof` shows it in
+  the rig.
 - **Apps are windows of their own, tiled by default** (no setting;
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
   floating and pinned at the top right in the device's shape; its sound

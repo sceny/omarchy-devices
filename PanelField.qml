@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -21,14 +20,18 @@ import qs.Ui
 // clipboard only which formats it offers (QQuickTextControl::canPaste), and
 // reads the text when the user pastes. The look is Omarchy's TextField's.
 //
-// Pasted text is cut to the room left before Qt sees it: Qt inserts a paste,
-// a middle click's selection or a drop whole, and a few megabytes stall the
-// shell for seconds (line breaks cost far more). So Ctrl+V and Shift+Insert
-// are handled here (`_insert`; the clipboard is read at that key and nowhere
-// else, by `wl-paste` out of the shell, bounded in bytes and time, never by
-// `Quickshell.clipboardText`, which reads it all in the shell, waiting for the
-// provider), a middle click on the field does nothing (the primary selection is
-// not read) and a drop onto it is refused.
+// Nothing here is a party to a Wayland data transfer (docs/architecture/001):
+// Qt's own copy, cut, paste, mouse selection (it owns the primary selection) and
+// middle click would make the shell serve or read a selection, with a blocking
+// call and no bound. So Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and their Insert keys are
+// handled here, through `Clipboard` (the one door: bounded wl-copy and wl-paste
+// out of the shell); the mouse selects by `edit.select` (a click, a drag; Ctrl+A
+// for all of it), which touches no clipboard; a middle click on the field does
+// nothing and a drop onto it is refused.
+//
+// Pasted text is cut to the room left before Qt sees it (`_insert`): Qt inserts
+// a paste whole, and a few megabytes stall the shell for seconds (line breaks
+// cost far more).
 FocusScope {
   id: field
 
@@ -51,6 +54,34 @@ FocusScope {
   readonly property bool hovered: hover.hovered
   function selectAll() { edit.selectAll() }
 
+  readonly property var _moves: [Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down,
+    Qt.Key_Home, Qt.Key_End, Qt.Key_PageUp, Qt.Key_PageDown]
+
+  // Shift + a movement key extends the selection here. Qt's own key handling
+  // would make the shell the primary selection's owner on every such step.
+  function _extend(key, byWord) {
+    var cursor = edit.cursorPosition
+    var anchor = edit.selectionStart === edit.selectionEnd ? cursor
+      : (cursor === edit.selectionStart ? edit.selectionEnd : edit.selectionStart)
+    var pos = cursor
+    if (key === Qt.Key_Left) {
+      var before = edit.text.slice(0, cursor)
+      var word = before.match(/(\S+\s*|\s+)$/)
+      pos = byWord ? (word ? cursor - word[0].length : 0) : Math.max(0, cursor - 1)
+      if (!byWord && pos > 0 && /[\uDC00-\uDFFF]/.test(before.charAt(pos)) && /[\uD800-\uDBFF]/.test(before.charAt(pos - 1))) pos--
+    } else if (key === Qt.Key_Right) {
+      var rest = edit.text.slice(cursor)
+      var next = rest.match(/^(\S+\s*|\s+)/)
+      pos = byWord ? (next ? cursor + next[0].length : edit.length) : Math.min(edit.length, cursor + 1)
+      if (!byWord && pos < edit.length && /[\uD800-\uDBFF]/.test(rest.charAt(0)) && /[\uDC00-\uDFFF]/.test(rest.charAt(1))) pos++
+    } else if (key === Qt.Key_Home || key === Qt.Key_Up || key === Qt.Key_PageUp) {
+      pos = 0
+    } else {
+      pos = edit.length
+    }
+    edit.select(anchor, pos)
+  }
+
   readonly property var _breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
 
   // Replaces the selection with `incoming` cut to the cap, on one line.
@@ -65,18 +96,6 @@ FocusScope {
     var at = edit.cursorPosition
     edit.insert(at, part)
     edit.cursorPosition = at + part.length
-  }
-
-  // The clipboard is read out of the shell, at the paste key: wl-paste, stopped
-  // after 2 s (and 1 s more) and cut at 128 KiB, its text cut to whole UTF-8
-  // characters, and printed only when the read ended in time (status 0, or 141:
-  // wl-paste stopped by the cut). A slow or failed read prints nothing.
-  Process {
-    id: pasteRead
-    command: ["bash", "-c", "exec 2>/dev/null; set -o pipefail; buf=$(timeout -k 1 2 wl-paste --no-newline --type text | head -c 131072); case $? in 0|141) printf %s \"$buf\" | iconv -f UTF-8 -t UTF-8 -c;; esac"]
-    stdout: StdioCollector {
-      onStreamFinished: if (edit.activeFocus) field._insert(text)
-    }
   }
 
   readonly property var _borderSpec: Border.controlSpec(
@@ -119,7 +138,7 @@ FocusScope {
       height: Math.max(flick.height, contentHeight)
       textFormat: TextEdit.PlainText
       wrapMode: TextEdit.NoWrap
-      selectByMouse: true
+      selectByMouse: false
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       color: field.foreground
@@ -149,9 +168,25 @@ FocusScope {
       }
 
       Keys.onPressed: function(event) {
-        if (!event.matches(StandardKey.Paste)) return
-        event.accepted = true
-        if (!pasteRead.running) pasteRead.running = true
+        if (event.matches(StandardKey.Paste)) {
+          event.accepted = true
+          Clipboard.readInto(function(incoming) { if (edit.activeFocus) field._insert(incoming) })
+        } else if (event.matches(StandardKey.Copy)) {
+          event.accepted = true
+          if (selectionStart !== selectionEnd) Clipboard.copyText(selectedText)
+        } else if (event.matches(StandardKey.Cut)) {
+          event.accepted = true
+          if (selectionStart !== selectionEnd) {
+            Clipboard.copyText(selectedText)
+            remove(selectionStart, selectionEnd)
+          }
+        } else if (event.matches(StandardKey.SelectAll)) {
+          event.accepted = true
+          selectAll()
+        } else if ((event.modifiers & Qt.ShiftModifier) && field._moves.indexOf(event.key) >= 0) {
+          event.accepted = true
+          field._extend(event.key, (event.modifiers & Qt.ControlModifier) !== 0)
+        }
       }
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.
       Keys.forwardTo: [field]
@@ -167,11 +202,6 @@ FocusScope {
         if (field.escapeStep === "revert") text = field.savedText
         field.steppedOut()
       }
-    }
-
-    MouseArea {
-      anchors.fill: edit
-      acceptedButtons: Qt.MiddleButton
     }
 
     DropArea {
@@ -193,5 +223,22 @@ FocusScope {
   }
 
   HoverHandler { id: hover; cursorShape: Qt.IBeamCursor }
-  TapHandler { onTapped: edit.forceActiveFocus() }
+  // The mouse places the cursor and selects here, never through Qt's
+  // selectByMouse, which would own the primary selection. The middle button
+  // is taken and ignored (no primary paste).
+  MouseArea {
+    anchors.fill: parent
+    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+    property int anchorAt: 0
+    function _at(m) { var p = mapToItem(edit, m.x, m.y); return edit.positionAt(p.x, p.y) }
+    onPressed: function(m) {
+      if (m.button !== Qt.LeftButton) return
+      edit.forceActiveFocus()
+      anchorAt = _at(m)
+      edit.cursorPosition = anchorAt
+    }
+    onPositionChanged: function(m) {
+      if (pressed && (pressedButtons & Qt.LeftButton)) edit.select(anchorAt, _at(m))
+    }
+  }
 }

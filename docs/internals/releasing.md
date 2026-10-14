@@ -157,15 +157,20 @@ finding blocks the pull request.
   allowed bare name (`id`) also has every value it is given in its file read
   (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
   The reviewer reads every new line of either list from the diff.
-- Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
-  middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
-  type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
-  `TextField` from `qs.Ui`, and any other its folder holds), no
-  `Quickshell.clipboardText` read anywhere (it reads the whole clipboard in
-  the shell, unbounded, waiting for the program that offers it), `wl-paste`
-  only in `PanelField.qml`, at the paste key, out of the shell with a byte
-  limit and a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
-  `tests/test_panelfield.py` fail on each.
+- The shell is never a party to a Wayland data transfer, and nothing reaches
+  the clipboard's contents without the user's own paste (Ctrl+V): no
+  `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
+  (`NumberField`, `MultiSelect`, `SearchableDropdown`, `TextField` from
+  `qs.Ui`, and any other its folder holds), no `Quickshell.clipboardText`
+  read anywhere (it reads the whole clipboard in the shell, unbounded,
+  waiting for the program that offers it), no `selectByMouse: true` (Qt
+  would own the primary selection), no `Drag.Automatic`, `wl-copy` and
+  `wl-paste` only in `Clipboard.qml`, the copy's text on stdin, the read
+  with a byte limit and a deadline, no `cliphist`. `tests/test_argv.py`
+  (`ClipboardOnlyOnPaste`) and `tests/test_panelfield.py` (`ShippedQml`,
+  naming file:line) fail on each; `dev/clipboard-freeze-proof --rig ID`
+  shows it in a running rig (a stopped reader and a provider that never
+  answers leave the shell answering).
 - Private text (messages, contact names, numbers, clipboard) stays out of
   logs.
 - The on-screen display's line (`omarchy-osd`, read by any local user) names

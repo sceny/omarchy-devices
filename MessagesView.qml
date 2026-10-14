@@ -233,19 +233,9 @@ Item {
     if (String(m.body || "") !== "") { copyText(m.body); return }
     if (files.length > 0) view.sms.fetchAttachment(files[0].part, files[0].id, files[0].mime)
   }
-  // The text goes to wl-copy over stdin, never on its command line.
-  Process {
-    id: textCopier
-    property string text: ""
-    command: ["wl-copy"]
-    stdinEnabled: true
-    onStarted: { write(text); text = ""; stdinEnabled = false }
-    onExited: { stdinEnabled = true; view.reported("Copied") }
-  }
+  // Through Clipboard: the text goes over stdin, never on a command line.
   function copyText(t) {
-    if (textCopier.running) return
-    textCopier.text = String(t)
-    textCopier.running = true
+    Clipboard.copyText(t, function() { view.reported("Copied") })
   }
 
   function cursorTo(i) {
@@ -1315,7 +1305,8 @@ Item {
             y: bubble.padY + (fileColumn.visible ? fileColumn.height + Style.space(6) : 0)
             width: Math.min(implicitWidth, bubble.maxWidth - bubble.padX * 2)
             readOnly: true
-            selectByMouse: true
+            selectByMouse: false
+            persistentSelection: true
             textFormat: TextEdit.PlainText
             wrapMode: TextEdit.Wrap
             text: bubble.body
@@ -1323,6 +1314,25 @@ Item {
             selectionColor: Style.selectionFillFor(view.foreground, Color.accent)
             font.family: view.fontFamily
             font.pixelSize: Style.font.body
+
+            // Never Qt's selection (it would own the primary selection, the
+            // shell serving it): a double click selects the message by
+            // `selectAll` and copies it through Clipboard; the highlight
+            // fades after a moment. The keys, middle click and drops are
+            // taken here so Qt's own copy and paste never run.
+            function copyAll() {
+              selectAll()
+              view.copyText(text)
+              unselect.restart()
+            }
+            Timer { id: unselect; interval: 900; onTriggered: bodyText.deselect() }
+            TapHandler { onDoubleTapped: bodyText.copyAll() }
+            MouseArea { anchors.fill: parent; acceptedButtons: Qt.MiddleButton }
+            DropArea { anchors.fill: parent; onDropped: function(drop) { drop.accepted = false } }
+            Keys.onPressed: function(event) {
+              if (event.matches(StandardKey.Copy)) { event.accepted = true; bodyText.copyAll() }
+              else if (event.matches(StandardKey.SelectAll)) { event.accepted = true; selectAll() }
+            }
           }
         }
       }

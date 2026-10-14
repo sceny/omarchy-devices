@@ -12,9 +12,15 @@ text itself at Ctrl+V, takes the middle button and refuses drops.
 
 The read is out of the shell: `Quickshell.clipboardText` reads the whole
 clipboard in the shell's process, waiting for the program that offers it, with
-no byte limit and no deadline. PanelField runs `wl-paste` in a Process instead,
-cut at a byte limit, stopped at a deadline, collected without blocking the
-shell. The script is run here against a fake `wl-paste`."""
+no byte limit and no deadline. `Clipboard.qml` (the one door, docs/architecture/
+001) runs `wl-paste` in a Process instead, cut at a byte limit, stopped at a
+deadline, collected without blocking the shell. The script is run here against
+a fake `wl-paste`.
+
+Nothing in the shell is a party to a Wayland data transfer: no text item owns
+the primary selection (`selectByMouse`), copies, cuts or pastes by itself, and
+nothing starts a drag out (`Drag.Automatic`). `ShippedQml` lints every shipped
+QML file for it and names file:line."""
 
 import glob
 import os
@@ -85,7 +91,7 @@ class PanelFieldClipboard(unittest.TestCase):
         key = key[:key.index("Keys.forwardTo")]
         self.assertIn("StandardKey.Paste", key)
         self.assertIn("event.accepted = true", key)
-        self.assertIn("pasteRead.running = true", key)
+        self.assertIn("Clipboard.readInto(", key)
         self.assertNotIn("clipboardText", key)
         fn = text[text.index("function _insert"):]
         fn = fn[:fn.index("readonly property var _borderSpec")]
@@ -95,12 +101,14 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertRegex(fn, r"0xD800")
 
     def test_the_clipboard_is_read_out_of_the_shell_at_the_paste_key(self):
-        text = code(os.path.join(ROOT, "PanelField.qml"))
-        self.assertNotIn("clipboardText", text)
+        field = code(os.path.join(ROOT, "PanelField.qml"))
+        self.assertNotIn("clipboardText", field)
+        self.assertNotRegex(field, r"\bwl-(paste|copy)\b")
+        self.assertIn("StandardKey.Paste", field[:field.index("Clipboard.readInto(")][-300:])
+        text = code(os.path.join(ROOT, "Clipboard.qml"))
         self.assertEqual(len(re.findall(r"\bwl-paste\b", text)), 1)
-        self.assertEqual(len(re.findall(r"pasteRead\.running = true", text)), 1)
-        self.assertIn("StandardKey.Paste", text[:text.index("pasteRead.running = true")][-300:])
-        proc = body(text, re.search(r"\bProcess\s*\{", text).end())
+        self.assertEqual(len(re.findall(r"_read\.running = true", text)), 1)
+        proc = body(text, re.search(r"\bid:\s*_read\b", text).end())
         self.assertIn("StdioCollector", proc)
         self.assertRegex(proc, r"timeout -k \d+ \d+ wl-paste")
         self.assertRegex(proc, r"head -c \d+")
@@ -113,11 +121,14 @@ class PanelFieldClipboard(unittest.TestCase):
 
     def test_the_paste_waits_for_nothing_in_the_shell_and_only_into_a_focused_field(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
-        self.assertRegex(text, r"if \(!pasteRead\.running\) pasteRead\.running = true")
-        self.assertRegex(text, r"onStreamFinished:\s*if \(edit\.activeFocus\) field\._insert\(text\)")
+        self.assertRegex(text, r"Clipboard\.readInto\(function\(incoming\) \{ if \(edit\.activeFocus\) field\._insert\(incoming\) \}\)")
+        door = code(os.path.join(ROOT, "Clipboard.qml"))
+        self.assertRegex(door, r"if \(_read\.running\) return false")
+        self.assertRegex(door, r"readWatchdog\.restart\(\)")
+        self.assertRegex(door, r'_read\.running = false; clipboard\._readEnded\(""\)')
 
     def paste_script(self):
-        text = code(os.path.join(ROOT, "PanelField.qml"))
+        text = code(os.path.join(ROOT, "Clipboard.qml"))
         m = re.search(r'command:\s*\["bash",\s*"-c",\s*"((?:[^"\\]|\\.)*)"\]', text)
         self.assertIsNotNone(m)
         return re.sub(r"\\(.)", r"\1", m.group(1))
@@ -160,16 +171,88 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertEqual(stalled.stdout, b"")
         self.assertLess(time.monotonic() - started, 5)
 
+    def test_the_text_edit_takes_no_selection_from_qt(self):
+        text = code(os.path.join(ROOT, "PanelField.qml"))
+        edit = body(text, re.search(r"\bTextEdit\s*\{", text).end())
+        self.assertRegex(edit, r"selectByMouse:\s*false")
+        for key in ("Paste", "Copy", "Cut", "SelectAll"):
+            self.assertIn("StandardKey.%s" % key, edit)
+        # Shift and a movement key select through `edit.select`, not Qt's key
+        # handling, which owns the primary selection on every step.
+        self.assertIn("field._extend(", edit)
+        self.assertIn("edit.select(", text)
+
     def test_middle_click_and_drops_do_not_reach_the_text_edit(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
-        area = re.search(r"MouseArea\s*\{([^}]*)\}", text)
+        area = re.search(r"MouseArea\s*\{(.*?)\n  \}", text, flags=re.S)
         self.assertIsNotNone(area)
-        self.assertIn("acceptedButtons: Qt.MiddleButton", area.group(1))
-        self.assertIn("anchors.fill: edit", area.group(1))
+        self.assertIn("Qt.MiddleButton", area.group(1))
+        self.assertRegex(area.group(1), r"if \(m\.button !== Qt\.LeftButton\) return")
         drop = re.search(r"DropArea\s*\{(.*?)\n    \}", text, flags=re.S)
         self.assertIsNotNone(drop)
         self.assertIn("anchors.fill: edit", drop.group(1))
         self.assertRegex(drop.group(1), r"drop\.accepted = false")
+
+
+SKIP_DIRS = {"dev", "tests", ".git", ".claude", ".paperclip", "docs", "node_modules"}
+
+
+def shipped_qml():
+    out = []
+    for folder, dirs, files in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
+        out += [os.path.join(folder, f) for f in files if f.endswith(".qml")]
+    return sorted(out)
+
+
+def line_of(text, index):
+    return text.count("\n", 0, index) + 1
+
+
+def clipboard_door_problems(path, text=None):
+    """file:line of every way a QML file takes part in a clipboard transfer."""
+    name = os.path.relpath(path, ROOT)
+    text = code(path) if text is None else text
+    rules = [
+        (r"\bselectByMouse:\s*true\b", "selectByMouse: true makes Qt own the primary selection"),
+        (r"\bDrag\.Automatic\b", "Drag.Automatic makes the shell the source of a drag"),
+        (r"\bclipboardText\b", "Quickshell.clipboardText reads the clipboard in the shell, unbounded"),
+    ]
+    if os.path.basename(path) != "Clipboard.qml":
+        rules.append((r"\bwl-(?:copy|paste)\b", "wl-copy / wl-paste belong in Clipboard.qml, the one door"))
+    found = []
+    for pattern, why in rules:
+        found += ["%s:%d: %s" % (name, line_of(text, m.start()), why) for m in re.finditer(pattern, text)]
+    for m in re.finditer(r"\bTextEdit\s*\{", text):
+        inner = body(text, m.end())
+        if not re.search(r"\bselectByMouse:\s*false\b", inner):
+            found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, line_of(text, m.start())))
+        if not re.search(r"StandardKey\.Copy", inner) and "PanelField.qml" not in name:
+            found.append("%s:%d: a TextEdit takes the copy key itself (Keys.onPressed, StandardKey.Copy)" % (name, line_of(text, m.start())))
+    return found
+
+
+class ShippedQml(unittest.TestCase):
+    def test_no_shipped_file_takes_part_in_a_clipboard_transfer(self):
+        found = [p for path in shipped_qml() for p in clipboard_door_problems(path)]
+        self.assertEqual(found, [], "\n" + "\n".join(found))
+
+    def test_clipboard_is_the_one_singleton_door(self):
+        with open(os.path.join(ROOT, "qmldir")) as f:
+            self.assertRegex(f.read(), r"singleton\s+Clipboard\s+\S+\s+Clipboard\.qml")
+        self.assertTrue(code(os.path.join(ROOT, "Clipboard.qml")).lstrip().startswith("pragma Singleton"))
+
+    def test_the_lint_finds_each_way_in_and_names_the_line(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "Bad.qml")
+            with open(path, "w") as f:
+                f.write("Item {\n  TextEdit { selectByMouse: true }\n  Item { Drag.dragType: Drag.Automatic }\n"
+                        "  onX: y = Quickshell.clipboardText\n  Process { command: [\"wl-copy\", note] }\n"
+                        "  TextEdit { readOnly: true }\n  // selectByMouse: true in a comment\n}\n")
+            found = clipboard_door_problems(path)
+            for line in (2, 3, 4, 5, 6):
+                self.assertTrue(any(":%d:" % line in one for one in found), (line, found))
+            self.assertFalse(any(":7:" in one for one in found), found)
 
 
 if __name__ == "__main__":

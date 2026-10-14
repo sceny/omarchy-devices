@@ -226,20 +226,10 @@ Item {
     return false
   }
 
-  // A detail goes to the clipboard through wl-copy's stdin, never on its
-  // command line: an address or a note is the person's own.
-  Process {
-    id: textCopier
-    property string text: ""
-    command: ["wl-copy"]
-    stdinEnabled: true
-    onStarted: { write(text); text = ""; stdinEnabled = false }
-    onExited: { stdinEnabled = true; view.reported("Copied") }
-  }
+  // Through Clipboard: an address or a note is the person's own, so it goes
+  // over stdin, never on a command line.
   function copyText(t) {
-    if (textCopier.running) return
-    textCopier.text = String(t)
-    textCopier.running = true
+    Clipboard.copyText(t, function() { view.reported("Copied") })
   }
 
   // ---- the shapes and the reveals ----
