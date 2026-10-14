@@ -6,6 +6,12 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.4 — 2026-10-14
+
+### Fixes
+
+- A paste no longer makes the shell read the clipboard unbounded or wait on it: the text is read when you paste, outside the shell, with a size limit and a deadline, and a slow or failed read inserts nothing (marketplace review omacom/omarchy-plugin-marketplace#10096).
+
 ## 0.8.3 — 2026-10-13
 
 ### Highlights
