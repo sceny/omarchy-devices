@@ -1,0 +1,624 @@
+#!/bin/bash
+# A sandbox for code from outside contributors: runs one exact commit of a
+# pull request (unit tests, bridge tests, the rig with its emulator, a QA
+# script) in a rootless podman container that cannot reach the owner.
+#
+# Usage:
+#   dev/sandbox build [--ref REV]        build the image from pinned sources and REV's dev/
+#                                        (default origin/develop; never contributor code)
+#   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
+#                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
+#                                        run commit <sha> (40 hex) of <repo> (owner/name)
+#   dev/sandbox verify-clean             prove no container, volume or run directory is left
+#   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
+#                                        could not reach (the sandbox's own acceptance test)
+#   dev/sandbox status                   the image, its pins, the limits
+#   dev/sandbox remove-image             delete the image and its storage
+#
+# What a run is:
+#
+#   * A separate user namespace, with the container's root mapped to a
+#     subordinate uid and the owner's uid not mapped at all. Nothing of the
+#     owner's home is mounted; the environment is empty (no PAPERCLIP_*, no
+#     tokens); the only host paths mounted are the commit's tar and an optional
+#     QA script, both read-only.
+#   * No network (--network none): no internet, no LAN, no host loopback, no
+#     host session bus, Wayland, PipeWire, adb or KDE Connect.
+#   * The commit enters as `git archive` of the exact sha. Anything but 40 hex
+#     digits that names a commit is refused. The checks come from develop's
+#     dev/ inside the image (--harness pr keeps the commit's own).
+#   * The tests step gets no device. The rig steps get /dev/kvm (the
+#     emulator) and one GPU render node (the display; SANDBOX_RENDER_NODE
+#     picks it). Memory, CPU, processes, tmpfs sizes and
+#     time are limited; the root filesystem is read-only; every capability is
+#     dropped.
+#   * Every unit (unit-model, unit-bridge, qml-parse, manifest, rig-ci, script)
+#     runs in a container of its own, from a fresh unpack of the commit and
+#     develop's dev/. The verdict is the container's exit code, taken by this
+#     script on the host; it writes results.tsv and summary.json itself. A
+#     pass says the checks ran and exited 0: it does not make the commit safe
+#     or correct (a test can always report itself as passing), so the diff is
+#     read first.
+#   * Results leave as a tar on the container's stdout, capped on the host
+#     (SB_MAX_RESULT, then the run fails) and read as data by this script
+#     (dev/sandbox.d/read_result.py): regular files and directories only, each
+#     unit into a directory of its own that the host made, every name part
+#     starting with a letter or digit (so no .git, .envrc, .claude), the names
+#     tools load as instructions or settings refused in any case (CLAUDE.md,
+#     AGENTS.md, mise.toml ...), sizes and member count checked, never
+#     executed. What it refuses is listed in SKIPPED.txt with names escaped.
+#     The container's stderr reaches the terminal as filtered text
+#     (dev/sandbox.d/filter-stderr.py).
+#   * A PNG a unit made is not written to the results as it is: it is decoded
+#     and saved again as a plain PNG in a second container (no contributor code,
+#     no network, no device, size and pixel limits), and only that copy is in
+#     the results. Another image format is refused.
+#   * Results go under $SANDBOX_STATE/results/ by default; --out refuses a
+#     directory that is, or is inside, a git repository.
+#   * The tests step cannot make a user namespace (seccomp, dev/sandbox.d/
+#     seccomp.py). The rig and script steps can: the rig's phone side runs in
+#     one (`unshare -Urn`). No unit gets a capability.
+#   * Each container is removed after its unit. `verify-clean` proves it.
+#
+# Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
+# SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
+# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
+# SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox).
+
+set -uo pipefail
+
+SB_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+SB_REPO_ROOT=$(cd -- "$SB_DIR/.." && pwd)
+
+SB_UID=$(id -u)
+SB_HOME=$(getent passwd "$SB_UID" | cut -d: -f6)
+SB_STATE=${SANDBOX_STATE:-$SB_HOME/.local/share/sceny-sandbox}
+SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
+SB_IMAGE=localhost/sceny-sandbox:current
+SB_LABEL=org.sceny.sandbox
+
+SB_MEMORY=${SANDBOX_MEMORY:-10g}
+SB_CPUS=${SANDBOX_CPUS:-8}
+SB_PIDS=${SANDBOX_PIDS:-2048}
+SB_TIMEOUT=${SANDBOX_TIMEOUT:-2700}
+SB_TMP_SIZE=${SANDBOX_TMP_SIZE:-12g}
+SB_MAX_ARCHIVE=$((256 * 1024 * 1024))
+SB_MAX_RESULT=${SANDBOX_MAX_RESULT:-$((1024 * 1024 * 1024))}
+SB_MAX_MEMBERS=20000
+E_SANDBOX=72   # a unit the host failed itself (output over a limit, no time left)
+
+# Repositories whose pull requests this sandbox runs.
+SB_REPOS=(sceny/omarchy-devices sceny/omarchy-paperclipai)
+
+say() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
+step() { printf '\033[36m  ·\033[0m %s\n' "$*" >&2; }
+ok() { printf '\033[32m  ✓\033[0m %s\n' "$*" >&2; }
+warn() { printf '\033[33m  !\033[0m %s\n' "$*" >&2; }
+fail() { printf '\033[31m  ✗\033[0m %s\n' "$*" >&2; }
+die() {
+  fail "$*"
+  exit 2
+}
+
+usage() { awk 'NR > 1 { if (/^#/) print; else exit }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+
+# Podman, in a clean environment and its own storage: the owner's own images
+# and settings are never touched, and nothing of this shell's environment
+# (tokens included) reaches podman.
+pm() {
+  env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" "$@"
+}
+
+require_tools() {
+  local missing=() tool
+  for tool in podman git python3 tar timeout getent; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+  done
+  ((${#missing[@]} == 0)) || die "missing tools: ${missing[*]}"
+  [[ $SB_MAX_RESULT =~ ^[0-9]+$ ]] && ((SB_MAX_RESULT >= 1)) || die "SANDBOX_MAX_RESULT must be a number of bytes"
+  mkdir -p "$SB_STATE/storage" "$SB_STATE/runs" "$SB_STATE/mirrors" "$SB_STATE/results" "$SB_RUNTIME"
+  chmod 700 "$SB_STATE"
+}
+
+# ------------------------------------------------------------------- build ----
+
+cmd_build() {
+  local ref=origin/develop
+  while (($#)); do
+    case $1 in
+    --ref)
+      ref=${2:?--ref needs a revision}
+      shift
+      ;;
+    *) die "build: unknown option $1" ;;
+    esac
+    shift
+  done
+  require_tools
+  local sha ctx
+  sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify "$ref^{commit}" 2>/dev/null) ||
+    die "build: $ref is not a revision of this checkout"
+  git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
+    die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
+
+  ctx=$(mktemp -d "${TMPDIR:-/tmp}/sceny-sandbox-build.XXXXXX")
+  trap 'rm -rf "$ctx"' RETURN
+  mkdir -p "$ctx/harness"
+  git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
+  cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
+  say "building $SB_IMAGE from pinned sources and dev/ of ${sha:0:12} (this downloads about 6 GB the first time)"
+  pm build --label "org.sceny.sandbox.harness=$sha" -t "$SB_IMAGE" -f "$ctx/Containerfile" "$ctx" ||
+    die "the image did not build"
+  ok "image built (harness ${sha:0:12})"
+}
+
+# -------------------------------------------------------------------- run ----
+
+valid_repo() {
+  local repo=$1 allowed
+  for allowed in "${SB_REPOS[@]}"; do [[ $repo == "$allowed" ]] && return 0; done
+  return 1
+}
+
+# The commit's files as a tar, from this machine's mirror of the repository
+# (or --from, a local repository). Only a full 40-hex sha that names a commit.
+make_archive() {
+  local repo=$1 sha=$2 from=$3 tarfile=$4 gitdir
+  if [[ -n $from ]]; then
+    gitdir=$from
+  else
+    gitdir="$SB_STATE/mirrors/${repo//\//__}.git"
+    [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
+    step "fetching $repo (heads and pull requests, no credentials)"
+    # Public, unauthenticated: the owner's git and gh credentials are not read.
+    env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      git -C "$gitdir" -c transfer.fsckObjects=true -c protocol.allow=never -c protocol.https.allow=always \
+      fetch -q --no-tags "https://github.com/$repo.git" \
+      '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head' ||
+      die "could not fetch $repo"
+  fi
+  local type
+  type=$(git -C "$gitdir" cat-file -t "$sha" 2>/dev/null) || die "$sha is not an object of ${from:-$repo}"
+  [[ $type == commit ]] || die "$sha is a $type, not a commit"
+  # A tar of the files at that commit: no .git, no history, no hooks.
+  env -i PATH=/usr/bin:/usr/local/bin GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$gitdir" archive --format=tar "$sha" 2>/dev/null | head -c $((SB_MAX_ARCHIVE + 1)) >"$tarfile"
+  local size
+  size=$(stat -c %s "$tarfile")
+  ((size > 0)) || die "git archive of $sha is empty"
+  ((size <= SB_MAX_ARCHIVE)) || die "the archive of $sha is larger than $((SB_MAX_ARCHIVE / 1048576)) MB"
+  chmod 0444 "$tarfile"
+}
+
+# The result tar, read as data (dev/sandbox.d/read_result.py): regular files
+# and directories only, plain names that start with a letter or a digit, no
+# file a tool loads as instructions, bounded sizes and member count, written
+# under a directory made here. PNGs wait in a quarantine to be re-encoded.
+read_result() { # <tar> <dest> <out> <unit> [extra args]
+  local archive=$1 dest=$2 root=$3 label=$4
+  shift 4
+  python3 "$SB_DIR/sandbox.d/read_result.py" "$archive" "$dest" "$root" "$label" "$SB_MAX_RESULT" "$SB_MAX_MEMBERS" "$@"
+}
+
+SB_RUN_NAME=""
+SB_RUN_DIR=""
+
+run_cleanup() {
+  [[ -n $SB_RUN_NAME ]] && pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
+  if [[ -n $SB_RUN_DIR && $SB_RUN_DIR == "$SB_STATE"/runs/* ]]; then
+    rm -rf -- "$SB_RUN_DIR"
+  fi
+  SB_RUN_NAME="" SB_RUN_DIR=""
+}
+
+# Podman's default seccomp profile without new user namespaces, made for the run.
+make_seccomp() {
+  python3 "$SB_DIR/sandbox.d/seccomp.py" /usr/share/containers/seccomp.json "$SB_RUN_DIR/seccomp.json" ||
+    die "run: could not make the seccomp profile from /usr/share/containers/seccomp.json"
+  chmod 0444 "$SB_RUN_DIR/seccomp.json"
+}
+
+# Set by run_unit for the caller.
+UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
+# Set by cmd_run: 1 for the tests step, whose units get the profile without user namespaces.
+UNIT_NO_USERNS=0
+
+# run_unit <unit> <timeout> <out dir> [device args...]: one unit in a container
+# of its own. The verdict (UNIT_EXIT, UNIT_NOTE) is the container's exit code
+# and what the host measured; nothing the unit wrote is part of it.
+run_unit() {
+  local unit=$1 timeout=$2 out=$3
+  shift 3
+  local devices=("$@")
+  UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
+  local id started=$SECONDS rc=0 tarfile="$SB_RUN_DIR/out.tar"
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  SB_RUN_NAME="sceny-sandbox-$id"
+  rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
+
+  local seccomp=()
+  ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
+  local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
+  [[ -f $SB_RUN_DIR/script.sh ]] &&
+    mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
+
+  step "unit $unit (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
+  # The container's stdout is the result tar, cut at the cap by head; its
+  # stderr is filtered text. Both pass through the host, so neither is trusted.
+  (
+    timeout --signal=KILL $((timeout + 90)) \
+      env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --network none --no-hosts \
+      --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+      --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      "${seccomp[@]}" \
+      "${devices[@]}" \
+      --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
+      --ulimit core=0 --ulimit nofile=65536:65536 \
+      --init --hostname sandbox --timeout "$timeout" --stop-timeout 5 \
+      --shm-size 512m \
+      --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$SB_TMP_SIZE,mode=1777" \
+      --tmpfs "/home/sandbox:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+      --tmpfs "/work:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+      --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
+      --tmpfs "/run:rw,nosuid,nodev,size=64m,mode=0755" \
+      --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
+      "${mounts[@]}" \
+      --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
+      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
+      --workdir /work \
+      "$SB_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
+    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
+  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  rc=$(cat "$SB_RUN_DIR/rc" 2>/dev/null)
+  [[ $rc =~ ^[0-9]+$ ]] || rc=125
+
+  local info oom exit_code
+  info=$(pm inspect --format '{{.State.OOMKilled}} {{.State.ExitCode}}' "$SB_RUN_NAME" 2>/dev/null || echo "unknown unknown")
+  read -r oom exit_code <<<"$info"
+  pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
+  SB_RUN_NAME=""
+
+  UNIT_SECONDS=$((SECONDS - started))
+  [[ $oom == true ]] && UNIT_OOM=true
+  [[ $exit_code =~ ^[0-9]+$ ]] || exit_code=$rc
+  UNIT_EXIT=$exit_code
+  ((rc != 0 && UNIT_EXIT == 0)) && UNIT_EXIT=$rc
+  UNIT_STDOUT=$(stat -c %s "$tarfile" 2>/dev/null || echo 0)
+  ((UNIT_SECONDS >= timeout)) && UNIT_TIMED_OUT=true
+  step "unit $unit ended after ${UNIT_SECONDS} s (exit ${exit_code}, client exit ${rc}, killed for memory: ${oom}, ${UNIT_STDOUT} bytes out)"
+
+  if ((UNIT_STDOUT > SB_MAX_RESULT)); then
+    UNIT_NOTE="its output is over the limit of $SB_MAX_RESULT bytes"
+    ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+    fail "$unit: $UNIT_NOTE"
+  elif [[ $UNIT_STDOUT -eq 0 ]]; then
+    UNIT_NOTE="no results left the container (timed out or killed)"
+    ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+    fail "$unit: $UNIT_NOTE"
+  else
+    # Each unit's files go into a directory this script makes for it, so one
+    # unit cannot write another's evidence.
+    rm -rf -- "$SB_RUN_DIR/png"
+    mkdir -p -m 755 "$out/$unit" "$SB_RUN_DIR/png"
+    if ! read_result "$tarfile" "$out/$unit" "$out" "$unit" --png-dir "$SB_RUN_DIR/png" >/dev/null; then
+      UNIT_NOTE="its results were not readable or over a limit (see SKIPPED.txt)"
+      ((UNIT_EXIT == 0)) && UNIT_EXIT=$E_SANDBOX
+      fail "$unit: $UNIT_NOTE"
+    fi
+    rm -f -- "$tarfile"
+    reencode_pngs "$unit" "$out"
+  fi
+  rm -f -- "$tarfile"
+  [[ $UNIT_OOM == true ]] && UNIT_NOTE="${UNIT_NOTE:+$UNIT_NOTE; }killed for memory"
+  return 0
+}
+
+# The pictures a unit made were written by contributor code, so none is opened
+# here as it is. They wait in a quarantine and are decoded and written again in
+# a second container that has nothing else in it (develop's image and
+# dev/sandbox.d/reencode.py: no contributor code, no network, no device); only
+# that copy is read onto the host. A picture that does not come back is listed
+# in SKIPPED.txt.
+reencode_pngs() { # <unit> <out>
+  local unit=$1 out=$2 png="$SB_RUN_DIR/png" tarfile="$SB_RUN_DIR/png-out.tar" id rc=0
+  [[ -n $(ls -A "$png" 2>/dev/null) ]] || return 0
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  SB_RUN_NAME="sceny-sandbox-$id"
+  step "unit $unit: re-encoding its pictures in a container of their own"
+  (
+    timeout --signal=KILL 150 \
+      env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --network none --no-hosts \
+      --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+      --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      --memory 2g --memory-swap 2g --cpus 2 --pids-limit 256 \
+      --ulimit core=0 --ulimit nofile=4096:4096 \
+      --init --hostname sandbox --timeout 120 --stop-timeout 5 \
+      --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777" \
+      --tmpfs "/home/sandbox:rw,noexec,nosuid,nodev,size=64m,mode=1777" \
+      --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
+      --mount "type=bind,src=$png,dst=/in/png,ro" \
+      --mount "type=bind,src=$SB_DIR/sandbox.d/reencode.py,dst=/opt/reencode.py,ro" \
+      --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
+      "$SB_IMAGE" bash -c 'python3 /opt/reencode.py /in/png /out >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  )
+  pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
+  SB_RUN_NAME=""
+  read_result "$tarfile" "$out/$unit" "$out" "$unit" --only-png --expect "$png" >/dev/null || rc=$?
+  ((rc == 0)) || warn "$unit: its pictures were not all read back (see SKIPPED.txt)"
+  rm -rf -- "$tarfile" "$png"
+}
+
+# The units each step runs, in order.
+units_of_step() {
+  case $1 in
+  tests) echo unit-model unit-bridge qml-parse manifest ;;
+  rig) echo rig-ci ;;
+  script) echo script ;;
+  esac
+}
+
+# The verdict, written here from what the host measured.
+write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file>
+  python3 - "$@" <<'PY'
+import json, os, sys
+out, repo, sha, steps, harness, secs, timeout, rows_file = sys.argv[1:]
+rows = []
+for line in open(rows_file):
+    step, code, secs, oom, timed_out, stdout, note = (line.rstrip('\n').split('\t') + [''] * 7)[:7]
+    rows.append({'step': step, 'exit': int(code), 'seconds': int(secs), 'oom_killed': oom == 'true',
+                 'timed_out': timed_out == 'true', 'stdout_bytes': int(stdout), 'note': note})
+with open(os.path.join(out, 'results.tsv'), 'w') as f:
+    for r in rows:
+        f.write(f"{r['step']}\t{r['exit']}\t{r['seconds']}\n")
+oom = any(r['oom_killed'] for r in rows)
+summary = {
+    'repo': repo, 'sha': sha, 'steps': steps.split(','), 'harness': harness,
+    'oom_killed': oom, 'seconds': int(secs), 'timeout': int(timeout),
+    'timed_out': any(r['timed_out'] for r in rows) or int(secs) >= int(timeout),
+    'results': rows,
+    'passed': bool(rows) and all(r['exit'] == 0 and not r['note'] for r in rows) and not oom,
+}
+with open(os.path.join(out, 'summary.json'), 'w') as f:
+    json.dump(summary, f, indent=2)
+    f.write('\n')
+for r in rows:
+    print(f"  {'PASS' if r['exit'] == 0 and not r['note'] else 'FAIL'}  {r['step']}  (exit {r['exit']}, {r['seconds']} s){'  ' + r['note'] if r['note'] else ''}")
+print('  overall:', 'PASS' if summary['passed'] else 'FAIL')
+sys.exit(0 if summary['passed'] else 1)
+PY
+}
+
+# Whether git treats <dir> (or the nearest directory above it that exists) as
+# part of a repository: a work tree, a git directory, a bare repository.
+out_in_git() {
+  local dir=$1
+  while [[ ! -d $dir && $dir != / ]]; do dir=$(dirname -- "$dir"); done
+  env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$dir" rev-parse --git-dir >/dev/null 2>&1
+}
+
+cmd_run() {
+  local repo="" sha="" out="" steps=tests,rig script="" harness=develop timeout=$SB_TIMEOUT from=""
+  while (($#)); do
+    case $1 in
+    --out)
+      out=${2:?--out needs a directory}
+      shift
+      ;;
+    --steps)
+      steps=${2:?--steps needs a list}
+      shift
+      ;;
+    --script)
+      script=${2:?--script needs a file}
+      shift
+      ;;
+    --harness)
+      harness=${2:?--harness needs develop or pr}
+      shift
+      ;;
+    --timeout)
+      timeout=${2:?--timeout needs seconds}
+      shift
+      ;;
+    --from)
+      from=${2:?--from needs a local repository}
+      shift
+      ;;
+    -*) die "run: unknown option $1" ;;
+    *)
+      if [[ -z $repo ]]; then
+        repo=$1
+      elif [[ -z $sha ]]; then
+        sha=$1
+      else
+        die "run: unexpected argument $1"
+      fi
+      ;;
+    esac
+    shift
+  done
+  [[ -n $repo && -n $sha ]] || die "run: usage: dev/sandbox run <owner/name> <40-hex sha> [options]"
+  valid_repo "$repo" || die "run: $repo is not a repository this sandbox runs (${SB_REPOS[*]})"
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || die "run: the commit must be a full 40-hex sha, not a branch, tag or short sha"
+  [[ $harness == develop || $harness == pr ]] || die "run: --harness is develop or pr"
+  [[ $timeout =~ ^[0-9]+$ ]] && ((timeout >= 30)) || die "run: --timeout is whole seconds, at least 30"
+  [[ $steps =~ ^(tests|rig|script)(,(tests|rig|script))*$ ]] || die "run: --steps is a list of tests, rig, script"
+  if [[ -n $script ]]; then
+    [[ -f $script && -r $script ]] || die "run: --script $script is not a readable file"
+    [[ $steps == *script* ]] || steps+=,script
+  elif [[ $steps == *script* ]]; then
+    die "run: the script step needs --script FILE"
+  fi
+  if [[ -n $from ]]; then
+    [[ -d $from ]] || die "run: --from $from is not a directory"
+  fi
+  require_tools
+  pm image exists "$SB_IMAGE" || die "run: no image; run 'dev/sandbox build' first"
+  # Devices only for the steps that run the rig: the tests step gets none.
+  local devices=()
+  if [[ $steps == *rig* || $steps == *script* ]]; then
+    [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
+      die "run: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+    local node=${SANDBOX_RENDER_NODE:-}
+    if [[ -z $node ]]; then
+      for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
+    fi
+    [[ -c $node && $node == /dev/dri/renderD* ]] ||
+      die "run: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
+    devices=(--device /dev/kvm --device "$node")
+    step "devices passed in: /dev/kvm and $node"
+  fi
+
+  local id stamp
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  stamp=$(date -u +%Y%m%d-%H%M%S)
+  # The default is under the sandbox's own store, never inside a checkout: a
+  # result tree is read as data, and a place a shell, an editor or git acts on
+  # is not a place for it.
+  [[ -n $out ]] || out="$SB_STATE/results/${sha:0:12}-$stamp"
+  out=$(realpath -m -- "$out")
+  [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "run: $out exists and is not empty"
+  out_in_git "$out" && die "run: $out is inside a git repository (or is one); results go in a directory git does not manage"
+  SB_RUN_DIR="$SB_STATE/runs/$id"
+  SB_HARNESS=$harness SB_SHA=$sha
+  trap 'run_cleanup' EXIT
+  trap 'run_cleanup; exit 130' INT TERM
+  mkdir -p -m 700 "$SB_RUN_DIR"
+  mkdir -p -m 700 "$out"
+
+  say "sandbox run $id: $repo ${sha:0:12} (steps $steps, harness $harness)"
+  make_archive "$repo" "$sha" "$from" "$SB_RUN_DIR/src.tar"
+  make_seccomp
+  [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
+
+  # One container per unit; the time limit is for all of them together.
+  local started=$SECONDS unit step_name left unit_devices
+  : >"$SB_RUN_DIR/rows.tsv"
+  local IFS_SAVE=$IFS
+  IFS=, read -ra wanted <<<"$steps"
+  IFS=$IFS_SAVE
+  for step_name in "${wanted[@]}"; do
+    for unit in $(units_of_step "$step_name"); do
+      left=$((timeout - (SECONDS - started)))
+      if ((left < 5)); then
+        UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
+        fail "$unit: $UNIT_NOTE"
+      else
+        unit_devices=()
+        UNIT_NO_USERNS=1
+        [[ $step_name == tests ]] || { unit_devices=("${devices[@]}"); UNIT_NO_USERNS=0; }
+        run_unit "$unit" "$left" "$out" "${unit_devices[@]}"
+      fi
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$unit" "$UNIT_EXIT" "$UNIT_SECONDS" "$UNIT_OOM" "$UNIT_TIMED_OUT" "$UNIT_STDOUT" "$UNIT_NOTE" \
+        >>"$SB_RUN_DIR/rows.tsv"
+    done
+  done
+
+  write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
+  local verdict=$?
+  run_cleanup
+  trap - EXIT INT TERM
+  say "results in $out"
+  return "$verdict"
+}
+
+# ------------------------------------------------------------ verify-clean ----
+
+cmd_verify_clean() {
+  require_tools
+  local bad=0 list
+  list=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "containers left: $(echo "$list" | tr '\n' ' ')"
+    bad=1
+  else ok "no container (running or stopped)"; fi
+  list=$(pm ps -a --external --format '{{.Names}}' 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "storage containers left: $(echo "$list" | tr '\n' ' ')"
+    bad=1
+  else ok "no build or storage container"; fi
+  list=$(pm volume ls -q 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "volumes left: $(echo "$list" | tr '\n' ' ')"
+    bad=1
+  else ok "no volume"; fi
+  list=$(pm pod ls -q 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "pods left"
+    bad=1
+  else ok "no pod"; fi
+  list=$(ls -A "$SB_STATE/runs" 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "run directories left: $list"
+    bad=1
+  else ok "no run directory (commit tars, results)"; fi
+  list=$(ls -d "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
+  if [[ -n $list ]]; then
+    fail "build directories left: $list"
+    bad=1
+  else ok "no build directory"; fi
+  list=$(grep -c " $SB_STATE" /proc/self/mountinfo 2>/dev/null)
+  if [[ ${list:-0} != 0 ]]; then
+    fail "mounts of the sandbox store are still held ($list)"
+    bad=1
+  else ok "no mount held"; fi
+  # Processes started for a run carry its container name in their command line.
+  list=$(pgrep -u "$SB_UID" -af 'sceny-sandbox-[0-9a-f]{8}' | grep -v 'pgrep\|verify-clean' | head -5)
+  if [[ -n $list ]]; then
+    fail "processes left:
+$list"
+    bad=1
+  else ok "no process"; fi
+  if pm image exists "$SB_IMAGE"; then
+    step "image kept on purpose: $SB_IMAGE ($(pm image inspect --format '{{.Size}}' "$SB_IMAGE" | numfmt --to=iec 2>/dev/null))"
+  fi
+  return $bad
+}
+
+# ------------------------------------------------------------------ status ----
+
+cmd_status() {
+  require_tools
+  say "sandbox"
+  echo "  store:   $SB_STATE"
+  if pm image exists "$SB_IMAGE"; then
+    echo "  image:   $SB_IMAGE, harness $(pm image inspect --format '{{index .Labels "org.sceny.sandbox.harness"}}' "$SB_IMAGE" | cut -c1-12), created $(pm image inspect --format '{{.Created}}' "$SB_IMAGE" | cut -c1-19)"
+  else
+    echo "  image:   none (dev/sandbox build)"
+  fi
+  echo "  limits:  memory $SB_MEMORY, cpus $SB_CPUS, processes $SB_PIDS, tmp $SB_TMP_SIZE, time ${SB_TIMEOUT}s"
+  echo "  runs:    $(ls "$SB_STATE/runs" 2>/dev/null | wc -l) in progress or left"
+}
+
+cmd_remove_image() {
+  require_tools
+  pm rmi -f "$SB_IMAGE" >/dev/null 2>&1
+  pm system prune -f -a >/dev/null 2>&1
+  ok "image removed"
+}
+
+# -------------------------------------------------------------------- main ----
+
+[[ -f $SB_DIR/sandbox.d/hostile.sh ]] && source "$SB_DIR/sandbox.d/hostile.sh"
+
+case ${1:-} in
+build) shift && cmd_build "$@" ;;
+run) shift && cmd_run "$@" ;;
+verify-clean) cmd_verify_clean ;;
+status) cmd_status ;;
+remove-image) cmd_remove_image ;;
+hostile-test) shift && cmd_hostile_test "$@" ;;
+-h | --help | help | "") usage ;;
+*) die "unknown command: $1 (try dev/sandbox help)" ;;
+esac
