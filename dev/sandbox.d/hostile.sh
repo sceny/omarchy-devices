@@ -81,12 +81,12 @@ t['mode'] = sys.argv[2]
 json.dump(t, sys.stdout)
 PY
     # the plugin's own files (not its tests or docs), so the rig can package the commit
-    # (the rewrite commit has none, so its rig step fails by itself, quickly)
-    [[ $mode == rewrite ]] || git -C "$SB_DIR/.." archive HEAD -- . ':(exclude)tests' ':(exclude)dev' ':(exclude)docs' | tar -x
+    git -C "$SB_DIR/.." archive HEAD -- . ':(exclude)tests' ':(exclude)dev' ':(exclude)docs' | tar -x
     printf '#!/bin/bash\n# HARNESS-FROM-THE-HOSTILE-COMMIT\nexit 0\n' >dev/rig
     chmod +x dev/rig
-    # the rig's package step refuses a tracked symlink, so only the tests-step commit has one
-    if [[ $mode == rigprobe || $mode == rewrite ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
+    # the rig's package step refuses a tracked symlink, so every commit but the rig probe's has one
+    # (the rewrite commit's rig step fails by it, quickly, whatever its test rewrote)
+    if [[ $mode == rigprobe ]]; then rm -f link-out-of-the-tree; else ln -sf /etc/passwd link-out-of-the-tree; fi
     git add -f -A >/dev/null
     git -c user.name=hostile -c user.email=hostile@invalid commit -q -m "hostile: $mode"
     git rev-parse HEAD
