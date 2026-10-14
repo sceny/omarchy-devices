@@ -4,8 +4,8 @@
 
 The photo you just took, already here: the phone's newest photos and
 videos, as its own gallery finds them. Click one to open it; from a
-corner, copy it or save it in `Pictures/<device>`; or drag it straight
-into a chat or an editor. Below, the biggest albums open in Files.
+corner, copy it (then paste it into a chat or an editor) or save it in
+`Pictures/<device>`. Below, the biggest albums open in Files.
 
 ![Gallery: two rows of photos, a video marked with play, and album links (demo data)](../images/gallery.png)
 

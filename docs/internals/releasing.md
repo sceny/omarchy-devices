@@ -157,13 +157,23 @@ finding blocks the pull request.
   allowed bare name (`id`) also has every value it is given in its file read
   (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
   The reviewer reads every new line of either list from the diff.
-- Nothing reaches the clipboard's contents without the user's own paste (Ctrl+V,
-  middle click, menu): no `TextInput`, `TextField` or `TextArea`, no Omarchy
-  type built on one (`NumberField`, `MultiSelect`, `SearchableDropdown`,
-  `TextField` from `qs.Ui`, and any other its folder holds), one
-  `Quickshell.clipboardText` read in `PanelField.qml` at the paste key, no
-  `wl-paste` or `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`) and
-  `tests/test_panelfield.py` fail on each.
+- The shell is never a party to a Wayland data transfer, and nothing reaches
+  the clipboard's contents without the user's own paste (Ctrl+V): no
+  `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
+  (`NumberField`, `MultiSelect`, `SearchableDropdown`, `TextField` from
+  `qs.Ui`, and any other its folder holds), no `Quickshell.clipboardText`
+  read anywhere (it reads the whole clipboard in the shell, unbounded,
+  waiting for the program that offers it), no `TextEdit` but `PanelField`'s
+  and no Omarchy type with one inside (read-only text is a `Text`),
+  `selectByMouse: false` written on it (the default is true; Qt would own
+  the primary selection), no `selectByKeyboard: true`, no text item's own
+  `copy()`, `cut()` or `paste()`, no `DropArea`, no system drag (`Drag.Automatic`), `wl-copy` and `wl-paste` only in
+  `Clipboard.qml`, the copy's text on stdin, the read with a byte limit and
+  a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`)
+  and `tests/test_panelfield.py` (`ShippedQml`, naming file:line) fail on
+  each; `dev/clip-check --rig ID` shows it in a running rig (every
+  selection gesture, a reader that never reads, an owner that never
+  writes).
 - Private text (messages, contact names, numbers, clipboard) stays out of
   logs.
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
@@ -211,6 +221,12 @@ pass or fail against its rule in AGENTS.md, not only what changed.
 Calls and texts go only as far as the *Never* rules allow: the D-Bus argument
 types (`tests/test_calls.py`) and demo mode (`demoCall`, `pressCall`). The
 panel is looked at, not only measured (`slowMotion 10` for a transition).
+
+The clipboard is a row of its own: `dev/clip-check --rig ID` passes on the
+candidate, and the row records Omarchy's Qt beside it (`pacman -Q qt6-base
+qt6-declarative`). When that Qt meets a trigger in
+`docs/architecture/001` (section 5.1), the regression's author files the
+retirement it names as its own issue for Panel Engineer.
 
 The record is a document on the release task:
 

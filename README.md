@@ -27,7 +27,7 @@ files and the clipboard.
   **[shortcuts](docs/use/shortcuts.md)** to ring it, send files, a link or
   the clipboard.
 - **[Gallery](docs/use/gallery.md)** and **[received files](docs/use/received.md)**:
-  its newest photos and videos, and what it sent you, a drag away.
+  its newest photos and videos, and what it sent you, a click away.
 - **[Several devices](docs/use/devices.md)**: a tab and a pill each, with
   its own news; **[make it yours](docs/use/edit.md)** on the page itself.
 - **[From anywhere](docs/use/anywhere.md)**: away from home, through

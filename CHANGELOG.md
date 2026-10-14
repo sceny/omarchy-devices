@@ -20,6 +20,23 @@ GitHub release with these notes.
   inserted, so a huge paste or a line-broken one is instant instead of
   stopping the shell. Middle-click paste and dropping text onto a field no
   longer insert anything.
+- **A paste never makes the shell wait on the clipboard**: the text is read
+  when you paste, outside the shell, with a size limit (128 KiB) and a
+  deadline (a few seconds), and the shell goes on meanwhile. A clipboard that
+  is slow, empty or not text inserts nothing, and the text is cut to the
+  field's length as before
+  ([marketplace review](https://github.com/omacom/omarchy-plugin-marketplace/issues/10096)).
+- **The shell never takes part in a clipboard transfer**: copy, cut, paste and
+  selecting text go through one door that runs the system's clipboard tools
+  outside the shell, with a size limit and a deadline, so a program that
+  never reads what you copied (or never finishes what it pastes) cannot
+  freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with
+  the arrow keys work as before, and the mouse still places the cursor and
+  selects (a drag, Shift+click, a word on a double click, all on a triple).
+  A message in a conversation is copied by a double click; it can no longer
+  be selected by dragging. A gallery photo is
+  no longer dragged out of the panel: use its copy button, then paste it
+  where you want it.
 - **The on-screen display names nothing a device sent**: with no panel
   open, a result shows in Omarchy's display, whose line any local user can
   read. It now says "Saved to Pictures", "The app is open" or "Ringing the

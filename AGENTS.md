@@ -29,7 +29,7 @@ the centre (`docs/design/setup.md`). The only files the plugin writes outside
 its folder are caches under `~/.cache/sceny.devices/` and each device's
 clipboard settings in KDE Connect's config (*Rules*).
 
-- **The plugin takes control of what it needs** (the owner's premise): it
+- **The plugin takes control of what it needs:** it
   does every setup step it can itself (its packages, KDE Connect's plugins
   per device, the phone's permissions over adb, the mount) and asks only for
   what it cannot, one step at a time, then carries on by itself. KDE
@@ -44,7 +44,7 @@ clipboard settings in KDE Connect's config (*Rules*).
   KDE Connect specialist, linking every KDE report, merge request, branch
   and fork) and a plugin issue (`bug`) (`diagnose-panel`, step 5). The
   plugin's handling goes when KDE Connect has its own fix.
-- **Second sources, one feature each, by the owner's decision.** The
+- **Second sources serve one feature each.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
   screen*`), which KDE Connect does not offer. Calls come from PipeWire's
   Bluetooth hands-free service (`kdeconnect-bridge call*`, #59): a call's
@@ -83,16 +83,17 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `Clipboard.qml`, `qmldir` | the one clipboard door (a singleton): copy and bounded read through `wl-copy` / `wl-paste` out of the shell |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
 | `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
 
-## Rules: what the owner decided, so nobody undoes it
+## Rules
 
-Each rule is a decision the owner made or guards against a known fault.
-Keep them; change one only with the owner.
+Each rule guards a design decision or a known fault. Keep them; change
+one only with the owner.
 
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
@@ -241,8 +242,8 @@ Keep them; change one only with the owner.
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
-- **Setup never shows plumbing** (`docs/design/setup.md`, the owner's
-  decision after a new user installed dependencies by hand): the engine
+- **Setup never shows plumbing** (`docs/design/setup.md`): nobody
+  installs a dependency by hand; the engine
   (gateways, items, states) runs unseen, and the panel shows only the
   thing working, the one act only the user can do when they reach for it,
   and their preferences. Settings says nothing while everything works:
@@ -375,6 +376,29 @@ Keep them; change one only with the owner.
   (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
+- **The shell is never a Wayland data-transfer party** (the owner's
+  decision, `docs/architecture/001`): Qt serves a selection with a blocking
+  write and reads one on the GUI thread without a bound, so a program that
+  never reads or never answers freezes the bar. Every crossing goes through
+  `Clipboard` (`copyText`, `readInto`): a short-lived `wl-copy` with the
+  text on stdin, a `wl-paste` stopped at a deadline and cut at a byte
+  limit, in a Process; `wl-copy` and `wl-paste` appear in no other file. No
+  text item copies, cuts, pastes or selects through Qt, since Qt makes the
+  shell the owner whenever its own key or click leaves a selection
+  standing. The one `TextEdit` is `PanelField`'s, and it writes
+  `selectByMouse: false` (it defaults to true). `PanelField` owns its
+  selection: Ctrl+A, every Shift selection key and the mouse move it with
+  `select`, a key that would leave one standing finds it gone, and the
+  mouse never reaches its TextEdit (no middle-click paste). Read-only text
+  is a `Text`, which has no selection, copy or keys in Qt (a message
+  bubble copies on a double click, through `Clipboard`). No `DropArea`, no
+  drag out of the window. A new field is a `PanelField`, new read-only
+  text a `Text`;
+  `tests/test_panelfield.py` (`ShippedQml`) and `tests/test_argv.py` fail
+  the build naming file:line, and `dev/clip-check --rig ID` shows it in the
+  rig: a reader that never reads does not stop the shell. The shell's own
+  read of a new clipboard while any panel has the keyboard is Omarchy's
+  (omacom/omarchy#8753), not ours.
 - **Apps are windows of their own, tiled by default** (no setting;
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
   floating and pinned at the top right in the device's shape; its sound
@@ -402,7 +426,7 @@ Keep them; change one only with the owner.
 - **Each window chooses where its sound plays** (#129): *Here*
   (scrcpy's default: the device's whole output, the device quiet), *On
   the phone* (`--no-audio`) or *Both* (`--audio-source=playback
-  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  --audio-dup`, Android 13; an option that is easy to take
   out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
   the Screen shortcut's speaker for the screen), on a card over the
   panel. scrcpy cannot switch while running, so a choice closes the
