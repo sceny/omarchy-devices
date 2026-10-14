@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# C-clip-3 (docs/architecture/001): the shell is never a party to a Wayland
+# data transfer. Run against a rig (any plugin code synced into it):
+#
+#   dev/clip-check --rig <id>
+#
+# Every gesture that could make the shell own the primary selection or the
+# clipboard is made, in a message bubble and in a field. Before each, another
+# process (wl-copy) owns both with a marker; after it the markers must still be
+# there, and a reader that asks and never reads (dev/clip-peer hold) must not
+# stop the shell answering. A paste or a middle click while the owner never
+# writes (dev/clip-peer stall) must be read by wl-paste, never by the shell's
+# own process, and the shell must keep answering.
+#
+# The gestures use the demo's layout at the rig's 1280x720; each one checks it
+# did what it should (a selection to copy, a message copied), so a moved layout
+# reads as MISSED, never as a pass. Exit status: the number of failures.
+set -u
+cd "$(dirname "$0")/.."
+
+RIG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rig) RIG="$2"; shift 2 ;;
+    *) echo "usage: dev/clip-check --rig <id>" >&2; exit 64 ;;
+  esac
+done
+[ -n "$RIG" ] || { echo "usage: dev/clip-check --rig <id>" >&2; exit 64; }
+
+R=(dev/rig --rig "$RIG")
+LIMIT_MS=1500
+LOG=$(mktemp -t clip-check.XXXXXX)
+trap 'rm -f "$LOG"' EXIT
+FAILS=0
+
+ex() { "${R[@]}" exec -- "$@"; }
+key() { ex wtype "$@"; sleep 0.3; }
+pass() { printf '  \033[32mPASS\033[0m %s\n' "$*"; }
+fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; FAILS=$((FAILS + 1)); }
+info() { printf '  INFO %s\n' "$*"; }
+
+# The panel answers within LIMIT_MS.
+alive() {
+  local start=$(date +%s%N) rc ms
+  timeout 6 "${R[@]}" ipc status >/dev/null 2>&1; rc=$?
+  ms=$(( ($(date +%s%N) - start) / 1000000 ))
+  if [ $rc -eq 0 ] && [ $ms -lt $LIMIT_MS ]; then pass "$1: the shell answers (${ms} ms)"
+  else fail "$1: the shell did not answer in time (rc $rc, ${ms} ms)"; fi
+}
+
+mark() { ex sh -c 'printf MARK-P | wl-copy --primary; printf MARK-C | wl-copy'; sleep 0.4; }
+primary() { ex sh -c 'timeout 2 wl-paste --primary --no-newline 2>/dev/null'; }
+clipboard() { ex sh -c 'timeout 2 wl-paste --no-newline 2>/dev/null'; }
+
+# The markers are still there: the gesture made the shell own nothing.
+unowned() {
+  local p c
+  p=$(primary); c=$(clipboard)
+  if [ "$p" = MARK-P ]; then pass "$1: the primary selection is still another process's"
+  else fail "$1: the shell took the primary selection (it reads \"${p:0:24}\")"; fi
+  if [ "${2:-}" = copied ]; then return; fi
+  if [ "$c" = MARK-C ]; then pass "$1: the clipboard is still another process's"
+  else fail "$1: the clipboard changed (it reads \"${c:0:24}\")"; fi
+}
+
+# The field (focused by its own key, as the user does) holds 6000 characters:
+# more than the one page dev/clip-peer's pipe holds, so an owner blocks.
+fill() {
+  key /
+  ex sh -c 'head -c 6000 /dev/zero | tr "\0" x | wl-copy'
+  sleep 0.4
+  key -M ctrl a -m ctrl
+  key -M ctrl v -m ctrl
+  sleep 1
+}
+
+# A reader that asks for the selection and never reads it.
+attack() {
+  local which=$1 label=$2
+  ex dev/clip-peer hold $which --seconds 3 2>/dev/null &
+  sleep 1
+  alive "$label, ${which:-clipboard} held unread"
+  wait
+}
+
+# Requests made by the shell's own process after the last line given.
+shell_reads_after() {
+  awk -v marker="$1" -v pid="$SHELL_PID" '
+    $0 == marker { after = 1; next }
+    after && / by / { n = split($0, f, " by "); split(f[n], who, " "); if (who[1] == pid) bad++; else ok++ }
+    END { printf "%d %d\n", bad + 0, ok + 0 }' "$LOG"
+}
+
+echo "== setup"
+SHELL_PID=$("${R[@]}" status 2>&1 | awk '$1 == "shell" { print $3 }')
+[ -n "$SHELL_PID" ] || { echo "no shell in rig $RIG" >&2; exit 2; }
+"${R[@]}" ipc demo "" >/dev/null
+"${R[@]}" ipc open >/dev/null
+"${R[@]}" ipc messages >/dev/null
+sleep 1.5
+TID=$("${R[@]}" ipc firstThreads 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)[0]["tid"])')
+"${R[@]}" ipc openThread "$TID" >/dev/null
+sleep 1.5
+alive "baseline"
+
+echo "== a message bubble"
+mark
+ex dev/pointer drag 740 570 1000 570
+unowned "drag across a bubble"
+attack --primary "drag across a bubble"
+
+mark
+ex dev/pointer click 1100 299 --double
+sleep 0.6
+c=$(clipboard)
+if [ "$c" = MARK-C ]; then info "double click on a bubble: MISSED (nothing copied; the layout moved?)"
+else pass "double click on a bubble copied \"${c:0:24}\""; fi
+unowned "double click on a bubble" copied
+attack "" "double click on a bubble"
+
+mark
+key -M ctrl a -m ctrl
+key -M ctrl c -m ctrl
+unowned "Ctrl+A, Ctrl+C on a bubble" copied
+
+echo "== a field (the conversations' search)"
+fill
+mark
+key -M ctrl a -m ctrl
+unowned "Ctrl+A in a field holding 6000 characters"
+attack --primary "Ctrl+A in a field"
+
+key -M ctrl c -m ctrl
+c=$(clipboard)
+if [ ${#c} -eq 6000 ]; then pass "Ctrl+C copied the 6000 characters"
+else fail "Ctrl+C: the clipboard holds ${#c} characters, not 6000"; fi
+unowned "Ctrl+C in a field" copied
+attack "" "Ctrl+C in a field"
+
+for gesture in "End|shift+Left x3" "End|shift+Home" "End|ctrl+shift+Left" "Home|shift+End" "Home|shift+ctrl+End"; do
+  start=${gesture%%|*} combo=${gesture#*|}
+  key -k "$start"
+  mark
+  case "$combo" in
+    "shift+Left x3") key -M shift -k Left -k Left -k Left -m shift ;;
+    shift+Home) key -M shift -k Home -m shift ;;
+    shift+End) key -M shift -k End -m shift ;;
+    ctrl+shift+Left) key -M ctrl -M shift -k Left -m shift -m ctrl ;;
+    shift+ctrl+End) key -M ctrl -M shift -k End -m shift -m ctrl ;;
+  esac
+  unowned "$start, then $combo"
+  attack --primary "$start, then $combo"
+done
+
+for k in "ctrl+z" "ctrl+shift+z" "Home" "End" "Up" "Down" "Left" "Right" "Escape"; do
+  key -k End
+  key -M shift -k Left -k Left -k Left -m shift
+  mark
+  case "$k" in
+    ctrl+z) key -M ctrl z -m ctrl ;;
+    ctrl+shift+z) key -M ctrl -M shift z -m shift -m ctrl ;;
+    *) key -k "$k" ;;
+  esac
+  unowned "a selection standing, then $k"
+  case "$k" in ctrl+z|ctrl+shift+z|Escape) fill ;; esac
+done
+
+mark
+ex dev/pointer drag 420 208 650 208
+key -M ctrl c -m ctrl
+c=$(clipboard)
+if [ "$c" = MARK-C ] || [ -z "$c" ]; then info "drag across the field: MISSED (nothing selected; the layout moved?)"
+else pass "drag across the field selected ${#c} characters"; fi
+unowned "drag across the field" copied
+
+for clicks in --double --triple; do
+  mark
+  ex dev/pointer click 550 208 "$clicks"
+  unowned "${clicks#--} click in the field"
+  key -M ctrl c -m ctrl
+  c=$(clipboard)
+  if [ "$c" = MARK-C ] || [ -z "$c" ]; then info "${clicks#--} click in the field: MISSED (nothing selected)"
+  else pass "${clicks#--} click in the field selected ${#c} characters"; fi
+done
+
+echo "== reading: an owner that never writes"
+: >"$LOG"
+ex dev/clip-peer stall --primary --seconds 5 2>>"$LOG" &
+sleep 1.5
+echo "--- middle click" >>"$LOG"
+ex dev/pointer click 550 208 --middle
+alive "middle click while the primary's owner never writes"
+wait
+read -r bad ok < <(shell_reads_after "--- middle click")
+if [ "$bad" -eq 0 ]; then pass "middle click: the shell read nothing itself"
+else fail "middle click: the shell's own process read the primary selection ($bad times)"; fi
+
+: >"$LOG"
+ex dev/clip-peer stall --seconds 7 2>>"$LOG" &
+sleep 3.5
+host=$(awk -v pid="$SHELL_PID" '/ by / { n = split($0, f, " by "); split(f[n], w, " "); if (w[1] == pid) c++ } END { print c + 0 }' "$LOG")
+[ "$host" -gt 0 ] && info "the clipboard changed: the shell's own process read it $host times (Qt's TextInput, any keyboard panel; omacom/omarchy#8753)"
+echo "--- paste" >>"$LOG"
+key -M ctrl v -m ctrl
+alive "Ctrl+V while the clipboard's owner never writes"
+sleep 3
+alive "after the paste gave up"
+wait
+read -r bad ok < <(shell_reads_after "--- paste")
+if [ "$bad" -eq 0 ] && [ "$ok" -gt 0 ]; then pass "Ctrl+V: read by wl-paste ($ok requests), never by the shell itself"
+else fail "Ctrl+V: the shell's own process read the clipboard $bad times (wl-paste: $ok)"; fi
+
+echo
+if [ "$FAILS" -eq 0 ]; then echo "clip-check: PASS"; else echo "clip-check: $FAILS FAIL"; fi
+exit "$FAILS"

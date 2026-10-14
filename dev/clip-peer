@@ -1,0 +1,226 @@
+#!/usr/bin/env python3
+"""A hostile clipboard peer for the rig's compositor: the attack the shell
+must survive (docs/architecture/001, C-clip-3). It speaks the data-control
+protocol (ext-data-control-v1, else wlr-data-control), as clipboard managers
+and wl-clipboard do, so it needs no window and no focus.
+
+  dev/rig exec -- dev/clip-peer hold  [--primary] [--seconds N]
+      asks the current owner of the clipboard (or the primary selection) for
+      its text and never reads it, through a pipe cut to one page: an owner
+      that writes on its main thread blocks there until this ends.
+  dev/rig exec -- dev/clip-peer stall [--primary] [--seconds N] [--trickle S]
+      owns the clipboard (or the primary selection), offers text and never
+      writes it (or a byte every S seconds, never the end): a reader that
+      waits for it waits until this ends. Each request says which process
+      asked: `wl-paste` reads out of the shell, the shell's pid in it.
+
+Each ends after --seconds (10 by default) and says on stderr what it did.
+Exit 2: nothing to hold (no selection, or no text in it).
+It talks to $WAYLAND_DISPLAY, which inside `dev/rig exec` is the rig's own."""
+
+import argparse
+import fcntl
+import os
+import socket
+import struct
+import sys
+import time
+
+F_SETPIPE_SZ = 1031
+TEXT_TYPES = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING"]
+
+
+class Wire:
+    def __init__(self):
+        path = os.environ["WAYLAND_DISPLAY"]
+        if not path.startswith("/"):
+            path = os.path.join(os.environ["XDG_RUNTIME_DIR"], path)
+        self.sock = socket.socket(socket.AF_UNIX)
+        self.sock.connect(path)
+        self.next_id = 2
+        self.buf = b""
+        self.fds = []
+
+    def new_id(self):
+        self.next_id += 1
+        return self.next_id - 1
+
+    def send(self, obj, opcode, payload=b"", fd=None):
+        message = struct.pack("<II", obj, ((8 + len(payload)) << 16) | opcode) + payload
+        if fd is None:
+            self.sock.sendall(message)
+        else:
+            socket.send_fds(self.sock, [message], [fd])
+
+    @staticmethod
+    def string(text):
+        raw = text.encode() + b"\0"
+        return struct.pack("<I", len(raw)) + raw + b"\0" * (-len(raw) % 4)
+
+    @staticmethod
+    def read_string(body, at=0):
+        size = struct.unpack_from("<I", body, at)[0]
+        text = body[at + 4:at + 4 + size - 1].decode(errors="replace")
+        return text, at + 4 + size + (-size % 4)
+
+    def events(self, timeout):
+        self.sock.settimeout(timeout)
+        try:
+            data, fds, _flags, _addr = socket.recv_fds(self.sock, 65536, 16)
+        except (socket.timeout, TimeoutError):
+            return
+        if not data:
+            sys.exit("clip-peer: the compositor closed the connection")
+        self.buf += data
+        self.fds += fds
+        while len(self.buf) >= 8:
+            obj, word = struct.unpack("<II", self.buf[:8])
+            size = word >> 16
+            if len(self.buf) < size:
+                break
+            body, self.buf = self.buf[8:size], self.buf[size:]
+            yield obj, word & 0xFFFF, body
+
+    def roundtrip(self, handle):
+        done = self.new_id()
+        self.send(1, 0, struct.pack("<I", done))           # wl_display.sync
+        while True:
+            for obj, opcode, body in self.events(2):
+                if obj == done:
+                    return
+                if obj == 1 and opcode == 0:                # wl_display.error
+                    _id, code = struct.unpack_from("<II", body)
+                    sys.exit("clip-peer: protocol error %d: %s" % (code, self.read_string(body, 8)[0]))
+                handle(obj, opcode, body)
+
+
+def connect():
+    wire = Wire()
+    registry = wire.new_id()
+    wire.send(1, 1, struct.pack("<I", registry))            # wl_display.get_registry
+    globals_ = {}
+
+    def on_global(obj, opcode, body):
+        if obj == registry and opcode == 0:
+            name = struct.unpack_from("<I", body)[0]
+            interface, at = Wire.read_string(body, 4)
+            globals_[interface] = (name, struct.unpack_from("<I", body, at)[0])
+
+    wire.roundtrip(on_global)
+
+    def bind(interface, version):
+        name, offered = globals_[interface]
+        new = wire.new_id()
+        wire.send(registry, 0, struct.pack("<I", name) + Wire.string(interface)
+                  + struct.pack("<II", min(version, offered), new))
+        return new
+
+    for manager, version in (("ext_data_control_manager_v1", 1), ("zwlr_data_control_manager_v1", 2)):
+        if manager in globals_:
+            break
+    else:
+        sys.exit("clip-peer: the compositor offers no data-control protocol")
+    seat = bind("wl_seat", 1)
+    control = bind(manager, version)
+    device = wire.new_id()
+    wire.send(control, 1, struct.pack("<II", device, seat))  # get_data_device
+    return wire, control, device, manager
+
+
+def hold(args):
+    wire, _control, device, manager = connect()
+    offers = {}
+    current = {"selection": None, "primary": None}
+
+    def on_event(obj, opcode, body):
+        if obj == device and opcode == 0:                  # data_offer
+            offers[struct.unpack_from("<I", body)[0]] = []
+        elif obj == device and opcode in (1, 3):           # selection, primary_selection
+            current["selection" if opcode == 1 else "primary"] = struct.unpack_from("<I", body)[0] or None
+        elif obj in offers and opcode == 0:                # offer.offer
+            offers[obj].append(Wire.read_string(body)[0])
+
+    wire.roundtrip(on_event)
+    offer = current["primary" if args.primary else "selection"]
+    types = offers.get(offer, [])
+    mime = next((t for t in TEXT_TYPES if t in types), None)
+    if offer is None or mime is None:
+        print("clip-peer: no %s text to hold (%s)" % ("primary" if args.primary else "clipboard", types),
+              file=sys.stderr)
+        return 2
+    read_end, write_end = os.pipe()
+    fcntl.fcntl(read_end, F_SETPIPE_SZ, 4096)
+    wire.send(offer, 0, Wire.string(mime), fd=write_end)  # offer.receive
+    os.close(write_end)
+    wire.roundtrip(lambda *_: None)
+    print("clip-peer: holding the %s's %s for %ss, reading nothing (%s)"
+          % ("primary selection" if args.primary else "clipboard", mime, args.seconds, manager),
+          file=sys.stderr, flush=True)
+    time.sleep(args.seconds)
+    os.close(read_end)
+    return 0
+
+
+def asker(fd):
+    """The process reading the other end of a pipe the compositor handed us:
+    `wl-paste` is a read out of the shell; the shell's own pid is a read in it."""
+    pipe = "pipe:[%d]" % os.fstat(fd).st_ino
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        if int(pid) == os.getpid():
+            continue
+        try:
+            fds = os.listdir("/proc/%s/fd" % pid)
+            if any(os.readlink("/proc/%s/fd/%s" % (pid, n)) == pipe for n in fds):
+                with open("/proc/%s/comm" % pid) as comm:
+                    return "%s %s" % (pid, comm.read().strip())
+        except OSError:
+            continue
+    return "unknown"
+
+
+def stall(args):
+    wire, control, device, manager = connect()
+    source = wire.new_id()
+    wire.send(control, 0, struct.pack("<I", source))       # create_data_source
+    for mime in TEXT_TYPES:
+        wire.send(source, 0, Wire.string(mime))             # source.offer
+    wire.send(device, 2 if args.primary else 0, struct.pack("<I", source))
+    print("clip-peer: owning the %s, writing nothing, for %ss (%s)"
+          % ("primary selection" if args.primary else "clipboard", args.seconds, manager),
+          file=sys.stderr, flush=True)
+    kept, end, drip = [], time.monotonic() + args.seconds, time.monotonic()
+    while time.monotonic() < end:
+        for obj, opcode, body in wire.events(max(0.05, min(0.2, end - time.monotonic()))):
+            if obj == source and opcode == 0:              # send: keep the fd, write nothing
+                fd = wire.fds.pop(0)
+                kept.append(fd)
+                print("clip-peer: %.1fs asked for %s by %s" % (args.seconds - (end - time.monotonic()),
+                      Wire.read_string(body)[0], asker(fd)), file=sys.stderr, flush=True)
+            elif obj == source and opcode == 1:            # cancelled
+                print("clip-peer: replaced by another owner", file=sys.stderr, flush=True)
+                end = 0
+        if args.trickle and kept and time.monotonic() >= drip:
+            drip = time.monotonic() + args.trickle         # a byte now and then, never the end
+            for fd in kept:
+                try:
+                    os.write(fd, b"x")
+                except OSError:
+                    pass
+    for fd in kept:
+        os.close(fd)
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("mode", choices=["hold", "stall"])
+    parser.add_argument("--primary", action="store_true")
+    parser.add_argument("--seconds", type=float, default=10)
+    parser.add_argument("--trickle", type=float, default=0,
+                        help="stall: write one byte every this many seconds, never the end")
+    args = parser.parse_args()
+    return hold(args) if args.mode == "hold" else stall(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

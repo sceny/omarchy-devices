@@ -2,7 +2,7 @@
 """A virtual pointer for the rig's compositor, over wlr-virtual-pointer: the
 rig has a virtual keyboard (wtype) but no way to click.
 
-  dev/rig exec -- dev/pointer click X Y [--double]
+  dev/rig exec -- dev/pointer click X Y [--double|--triple] [--middle]
   dev/rig exec -- dev/pointer drag X1 Y1 X2 Y2
   dev/rig exec -- dev/pointer move X Y
 
@@ -19,6 +19,7 @@ import time
 WIDTH = int(os.environ.get("WIDTH", "1280"))
 HEIGHT = int(os.environ.get("HEIGHT", "720"))
 BTN_LEFT = 0x110
+BTN_MIDDLE = 0x112
 
 
 class Wire:
@@ -97,8 +98,8 @@ def move(w, pointer, x, y):
     w.send(pointer, 4)
 
 
-def button(w, pointer, down):
-    w.send(pointer, 2, struct.pack("<III", millis(), BTN_LEFT, 1 if down else 0))
+def button(w, pointer, down, code=BTN_LEFT):
+    w.send(pointer, 2, struct.pack("<III", millis(), code, 1 if down else 0))
     w.send(pointer, 4)
 
 
@@ -112,10 +113,11 @@ def main(argv):
     elif verb == "click":
         move(w, p, argv[1], argv[2])
         time.sleep(0.4)
-        for _ in range(2 if "--double" in argv else 1):
-            button(w, p, True)
+        code = BTN_MIDDLE if "--middle" in argv else BTN_LEFT
+        for _ in range(3 if "--triple" in argv else 2 if "--double" in argv else 1):
+            button(w, p, True, code)
             time.sleep(0.05)
-            button(w, p, False)
+            button(w, p, False, code)
             time.sleep(0.08)
     elif verb == "drag":
         x1, y1, x2, y2 = (int(v) for v in argv[1:5])
