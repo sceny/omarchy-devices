@@ -318,6 +318,11 @@ rig_write_parent_conf() {
 CONF
 }
 
+rig_runtime_sockets() {
+  # The Wayland sockets in the rig's runtime dir, newest last, for a start that was lost.
+  ls -tr "$RIG_RUNTIME_DIR" 2>/dev/null | grep '^wayland-' | tr '\n' ' '
+}
+
 rig_start_compositor() {
   # The hidden start can lose a race inside Aquamarine (see rig_start_compositor_once);
   # it is cheap to try again, so it does, a bounded number of times.
@@ -331,7 +336,7 @@ rig_start_compositor() {
     status=$?
     ((status == 75)) || return "$status"
     rig_stop_display
-    ((attempt < max)) && rig_step "the parent dropped the compositor's window; starting again ($((attempt + 1))/$max)"
+    ((attempt < max)) && rig_step "the parent dropped the compositor's window (${RIG_LOST_REASON:-no reason}; sockets left: $(rig_runtime_sockets)); starting again ($((attempt + 1))/$max)"
   done
   rig_die "the hidden compositor lost the start-up race $max times in a row; see $RIG_LOGS/compositor.log"
 }
@@ -432,13 +437,17 @@ $(tail -n 8 "$log" 2>/dev/null)"
     done
     if tail -n "+$log_from" "$log" | grep -q 'has never been configured'; then
       rig_wake_parent_stop
+      RIG_LOST_REASON="xdg_surface never configured"
       return 75
     fi
     rig_wake_parent
-    timeout --kill-after=2 6 grim -t ppm /dev/null >/dev/null 2>&1 || {
+    local grim_status=0 grim_err
+    grim_err=$(timeout --kill-after=2 6 grim -t ppm /dev/null 2>&1 >/dev/null) || grim_status=$?
+    if ((grim_status != 0)); then
       rig_wake_parent_stop
+      RIG_LOST_REASON="grim exit $grim_status: $(printf '%s' "$grim_err" | head -c 120 | tr '\n' ' ')"
       return 75
-    }
+    fi
     rig_wake_parent_stop
   fi
   rig_check_config_errors
