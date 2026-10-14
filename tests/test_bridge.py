@@ -645,6 +645,10 @@ class Calls(unittest.TestCase):
         # KDE Connect fills contactName with the number when it knows no name.
         self.assertEqual(bridge.call_event("callReceived", "5550123", "5550123", 0)["name"], "")
 
+    def test_a_name_and_number_are_capped(self):
+        long = bridge.call_event("callReceived", "5" * 4000, "A" * 4000, 0)
+        self.assertEqual((len(long["number"]), len(long["name"])), (bridge.CAP_SHORT, bridge.CAP_SHORT))
+
     def test_other_events_are_ignored(self):
         self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
         self.assertIsNone(bridge.call_event("sms", "5550123", "", 0))
