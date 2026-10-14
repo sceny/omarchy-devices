@@ -2,9 +2,9 @@
 
 Status: accepted · 2026-10-14, amended the same day (keyboard selection,
 §2.3; what retires when Qt fixes land, §5.1; measured in the rig, §2.4, with
-the corrections it brought: no `DropArea`, read-only text takes no focus,
-`selectByMouse` set on every `TextEdit`; read-only text's focus rule closed,
-§6) · owner of the decision: Mies
+the corrections it brought: no `DropArea`, `selectByMouse` set on every
+`TextEdit`; read-only text is a `Text`, so the one `TextEdit` is
+`PanelField`'s, §2.3 and §6) · owner of the decision: Mies
 (architecture) · implements: SCE-696 · under: SCE-694 (Devices 0.8.4),
 SCE-603 (marketplace #10096)
 
@@ -109,8 +109,9 @@ not queued; neither raises, neither waits on the GUI thread.
 
 ### 2.3 What the QML side may and may not do
 
-A text surface in the panel is a `TextEdit` (never `TextField` / `TextInput`
-/ `TextArea`: `QQuickTextInput::canPaste` reads the payload in-process; a
+Read-only text in the panel is a `Text`; the one editable surface is
+`PanelField`, built on a `TextEdit` (never `TextField` / `TextInput` /
+`TextArea`: `QQuickTextInput::canPaste` reads the payload in-process; a
 `TextEdit`'s `canPaste` only checks the advertised format list,
 `qquicktextcontrol.cpp:1675` `hasText()`). On that `TextEdit`:
 
@@ -135,13 +136,18 @@ A text surface in the panel is a `TextEdit` (never `TextField` / `TextInput`
   nothing to undo (`QTextDocument::undo` replaces the cursor only when
   `pos >= 0`). So the rule does not list the dangerous keys; it lists the
   safe ones:
-  - a **read-only** surface takes no focus (`activeFocusOnPress: false`,
-    and nothing gives it focus), so no key ever reaches its text control.
-    Qt's Copy and Select-All keys check no interaction flag
-    (`qquicktextcontrol.cpp:822-836`): a focused read-only `TextEdit` makes
-    the shell the owner on Ctrl+A or Ctrl+C whatever `selectByKeyboard`
-    says. What it offers (the message bubble: a double click copies the
-    message) goes through `Clipboard`; `selectByKeyboard` is never `true`;
+  - **read-only text is a `Text`, never a `TextEdit`.** Qt's `Text` has no
+    text control: no selection, no copy, no key handling, no drop handling
+    (`qquicktext.cpp`, 6.11.2: it overrides only mouse press and release
+    and hover, for links; with `PlainText` it accepts no mouse button,
+    `:2354`), so whatever gives it focus, it cannot make the shell a source
+    or a target. A read-only `TextEdit` would: Qt's Copy and Select-All
+    keys check no interaction flag (`qquicktextcontrol.cpp:822-836`), so
+    with focus, Ctrl+A or Ctrl+C makes the shell the owner whatever
+    `selectByKeyboard` says, and no lint sees every route by which focus
+    arrives. What read-only text offers (the message bubble: a double click
+    copies the message, and a rectangle under the text lights it a moment)
+    goes through `Clipboard`; `selectByKeyboard` is never `true`;
   - an **editable** surface (`PanelField`, the only one, plain text) takes
     every selection key before Qt sees it (`event.matches(StandardKey.SelectNextChar)`
     and the other `Select*` standard keys: char, word, line, line start and
@@ -248,6 +254,13 @@ issue's number, and fails only on a read after our own gesture.
   the end state: it works but it is the per-component sprawl that lets the
   next component forget. One component plus a lint is the same mechanism made
   un-forgettable.
+- **Keep the bubble a read-only `TextEdit` and fence its focus.** Rejected:
+  the fence is a list of the ways focus can arrive (literal properties,
+  focus assignments and bindings, an allowlist of what its id is used for),
+  it grew in each review round, and focus reached by reflection from a
+  sibling still passed it. Cost of keeping it: a lint that changes whenever
+  QML offers a new way to give focus, guarding a text control the bubble
+  does not use. A `Text` has no such path to guard.
 
 ## 4. The migration
 
@@ -262,9 +275,9 @@ written differently, so there is no data migration. The migration is of
   middle-click and drops (good) — its read moves behind `Clipboard.readInto`;
   its `selectByMouse: true` (`PanelField.qml:122`) becomes `false` with
   component-driven selection.
-- `MessagesView.qml:1318` (the message bubble, `readOnly` but
-  `selectByMouse: true`) and any other `selectByMouse` lose it; selection, if
-  offered, is component-driven.
+- `MessagesView.qml:1318` (the message bubble, a `readOnly` `TextEdit` with
+  `selectByMouse: true`) becomes a `Text`; its copy (a double click) goes
+  through `Clipboard`. `PanelField` loses Qt's mouse selection for its own.
 - `Panel.qml:6586` (the gallery tile `Drag.Automatic`) is re-expressed per §7.
 - `bin/kdeconnect-bridge copy-file` is unchanged.
 
@@ -283,8 +296,7 @@ regression a red build, not a sixth marketplace round.
 **Harder:** mouse selection becomes component-driven rather than Qt's
 built-in, which is more QML to carry (a selection drag handler). Copy/cut/
 paste must be wired per text surface rather than inherited from Qt — but all
-text surfaces are already `PanelField` or a controlled `TextEdit`, so the
-wiring has one home.
+text surfaces are `PanelField` or a `Text`, so the wiring has one home.
 
 **Cost to undo in three months:** low for the invariant (delete the lint,
 let components touch the clipboard again), but it is the only thing that
@@ -302,7 +314,7 @@ qt6-declarative` on a current Omarchy, 6.11.2 today.
 |---|---|---|---|
 | Copy and cut through `Clipboard.copyText` (`wl-copy`); Copy and Cut keys taken before Qt; no QML call to a text item's `copy()`/`cut()` | The shell as clipboard source: blocking `write` on the GUI thread (`data_source_send`) | qtbase 0b3ed8ba40 in 6.12.0: a 5 s cap **per request**, still on the GUI thread | Omarchy's Qt serves a selection without the GUI thread waiting on the peer (asynchronous, or a total bound across requests), **and** C-clip-3(a) passes with Qt's own `copy()`. 6.12.0 alone does not meet it. |
 | `selectByMouse: false`, component-driven selection | The shell as primary-selection source (`setClipboardSelection`, mouse paths) | Same as above | Same trigger as the row above, **and** C-clip-3(c) passes with `selectByMouse: true`. |
-| Selection keys taken by `PanelField`; `selectByKeyboard` never `true` on read-only text | The shell as primary-selection source (`accept:` → `setClipboardSelection`) | Same as above | Same trigger as the first row, **and** C-clip-3(c) passes with Qt's own Shift+movement. |
+| Selection keys taken by `PanelField`; read-only text a `Text`, not a `TextEdit` | The shell as primary-selection source (`accept:` → `setClipboardSelection`) | Same as above | Same trigger as the first row, **and** C-clip-3(c) passes with Qt's own Shift+movement. |
 | No `Drag.Automatic` / `Drag.active` (gallery drag-out dropped, copy kept) | The shell as drag source (same `data_source_send`, inside `QDrag::exec`'s nested event loop) | Same as above | Same trigger as the first row, **and** a null-reading drop target cannot stall the shell in the rig. |
 | Paste through `Clipboard.readInto` (bounded `wl-paste`); Paste key taken before Qt; no QML call to `paste()` | The shell as reader: `QWaylandMimeData::readData`, `Q_FOREVER` with 1 s per `poll`, no total time or byte cap | **No fix on any branch**: identical in 6.11.2, 6.11, 6.12.0 and `dev` | Omarchy's Qt bounds the read in total time and bytes, or reads off the GUI thread, **and** C-clip-3(b) passes with Qt's own `paste()`. |
 | Middle click swallowed on the editable surface | Qt's middle-button paste of the primary selection (the same read) | Same as above | Same trigger as the row above. |
@@ -339,15 +351,12 @@ the rig proof that the invariant actually holds at runtime.
 
 - no `TextField`/`TextInput`/`TextArea` instantiation, nor any type of
   Omarchy's `qs.Ui` with one inside (already in `test_argv.py`, C2);
-- every `TextEdit` **writes** `selectByMouse: false` (new: the default is
-  `true`, so banning `true` is not enough);
+- no `TextEdit` outside `PanelField.qml` (the file compared by path), and
+  no type of Omarchy's `qs.Ui` with one inside (new): read-only text is a
+  `Text`, so no rule about a read-only `TextEdit`'s focus is needed;
+- `PanelField`'s `TextEdit` **writes** `selectByMouse: false` (new: the
+  default is `true`, so banning `true` is not enough);
 - no `selectByKeyboard: true` (new);
-- a `TextEdit` outside `PanelField` writes `readOnly: true` and
-  `activeFocusOnPress: false` as literals, and none is given focus (new): it
-  writes `focus` and `activeFocusOnTab` only as `false`, assigns or binds no
-  focus property and calls no `forceActiveFocus` in its body, and its id is
-  used only for where it is, what it shows and its own copy (a closed list
-  of members; any other use, the id alone included, fails);
 - no `DropArea` (new);
 - no call to a text item's own `copy()`, `cut()` or `paste()` (new; the
   pattern `\.(copy|cut|paste)\(\)` outside `Clipboard.qml`, so a context-menu
@@ -409,9 +418,10 @@ test is.
   null-reading drop target in the rig; nobody has asked for it.
 - **Selection on a message bubble: decided, none.** A double click copies
   the whole message through `Clipboard` and highlights it a moment; part of
-  a message is no longer selected by dragging. A drag that selects part of
-  a bubble (as `PanelField` does, through `select()`) is the way back if
-  users ask; it has to share the drag with the conversation's scrolling.
+  a message is no longer selected by dragging. The way back, if users ask,
+  is a bubble built as `PanelField` is (a `TextEdit` whose selection, keys
+  and mouse the component owns, under C-clip-1's rules for it); it has to
+  share the drag with the conversation's scrolling.
 - **The singleton's home.** Whether `Clipboard` lives in the plugin or is
   proposed up to Omarchy's shared `qs` Commons (so Omarchy's own panels and
   the second plugin share one implementation) is a boundary question with
