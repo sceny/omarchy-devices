@@ -23,7 +23,8 @@ typed, so a short code works too.
 ## By keyboard
 
 `l` moves into the conversation, where a highlight goes from message to
-message; Enter opens its picture or copies its text. `h` or Esc comes back.
+message; Enter opens its picture or copies its text (a double click copies
+it too). `h` or Esc comes back.
 Only your own click or Enter puts the cursor in the reply field.
 
 ![A message highlighted from the keyboard (demo data)](../images/message-cursor.png)

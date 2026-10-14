@@ -6,6 +6,13 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.4 — 2026-10-14
+
+### Fixes
+
+- A paste no longer makes the shell read the clipboard unbounded or wait on it: the text is read when you paste, outside the shell, with a size limit and a deadline, and a slow or failed read inserts nothing (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- The shell never takes part in a clipboard transfer: copy, cut, paste and selecting text go through one door that runs the system's clipboard tools outside the shell, with a size limit and a deadline, so a program that never reads what you copied (or never finishes what it pastes) cannot freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with the arrow keys work as before, and the mouse still places the cursor and selects (a drag, Shift+click, a word on a double click, all on a triple). A message in a conversation is copied by a double click; it can no longer be selected by dragging. A gallery photo is no longer dragged out of the panel: use its copy button, then paste it where you want it (marketplace review omacom/omarchy-plugin-marketplace#10096; `docs/architecture/001`).
+
 ## 0.8.3 — 2026-10-13
 
 ### Highlights

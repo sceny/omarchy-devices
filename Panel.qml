@@ -5405,7 +5405,6 @@ Panel {
     id: tile
     property var photo: ({})
     property int place: 0
-    readonly property string url: "file://" + encodeURI(String(photo.path || ""))
     hasCursor: false
     CursorStop { here: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place; glide: root.cursorGlide }
     foreground: root.foreground
@@ -5475,12 +5474,6 @@ Panel {
         font.pixelSize: Style.font.bodySmall
       }
     }
-    // The file itself, for a drop into another window.
-    Drag.active: tileDrag.active
-    Drag.dragType: Drag.Automatic
-    Drag.supportedActions: Qt.CopyAction
-    Drag.mimeData: ({ "text/uri-list": tile.url })
-    DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
     // Hover without taking it from the buttons: ↗ shows only on this tile.
     HoverHandler { id: tileHover }
 
@@ -5525,7 +5518,7 @@ Panel {
     PanelToolTip {
       visible: tileMouse.containsMouse
       text: (tile.photo.album || "Photo") + (tile.photo.video ? " · video" : "") + " · " + Model.threadTime(tile.photo.at, Date.now())
-        + (tile.photo.video ? " · click to play" : " · click to open") + ", drag into a window"
+        + (tile.photo.video ? " · click to play" : " · click to open")
     }
   }
 
