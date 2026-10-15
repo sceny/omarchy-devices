@@ -189,5 +189,41 @@ class PrivateText(unittest.TestCase):
             os.remove(f.name)
 
 
+class FetchedAttachmentsOpenOnlyWhenAsked(unittest.TestCase):
+    """An attachment arriving opens only when its own id was asked for: no
+    "anything is pending" fallback, and the bridge's file gate is told it
+    came from the device unless the bridge says it made the copy."""
+
+    def test_only_the_exact_id_opens(self):
+        text = code_only(open(os.path.join(ROOT, "SmsService.qml")).read())
+        self.assertNotIn("Object.keys(pendingFiles)", text)
+        self.assertIn("pendingFiles[ev.name] === true", text)
+        self.assertIn('cmd.push("--from-device")', open(os.path.join(ROOT, "SmsService.qml")).read())
+
+
+class DeviceFilesOpenThroughTheGate(unittest.TestCase):
+    """A QML start of the bridge's `open-file` that can carry a file the
+    device sent passes `--from-device` or `--local`, so the bridge's gate
+    (what the file holds decides; a picture opens only as the sandbox's
+    copy) applies. A file the plugin made itself is on this list."""
+
+    OWN_FILES = {("SmsService.qml", "files[j].thumb"): "the demo's picture, a local file"}
+
+    def test_every_open_file_start_names_the_gate(self):
+        found = []
+        for path in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
+            raw = open(path).read()
+            text = code_only(raw)
+            for m in re.finditer(r'"open-file"', raw):
+                start = max(text.rfind("function ", 0, m.start()), 0)
+                end = text.find("function ", m.end())
+                scope = raw[start:len(raw) if end < 0 else end]
+                line = raw[raw.rfind("\n", 0, m.start()) + 1:raw.find("\n", m.end())]
+                own = any(f == os.path.basename(path) and k in line for (f, k) in self.OWN_FILES)
+                if not own and "--from-device" not in scope and "--local" not in scope:
+                    found.append("%s:%d" % (os.path.basename(path), raw.count("\n", 0, m.start()) + 1))
+        self.assertEqual(found, [], "an open-file start without --from-device or --local")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -45,6 +45,10 @@ GitHub release with these notes.
 - **Hardening**: windows are launched and focused by exact title and address,
   contact and call fields are capped, and the firewall rules open KDE
   Connect's ports to private ranges only.
+- **A message attachment opens only when you clicked it**: one that
+  arrives for a click you did not make is not opened, and a picture opens only
+  as the copy decoded in the sandbox, whatever name or type the phone gives it
+  (marketplace review omacom/omarchy-plugin-marketplace#10096).
 
 ## 0.9.0 — 2026-10-12
 
