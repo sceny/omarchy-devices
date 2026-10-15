@@ -444,10 +444,11 @@ rig_kdc_pair() {
 
 rig_phone_start() {
   # Before the display: the compositor and the shell run inside the namespace.
+  # The emulator is not started here: its boot takes the CPU, and a compositor
+  # that starts meanwhile loses its start-up race (rig_emulator_start, after it).
   rig_netns_start
   rig_bus_start
   rig_adb_start
-  rig_emulator_start
 }
 
 rig_adb_wifi_start() {
