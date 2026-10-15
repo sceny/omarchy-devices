@@ -26,6 +26,7 @@ import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -254,6 +255,37 @@ class XSockets(unittest.TestCase):
             self.assertEqual(self.ns["x_socket_state"](plain, listening), "EXISTS")
             self.assertEqual(self.ns["x_socket_state"](dead, listening), "EXISTS")
             self.assertEqual(self.ns["x_socket_state"](os.path.join(d, "X2"), listening), "ABSENT")
+
+    def test_a_listener_owned_by_another_uid_is_not(self):
+        import types
+        fake_os = types.SimpleNamespace(
+            lstat=lambda p: types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o755, st_uid=65534),
+            getuid=lambda: 1000)
+        listening = {"/tmp/.X11-unix/X0"}
+        with mock.patch.dict(self.ns, {"os": fake_os}):
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", listening), "EXISTS")
+            fake_os.getuid = lambda: 65534
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", listening), "OWN-LISTENER")
+
+    def test_a_socket_of_this_uid_with_no_listener_here_is_not(self):
+        import types
+        fake_os = types.SimpleNamespace(
+            lstat=lambda p: types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o755, st_uid=1000),
+            getuid=lambda: 1000)
+        with mock.patch.dict(self.ns, {"os": fake_os}):
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", set()), "EXISTS")
+
+    def test_an_abstract_entry_is_not_the_listener_of_the_path(self):
+        header = "Num       RefCount Protocol Flags    Type St Inode Path\n"
+        table = (header
+                 + "0000: 00000002 00000000 00010000 0001 01 1 @/tmp/.X11-unix/X0\n"
+                 + "0000: 00000002 00000000 00010000 0001 01 2 /tmp/.X11-unix/X1\n"
+                 + "0000: 00000003 00000000 00000000 0001 03 3 /tmp/.X11-unix/X2\n")
+        with mock.patch.dict(self.ns, {"open": lambda p: io.StringIO(table)}):
+            listening = self.ns["own_listening_sockets"]()
+        self.assertEqual(listening, {"@/tmp/.X11-unix/X0", "/tmp/.X11-unix/X1"})
+        self.assertNotIn("/tmp/.X11-unix/X0", listening)
+        self.assertNotIn("/tmp/.X11-unix/X2", listening)
 
     def judge(self, kind, host_paths, x_sockets):
         probe = {
