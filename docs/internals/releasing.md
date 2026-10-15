@@ -182,6 +182,16 @@ finding blocks the pull request.
   `tests/test_argv.py` (`OsdLines`) fails on a toast that does not.
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
   points at a file the device sent.
+- A file from the device reaches `open-file` / `gio open` only through one
+  gate (`open_file`, `--from-device` or `--local`): what the file holds
+  decides whether it is a picture (then only the sandbox's copy opens, and
+  with no sandbox nothing opens), never its name or a type the device
+  claims. A fetched attachment is opened only when this plugin asked for
+  that id: the bridge sends no event for another, and the panel matches the
+  exact id. `tests/test_bridge.py` (`FetchedAttachments`,
+  `OpenPicturesSafely`) fails for an unrequested name and for a picture with
+  no recorded type; `tests/test_qml.py` (`DeviceFilesOpenThroughTheGate`)
+  fails on a QML start of `open-file` without the flag.
 - Root goes only through `pkexec`, described first (`--describe`) and run
   only as confirmed (`--confirm <hash>`).
 - The firewall opens only the private ranges and a mesh's interface: its

@@ -1037,8 +1037,16 @@ class FetchedAttachments(unittest.TestCase):
 
     def reader(self, d):
         r = bridge.Sms.__new__(bridge.Sms)
-        r.thumbs, r.file_mimes = d, {}
+        r.thumbs, r.file_mimes, r.requested = d, {}, set()
+        r.sent = []
+        r.out = r.sent.append
         return r
+
+    def png(self, path):
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 40, 30)
+        pix.fill(0x3366cc80)
+        pix.savev(path, "png", [], [])
 
     @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
     def test_a_picture_opens_as_a_copy_made_in_the_sandbox(self):
@@ -1053,15 +1061,18 @@ class FetchedAttachments(unittest.TestCase):
                 pix.savev(src, "png", [], [])
                 r = self.reader(d)
                 r.file_mimes["PART_1_image"] = "image/heic"
+                r.requested.add("PART_1_image")
                 ev = r.arrived(src, "PART_1_image")
                 self.assertEqual(ev["ev"], "attachment")
                 self.assertTrue(ev["path"].startswith(os.path.join(d, "state", "open")) and ev["path"].endswith(".jpg"))
                 self.assertEqual(open(ev["path"], "rb").read(2), b"\xff\xd8", "a JPEG written here")
                 out = GdkPixbuf.Pixbuf.new_from_file(ev["path"])
                 self.assertEqual((out.get_width(), out.get_height()), (300, 200), "full size, never enlarged")
+                r.requested.add("PART_1_image")
                 self.assertEqual(r.arrived(src, "PART_1_image")["path"], ev["path"], "made once")
                 open(src, "wb").write(b"\x89PNG not really")
                 os.utime(src, (5000, 5000))
+                r.requested.add("PART_1_image")
                 bad = r.arrived(src, "PART_1_image")
                 self.assertEqual(bad["ev"], "error", "not readable: not opened at all")
             finally:
@@ -1073,9 +1084,68 @@ class FetchedAttachments(unittest.TestCase):
             open(src, "w").write("x")
             r = self.reader(d)
             r.file_mimes["PART_2_video"] = "video/mp4"
+            r.requested.add("PART_2_video")
             ev = r.arrived(src, "PART_2_video")
             self.assertEqual(ev["ev"], "attachment")
+            self.assertEqual(ev["safe"], False)
             self.assertTrue(ev["path"].endswith(".mp4"), "under a name with its type")
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_an_attachment_nobody_asked_for_is_not_opened(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "PART_9_other")
+                self.png(src)
+                r = self.reader(d)
+                r.requested.add("PART_1_image")   # something else is pending
+                self.assertIsNone(r.arrived(src, "PART_9_other"), "a name never asked for")
+                r.path = "/dev"
+                r.on_signal(None, None, "/dev", None, "attachmentReceived", bridge.GLib.Variant("(ss)", (src, "PART_9_other")))
+                self.assertEqual(r.sent, [], "no event at all: nothing for the panel to open")
+                self.assertFalse(os.path.exists(os.path.join(d, "state", "open")), "and no copy made")
+                r.requested.add("PART_9_other")
+                self.assertEqual(r.arrived(src, "PART_9_other")["ev"], "attachment")
+                self.assertIsNone(r.arrived(src, "PART_9_other"), "one request, one opening")
+            finally:
+                bridge.state_dir = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_with_no_recorded_type_still_opens_in_the_sandbox(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "PART_3_file")
+                self.png(src)
+                r = self.reader(d)
+                r.requested.add("PART_3_file")   # asked for, the type unknown
+                ev = r.arrived(src, "PART_3_file")
+                self.assertEqual(ev["safe"], True)
+                self.assertTrue(ev["path"].startswith(os.path.join(d, "state", "open")) and ev["path"].endswith(".jpg"))
+                self.assertEqual(open(ev["path"], "rb").read(2), b"\xff\xd8", "a JPEG written here, not the phone's PNG")
+                r.file_mimes["PART_4_file"] = "video/mp4"   # a type that lies
+                r.requested.add("PART_4_file")
+                lie = os.path.join(d, "PART_4_file")
+                self.png(lie)
+                self.assertEqual(r.arrived(lie, "PART_4_file")["safe"], True, "what it holds decides")
+            finally:
+                bridge.state_dir = saved
+
+    def test_no_sandbox_no_picture(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "PART_5_file")
+            open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+            r = self.reader(d)
+            r.requested.add("PART_5_file")
+            saved = (bridge.state_dir, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                self.assertEqual(r.arrived(src, "PART_5_file")["ev"], "error")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
 
 
 class OpenFromDevice(unittest.TestCase):
@@ -1162,6 +1232,36 @@ class OpenPicturesSafely(unittest.TestCase):
                 self.assertEqual(len(ran), 2, "not readable: not opened")
             finally:
                 bridge.state_dir, bridge.default_app = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_under_any_name_opens_as_a_copy(self):
+        """The gate looks at what the file holds: no name (none, .bin, .txt)
+        sends a picture around the sandbox."""
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            try:
+                for name in ("PART_1_image", "x.bin", "x.txt"):
+                    for flag in ({"from_device": True}, {"local": True}):
+                        src = os.path.join(d, name)
+                        pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 40, 30)
+                        pix.fill(0x3366ccff)
+                        pix.savev(src, "png", [], [])
+                        ran = []
+                        self.assertEqual(bridge.open_file(src, launch=ran.append, **flag), bridge.EXIT_OK)
+                        self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")) and ran[0][4].endswith(".jpg"),
+                                        "%s %s: the sandboxed copy, not the device's file" % (name, flag))
+                src = os.path.join(d, "no_sandbox")
+                open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+                bridge.fit_image = lambda *a, **k: False
+                ran = []
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    code = bridge.open_file(src, launch=ran.append, from_device=True)
+                self.assertEqual((code, ran), (bridge.EXIT_FAILED, []), "no sandbox: no picture, never the device's bytes")
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
 
 
 class ReceivedFolderWatch(unittest.TestCase):

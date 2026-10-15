@@ -503,15 +503,21 @@ Item {
       contactCount = ev.count
       contacts = ev.contacts || []
     } else if (ev.ev === "attachment") {
-      // Open what the user asked for (a picture: the bridge's copy made in
-      // the sandbox), as Files would: GIO's default app for its type
-      // (xdg-open knows none for HEIC, and opened nothing), through uwsm-app.
-      var wanted = pendingFiles[ev.name] === true || Object.keys(pendingFiles).length > 0
-      if (wanted) {
-        pendingFiles = ({})
-        Quickshell.execDetached([sms.bridge, "open-file", ev.path])
+      // Open only the attachment the user asked for, by its exact id (the
+      // bridge sends none that was not asked for). A picture arrives as the
+      // bridge's copy made in the sandbox; anything else is opened through
+      // the bridge's gate for files from the device. Opened as Files would:
+      // GIO's default app for its type (xdg-open knows none for HEIC, and
+      // opened nothing), through uwsm-app.
+      if (pendingFiles[ev.name] === true) {
+        var rest = Object.assign({}, pendingFiles)
+        delete rest[ev.name]
+        pendingFiles = rest
+        var cmd = [sms.bridge, "open-file", ev.path]
+        if (ev.safe !== true) cmd.push("--from-device")
+        Quickshell.execDetached(cmd)
+        attachmentReady(ev.path)
       }
-      attachmentReady(ev.path)
     } else if (ev.ev === "sent") {
       sentOk()
     } else if (ev.ev === "error") {
