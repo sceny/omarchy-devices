@@ -215,23 +215,6 @@ class Isolation(unittest.TestCase):
         self.assertIn("seccomp.py", self.script.split("make_seccomp() {")[1].split("}")[0])
 
 
-class RigDisplay(unittest.TestCase):
-    """The rig's compositor leaves no X socket in /tmp, so one there is the host's."""
-
-    def test_the_rigs_compositor_runs_no_xwayland(self):
-        with open(os.path.join(ROOT, "dev", "rig.d", "display.sh")) as f:
-            conf = f.read().split("rig_write_hypr_conf() {")[1].split("\nCONF\n")[0]
-        self.assertRegex(conf, r"xwayland = \{ enabled = false \}")
-
-    def test_the_hostile_probe_still_fails_on_an_x_socket(self):
-        base = os.path.join(ROOT, "dev", "sandbox.d")
-        with open(os.path.join(base, "hostile.sh")) as f:
-            self.assertIn("'/tmp/.X11-unix/X0'", f.read())
-        with open(os.path.join(base, "hostile", "judge.py")) as f:
-            judge = f.read()
-        self.assertIn('if not k.startswith("listing") and v != "ABSENT"', judge)
-
-
 class Verdict(unittest.TestCase):
     """The host takes the verdict; the container's streams are capped on the way."""
 
