@@ -133,5 +133,17 @@ class PrivateText(unittest.TestCase):
             os.remove(f.name)
 
 
+class FetchedAttachmentsOpenOnlyWhenAsked(unittest.TestCase):
+    """An attachment arriving opens only when its own id was asked for: no
+    "anything is pending" fallback, and the bridge's file gate is told it
+    came from the device unless the bridge says it made the copy."""
+
+    def test_only_the_exact_id_opens(self):
+        text = code_only(open(os.path.join(ROOT, "SmsService.qml")).read())
+        self.assertNotIn("Object.keys(pendingFiles)", text)
+        self.assertIn("pendingFiles[ev.name] === true", text)
+        self.assertIn('cmd.push("--from-device")', open(os.path.join(ROOT, "SmsService.qml")).read())
+
+
 if __name__ == "__main__":
     unittest.main()

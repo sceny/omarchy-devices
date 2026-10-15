@@ -1147,27 +1147,51 @@ def trim_cache(cache, limit, keep=None):
             total -= size
 
 
+PICTURE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF8", b"II*\x00", b"MM\x00*", b"BM")
+
+
+def looks_like_picture(path):
+    """Whether a file from the device is a picture, by its name or by what it
+    holds. A name proves nothing, so a picture under any name (or none) goes
+    the sandboxed way. Raises OSError when the file cannot be read."""
+    if os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
+        return True
+    with open(path, "rb") as f:
+        head = f.read(4096)
+    if head.startswith(PICTURE_MAGIC) or (head[:4] == b"RIFF" and head[8:12] == b"WEBP") \
+            or (head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"mif1", b"msf1", b"avif", b"avis")):
+        return True
+    ctype, _uncertain = Gio.content_type_guess(None, head)
+    return ctype.startswith("image/")
+
+
 def open_file(path, launch=None, local=False, from_device=False):
     """Opens a file in its app, as Omarchy launches apps (uwsm-app), or
     when no app can open its type, shows it selected in Files and says so.
-    A file from the device (`local`: read over its storage; `from_device`:
-    received) that is a picture opens as a copy decoded in the sandbox
+    The one gate for a file from the device (`local`: read over its
+    storage; `from_device`: received or fetched): what it holds decides, not
+    its name, and a picture opens as a copy decoded in the sandbox
     (safe_full_picture), never as the device's bytes; one that does not
     decode is not opened. `launch` runs a command (replaced in tests)."""
     launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     if not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
-    if (local or from_device) and os.path.isfile(path) and os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
-        copy = safe_full_picture(path)
-        if not copy:
-            return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
-        path = copy
-    elif local and os.path.isfile(path):
+    if (local or from_device) and os.path.isfile(path):
         try:
-            path = local_copy(path)
+            picture = looks_like_picture(path)
         except OSError as error:
-            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
+            return say("Could not read it: %s" % error.strerror, EXIT_FAILED)
+        if picture:
+            copy = safe_full_picture(path)
+            if not copy:
+                return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
+            path = copy
+        elif local:
+            try:
+                path = local_copy(path)
+            except OSError as error:
+                return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
     if default_app(path) is None:
         launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
         ext = os.path.splitext(path)[1] or "these"
@@ -4335,6 +4359,7 @@ class Sms:
         self.settle = {}       # thread -> quiet-period timer while a page loads
         self.contacts, self.contact_list = read_contacts(device_id)
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
+        self.requested = set() # attachment ids asked for here and not yet arrived
         self.thumbs = cache_dir()
         # Earlier versions kept the phone's previews as they came (thumb_*):
         # gone, so nothing shows them again.
@@ -4489,21 +4514,32 @@ class Sms:
             self.out({"ev": "removed", "thread": tid})
         elif signal == "attachmentReceived":
             file_path, file_name = params.unpack()
-            self.out(self.arrived(file_path, file_name))
+            arrived = self.arrived(file_path, file_name)
+            if arrived:
+                self.out(arrived)
 
     def arrived(self, path, name):
-        """What the panel opens for a fetched attachment: a picture as a copy
-        decoded in the sandbox (never the phone's bytes; one that does not
-        decode is not opened), anything else as itself, under a name with
-        its type."""
-        mime = self.file_mimes.get(name, "")
-        if mime.startswith("image/"):
+        """What the panel opens for a fetched attachment, or None for one
+        nobody asked for here (it is not opened). A picture, by its type or
+        by what the file holds, opens as a copy decoded in the sandbox (never
+        the phone's bytes; one that does not decode is not opened); anything
+        else as itself, under a name with its type."""
+        if name not in self.requested:
+            return None
+        self.requested.discard(name)
+        failed = {"ev": "error", "cmd": "attachment", "name": name,
+                  "message": "This picture could not be read safely, so it was not opened"}
+        try:
+            picture = self.file_mimes.get(name, "").startswith("image/") or (
+                os.path.isfile(path) and looks_like_picture(path))
+        except OSError:
+            return failed
+        if picture:
             copy = safe_full_picture(path)
             if not copy:
-                return {"ev": "error", "cmd": "attachment", "name": name,
-                        "message": "This picture could not be read safely, so it was not opened"}
-            return {"ev": "attachment", "path": copy, "name": name}
-        return {"ev": "attachment", "path": self.named(path, name), "name": name}
+                return failed
+            return {"ev": "attachment", "path": copy, "name": name, "safe": True}
+        return {"ev": "attachment", "path": self.named(path, name), "name": name, "safe": False}
 
     def named(self, path, name):
         """The daemon saves attachments without an extension, which some
@@ -4623,6 +4659,7 @@ class Sms:
             elif verb == "attachment":
                 if cmd.get("mime"):
                     self.file_mimes[str(cmd["id"])] = str(cmd["mime"])
+                self.requested.add(str(cmd["id"]))
                 self.call("requestAttachmentFile", (int(cmd["part"]), str(cmd["id"])), "(xs)")
             elif verb == "refresh":
                 self.contacts, self.contact_list = read_contacts(self.device_id)
