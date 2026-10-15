@@ -251,6 +251,9 @@ the synced one. `dev start` fails while the image's Omarchy, Hyprland or
 Quickshell is older than this machine's (`dev/sandbox pins` runs the same
 check; bump the pins in `dev/sandbox.d/Containerfile` and build again).
 
+Contributor code goes through `dev/sandbox run` only; never `dev` from, or with
+`--tree` on, a checkout holding it.
+
 ```bash
 dev/sandbox dev start [--ttl 3600]                 # prints the session id; at most two at once
 dev/sandbox dev sync                               # the tree in (after every edit)
