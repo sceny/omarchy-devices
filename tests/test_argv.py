@@ -90,7 +90,7 @@ ARGV_ALLOWED = {
     ("Service.qml", "app-forget", "pkg"): "an Android package name from the device's app list",
     # files: the plugin's own paths in its cache or in Downloads
     ("Service.qml", "open-file", "String(path)"): "a file's path in the cache or in Downloads; a received file's name is the device's, and names a file, not message text",
-    ("Service.qml", "copy-file", "path"): "a file's path in the cache or in Downloads",
+    ("Service.qml", "copy-file", "String(path)"): "a file's path in the cache or in Downloads",
     ("Service.qml", "save-file", "path"): "a file's path in the cache",
     ("Service.qml", "save-file", "Model.deviceLabel(device)"): "the device's name, as the user called it",
     ("Service.qml", "safe-art", "path"): "a path in the plugin's art cache",
