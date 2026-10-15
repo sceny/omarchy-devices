@@ -23,6 +23,7 @@ var GLYPH = {
   reply: "\u{F17AD}",        // arrow-u-left-top
   send: "\u{F048A}",
   close: "\u{F0156}",
+  keyboard: "\u{F030C}",     // keyboard: the Keys page
   back: "\u{F004D}",         // arrow-left
   home: "\u{F02DC}",         // home: back to the main page
   wave: "\u{F1821}",         // hand-wave
@@ -3004,6 +3005,59 @@ function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
   return rows
 }
 
+// The Keys page (#194): every key the panel answers to, by where it works.
+// Keep it in step with the key handlers in Panel.qml and docs/use/keyboard.md.
+var KEYS_ROW = { kind: "keys", key: "keys", glyph: GLYPH.keyboard, label: "Keys", hint: "Every key the panel answers to (?)" }
+var KEYS = [
+  { group: "Everywhere", keys: [
+    ["j k · ↑ ↓", "Move"],
+    ["h l · ← →", "Sideways: shortcuts, players, into a conversation"],
+    ["PgUp PgDn", "A page at a time"],
+    ["Enter · Space", "Activate"],
+    ["Tab Shift+Tab", "Next · previous panel in the bar"],
+    ["Esc", "Back where you came from, then close"],
+    ["0", "Home, from two pages deep"],
+    ["?", "This page"]] },
+  { group: "Main page", keys: [
+    ["c", "Fold the section under the cursor"],
+    ["m · a · s", "Messages · all apps · Settings"],
+    ["E", "Edit the page; again when done"],
+    ["1–9 · Shift+H Shift+L", "Switch device · previous · next device"]] },
+  { group: "Notifications", keys: [
+    ["r", "Reply"],
+    ["x", "Dismiss (a notification or a received file)"],
+    ["e", "Show all of it"],
+    ["o", "Open its app or conversation"]] },
+  { group: "Now playing", keys: [
+    ["[ ]", "Previous · next track"],
+    [", .", "Seek 10 s"],
+    ["- =", "Volume"]] },
+  { group: "Apps", keys: [
+    ["Enter · Shift+Enter", "Open · open popped out"],
+    ["p", "Pin or unpin (All apps)"],
+    ["Shift+H Shift+L", "Move a pinned app"],
+    ["x", "Take one out of Recent"],
+    ["v", "Where an open app's sound plays"]] },
+  { group: "Messages", keys: [
+    ["/ · u", "Search · unread only"],
+    ["n · i", "New message · write a reply"],
+    ["g G", "First · last"]] },
+  { group: "Contacts", keys: [
+    ["/ · r", "Search · refresh"],
+    ["g G", "First · last"],
+    ["m", "Messages"]] },
+  { group: "Editing and Settings", keys: [
+    ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
+    ["Esc", "Put back what was there (editing)"]] }
+]
+function keysRows() {
+  var rows = []
+  KEYS.forEach(function(g) {
+    g.keys.forEach(function(k, i) { rows.push({ kind: "key", key: g.group + ":" + i, group: i === 0 ? g.group : "", keys: k[0], label: k[1] }) })
+  })
+  return rows
+}
+
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
 //   scope: "root" | "defaults" | "device"
@@ -3034,6 +3088,7 @@ function settingsPageRows(ctx) {
     rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
     if (!ctx.single)
       rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
+    rows.push(KEYS_ROW)
     return rows
   }
   // A panel torn down mid-reload can ask with nothing to edit.
@@ -3065,6 +3120,7 @@ function settingsPageRows(ctx) {
                     hint: "This device changed it; the defaults apply again" })
     })
     if (ctx.single) rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
+    if (ctx.single) rows.push(KEYS_ROW)
     rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
     return rows
   }
@@ -3751,6 +3807,7 @@ function navLabel(key, ctx) {
   if (scope === "connection") return "Diagnostics"
   if (scope === "addDevice") return "Add a device"
   if (scope === "ready") return "Getting ready"
+  if (scope === "keys") return "Keys"
   if (scope.indexOf("screen:") === 0) return "Screen and apps"
   if (scope.indexOf("reach:") === 0) return "From anywhere"
   if (ctx.single) return "Settings"
