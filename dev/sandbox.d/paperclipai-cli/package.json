@@ -1,1 +1,1 @@
-{"name":"sceny-sandbox-paperclipai-cli","private":true,"version":"0.0.0","dependencies":{"paperclipai":"2026.1012.0"}}
+{"name":"sceny-sandbox-paperclipai-cli","private":true,"version":"0.0.0","dependencies":{"paperclipai":"2026.1012.0"},"allowScripts":{"@embedded-postgres/linux-x64":true}}

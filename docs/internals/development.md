@@ -61,7 +61,7 @@ In the tests step no process can make a user namespace of its own (a seccomp
 rule on `clone`, `clone3` and `unshare`). The rig and script steps can: the
 rig's phone side runs in one.
 
-Each unit (the four test units, `rig-ci`, a QA script) runs in its own
+Each unit (the repository's test units, `rig-ci`, a QA script) runs in its own
 container from a fresh unpack of the commit, so nothing one test changes
 reaches the next. `dev/sandbox` takes each unit's result from podman's exit code
 on this machine and writes `results.tsv` and `summary.json` itself; nothing the
@@ -88,6 +88,7 @@ repository is refused.
 dev/sandbox build                                  # once, and after develop's dev/ changes
 dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ~/.local/share/sceny-sandbox/results/<sha>-<time>
 dev/sandbox run <repo> <sha> --steps tests         # unit tests only, no device passed in
+dev/sandbox run sceny/omarchy-paperclipai <sha>    # Paperclip's plugin: test/run_all.sh, dev/rig selftest, rig-ci
 dev/sandbox run <repo> <sha> --steps script --script qa.sh  # your QA script, with the rig up
 dev/sandbox verify-clean                           # nothing left behind
 ```
@@ -98,6 +99,15 @@ dev/sandbox verify-clean                           # nothing left behind
 - **Sceny's own commit runs the same way** for the release regression and the
   cold install (`dev/sandbox run <repo> <sha> --steps script --script qa.sh`: the
   rig is up and the script drives it, [Releasing](releasing.md)); it needs no go.
+- **The units belong to the repository.** Devices: `unit-model`,
+  `unit-bridge`, `qml-parse`, `manifest`. `sceny/omarchy-paperclipai`:
+  `pc-tests` (`test/run_all.sh`), `pc-selftest` (`dev/rig selftest`),
+  `qml-parse`, `manifest`. Both: `rig-ci`, `script`. Any other repository is
+  refused. The image holds each repository's own `dev/` from the branch
+  `develop` of its mirror (`dev/sandbox build --paperclip-ref REV` picks
+  another branch), so a Paperclip run is never judged by Devices' checks.
+  Paperclip's rig finds its CLI in the image (`paperclipai`, installed from a
+  lockfile, `dev/sandbox.d/paperclipai-cli/`) and `psql`.
 - **The sha is the PR's head, in full.** A branch, a short sha or another
   repository is refused. The checks come from `develop`'s `dev/`; pass
   `--harness pr` only to test a change to `dev/` itself.
@@ -137,6 +147,10 @@ check; bump the pins in `dev/sandbox.d/Containerfile` and build again).
 
 Contributor code goes through `dev/sandbox run` only; never `dev` from, or with
 `--tree` on, a checkout holding it.
+
+Sceny's `sceny/omarchy-paperclipai` is worked on the same way:
+`dev/sandbox dev sync --tree <its checkout>`, then `dev exec -- bash
+test/run_all.sh`, `dev rig selftest`, `dev up`. Its rig has no `record` verb.
 
 ```bash
 dev/sandbox dev start [--ttl 3600]                 # prints the session id; at most two at once
@@ -248,8 +262,8 @@ so no host peer shows in a check.
 
 **The resilience soak.** `dev/soak --rig <id> --out DIR` runs about 30
 minutes against a rig with its phone (`--quick`: a few minutes, to check the
-driver). It builds a media fixture with the Android build-tools, which the
-sandbox's image does not carry, so it does not run in a session yet. It stops
+driver). It builds a media fixture with the Android build-tools and a JDK, which the
+sandbox's image carries (`/opt/android-sdk`), so it runs in a session. It stops
 and kills KDE Connect's daemon and the bridge's `watch`, takes the device away, the phone's and the computer's network down and
 reboots the emulator, opens and closes the panel and uses Back and Home, and
 samples the panel, the processes and the bridge's own stream. `DIR/report.md`

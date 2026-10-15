@@ -68,8 +68,11 @@ RUN set -e; mkdir -p /opt/android-sdk/build-tools /opt/android-sdk/platforms; cd
 ENV ANDROID_SDK_ROOT=/opt/android-sdk ANDROID_HOME=/opt/android-sdk
 
 # Paperclip's CLI, from a lockfile (package-lock.json, integrity per package):
-# the throwaway instance the paperclipai rig starts. Bump it on purpose, in a
-# pull request, by regenerating the lockfile.
+# the throwaway instance the paperclipai rig starts. Only the embedded
+# Postgres package may run an install script (package.json allowScripts: it
+# makes the library symlinks). Bump it on purpose, in a pull request, by
+# regenerating the lockfile with npm install --package-lock-only
+# --allow-remote=all, then a full install and --package-lock-only again.
 COPY harness/dev/sandbox.d/paperclipai-cli/ /opt/paperclipai-cli/
 RUN set -e; cd /opt/paperclipai-cli; npm ci --omit=dev --no-audit --no-fund --cache /tmp/npm-cache; \
     ln -s /opt/paperclipai-cli/node_modules/.bin/paperclipai /usr/local/bin/paperclipai; rm -rf /tmp/npm-cache /root/.npm
