@@ -9,6 +9,12 @@
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name)
+#   dev/sandbox dev start [--ttl SECONDS]   a session for Sceny's own tree: a container kept until `dev stop` or its TTL
+#   dev/sandbox dev [--session ID] [--timeout S] sync | up | rig ARGS | shot NAME | record NAME SECONDS FPS [-- CMD]
+#                  | exec -- CMD | pull [--out DIR] [--keep-frames] | status | stop [--all]
+#                                        sync streams the tracked files in, up/rig drive dev/rig inside, pull brings
+#                                        screenshots and recordings out as data
+#   dev/sandbox pins                     fail when the image's Omarchy, Hyprland or Quickshell is behind this machine's
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
 #   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
 #                                        could not reach (the sandbox's own acceptance test)
@@ -325,14 +331,15 @@ run_unit() {
 # dev/sandbox.d/reencode.py: no contributor code, no network, no device); only
 # that copy is read onto the host. A picture that does not come back is listed
 # in SKIPPED.txt.
-reencode_pngs() { # <unit> <out>
-  local unit=$1 out=$2 png="$SB_RUN_DIR/png" tarfile="$SB_RUN_DIR/png-out.tar" id rc=0
+reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, default 120]
+  local unit=$1 out=$2 dest=${3:-$2/$1} secs=${4:-120}
+  local png="$SB_RUN_DIR/png" tarfile="$SB_RUN_DIR/png-out.tar" id rc=0
   [[ -n $(ls -A "$png" 2>/dev/null) ]] || return 0
   id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   SB_RUN_NAME="sceny-sandbox-$id"
   step "unit $unit: re-encoding its pictures in a container of their own"
   (
-    timeout --signal=KILL 150 \
+    timeout --signal=KILL $((secs + 30)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
       --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
@@ -341,7 +348,7 @@ reencode_pngs() { # <unit> <out>
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
       --memory 2g --memory-swap 2g --cpus 2 --pids-limit 256 \
       --ulimit core=0 --ulimit nofile=4096:4096 \
-      --init --hostname sandbox --timeout 120 --stop-timeout 5 \
+      --init --hostname sandbox --timeout "$secs" --stop-timeout 5 \
       --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777" \
       --tmpfs "/home/sandbox:rw,noexec,nosuid,nodev,size=64m,mode=1777" \
       --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
@@ -353,7 +360,7 @@ reencode_pngs() { # <unit> <out>
   )
   pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
   SB_RUN_NAME=""
-  read_result "$tarfile" "$out/$unit" "$out" "$unit" --only-png --expect "$png" >/dev/null || rc=$?
+  read_result "$tarfile" "$dest" "$out" "$unit" --only-png --expect "$png" >/dev/null || rc=$?
   ((rc == 0)) || warn "$unit: its pictures were not all read back (see SKIPPED.txt)"
   rm -rf -- "$tarfile" "$png"
 }
@@ -533,6 +540,385 @@ cmd_run() {
   return "$verdict"
 }
 
+# ---------------------------------------------------------------- pin check ----
+
+# The image's Omarchy, Hyprland and Quickshell against this machine's. The rig
+# in the sandbox is only as good as the versions it runs on: an image behind
+# this computer's packages tests a shell the owner no longer has. Fails when
+# any of the three is older in the image; newer is fine.
+pins_check() {
+  local image_rows host name hv iv bad=0 pkg_list="hyprland quickshell"
+  command -v pacman >/dev/null 2>&1 && command -v vercmp >/dev/null 2>&1 || {
+    warn "pins: this machine has no pacman, nothing to compare with"
+    return 0
+  }
+  pm image exists "$SB_IMAGE" || die "pins: no image; run 'dev/sandbox build' first"
+  image_rows=$(
+    pm run --rm --pull never --network none --no-hosts --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+      --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
+      "$SB_IMAGE" bash -c 'pacman -Q hyprland quickshell; printf "omarchy %s\n" "$(sed -n "s/^ARG OMARCHY_VERSION=//p" /opt/harness/dev/sandbox.d/Containerfile | head -1)"' 2>/dev/null
+  )
+  for name in omarchy $pkg_list; do
+    iv=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$image_rows")
+    hv=$(pacman -Q "$name" 2>/dev/null | awk '{ print $2 }')
+    if [[ -z $iv ]]; then
+      fail "pins: the image does not say its $name"
+      bad=1
+    elif [[ -z $hv ]]; then
+      step "pins: $name is not installed here (image $iv)"
+    elif (($(vercmp "$iv" "$hv") < 0)); then
+      fail "pins: $name is $iv in the image and $hv on this machine: bump the pin in dev/sandbox.d/Containerfile and build again"
+      bad=1
+    else
+      ok "pins: $name $iv in the image, $hv here"
+    fi
+  done
+  return $bad
+}
+
+cmd_pins() {
+  require_tools
+  pins_check
+}
+
+# -------------------------------------------------------------------- dev ----
+# A session for working on Sceny's own tree: one container kept until `dev stop`
+# or its TTL, with nothing of this machine's inside it. The tree is not
+# mounted: its tracked files are streamed in as a tar (sync), so the container
+# never sees an untracked file, a link to the outside or the checkout's .git.
+# What the session makes leaves the same way a run's results do: a tar read as
+# data, pictures decoded again in a container of their own (pull).
+
+SB_DEV_LABEL=org.sceny.sandbox.dev
+SB_DEV_MAX=${SANDBOX_DEV_MAX:-2}
+SB_DEV_TTL_MAX=14400
+SB_DEV_FRAMES_MAX=600
+DEV_NAME=""
+
+dev_names() { pm ps --filter "label=$SB_DEV_LABEL" --format '{{.Names}}' 2>/dev/null; }
+
+# DEV_NAME from --session ID, else the one session there is.
+dev_resolve() {
+  local want=${1:-} names n
+  names=$(dev_names)
+  if [[ -n $want ]]; then
+    [[ $want =~ ^[0-9a-f]{8}$ ]] || die "dev: a session is 8 hex digits (dev/sandbox dev status)"
+    grep -qx "sceny-sandbox-dev-$want" <<<"$names" || die "dev: no session $want (dev/sandbox dev status)"
+    DEV_NAME=sceny-sandbox-dev-$want
+    return 0
+  fi
+  n=$(grep -c . <<<"$names")
+  ((n != 0)) || die "dev: no session; start one with 'dev/sandbox dev start'"
+  ((n == 1)) || die "dev: several sessions; name one with --session ID (dev/sandbox dev status)"
+  DEV_NAME=$names
+}
+
+# <name> <timeout> <command...>: a command in the session, as the sandbox user,
+# in the synced tree; its output reaches the terminal as filtered text.
+dev_exec() {
+  local name=$1 secs=$2
+  shift 2
+  timeout --signal=KILL $((secs + 30)) \
+    env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
+    --user 1000:1000 --workdir /work/src \
+    --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
+    "$name" timeout --signal=KILL "$secs" "$@" 2>&1 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" ""
+  return "${PIPESTATUS[0]}"
+}
+
+dev_start() {
+  local ttl=7200 id
+  while (($#)); do
+    case $1 in
+    --ttl)
+      ttl=${2:?--ttl needs seconds}
+      shift
+      ;;
+    *) die "dev start: unknown option $1" ;;
+    esac
+    shift
+  done
+  [[ $ttl =~ ^[0-9]+$ ]] && ((ttl >= 60 && ttl <= SB_DEV_TTL_MAX)) || die "dev start: --ttl is 60 to $SB_DEV_TTL_MAX seconds"
+  require_tools
+  pm image exists "$SB_IMAGE" || die "dev start: no image; run 'dev/sandbox build' first"
+  [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
+    die "dev start: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+  local node=${SANDBOX_RENDER_NODE:-}
+  if [[ -z $node ]]; then
+    for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
+  fi
+  [[ -c $node && $node == /dev/dri/renderD* ]] ||
+    die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
+  (($(dev_names | grep -c .) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX sessions are running already (dev/sandbox dev status); stop one"
+  pins_check || die "dev start: the image is behind this machine"
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  step "session $id: no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices /dev/kvm and $node"
+  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" \
+    --pull never --log-driver none \
+    --network none --no-hosts \
+    --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+    --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+    --device /dev/kvm --device "$node" \
+    --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
+    --ulimit core=0 --ulimit nofile=65536:65536 \
+    --init --hostname sandbox --timeout "$ttl" --stop-timeout 5 \
+    --shm-size 512m \
+    --tmpfs "/tmp:rw,exec,nosuid,nodev,size=$SB_TMP_SIZE,mode=1777" \
+    --tmpfs "/home/sandbox:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+    --tmpfs "/work:rw,exec,nosuid,nodev,size=1g,mode=1777" \
+    --tmpfs "/out:rw,noexec,nosuid,nodev,size=768m,mode=1777" \
+    --tmpfs "/run:rw,nosuid,nodev,size=64m,mode=0755" \
+    --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
+    --mount "type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro" \
+    --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
+    --workdir /work \
+    "$SB_IMAGE" sleep infinity >/dev/null || die "dev start: the container did not start"
+  ok "session $id started; it ends by itself after $((ttl / 60)) minutes"
+  printf '%s\n' "$id"
+}
+
+dev_sync() {
+  local tree=$SB_REPO_ROOT top as=src
+  while (($#)); do
+    case $1 in
+    --as)
+      as=${2:?--as needs src or live}
+      [[ $as == src || $as == live ]] || die "dev sync: --as is src or live"
+      shift
+      ;;
+    --tree)
+      tree=${2:?--tree needs a directory}
+      shift
+      ;;
+    *) die "dev sync: unknown option $1" ;;
+    esac
+    shift
+  done
+  tree=$(realpath -- "$tree") || die "dev sync: no such directory"
+  top=$(env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$tree" rev-parse --show-toplevel 2>/dev/null)
+  [[ -n $top && $top == "$tree" ]] || die "dev sync: $tree is not the top of a git work tree"
+  local started=$SECONDS
+  env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$tree" ls-files -z |
+    python3 "$SB_DIR/sandbox.d/tree_tar.py" "$tree" "$SB_MAX_ARCHIVE" |
+    timeout 120 env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec -i --user 1000:1000 --workdir /work \
+      --env HOME=/home/sandbox "$DEV_NAME" /opt/devside.sh unpack "$as" 2>&1 |
+    python3 "$SB_DIR/sandbox.d/filter-stderr.py" ""
+  local rc=("${PIPESTATUS[@]}")
+  ((rc[0] == 0 && rc[1] == 0 && rc[2] == 0)) || die "dev sync: the tree did not reach the session (${rc[*]})"
+  ok "tree synced in $((SECONDS - started)) s (new files need 'git add' first; only tracked files go in)"
+}
+
+# Pictures and recordings out of the session, as data.
+dev_pull() {
+  local out="" keep=0
+  while (($#)); do
+    case $1 in
+    --out)
+      out=${2:?--out needs a directory}
+      shift
+      ;;
+    --keep-frames) keep=1 ;;
+    *) die "dev pull: unknown option $1" ;;
+    esac
+    shift
+  done
+  local stamp rid
+  stamp=$(date -u +%Y%m%d-%H%M%S)
+  [[ -n $out ]] || out="$SB_STATE/results/dev-${DEV_NAME##*-}-$stamp"
+  out=$(realpath -m -- "$out")
+  [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "dev pull: $out exists and is not empty"
+  out_in_git "$out" && die "dev pull: $out is inside a git repository (or is one); results go in a directory git does not manage"
+  rid=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  SB_RUN_DIR="$SB_STATE/runs/$rid"
+  trap 'run_cleanup' EXIT
+  trap 'run_cleanup; exit 130' INT TERM
+  mkdir -p -m 700 "$SB_RUN_DIR" "$out"
+  mkdir -p -m 755 "$SB_RUN_DIR/png"
+
+  local tarfile="$SB_RUN_DIR/out.tar" size
+  env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+    timeout --signal=KILL 120 podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
+    --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  size=$(stat -c %s "$tarfile")
+  ((size > 0 && size <= SB_MAX_RESULT)) || die "dev pull: nothing came out, or more than $SB_MAX_RESULT bytes"
+  read_result "$tarfile" "$out" "$out" dev --png-dir "$SB_RUN_DIR/png" >/dev/null ||
+    warn "dev pull: the session's files were not all readable (see SKIPPED.txt)"
+  rm -f -- "$tarfile"
+
+  # A recording is frames: only their re-encoded copies are assembled.
+  local frames
+  frames=$(find "$SB_RUN_DIR/png" -type f -name 'frame-*.png' | wc -l)
+  if ((frames > SB_DEV_FRAMES_MAX)); then
+    warn "dev pull: $frames frames; only the first $SB_DEV_FRAMES_MAX of each recording are kept"
+    local d
+    for d in "$SB_RUN_DIR"/png/rec/*/; do
+      [[ -d $d ]] && find "$d" -type f -name 'frame-*.png' | sort | tail -n +$((SB_DEV_FRAMES_MAX + 1)) | xargs -r rm -f --
+    done
+  fi
+  frames=$(find "$SB_RUN_DIR/png" -type f | wc -l)
+  reencode_pngs dev "$out" "$out" $((120 + frames * 2 > 900 ? 900 : 120 + frames * 2))
+  if [[ -d $out/rec ]]; then
+    local rdir name fps
+    for rdir in "$out"/rec/*/; do
+      [[ -d $rdir ]] || continue
+      name=$(basename -- "$rdir")
+      fps=$(head -c 8 "$rdir/fps" 2>/dev/null | tr -d '\n')
+      [[ $fps =~ ^([1-9]|10)$ ]] || fps=5
+      dev_assemble "$name" "$rdir" "$fps" "$out"
+      ((keep == 1)) || rm -rf -- "$rdir"
+    done
+    ((keep == 1)) || rmdir "$out/rec" 2>/dev/null
+  fi
+  dev_exec "$DEV_NAME" 60 /opt/devside.sh clear >/dev/null
+  run_cleanup
+  trap - EXIT INT TERM
+  ok "pulled into $out (the session's /out is empty again)"
+  printf '%s\n' "$out"
+}
+
+# <name> <frames dir> <fps> <out>: the frames (already decoded again) into one
+# WebM in a container that has nothing else in it; the host takes only a file
+# that starts as WebM and is not too large.
+dev_assemble() {
+  local name=$1 frames=$2 fps=$3 out=$4 id tarfile="$SB_RUN_DIR/video.tar" rc=0
+  # The name is the session's; it goes into --mount, where "," and "=" would add options.
+  if [[ ! $name =~ ^[A-Za-z0-9._-]{1,64}$ || $name == .* ]]; then
+    printf "recording '%s': not assembled: the name is not letters, digits, '.', '_' and '-'\n" "$name" >>"$out/SKIPPED.txt"
+    warn "recording left out: its name is not plain (see SKIPPED.txt)"
+    return 0
+  fi
+  ls "$frames"/frame-*.png >/dev/null 2>&1 || {
+    warn "recording $name: no frame came back"
+    return 0
+  }
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  SB_RUN_NAME="sceny-sandbox-$id"
+  step "recording $name: building the video in a container of its own"
+  (
+    timeout --signal=KILL 330 \
+      env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --network none --no-hosts \
+      --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
+      --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      --memory 4g --memory-swap 4g --cpus 4 --pids-limit 256 \
+      --ulimit core=0 --ulimit nofile=4096:4096 \
+      --init --hostname sandbox --timeout 300 --stop-timeout 5 \
+      --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777" \
+      --tmpfs "/home/sandbox:rw,noexec,nosuid,nodev,size=64m,mode=1777" \
+      --tmpfs "/out:rw,noexec,nosuid,nodev,size=256m,mode=1777" \
+      --mount "type=bind,src=$frames,dst=/in/frames,ro" \
+      --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb --env "FPS=$fps" \
+      "$SB_IMAGE" bash -c 'ffmpeg -nostdin -loglevel error -framerate "$FPS" -pattern_type glob -i "/in/frames/frame-*.png" \
+        -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libvpx-vp9 -b:v 0 -crf 34 -deadline realtime -cpu-used 8 -row-mt 1 \
+        -pix_fmt yuv420p -an -f webm /out/recording.webm >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  )
+  pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
+  SB_RUN_NAME=""
+  mkdir -p "$out/recordings"
+  local dest="$SB_RUN_DIR/video-$name"
+  read_result "$tarfile" "$dest" "$out" "recording-$name" --only-video >/dev/null || rc=$?
+  if [[ -f $dest/recording.webm ]]; then
+    if [[ -e $out/recordings/$name.webm ]]; then
+      warn "recording $name: recordings/$name.webm exists already; not replaced"
+    else
+      mv -- "$dest/recording.webm" "$out/recordings/$name.webm"
+      ok "recording $name: recordings/$name.webm"
+    fi
+  else
+    warn "recording $name: no video came back (see SKIPPED.txt)"
+  fi
+  rm -rf -- "$tarfile" "$dest"
+}
+
+dev_status() {
+  local names n
+  names=$(dev_names)
+  if [[ -z $names ]]; then
+    echo "  no session"
+    return 0
+  fi
+  while read -r n; do
+    printf '  %s  started %s, ends %s\n' "${n##*-}" \
+      "$(pm inspect --format '{{.State.StartedAt}}' "$n" 2>/dev/null | cut -c1-19)" \
+      "$(pm inspect --format '{{.Config.Timeout}}s after it started' "$n" 2>/dev/null)"
+  done <<<"$names"
+}
+
+dev_stop() {
+  local all=0 names n
+  [[ ${1:-} == --all ]] && all=1
+  if ((all)); then
+    names=$(dev_names)
+  else
+    names=$DEV_NAME
+  fi
+  [[ -n $names ]] || {
+    echo "  no session"
+    return 0
+  }
+  while read -r n; do
+    pm rm -f -v -t 0 "$n" >/dev/null 2>&1
+    ok "session ${n##*-} stopped and removed"
+  done <<<"$names"
+}
+
+cmd_dev() {
+  local session="" secs="" verb
+  while (($#)); do
+    case $1 in
+    --session)
+      session=${2:?--session needs an id}
+      shift
+      ;;
+    --timeout)
+      secs=${2:?--timeout needs seconds}
+      shift
+      ;;
+    *) break ;;
+    esac
+    shift
+  done
+  [[ -z $secs || $secs =~ ^[0-9]+$ ]] || die "dev: --timeout is whole seconds"
+  verb=${1:-}
+  shift || true
+  require_tools
+  case $verb in
+  start) dev_start "$@" ;;
+  status) dev_status ;;
+  stop)
+    if [[ ${1:-} == --all ]]; then dev_stop --all; else
+      dev_resolve "$session"
+      dev_stop
+    fi
+    ;;
+  sync | pull | exec | rig | up | shot | record)
+    dev_resolve "$session"
+    case $verb in
+    sync) dev_sync "$@" ;;
+    pull) dev_pull "$@" ;;
+    exec)
+      [[ ${1:-} == -- ]] && shift
+      (($#)) || die "dev exec: nothing to run"
+      dev_exec "$DEV_NAME" "${secs:-600}" "$@"
+      ;;
+    rig) dev_exec "$DEV_NAME" "${secs:-600}" /opt/devside.sh rig "$@" ;;
+    up) dev_exec "$DEV_NAME" "${secs:-900}" /opt/devside.sh up "$@" ;;
+    shot) dev_exec "$DEV_NAME" "${secs:-120}" /opt/devside.sh shot "$@" ;;
+    record) dev_exec "$DEV_NAME" "${secs:-300}" /opt/devside.sh record "$@" ;;
+    esac
+    ;;
+  *) die "dev: start | sync | up | rig | shot | record | exec | pull | status | stop (dev/sandbox help)" ;;
+  esac
+}
+
 # ------------------------------------------------------------ verify-clean ----
 
 cmd_verify_clean() {
@@ -616,6 +1002,8 @@ case ${1:-} in
 build) shift && cmd_build "$@" ;;
 run) shift && cmd_run "$@" ;;
 verify-clean) cmd_verify_clean ;;
+dev) shift && cmd_dev "$@" ;;
+pins) cmd_pins ;;
 status) cmd_status ;;
 remove-image) cmd_remove_image ;;
 hostile-test) shift && cmd_hostile_test "$@" ;;

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A unit's result tar, read as data and written under a directory the host made.
 
-usage: read_result.py ARCHIVE DEST ROOT LABEL LIMIT MAX_MEMBERS [--png-dir DIR | --only-png [--expect DIR]]
+usage: read_result.py ARCHIVE DEST ROOT LABEL LIMIT MAX_MEMBERS [--png-dir DIR | --only-png [--expect DIR] | --only-video]
 
 Nothing in the archive is trusted: not a name, a kind, a size or a count.
 
@@ -18,6 +18,9 @@ Nothing in the archive is trusted: not a name, a kind, a size or a count.
     container of its own; any other image format is refused. With --only-png
     the archive is that container's output: PNGs only, and --expect names the
     directory sent in, so a PNG that did not come back is listed.
+  * With --only-video the archive is the output of the container that built a
+    recording from re-encoded pictures: .webm files only, each starting with
+    the Matroska/WebM signature, at most VIDEO_MAX_BYTES.
   * Sizes (per file, and ROOT's total) and the number of members (directories
     included, ROOT's total) are limited.
 
@@ -42,11 +45,14 @@ LOADED_BY_TOOLS = {
     "justfile", "head", "objects", "refs",
 }
 OTHER_IMAGES = (".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".tif", ".tiff", ".ico", ".avif", ".heic", ".apng", ".xpm", ".ppm")
+OTHER_MEDIA = (".webm", ".mp4", ".m4v", ".mkv", ".mov", ".avi", ".ogv", ".flv", ".wmv", ".mp3", ".ogg", ".wav", ".flac")
 PER_FILE = 200 * 1024 * 1024
 MAX_DEPTH = 12
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 PNG_KEPT = (b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND")
 PNG_MAX_BYTES = 64 * 1024 * 1024
+VIDEO_MAX_BYTES = 128 * 1024 * 1024
+EBML_SIGNATURE = b"\x1a\x45\xdf\xa3"
 PNG_MAX_EDGE = 16384
 PNG_MAX_PIXELS = 40_000_000
 
@@ -123,6 +129,7 @@ def main(argv):
     ap.add_argument("max_members", type=int)
     ap.add_argument("--png-dir")
     ap.add_argument("--only-png", action="store_true")
+    ap.add_argument("--only-video", action="store_true")
     ap.add_argument("--expect")
     a = ap.parse_args(argv)
 
@@ -173,8 +180,14 @@ def main(argv):
                 if m.isreg() and low.endswith(OTHER_IMAGES):
                     skip(m.name, "an image that is not a PNG")
                     continue
+                if m.isreg() and low.endswith(OTHER_MEDIA) and not a.only_video:
+                    skip(m.name, "a video or sound that was not made from re-encoded pictures here")
+                    continue
                 if a.only_png and m.isreg() and not low.endswith(".png"):
                     skip(m.name, "not a PNG")
+                    continue
+                if a.only_video and m.isreg() and not low.endswith(".webm"):
+                    skip(m.name, "not a WebM video")
                     continue
                 base = a.dest
                 if m.isreg() and low.endswith(".png") and not a.only_png:
@@ -194,6 +207,11 @@ def main(argv):
                     continue
                 src = tf.extractfile(m)
                 picture = None
+                if a.only_video:
+                    if m.size > VIDEO_MAX_BYTES or src.read(4) != EBML_SIGNATURE:
+                        skip(m.name, "not a WebM video within the limits")
+                        continue
+                    src.seek(0)
                 if a.only_png:
                     try:
                         picture = clean_png(src.read(PNG_MAX_BYTES + 1))
