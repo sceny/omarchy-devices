@@ -269,6 +269,21 @@ file only if it starts as WebM, and refuses any other video or sound
 (`read_result.py`). A pull empties the session's output. `dev exec -- CMD`
 runs a command in the session, as its unprivileged user.
 
+Everything the rig does, the session does: `dev rig check`, the regression, the
+cold computer and the upgrade. Three points differ from a rig on a desktop:
+
+- `dev sync --tree DIR --as live` puts the tag an upgrade starts from beside
+  the tree (a tag has no `dev/`: copy the candidate's in). `dev/rig sync` removes and adds the
+  plugin, which empties its `shell.json` entry; an upgrade is `omarchy plugin
+  update` after the package repo (`<session>/package.git`) has the candidate's
+  files as a new commit.
+- A cold computer needs `dev/rig cold daemon` after the plugin starts KDE
+  Connect, so the phone's redirects exist, and `phone accept` (the app opened)
+  before the device shows in Add a device. A click is `dev/rig exec --
+  dev/pointer click X Y`.
+- Test files that build a 3 GB picture do not fit beside a running rig: run
+  `tests.test_sandbox` on the host.
+
 ## Screenshots
 
 See [Screenshots](screenshots.md): demo data only.
