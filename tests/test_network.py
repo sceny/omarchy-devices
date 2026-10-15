@@ -9,6 +9,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "..", "bin", "kdeconnect-bridge")
@@ -92,19 +94,34 @@ class Firewall(unittest.TestCase):
 
     def test_the_plan_opens_private_networks_and_meshes_only_where_closed(self):
         rules = bridge.kde_rules(RULES)
-        out = bridge.firewall_rules(rules, "192.168.1.0/24", ["tailscale0", "nordlynx"])
+        out = bridge.firewall_rules(rules, ["tailscale0", "nordlynx"])
         self.assertTrue(all("0.0.0.0/0" not in r and " any port " in r for r in out), "never to everyone")
         self.assertEqual(sum("from 192.168.0.0/16" in r for r in out), 2, "the private range around this network, both protocols")
         self.assertEqual(sum("from 10.0.0.0/8" in r for r in out), 2, "a deny rule does not count as open")
         self.assertFalse(any("tailscale0" in r for r in out), "open already")
         self.assertEqual(sum("in on nordlynx" in r for r in out), 2)
 
-    def test_a_network_outside_the_private_ranges_is_added_as_itself(self):
-        out = bridge.firewall_rules([], "100.64.5.0/24", [])
-        self.assertEqual(sum("from 100.64.5.0/24" in r for r in out), 2)
+    def test_the_sources_are_the_private_ranges_whatever_network_this_is(self):
+        # A public /16, a /1 and a /0 (everyone) as the default route's network.
+        for net in ("141.20.0.0/16", "0.0.0.0/1", "0.0.0.0/0", "100.64.5.0/24"):
+            with mock.patch.object(bridge, "local_network", lambda net=net: net):
+                for out in (bridge.firewall_rules([], ["tailscale0"]),
+                            bridge.root_plan("firewall", rules=[], ifaces=["tailscale0"])["commands"][0][-1].split(" && ")):
+                    sources = {m.group(1) for r in out for m in [re.search(r" from (\S+) to ", r)] if m}
+                    self.assertEqual(sources - set(bridge.PRIVATE_LANS), set(), net)
+                    self.assertFalse(any(re.search(r"(?<![\d.])0\.0\.0\.0", r) for r in out), net)
+
+    def test_a_network_outside_the_private_ranges_is_not_a_fault(self):
+        for net in ("141.20.0.0/16", "0.0.0.0/0", "100.64.5.0/24"):
+            with mock.patch.object(bridge, "local_network", lambda net=net: net), \
+                    mock.patch("builtins.open", mock.mock_open(read_data="ENABLED=yes\n")):
+                self.assertTrue(bridge.firewall_state()["allowed"], net)
+        with mock.patch.object(bridge, "local_network", lambda: "192.168.5.0/24"), \
+                mock.patch("builtins.open", mock.mock_open(read_data="ENABLED=yes\n")):
+            self.assertFalse(bridge.firewall_state()["allowed"], "a home network still needs its rule")
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=["tailscale0"])
+        plan = bridge.root_plan("firewall", rules=[], ifaces=["tailscale0"])
         self.assertEqual(len(plan["actions"]), 8, "three private ranges and Tailscale, each TCP and UDP")
         self.assertIn("from private networks (home, office) and from Tailscale, never from everyone", plan["why"])
         self.assertTrue(all(a.startswith("Add the firewall rule: ufw allow ") for a in plan["actions"]))
@@ -112,7 +129,7 @@ class Firewall(unittest.TestCase):
 
     def test_nothing_to_open_runs_nothing(self):
         everything = [{"proto": "any", "src": c, "iface": ""} for c in bridge.PRIVATE_LANS]
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=everything, ifaces=[])
+        plan = bridge.root_plan("firewall", rules=everything, ifaces=[])
         self.assertEqual(plan["commands"], [])
         self.assertIn("Nothing to change", plan["actions"][0])
 

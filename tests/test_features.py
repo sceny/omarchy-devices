@@ -110,13 +110,13 @@ class RootPlans(unittest.TestCase):
         self.assertEqual((plan["commands"], plan["actions"][0]), ([], "Nothing to install: kdeconnect already here"))
 
     def test_the_firewall_rules_as_written(self):
-        plan = bridge.root_plan("firewall", lan="192.168.5.0/24", rules=[], ifaces=[])
+        plan = bridge.root_plan("firewall", rules=[], ifaces=[])
         self.assertTrue(plan["actions"] and all("192.168.5.0/24" not in a or "from 192.168.0.0/16" in a for a in plan["actions"]))
         self.assertIn("from 192.168.0.0/16", plan["commands"][0][-1], "the private range around this network (test_network has the rest)")
 
     def test_first_run_is_one_password_for_everything(self):
         pacman = FakePacman(installed=["android-tools"], deps={})
-        plan = bridge.root_plan("ready", run=pacman, lan="192.168.5.0/24", rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
+        plan = bridge.root_plan("ready", run=pacman, rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
         self.assertEqual(len(plan["commands"]), 1, "one prompt")
         script = plan["commands"][0][-1]
         self.assertEqual(plan["commands"][0][:3], ["pkexec", "/bin/sh", "-c"])
@@ -174,7 +174,7 @@ class Renotify(unittest.TestCase):
         try:
             bridge.plugin_on = lambda device, plugin, conn=None: False
             bridge.set_plugin = lambda *a, **kw: set_calls.append(a)
-            bridge.say = lambda message, code=0: code
+            bridge.say = lambda message, code=0, osd=None: code
             self.assertEqual(bridge.device_fix("renotify", "dev"), 0)
             self.assertEqual(set_calls, [], "turned off for this device: never turned on by a fix nobody clicked")
             bridge.plugin_on = lambda device, plugin, conn=None: True
@@ -223,7 +223,7 @@ class AppPopOut(unittest.TestCase):
             bridge.border_size = lambda: 2
             bridge.apps_opened = lambda *a: None
             bridge.screen_device = lambda d: {"name": "Pixel 8"}
-            bridge.say = lambda message, code=0: code
+            bridge.say = lambda message, code=0, osd=None: code
             bridge.subprocess.run = lambda cmd, **kw: rules.append(cmd[2]) if cmd[:2] == ["hyprctl", "eval"] else None
             code = bridge.screen_open("dev", "org.example.app", "Example", docked=False, launch=launched.append,
                                       sleep=lambda s: None, popout=popout)

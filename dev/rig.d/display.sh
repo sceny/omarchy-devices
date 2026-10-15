@@ -318,17 +318,35 @@ rig_write_parent_conf() {
 CONF
 }
 
+rig_runtime_sockets() {
+  # The Wayland sockets in the rig's runtime dir, newest last, for a start that was lost.
+  ls -tr "$RIG_RUNTIME_DIR" 2>/dev/null | grep '^wayland-' | tr '\n' ' '
+}
+
+rig_note_lost_start() {
+  # Hyprland's own log goes under its runtime dir and is gone with the rig; keep its end with the compositor's.
+  local f
+  f=$(ls -t "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log 2>/dev/null | head -n 1)
+  [[ -n $f ]] || return 0
+  printf -- '--- end of %s ---\n' "$f" >>"$RIG_LOGS/compositor.log"
+  tail -n 40 "$f" >>"$RIG_LOGS/compositor.log" 2>/dev/null || true
+}
+
 rig_start_compositor() {
   # The hidden start can lose a race inside Aquamarine (see rig_start_compositor_once);
   # it is cheap to try again, so it does, a bounded number of times.
-  local attempt status=0 max=20
+  local attempt status=0 max=${RIG_COMPOSITOR_ATTEMPTS:-20}
+  [[ $max =~ ^[0-9]+$ ]] || max=20
+  max=$((10#$max))
+  ((max >= 1)) || max=20
   [[ $RIG_VIEW == visible ]] && max=1
   for ((attempt = 1; attempt <= max; attempt++)); do
     rig_start_compositor_once "$attempt" && return 0
     status=$?
     ((status == 75)) || return "$status"
+    rig_note_lost_start
     rig_stop_display
-    ((attempt < max)) && rig_step "the parent dropped the compositor's window; starting again ($((attempt + 1))/$max)"
+    ((attempt < max)) && rig_step "the parent dropped the compositor's window (${RIG_LOST_REASON:-no reason}; sockets left: $(rig_runtime_sockets)); starting again ($((attempt + 1))/$max)"
   done
   rig_die "the hidden compositor lost the start-up race $max times in a row; see $RIG_LOGS/compositor.log"
 }
@@ -358,12 +376,16 @@ rig_start_compositor_once() {
     # does), so the compositor's Wayland parent is labwc's own socket, in the
     # rig's runtime dir, and nothing else.
     rig_write_parent_conf
-    local node
+    local node in_ns=("${RIG_IN_NS[@]}")
     node=$(rig_render_node) || return 1
+    # Inside the sandbox's container (no network of its own) the start is lost
+    # about every time when the compositor joins the rig's nested namespaces
+    # and found at the second or third try outside them (RIG_COMPOSITOR_OUTSIDE_NS=1).
+    [[ ${RIG_COMPOSITOR_OUTSIDE_NS:-} == 1 ]] && in_ns=()
     WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1 \
       WLR_RENDER_DRM_DEVICE="$node" \
       __EGL_VENDOR_LIBRARY_FILENAMES=$(rig_mesa_egl_vendor) \
-      nohup "${RIG_IN_NS[@]}" labwc -C "$RIG_PARENT_CONF" -S "Hyprland -c $RIG_HYPR_CONF" >>"$log" 2>&1 &
+      nohup "${in_ns[@]}" labwc -C "$RIG_PARENT_CONF" -S "Hyprland -c $RIG_HYPR_CONF" >>"$log" 2>&1 &
     RIG_PARENT_PID=$!
     RIG_HYPR_PID=""
     rig_wake_parent_start
@@ -429,13 +451,17 @@ $(tail -n 8 "$log" 2>/dev/null)"
     done
     if tail -n "+$log_from" "$log" | grep -q 'has never been configured'; then
       rig_wake_parent_stop
+      RIG_LOST_REASON="xdg_surface never configured"
       return 75
     fi
     rig_wake_parent
-    timeout --kill-after=2 6 grim -t ppm /dev/null >/dev/null 2>&1 || {
+    local grim_status=0 grim_err
+    grim_err=$(timeout --kill-after=2 6 grim -t ppm /dev/null 2>&1 >/dev/null) || grim_status=$?
+    if ((grim_status != 0)); then
       rig_wake_parent_stop
+      RIG_LOST_REASON="grim exit $grim_status: $(printf '%s' "$grim_err" | head -c 120 | tr '\n' ' ')"
       return 75
-    }
+    fi
     rig_wake_parent_stop
   fi
   rig_check_config_errors

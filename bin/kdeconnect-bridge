@@ -31,7 +31,8 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge received-dismiss <device> <path>   forget one received file
   kdeconnect-bridge open-file <path>               in its app (uwsm-app, GIO's default),
                                               else shown in Files
-  kdeconnect-bridge copy-file <path>               the file on the clipboard
+  kdeconnect-bridge copy-file <path> [--local|--from-device]   the file on the clipboard
+                                              (a picture as the sandbox's JPEG, as open-file)
   kdeconnect-bridge doctor                    setup checks, as JSON
   kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|tailscale|search
                                               fix one (install, firewall, sshfs, screen and
@@ -119,6 +120,7 @@ import html
 import ipaddress
 import json
 import shutil
+import stat
 import os
 import quopri
 import re
@@ -221,6 +223,9 @@ CAP_ADDRESSES = 100        # of one message
 CAP_ATTACHMENTS = 50       # of one message
 CAP_APPS = 2000
 CAP_VCARD = 1 << 20        # one contact file, read at most
+CAP_VCARDS_READ = 128 << 20   # all contact files of one read
+CAP_PHOTO_DECODES = 100       # pictures decoded in one read (the rest on the next)
+CAP_CONTACTS_OUT = 16 << 20   # bytes of the contacts the page is sent in one read
 CAP_CONTACT_FILES = 20000
 CAP_TELS = 20              # numbers of one contact
 CAP_CONTACTS = 10000       # entries in all (and names by number)
@@ -286,6 +291,7 @@ def call_event(event, number, name, at_ms):
     if not kind:
         return None
     number, name = str(number or "").strip(), str(name or "").strip()
+    number, name = cap_text(number, CAP_SHORT), cap_text(name, CAP_SHORT)
     return {"event": kind, "number": number,
             "name": "" if name == number else name, "at": int(at_ms)}
 
@@ -1105,12 +1111,13 @@ def save_file(path, device_name):
     shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
     target = save_target(folder, os.path.basename(path), os.path.getsize(path))
     if target is None:
-        return say("Already in %s" % shown)
+        return say("Already in %s" % shown, osd="Already saved")
     try:
         shutil.copy2(path, target)
     except OSError as error:
-        return say(str(error), EXIT_FAILED)
-    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)))
+        return say(str(error), EXIT_FAILED, osd="")
+    return say("Saved to %s" % os.path.join(shown, os.path.basename(target)),
+                osd="Saved to %s" % os.path.basename(pictures_dir()))
 
 
 def file_uri(path):
@@ -1184,58 +1191,101 @@ def trim_cache(cache, limit, keep=None):
             total -= size
 
 
+PICTURE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF8", b"II*\x00", b"MM\x00*", b"BM")
+
+
+def looks_like_picture(path):
+    """Whether a file from the device is a picture, by its name or by what it
+    holds. A name proves nothing, so a picture under any name (or none) goes
+    the sandboxed way; so does a file whose name makes GIO open it as one
+    (.svg, .svgz, .jp2), whatever it holds. Raises OSError when the file
+    cannot be read."""
+    if os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
+        return True
+    with open(path, "rb") as f:
+        head = f.read(4096)
+    if head.startswith(PICTURE_MAGIC) or (head[:4] == b"RIFF" and head[8:12] == b"WEBP") \
+            or (head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"mif1", b"msf1", b"avif", b"avis")):
+        return True
+    for guess in (None, os.path.basename(path)):
+        ctype, _uncertain = Gio.content_type_guess(guess, head)
+        if ctype.startswith("image/") or Gio.content_type_is_a(ctype, "image/*"):
+            return True
+    return False
+
+
 def open_file(path, launch=None, local=False, from_device=False):
     """Opens a file in its app, as Omarchy launches apps (uwsm-app), or
     when no app can open its type, shows it selected in Files and says so.
-    A file from the device (`local`: read over its storage; `from_device`:
-    received) that is a picture opens as a copy decoded in the sandbox
+    The one gate for a file from the device (`local`: read over its
+    storage; `from_device`: received or fetched): what it holds decides, not
+    its name, and a picture opens as a copy decoded in the sandbox
     (safe_full_picture), never as the device's bytes; one that does not
     decode is not opened. `launch` runs a command (replaced in tests)."""
     launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
     if not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
-    if (local or from_device) and os.path.isfile(path) and os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
-        copy = safe_full_picture(path)
-        if not copy:
-            return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
-        path = copy
-    elif local and os.path.isfile(path):
+    if (local or from_device) and os.path.isfile(path):
+        if local:
+            try:
+                path = local_copy(path)
+            except OSError as error:
+                return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
         try:
-            path = local_copy(path)
+            picture = looks_like_picture(path)
         except OSError as error:
-            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED)
+            return say("Could not read it: %s" % error.strerror, EXIT_FAILED, osd="")
+        if picture:
+            copy = safe_full_picture(path)
+            if not copy:
+                return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
+            path = copy
     if default_app(path) is None:
         launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
         ext = os.path.splitext(path)[1] or "these"
-        return say("No app opens %s files here; shown in Files" % ext, EXIT_CANCELLED)
+        return say("No app opens %s files here; shown in Files" % ext, EXIT_CANCELLED, osd="No app opens this file here; shown in Files")
     launch(["uwsm-app", "--", "gio", "open", path])
     return EXIT_OK
 
 
-def copy_file(path):
-    """The file on the clipboard: an image as image data, anything else as
-    a file (a URI list, as file managers copy)."""
+def copy_file(path, local=False, from_device=False, run=None):
+    """The file on the clipboard, through the same gate as open_file: a copy
+    is made here first (`local`: the file is read over the device's storage),
+    what it holds decides, and a picture goes out only as the sandbox's JPEG
+    (image data), never as the device's bytes; one that does not decode
+    copies nothing. Anything else goes out as a URI list naming the copy
+    here, as file managers copy, never a path on the storage link.
+    `from_device`: a file the device sent, already here. `run` replaces
+    subprocess.run in tests."""
+    run = run or subprocess.run
     if not os.path.isfile(path):
         return say("The file is gone", EXIT_FAILED)
-    ext = os.path.splitext(path)[1].lower().lstrip(".")
-    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext)
     try:
-        if mime:
-            with open(path, "rb") as f:
-                subprocess.run(["wl-copy", "--type", mime], stdin=f, timeout=15, check=True)
+        if local:
+            path = local_copy(path)
+        picture = looks_like_picture(path)
+    except OSError as error:
+        return say("Could not read it: %s" % (error.strerror or error), EXIT_FAILED, osd="")
+    try:
+        if picture:
+            copy = safe_full_picture(path)
+            if not copy:
+                return say("This picture could not be read safely, so it was not copied", EXIT_FAILED)
+            with open(copy, "rb") as f:
+                run(["wl-copy", "--type", "image/jpeg"], stdin=f, timeout=15, check=True)
         else:
-            subprocess.run(["wl-copy", "--type", "text/uri-list"], input=("file://" + urllib.parse.quote(path) + "\n").encode(),
-                           timeout=15, check=True)
+            run(["wl-copy", "--type", "text/uri-list"], input=file_uri(path).encode() + b"\n",
+                timeout=15, check=True)
     except (OSError, subprocess.SubprocessError) as error:
-        return say(str(error), EXIT_FAILED)
+        return say(str(error), EXIT_FAILED, osd="")
     return say("Copied")
 
 
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
-    state = {"pending": 0, "last": None}
+    state = {"pending": 0, "last": None, "clipboard": set()}
     calls = {}
     seen = load_seen(seen_path())
     # Known here only while connected: a device away at start keeps the time
@@ -1279,6 +1329,7 @@ def watch():
             dirs.update(os.path.dirname(e.get("path", "")) for e in entries)
         state["received_ids"] = ids
         folders.sync(dirs)
+        keep_clipboard_for(snap.get("devices", []), state["clipboard"], conn)
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
@@ -1328,6 +1379,7 @@ def watch():
 
     def on_owner(*_args):
         calls.clear()
+        state["clipboard"].clear()
 
     def on_folder(kind, path, new_path):
         # A listed file renamed in its folder: its entry follows it. Gone
@@ -1392,7 +1444,20 @@ def watch():
         net.stop()
 
 
-def say(message, code=EXIT_OK):
+OSD_ENV = "DEVICES_OSD_LINE"
+OSD_MARK = "\x1e"
+
+
+def say(message, code=EXIT_OK, osd=None):
+    """Prints the line the panel shows. `osd` is the line Omarchy's on-screen
+    display may show, whose command line any local user reads: it names
+    nothing a device sent (a name, a file, an app). A literal message is its
+    own; "" says only that the action ended (the panel's own words). The
+    panel asks for the line with DEVICES_OSD_LINE."""
+    if osd is None:
+        osd = message
+    if os.environ.get(OSD_ENV):
+        message = "%s%s%s" % (message, OSD_MARK, osd)
     print(message, file=sys.stdout if code == EXIT_OK else sys.stderr)
     return code
 
@@ -1428,14 +1493,14 @@ def read_private():
 
 def act(argv):
     if len(argv) < 2:
-        return say(__doc__.strip(), EXIT_FAILED)
+        return say(__doc__.strip(), EXIT_FAILED, osd="")
     verb, device_id, rest = argv[0], argv[1], argv[2:]
     conn = bus()
     dpath = device_path(device_id)
     try:
         if verb == "ring":
             call(conn, dpath + "/findmyphone", IFACE + ".device.findmyphone", "ring")
-            return say("Ringing %s" % device_name(conn, device_id))
+            return say("Ringing %s" % device_name(conn, device_id), osd="Ringing the device")
 
         if verb in ("pair", "accept", "reject", "unpair"):
             method = {"pair": "requestPairing", "accept": "acceptPairing",
@@ -1445,7 +1510,9 @@ def act(argv):
             return say({"pair": "Asked %s to pair; accept on it" % name,
                         "accept": "Paired with %s" % name,
                         "reject": "Pairing with %s cancelled" % name,
-                        "unpair": "Unpaired %s" % name}[verb])
+                        "unpair": "Unpaired %s" % name}[verb],
+                       osd={"pair": "Asked the device to pair; accept on it", "accept": "Paired",
+                            "reject": "Pairing cancelled", "unpair": "Unpaired"}[verb])
 
         if verb == "ping":
             # sendPing is overloaded: no argument, or a message to show.
@@ -1455,7 +1522,7 @@ def act(argv):
                      (message,), "(s)")
             else:
                 call(conn, dpath + "/ping", IFACE + ".device.ping", "sendPing")
-            return say("Pinged %s" % device_name(conn, device_id))
+            return say("Pinged %s" % device_name(conn, device_id), osd="Pinged the device")
 
         if verb in ("text", "url"):
             value = read_private()
@@ -1464,10 +1531,10 @@ def act(argv):
             if verb == "url":
                 call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
                      (value.strip(),), "(s)")
-                return say("Link sent to %s" % device_name(conn, device_id))
+                return say("Link sent to %s" % device_name(conn, device_id), osd="Link sent")
             call(conn, dpath + "/share", IFACE + ".device.share", "shareText",
                  (value,), "(s)")
-            return say("Text sent to %s" % device_name(conn, device_id))
+            return say("Text sent to %s" % device_name(conn, device_id), osd="Text sent")
 
         if verb == "dial":
             # A tel: link: the phone opens its dialer on the number (or, from
@@ -1478,7 +1545,7 @@ def act(argv):
                 return say("No number to call", EXIT_CANCELLED)
             call(conn, dpath + "/share", IFACE + ".device.share", "shareUrl",
                  ("tel:" + number,), "(s)")
-            return say("%s offers to call back" % device_name(conn, device_id))
+            return say("%s offers to call back" % device_name(conn, device_id), osd="The device offers to call back")
 
         if verb == "clipboard":
             call(conn, dpath + "/clipboard", IFACE + ".device.clipboard", "sendClipboard")
@@ -1489,23 +1556,23 @@ def act(argv):
             if not paths:
                 paths, error = pick_files("Send to %s" % device_name(conn, device_id))
                 if paths is None:
-                    return say(error, EXIT_FAILED)
+                    return say(error, EXIT_FAILED, osd="")
                 if not paths:
                     return say("Nothing sent", EXIT_CANCELLED)
             missing = [p for p in paths if not os.path.exists(p)]
             if missing:
-                return say("Not found: %s" % missing[0], EXIT_FAILED)
+                return say("Not found: %s" % missing[0], EXIT_FAILED, osd="")
             uris = [Gio.File.new_for_path(p).get_uri() for p in paths]
             call(conn, dpath + "/share", IFACE + ".device.share", "shareUrls",
                  (uris,), "(as)")
             if len(paths) == 1:
-                return say("Sending %s" % os.path.basename(paths[0]))
-            return say("Sending %d files" % len(paths))
+                return say("Sending %s" % os.path.basename(paths[0]), osd="Sending a file")
+            return say("Sending %d files" % len(paths), osd="Sending %d files" % len(paths))
 
         if verb == "media":
             action = rest[0] if rest else "PlayPause"
             if action not in ("PlayPause", "Play", "Pause", "Next", "Previous", "Stop"):
-                return say("Unknown media action %s" % action, EXIT_FAILED)
+                return say("Unknown media action %s" % action, EXIT_FAILED, osd="")
             call(conn, dpath + "/mprisremote", IFACE + ".device.mprisremote",
                  "sendAction", (action,), "(s)")
             # The play/pause glyph already shows it worked; no status line.
@@ -1530,18 +1597,19 @@ def act(argv):
                       IFACE + ".device.notifications.notification") or {}
             call(conn, dpath + "/notifications", IFACE + ".device.notifications",
                  "sendAction", (p.get("internalId", nid), action), "(ss)")
-            return say(action)
+            return say(action, osd="Done")
     except GLib.Error as error:
         message = error.message
+        osd = ""
         if "UnknownObject" in message or "No such object" in message:
-            message = "The phone does not offer that right now"
+            message = osd = "The phone does not offer that right now"
         elif "ServiceUnknown" in message:
-            message = "KDE Connect is not running"
-        return say(message, EXIT_FAILED)
+            message = osd = "KDE Connect is not running"
+        return say(message, EXIT_FAILED, osd=osd)
     except IndexError:
-        return say("Missing argument for %s" % verb, EXIT_FAILED)
+        return say("Missing argument for %s" % verb, EXIT_FAILED, osd="")
 
-    return say("Unknown command %s" % verb, EXIT_FAILED)
+    return say("Unknown command %s" % verb, EXIT_FAILED, osd="")
 
 
 # ---- Setup checks ----------------------------------------------------------
@@ -1644,26 +1712,31 @@ def firewall_state():
     except OSError:
         rules = []
     lan = local_network()
-    if lan:
+    if lan and not private_lan(lan):
+        allowed = True   # not a home network: the rule is never opened to it, so it is not a fault
+    elif lan:
         allowed = {"tcp", "udp"} <= covered(rules, lan)
     else:
         allowed = {"tcp", "udp"} <= set(p for r in rules for p in (("tcp", "udp") if r["proto"] == "any" else (r["proto"],)))
     return {"present": True, "active": enabled, "allowed": allowed, "rules": rules}
 
 
-def firewall_rules(rules, lan, ifaces):
+def private_lan(lan):
+    """Whether a network (a default route's) lies inside the private ranges."""
+    try:
+        net = ipaddress.ip_network(lan)
+    except ValueError:
+        return False
+    return any(net.subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS)
+
+
+def firewall_rules(rules, ifaces):
     """The ufw commands that open KDE Connect's ports to every private
     network (home, office: as Omarchy opens Sunshine's) and on each mesh's
-    interface, only those not open yet. Never to everyone. A default
-    route's network outside the private ranges is added as itself."""
-    sources = list(PRIVATE_LANS)
-    try:
-        if lan and not any(ipaddress.ip_network(lan).subnet_of(ipaddress.ip_network(c)) for c in PRIVATE_LANS):
-            sources.append(lan)
-    except ValueError:
-        pass
+    interface, only those not open yet. The sources are PRIVATE_LANS and
+    nothing else, whatever network this computer is on: never to everyone."""
     out = []
-    for src in sources:
+    for src in PRIVATE_LANS:
         for proto in ("tcp", "udp"):
             if proto not in covered(rules, src):
                 out.append("/usr/bin/ufw allow from %s to any port %s proto %s comment 'KDE Connect'" % (src, KDE_PORTS, proto))
@@ -1697,12 +1770,13 @@ def doctor():
                    "fix": "" if running or not installed else "start", "fixLabel": "Start"})
     fw = firewall_state()
     lan = local_network()
+    opened_to = lan if private_lan(lan) else "private networks" if lan else "the local network"
     fw_ok = not fw["active"] or fw["allowed"]
     checks.append({"key": "firewall", "ok": fw_ok,
                    "label": "Firewall lets devices in",
-                   "status": ("Open to %s" % (lan or "the local network")) if fw["active"] and fw_ok
+                   "status": ("Open to %s" % opened_to) if fw["active"] and fw_ok
                              else ("Off" if fw["present"] else "None") if fw_ok else "Closed",
-                   "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, lan or "the local network"),
+                   "detail": "" if fw_ok else "Ports %s are closed; allow them from %s" % (KDE_PORTS, opened_to),
                    "fix": "" if fw_ok else "firewall", "fixLabel": "Allow"})
     checks.append({"key": "network", "ok": bool(lan), "label": "On a network",
                    "status": lan or "No network",
@@ -1823,7 +1897,7 @@ def package_installed(name, run=None):
 READY_FIXES = ("install", "sshfs", "screen")
 
 
-def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
+def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
     """{what, why, actions, commands, hash} for a fix that needs root, or
     None for one that does not. `commands` is exactly what runs."""
     keys = what.partition(" ")[2].replace(",", " ").split() if what.startswith("packages") else [what] if what in ("install", "sshfs", "screen", "bluetooth") else []
@@ -1857,10 +1931,9 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
             if will == []:
                 actions = actions[1:]
     elif what == "firewall":
-        lan = lan if lan is not None else local_network()
         existing = rules if rules is not None else firewall_state().get("rules", [])
         ifaces = ifaces if ifaces is not None else mesh_interfaces()
-        wanted = firewall_rules(existing, lan, ifaces)
+        wanted = firewall_rules(existing, ifaces)
         meshes = [m["label"] for m in MESHES.values() if m["iface"] in ifaces]
         reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
             + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
@@ -1885,9 +1958,8 @@ def root_plan(what, run=None, lan=None, rules=None, ifaces=None, fw=None):
         fw = fw if fw is not None else firewall_state()
         wanted_rules = []
         if fw.get("active") and not fw.get("allowed"):
-            lan = lan if lan is not None else local_network()
             existing = rules if rules is not None else fw.get("rules", [])
-            wanted_rules = firewall_rules(existing, lan, ifaces if ifaces is not None else mesh_interfaces())
+            wanted_rules = firewall_rules(existing, ifaces if ifaces is not None else mesh_interfaces())
         reason = "To get this computer ready for your devices"
         actions, parts = [], []
         if packages and will != []:
@@ -1913,9 +1985,9 @@ def run_root(what, confirm):
     """Runs a root fix's plan, only the one shown (`confirm`: its hash)."""
     plan = root_plan(what)
     if not plan:
-        return say("Unknown fix %s" % what, EXIT_FAILED)
+        return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
     if plan.get("error"):
-        return say(plan["error"], EXIT_FAILED)
+        return say(plan["error"], EXIT_FAILED, osd="")
     if not confirm or confirm != plan["hash"]:
         return say("What would run is not what was shown: look at it again", EXIT_FAILED)
     if what == "tailscale":
@@ -1924,24 +1996,25 @@ def run_root(what, confirm):
             subprocess.Popen(plan["commands"][0], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         return say("Omarchy's Tailscale installer is open: sign in there")
     for cmd in plan["commands"]:
         try:
             out = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
         except (OSError, subprocess.TimeoutExpired) as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         if out.returncode in (126, 127):
             return say("Not changed: the password prompt was dismissed", EXIT_CANCELLED)
         if out.returncode != 0:
-            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED)
+            return say((out.stderr or out.stdout or "It did not work").strip().splitlines()[-1], EXIT_FAILED, osd="")
     if what == "firewall":
         return say("The firewall lets your devices reach KDE Connect")
     if what == "ready":
         return say("This computer is ready")
-    return say({"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
-                "screen": "scrcpy and adb installed: set up a device's screen and apps",
-                "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed"))
+    installed = {"install": "KDE Connect installed", "sshfs": "sshfs installed: photos can show",
+                 "screen": "scrcpy and adb installed: set up a device's screen and apps",
+                 "bluetooth": "Bluetooth is on: pair a device for calls"}.get(what, "Installed")
+    return say(installed, osd=installed)
 
 
 # What each install fix puts on this computer, so several go in one prompt
@@ -1991,7 +2064,7 @@ def fix(what, confirm=""):
         try:
             call(bus(), ROOT, IFACE + ".daemon", "forceOnNetworkChange")
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Looking for devices on the network")
     if what == "bluetooth-on":
         # Omarchy's own switch (the rfkill block it keeps across restarts).
@@ -2008,7 +2081,7 @@ def fix(what, confirm=""):
         try:
             subprocess.run([tool], capture_output=True, text=True, timeout=90)
         except (OSError, subprocess.TimeoutExpired) as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
         state = bluetooth_state()
         return say("Calls can use this computer's audio") if state["service"] else say("PipeWire's hands-free service is still not there", EXIT_FAILED)
     if what == "restart":
@@ -2019,7 +2092,7 @@ def fix(what, confirm=""):
         return say("Could not restart KDE Connect", EXIT_FAILED)
     elif what == "start":
         return start_daemon()
-    return say("Unknown fix %s" % what, EXIT_FAILED)
+    return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
 # ---- Features: what a device can do, and the steps to it -----------------
@@ -2172,8 +2245,135 @@ def set_plugin(device_id, plugin, on, conn=None):
     own app does): the device stops or starts sending it."""
     conn = conn or bus()
     name = plugin if plugin.startswith("kdeconnect_") else "kdeconnect_" + plugin
+    if on and name == CLIPBOARD_PLUGIN:
+        try:
+            keep_clipboard_here(device_id, conn, cycle=False)
+        except OSError:
+            pass
     call(conn, device_path(device_id), IFACE + ".device", "setPluginEnabled", (name, bool(on)), "(sb)")
     return name
+
+
+# ---- The clipboard leaves on the user's act ---------------------------------
+#
+# KDE Connect's clipboard plugin sends every copy to the device unless its
+# autoShare is off, and passwords a password manager marks unless its
+# sendPassword is. Both default to on. The Clipboard shortcut is the user's
+# act (sendClipboard), so the plugin turns both off for each device that has
+# not been given an explicit choice, and leaves an explicit one alone. KDE
+# Connect offers no D-Bus setter for it: the setting is the plugin's own
+# config file, read when the plugin loads, so a loaded plugin is turned off
+# and on once.
+
+CLIPBOARD_PLUGIN = "kdeconnect_clipboard"
+CLIPBOARD_HERE = (("autoShare", "false"), ("sendPassword", "false"))
+INI_SECTION = re.compile(r"^\s*\[([^\]]*)\]\s*$")
+
+
+def ini_key(line):
+    """The key a line of a settings file sets, "" when it sets none."""
+    text = line.strip()
+    if not text or text[0] in ";#[":
+        return ""
+    return text.partition("=")[0].strip()
+
+
+def ini_get(text, key):
+    """A top-level (or [General]) key's value in a settings file, else None."""
+    section = ""
+    for line in text.splitlines():
+        m = INI_SECTION.match(line)
+        if m:
+            section = m.group(1)
+        elif section in ("", "General") and ini_key(line) == key:
+            return line.partition("=")[2].strip()
+    return None
+
+
+def ini_fill(text, wanted):
+    """The settings file with each wanted key that is missing added to its
+    [General] section, and whether anything was added. Keys already there,
+    whatever their value, are the user's and stay."""
+    missing = [(k, v) for k, v in wanted if ini_get(text, k) is None]
+    if not missing:
+        return text, False
+    lines = text.splitlines()
+    section, last = "", -1
+    for i, line in enumerate(lines):
+        m = INI_SECTION.match(line)
+        if m:
+            if section == "General":
+                break
+            section = m.group(1)
+            if section == "General":
+                last = i
+        elif section == "General" and line.strip():
+            last = i
+    added = ["%s=%s" % kv for kv in missing]
+    if last < 0:
+        lines = ["[General]"] + added + lines
+    else:
+        lines[last + 1:last + 1] = added
+    return "\n".join(lines) + "\n", True
+
+
+def clipboard_config_path(conn, device_id):
+    """The clipboard plugin's config file for a device: beside the device's
+    plugin list, whose path KDE Connect gives."""
+    plugins_file = call(conn, device_path(device_id), IFACE + ".device", "pluginsConfigFile")[0]
+    return os.path.join(os.path.dirname(plugins_file), CLIPBOARD_PLUGIN, "config")
+
+
+def clipboard_auto_share_off(conn, device_id):
+    """Whether the loaded plugin has auto-share off; None while it is not
+    loaded."""
+    try:
+        return bool(call(conn, device_path(device_id) + "/clipboard", "org.freedesktop.DBus.Properties",
+                         "Get", (IFACE + ".device.clipboard", "isAutoShareDisabled"), "(ss)")[0])
+    except GLib.Error:
+        return None
+
+
+def keep_clipboard_here(device_id, conn=None, cycle=True):
+    """Makes a device's copies leave only when the user sends them. Returns
+    "shared" when the user chose auto-share for it, "changed" when the plugin
+    was set (and, loaded, started again), else "here"."""
+    conn = conn or bus()
+    path = clipboard_config_path(conn, device_id)
+    try:
+        with open(path) as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    if ini_get(text, "autoShare") == "true":
+        return "shared"
+    text, changed = ini_fill(text, CLIPBOARD_HERE)
+    if changed:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+        tmp = path + ".tmp"
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    if cycle and clipboard_auto_share_off(conn, device_id) is False:
+        dpath = device_path(device_id)
+        call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, False), "(sb)")
+        time.sleep(0.5)
+        call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, True), "(sb)")
+        return "changed"
+    return "changed" if changed else "here"
+
+
+def keep_clipboard_for(devices, done, conn):
+    """Sets each paired device once; a device whose setting failed is tried
+    again on the next snapshot."""
+    for d in devices:
+        if d.get("paired") and d["id"] not in done:
+            done.add(d["id"])
+            try:
+                keep_clipboard_here(d["id"], conn)
+            except (GLib.Error, OSError):
+                done.discard(d["id"])
 
 
 def grant_permission(serial, key, run=None):
@@ -2278,7 +2478,7 @@ def reconnect(device_id, conn=None):
         screen_record(device_id, {"kdeAddress": address})
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     if wait_reachable(device_id, conn):
         return say("Connected again")
     return say("KDE Connect knows where it is now, but it did not answer", EXIT_FAILED)
@@ -2293,7 +2493,7 @@ def wake(device_id, conn=None):
     adb(["-s", serial, "shell", "cmd", "deviceidle", "whitelist", "+" + KDECONNECT_ANDROID])
     code, out = adb(["-s", serial, "shell", "monkey", "-p", KDECONNECT_ANDROID, "-c", "android.intent.category.LAUNCHER", "1"])
     if code != 0:
-        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED)
+        return say(out.strip() or "KDE Connect did not open on it", EXIT_FAILED, osd="")
     try:
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error:
@@ -2600,7 +2800,7 @@ def reach(device_id, address="", conn=None, meshes=None):
     if not address:
         peer, _how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
         if not peer:
-            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED)
+            return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED, osd="The device is not on your mesh yet: sign in to it with the same account")
         picked, address = peer, peer["address"]
     kind = "address" if picked else "typed"
     daemon = props(conn, ROOT, IFACE + ".daemon") or {}
@@ -2615,13 +2815,13 @@ def reach(device_id, address="", conn=None, meshes=None):
         network_record(device_id, update)
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     # Here already (at home): the address is for when it is not.
     if p.get("isReachable"):
-        return say("KDE Connect knows where to find %s away from home: %s" % (name, address))
+        return say("KDE Connect knows where to find %s away from home: %s" % (name, address), osd="KDE Connect knows where to find it away from home")
     if wait_reachable(device_id, conn):
-        return say("Connected again, through %s" % address)
-    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name))
+        return say("Connected again, through %s" % address, osd="Connected again")
+    return say("KDE Connect knows %s's address now; it connects when %s answers there" % (name, name), osd="KDE Connect knows its address now; it connects when it answers there")
 
 
 def unreach(device_id, kind="", conn=None):
@@ -2640,7 +2840,7 @@ def unreach(device_id, kind="", conn=None):
         if wanted != current:
             set_custom(conn, wanted)
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     clear = {k: "" for k in kinds}
     if "address" in kinds:
         clear.update(mesh="", peer="")
@@ -2747,10 +2947,10 @@ def device_fix(what, device_id, arg=""):
             try:
                 set_plugin(device_id, name, state != "off")
             except GLib.Error as error:
-                return say(error.message, EXIT_FAILED)
+                return say(error.message, EXIT_FAILED, osd="")
             done.append(name)
         on = not arg.endswith("=off")
-        return say("Turned %s for this device" % ("on" if on else "off"))
+        return say("Turned %s for this device" % ("on" if on else "off"), osd="Turned %s for this device" % ("on" if on else "off"))
     if what == "renotify":
         # The notifications plugin off and on: made again, it asks the
         # device for every notification it holds, so one dismissed there
@@ -2763,13 +2963,13 @@ def device_fix(what, device_id, arg=""):
             time.sleep(0.5)
             set_plugin(device_id, "notifications", True)
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Its notifications read again")
     if what == "reload":
         try:
             call(bus(), device_path(device_id), IFACE + ".device", "reloadPlugins")
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return say("Reloaded its KDE Connect plugins")
     if what == "remount":
         return say("Its storage is mounted again") if remount(device_id) else say("The storage did not mount", EXIT_FAILED)
@@ -2792,7 +2992,7 @@ def device_fix(what, device_id, arg=""):
         if not serial:
             return say("Not reachable over adb", EXIT_FAILED)
         code, out = adb(["-s", serial, "shell"] + screen)
-        return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED)
+        return say("Opened on the device") if code == 0 else say(out.strip() or "Did not open", EXIT_FAILED, osd="Did not open")
     if what == "relisten":
         # KDE Connect's notification listener on the device, unbound and bound
         # again: what a restart of the device does for it (#94, our #95).
@@ -2803,7 +3003,7 @@ def device_fix(what, device_id, arg=""):
         adb(["-s", serial, "shell", "cmd", "notification", "disallow_listener", LISTENER, user])
         time.sleep(1)
         code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
-        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED)
+        return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED, osd="It did not work")
     if what == "reconnect":
         return reconnect(device_id)
     if what == "wake":
@@ -2817,8 +3017,8 @@ def device_fix(what, device_id, arg=""):
         if not usb:
             return say("Plug it in with a USB cable to turn Wireless debugging on from here", EXIT_FAILED)
         code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
-        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED)
-    return say("Unknown fix %s" % what, EXIT_FAILED)
+        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED, osd="It did not turn on")
+    return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
 # ---- Bluetooth calls (PipeWire's hands-free service) ------------------------
@@ -2892,7 +3092,7 @@ def parse_bluez(objects):
         gateway = UUID_GATEWAY in uuids
         if not gateway and d.get("Icon") != "phone":
             continue
-        phones.append({"address": str(d.get("Address", "")).upper(), "name": str(d.get("Alias") or d.get("Name") or ""),
+        phones.append({"address": str(d.get("Address", "")).upper(), "name": cap_text(d.get("Alias") or d.get("Name") or "", CAP_SHORT),
                        "paired": bool(d.get("Paired")), "connected": bool(d.get("Connected")), "gateway": gateway})
     return {"adapter": adapter, "phones": phones}
 
@@ -2913,7 +3113,8 @@ def parse_gateway(path, ifaces, calls):
         if c is None:
             continue
         out["calls"].append({"id": cpath.rsplit("/", 1)[-1], "path": cpath, "state": str(c.get("State", "")),
-                             "number": str(c.get("LineIdentification", "") or ""), "name": str(c.get("Name", "") or ""),
+                             "number": cap_text(c.get("LineIdentification", "") or "", CAP_SHORT),
+                             "name": cap_text(c.get("Name", "") or "", CAP_SHORT),
                              "multiparty": bool(c.get("Multiparty", False))})
     return out
 
@@ -3112,14 +3313,16 @@ def loopback_commands(nodes, title):
     the default output), this computer's microphone to the device. Each is
     a Communication stream, so PipeWire's own policy places it."""
     cmds = []
+    # Values are JSON strings: a name with a space or a quote stays one value.
+    q = json.dumps
     if nodes.get("source") and not nodes["linked"]["source"]:
         cmds.append(["pw-loopback", "-n", "sceny-devices-call-in",
-                     "--capture-props", "target.object=%s node.dont-reconnect=true stream.dont-remix=true" % nodes["source"]["name"],
-                     "--playback-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', "")])
+                     "--capture-props", "target.object=%s node.dont-reconnect=true stream.dont-remix=true" % q(nodes["source"]["name"]),
+                     "--playback-props", "media.role=Communication node.description=%s" % q(title)])
     if nodes.get("sink") and not nodes["linked"]["sink"]:
         cmds.append(["pw-loopback", "-n", "sceny-devices-call-out",
-                     "--capture-props", "media.role=Communication node.description=\"%s\"" % title.replace('"', ""),
-                     "--playback-props", "target.object=%s node.dont-reconnect=true" % nodes["sink"]["name"]])
+                     "--capture-props", "media.role=Communication node.description=%s" % q(title),
+                     "--playback-props", "target.object=%s node.dont-reconnect=true" % q(nodes["sink"]["name"])])
     return cmds
 
 
@@ -3143,9 +3346,9 @@ def call_audio(device_id, sleep=time.sleep):
     procs = []
     for cmd in loopback_commands(nodes, title):
         try:
-            procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            procs.append(subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=die_with_parent))
         except OSError as error:
-            return say(str(error), EXIT_FAILED)
+            return say(str(error), EXIT_FAILED, osd="")
     print(json.dumps({"audio": "here", "loopbacks": len(procs)}), flush=True)
 
     def stop(*_args):
@@ -3183,7 +3386,7 @@ def call_verb(what, device_id, arg="", conn=None):
     try:
         conn, g = gateway_of(device_id, conn)
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     if g is None:
         return say("Not connected for calls over Bluetooth", EXIT_FAILED)
     path = g["path"]
@@ -3198,13 +3401,15 @@ def call_verb(what, device_id, arg="", conn=None):
                 tel_call(conn, path, TEL_AG, "HoldAndAnswer")
             else:
                 tel_call(conn, c["path"], TEL_CALL, "Answer")
-            return say("Answered" + (" on the device" if what == "answer-phone" else ""))
+            answered = "Answered" + (" on the device" if what == "answer-phone" else "")
+            return say(answered, osd=answered)
         if what in ("decline", "hangup"):
             c = pick_call(g, ("incoming", "waiting") if what == "decline" else ("active", "dialing", "alerting", "held"), arg)
             if not c:
                 return say("No call", EXIT_FAILED)
             tel_call(conn, c["path"], TEL_CALL, "Hangup")
-            return say("Declined" if what == "decline" else "Hung up")
+            ended = "Declined" if what == "decline" else "Hung up"
+            return say(ended, osd=ended)
         if what == "end-answer":
             tel_call(conn, path, TEL_AG, "ReleaseAndAnswer")
             return say("Answered")
@@ -3244,17 +3449,18 @@ def call_verb(what, device_id, arg="", conn=None):
             tel_set(conn, path, TEL_AG, "SpeakerVolume", GLib.Variant("y", level))
             return EXIT_OK
     except GLib.Error as error:
-        return say(error.message, EXIT_FAILED)
+        return say(error.message, EXIT_FAILED, osd="")
     except ValueError:
-        return say("Not a level: %s" % arg, EXIT_FAILED)
+        return say("Not a level: %s" % arg, EXIT_FAILED, osd="Not a level")
     if what == "mute":
         node = mute_target(pw_objects(), g["address"])
         if node is None:
             return say("The call's audio is not here", EXIT_FAILED)
         on = arg != "off"
         out = subprocess.run(["wpctl", "set-mute", str(node), "1" if on else "0"], capture_output=True, text=True, timeout=5)
-        return say("Microphone off" if on else "Microphone on") if out.returncode == 0 else say("Could not mute", EXIT_FAILED)
-    return say("Unknown call action %s" % what, EXIT_FAILED)
+        mic = "Microphone off" if on else "Microphone on"
+        return say(mic, osd=mic) if out.returncode == 0 else say("Could not mute", EXIT_FAILED)
+    return say("Unknown call action %s" % what, EXIT_FAILED, osd="")
 
 
 def bluetooth_fix(what, device_id, arg=""):
@@ -3280,7 +3486,7 @@ def bluetooth_fix(what, device_id, arg=""):
     try:
         subprocess.run([tool, "connect", address], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return say(str(error), EXIT_FAILED)
+        return say(str(error), EXIT_FAILED, osd="")
     for _ in range(10):
         if address in (read_telephony(bus()) or {}):
             return say("Connected for calls")
@@ -4348,6 +4554,9 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
             events.close()
 
 
+PACKAGE_RE = re.compile(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+", re.A)   # an Android package, as the panel checks it
+
+
 def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
@@ -4436,13 +4645,22 @@ def window_sounds(device_id, key=None, sound=None):
     return sounds
 
 
+def focus_window(win):
+    """Brings a window forward by its address."""
+    subprocess.run(["hyprctl", "dispatch", "hl.dsp.focus({ window = %s })" % lua_string("address:" + win["address"])],
+                   capture_output=True, timeout=5)
+
+
 def launch_or_focus(title, cmd):
-    """Omarchy's `omarchy-launch-or-focus`: the window with this title is
-    brought forward, else the command runs (it evals the command line, so
-    each part is quoted)."""
-    pattern = re.sub(r"([\\.^$|?*+()\[\]{}])", r"\\\1", title)
-    subprocess.Popen(["omarchy-launch-or-focus", pattern, shlex.join(cmd)], start_new_session=True,
-                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    """The window with exactly this title is brought forward, else the
+    command runs, as an argv list: Omarchy's `omarchy-launch-or-focus`
+    evaluates the command line it is given, and a title carries device
+    text, so it is never used here."""
+    win = find_window(title)
+    if win:
+        focus_window(win)
+    else:
+        launch_detached(cmd)
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
@@ -4452,6 +4670,8 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     right, the device's shape), in a window here, and returns once the
     window is there (the click waits meanwhile). Already open: brought
     forward instead of a second one."""
+    if package and not PACKAGE_RE.fullmatch(package):
+        return say("That is not an app's package name", EXIT_FAILED)
     docked = (docked and not package) or (bool(package) and popout)
     if package:
         rect = None   # an app's pop-out is not the panel's card journey
@@ -4461,7 +4681,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     launch = launch or (lambda cmd: launch_or_focus(title, cmd))
     if find_window(title):
         launch(["true"])   # focuses it; the command never runs
-        return say("%s is open" % (label or name + "'s screen"))
+        return say("%s is open" % (label or name + "'s screen"), osd="The app is open" if label else "The screen is open")
     status = screen_status(device_id)
     if status["state"] != "ready":
         return say("Not set up: open Screen and apps in its settings", EXIT_FAILED)
@@ -4476,7 +4696,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
             if not device_locked(status["serial"]):
                 break
         else:
-            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED)
+            return say("%s is still locked: unlock it, then open %s again" % (name, label or "it"), EXIT_FAILED, osd="The device is still locked: unlock it, then open the app again")
     top = next(((m.get("reserved") or [0, 0])[1] for m in hypr_json("monitors") if m.get("focused")), 0)
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
@@ -4495,9 +4715,9 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
             if not docked and not package and fit:
                 sleep(0.2)   # tiled into its place first
                 fit_tile(find_window(title) or win, disp)
-            return say("%s is open" % (label or name + "'s screen"))
+            return say("%s is open" % (label or name + "'s screen"), osd="The app is open" if label else "The screen is open")
         sleep(0.25)
-    return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED)
+    return say("The window did not open: is %s unlocked and on this Wi-Fi?" % name, EXIT_FAILED, osd="The window did not open: is the device unlocked and on this Wi-Fi?")
 
 
 def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
@@ -4515,7 +4735,7 @@ def screen_dock(device_id, docked, package="", label="", rect=None, ctx=None):
                    capture_output=True, timeout=5)
     if win:
         dock_window(win, docked, disp, rect)
-    return say("Opens under the bar" if docked else "Opens as a window")
+    return say("Opens under the bar" if docked else "Opens as a window", osd="Opens under the bar" if docked else "Opens as a window")
 
 
 # ---- A window's sound (#129): where it plays, changed while it is open ----
@@ -4618,6 +4838,8 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     it."""
     if sound not in SOUND_PLACES:
         return say("A sound plays here, on the phone or both", EXIT_FAILED)
+    if package and not PACKAGE_RE.fullmatch(package):
+        return say("That is not an app's package name", EXIT_FAILED)
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
     title = screen_title(name, label)
@@ -4626,10 +4848,10 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
     win = find_window(title)
     if not win:
-        return say("%s plays its sound %s next time" % (what, where))
+        return say("%s plays its sound %s next time" % (what, where), osd="The sound plays elsewhere next time")
     status = screen_status(device_id)
     if status["state"] != "ready":
-        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED)
+        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED, osd="The device is out of reach: its sound changes when it opens again")
     border = border_size()
     mons = hypr_json("monitors")
     disp = status.get("display") or device_display(status["serial"])
@@ -4645,13 +4867,13 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
 
     def start():
         if log:
-            open(log, "w").close()   # a fresh log for the watcher
+            os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for the watcher
         cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
         (launch or (lambda c: launch_or_focus(title, c)))(cmd)
 
     if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
-        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED)
-    return say("%s plays its sound %s" % (what, where))
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED, osd="The window did not open again: open it from the panel")
+    return say("%s plays its sound %s" % (what, where), osd="The window's sound changed")
 
 
 # Its sound here: scrcpy's PipeWire stream, found by the window's process
@@ -5714,16 +5936,20 @@ def parse_vcard(text):
         joined = ";".join(params)
         if "QUOTED-PRINTABLE" in joined:
             # vCard 2.1: a soft break ends a line with "=".
-            while value.endswith("=") and i < len(lines):
-                value = value[:-1] + lines[i]
+            pieces = [value]
+            while pieces[-1].endswith("=") and i < len(lines):
+                pieces[-1] = pieces[-1][:-1]
+                pieces.append(lines[i])
                 i += 1
-            value = vcard_qp(value, key.upper())
+            value = vcard_qp("".join(pieces), key.upper())
         elif "BASE64" in joined or "ENCODING=B" in joined:
             # vCard 2.1 ends a base64 value with a blank line; what folding
             # left is already joined above.
+            pieces = [value]
             while i < len(lines) and lines[i].strip() and ":" not in lines[i]:
-                value += lines[i].strip()
+                pieces.append(lines[i].strip())
                 i += 1
+            value = "".join(pieces)
         value = value.strip()
         if not value:
             continue
@@ -5762,10 +5988,12 @@ def parse_vcard(text):
                 card["photo"] = b""
     if not card["name"]:
         card["name"] = " ".join([p for p in (card["first"], card["last"]) if p]).strip()
-    card["name"] = cap_text(card["name"], CAP_SHORT)
+    for key in ("name", "first", "last", "nickname", "org", "title", "birthday"):
+        card[key] = cap_text(card[key], CAP_SHORT)
+    card["note"] = cap_text(card["note"], CAP_TEXT)
     for key in ("phones", "emails", "addresses", "websites"):
         card[key] = [{"label": cap_text(v["label"], CAP_SHORT), "value": cap_text(v["value"], CAP_SHORT)}
-                     for v in card[key][:CAP_ADDRESSES]]
+                     for v in card[key][:CAP_TELS]]
     return card
 
 
@@ -5782,12 +6010,20 @@ def read_vcards(device_id):
         files = sorted(os.listdir(folder))
     except OSError:
         return cards
+    budget = CAP_VCARDS_READ
     for name in files[:min(CAP_CONTACT_FILES, CAP_CONTACTS)]:
+        if budget <= 0:
+            break
         try:
-            with open(os.path.join(folder, name), encoding="utf-8", errors="replace") as f:
-                text = f.read(CAP_VCARD)
+            # A regular file only: a link or a pipe in the folder is not a card.
+            fd = os.open(os.path.join(folder, name), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+            with os.fdopen(fd, encoding="utf-8", errors="replace") as f:
+                if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                    continue
+                text = f.read(min(CAP_VCARD, budget))
         except OSError:
             continue
+        budget -= len(text.encode("utf-8", "replace"))
         cards.append((os.path.splitext(name)[0], parse_vcard(text)))
     return cards
 
@@ -5817,7 +6053,7 @@ def contacts_dir(device_id):
     return path
 
 
-def contact_photo(device_id, data, folder=None):
+def contact_photo(device_id, data, folder=None, fresh=None):
     """A contact's picture as a PNG made from its decoded pixels (fit_image,
     in the sandbox), kept in the cache; "" when the card has none or it
     cannot be read. The card's own bytes never reach the shell."""
@@ -5828,6 +6064,10 @@ def contact_photo(device_id, data, folder=None):
     if os.path.isfile(dst):
         os.utime(dst)
         return dst
+    if fresh is not None:
+        if fresh[0] <= 0:
+            return ""   # the rest come on the next read
+        fresh[0] -= 1
     raw = dst + ".raw"
     ok = False
     try:
@@ -5928,13 +6168,20 @@ def open_contacts_app(app=None, launch=None, find=""):
         return say("This computer has no Omarchy contacts app", EXIT_FAILED)
     if find:
         if not app.get("find"):
-            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED)
+            return say("%s cannot look a contact up" % app["name"], EXIT_FAILED, osd="%s cannot look a contact up" % app["name"])
         url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
         # The last hop: the web app's launcher takes the address as an argument.
         (launch or launch_detached)(["omarchy-launch-webapp", url])
-        return say("Opening %s" % app["name"])
-    (launch or launch_detached)(["omarchy-launch-or-focus-webapp", app["name"], app["url"]])
-    return say("Opening %s" % app["name"])
+        return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
+    # Omarchy's `omarchy-launch-or-focus-webapp` evaluates its arguments: the
+    # window is found here by its name, else the web app's launcher runs.
+    word = re.compile(r"\b" + re.escape(app["name"]) + r"\b", re.I)
+    win = next((c for c in hypr_json("clients") if word.search(str(c.get("class") or "")) or word.search(str(c.get("title") or ""))), None)
+    if win:
+        focus_window(win)
+    else:
+        (launch or launch_detached)(["omarchy-launch-webapp", app["url"]])
+    return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
 
 
 def contact_link(kind, value):
@@ -6011,9 +6258,13 @@ def contacts_list(device_id, sync=False, conn=None):
     if sync:
         contacts_sync(device_id, conn)
     out = []
+    budget = CAP_CONTACTS_OUT
+    fresh = [CAP_PHOTO_DECODES]
     for cid, card in read_vcards(device_id):
         if not card["name"] and not card["phones"] and not card["emails"]:
             continue
+        if budget <= 0:
+            break
         out.append({
             "id": cid,
             "name": card["name"],
@@ -6026,9 +6277,10 @@ def contacts_list(device_id, sync=False, conn=None):
             "websites": card["websites"],
             "birthday": card["birthday"],
             "note": card["note"],
-            "photo": contact_photo(device_id, card["photo"]),
+            "photo": contact_photo(device_id, card["photo"], fresh=fresh),
             "stored": card["stored"],
         })
+        budget -= len(json.dumps(out[-1], ensure_ascii=False).encode("utf-8"))
     out.sort(key=lambda c: ((c["name"] or "￿").casefold(), c["id"]))
     return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 
@@ -6046,6 +6298,7 @@ class Sms:
         self.settle = {}       # thread -> quiet-period timer while a page loads
         self.contacts, self.contact_list = read_contacts(device_id)
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
+        self.requested = set() # attachment ids asked for here and not yet arrived
         self.thumbs = cache_dir()
         # Earlier versions kept the phone's previews as they came (thumb_*):
         # gone, so nothing shows them again.
@@ -6200,21 +6453,32 @@ class Sms:
             self.out({"ev": "removed", "thread": tid})
         elif signal == "attachmentReceived":
             file_path, file_name = params.unpack()
-            self.out(self.arrived(file_path, file_name))
+            arrived = self.arrived(file_path, file_name)
+            if arrived:
+                self.out(arrived)
 
     def arrived(self, path, name):
-        """What the panel opens for a fetched attachment: a picture as a copy
-        decoded in the sandbox (never the phone's bytes; one that does not
-        decode is not opened), anything else as itself, under a name with
-        its type."""
-        mime = self.file_mimes.get(name, "")
-        if mime.startswith("image/"):
+        """What the panel opens for a fetched attachment, or None for one
+        nobody asked for here (it is not opened). A picture, by its type or
+        by what the file holds, opens as a copy decoded in the sandbox (never
+        the phone's bytes; one that does not decode is not opened); anything
+        else as itself, under a name with its type."""
+        if name not in self.requested:
+            return None
+        self.requested.discard(name)
+        failed = {"ev": "error", "cmd": "attachment", "name": name,
+                  "message": "This picture could not be read safely, so it was not opened"}
+        try:
+            picture = self.file_mimes.get(name, "").startswith("image/") or (
+                os.path.isfile(path) and looks_like_picture(path))
+        except OSError:
+            return failed
+        if picture:
             copy = safe_full_picture(path)
             if not copy:
-                return {"ev": "error", "cmd": "attachment", "name": name,
-                        "message": "This picture could not be read safely, so it was not opened"}
-            return {"ev": "attachment", "path": copy, "name": name}
-        return {"ev": "attachment", "path": self.named(path, name), "name": name}
+                return failed
+            return {"ev": "attachment", "path": copy, "name": name, "safe": True}
+        return {"ev": "attachment", "path": self.named(path, name), "name": name, "safe": False}
 
     def named(self, path, name):
         """The daemon saves attachments without an extension, which some
@@ -6334,6 +6598,7 @@ class Sms:
             elif verb == "attachment":
                 if cmd.get("mime"):
                     self.file_mimes[str(cmd["id"])] = str(cmd["mime"])
+                self.requested.add(str(cmd["id"]))
                 self.call("requestAttachmentFile", (int(cmd["part"]), str(cmd["id"])), "(xs)")
             elif verb == "refresh":
                 self.contacts, self.contact_list = read_contacts(self.device_id)
@@ -6399,7 +6664,7 @@ class Sms:
 
 def main(argv):
     if not argv:
-        return say(__doc__.strip(), EXIT_FAILED)
+        return say(__doc__.strip(), EXIT_FAILED, osd="")
     if argv[0] == "watch":
         try:
             watch()
@@ -6445,7 +6710,7 @@ def main(argv):
         print(safe_art(argv[1] if len(argv) > 1 else "", int(argv[2]) if len(argv) > 2 else ART_BOX))
         return EXIT_OK
     if argv[0] == "copy-file":
-        return copy_file(argv[1] if len(argv) > 1 else "")
+        return copy_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:], from_device="--from-device" in argv[2:])
     if argv[0] == "doctor":
         print(json.dumps(doctor()))
         return EXIT_OK
@@ -6464,7 +6729,7 @@ def main(argv):
         try:
             print(json.dumps(device_features(argv[1], with_adb="--adb" in argv)))
         except GLib.Error as error:
-            return say(error.message, EXIT_FAILED)
+            return say(error.message, EXIT_FAILED, osd="")
         return EXIT_OK
     if argv[0] == "device-fix":
         if len(argv) < 3:
@@ -6555,7 +6820,7 @@ def main(argv):
         return EXIT_OK
     if argv[0] in ("screen", "screen-pair", "screen-open"):
         if len(argv) < 2:
-            return say("%s needs a device id" % argv[0], EXIT_FAILED)
+            return say("%s needs a device id" % argv[0], EXIT_FAILED, osd="")
         if argv[0] == "screen":
             print(json.dumps(screen_status(argv[1])))
             return EXIT_OK

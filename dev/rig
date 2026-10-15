@@ -11,6 +11,8 @@
 #   dev/rig screenshot [file.png]        capture the nested shell (works hidden)
 #   dev/rig phone [status|battery N|notify T X|sms 555.. X|call 555..|hangup N|shot|pair|refresh]
 #                                        drive the rig's emulator and its KDE Connect link
+#   dev/rig record [--seconds N] [--fps F] [--tail S] [--out DIR] [-- command...]
+#                                        frames of the nested shell as PNGs (and DIR/fps), while the command runs
 #   dev/rig sync                         install the working tree as the plugin and enable it
 #   dev/rig ipc <function> [args]        call the panel: dev/rig ipc status, dev/rig ipc open
 #   dev/rig restart-shell                restart only the nested shell (after a .js change)
@@ -198,6 +200,7 @@ cmd_up() {
 
   ((phone)) && rig_phone_start
   rig_start_compositor
+  ((phone)) && rig_emulator_start
   rig_start_shell
   rig_build_package_repo
   ((phone)) && rig_phone_finish
@@ -549,6 +552,81 @@ cmd_screenshot() {
   printf '%s\n' "$out"
 }
 
+# ------------------------------------------------------------------ record ----
+
+cmd_record() {
+  # Frames, not a video: grim writes one PNG per tick (DIR/frame-00001.png ...,
+  # and DIR/fps), the way a screenshot is made, so nothing here needs a GPU or
+  # a stream out of the compositor. The command after -- runs meanwhile, in the
+  # environment dev/rig was started in (so it can call dev/rig ipc, phone ...);
+  # the recording ends --tail seconds after it, or after --seconds.
+  rig_select || rig_die "no rig for this owner; run 'dev/rig up' first"
+  local seconds=10 fps=5 tail=1 out="$RIG_EVIDENCE/recording" cmd=()
+  while (($#)); do
+    case $1 in
+    --seconds)
+      seconds=${2:?--seconds needs a number}
+      shift
+      ;;
+    --fps)
+      fps=${2:?--fps needs a number}
+      shift
+      ;;
+    --tail)
+      tail=${2:?--tail needs a number}
+      shift
+      ;;
+    --out)
+      out=${2:?--out needs a directory}
+      shift
+      ;;
+    --)
+      shift
+      cmd=("$@")
+      break
+      ;;
+    *) rig_die "record: unknown option $1" ;;
+    esac
+    shift
+  done
+  [[ $seconds =~ ^[0-9]+$ ]] && ((seconds >= 1 && seconds <= 60)) || rig_die "record: --seconds is 1 to 60"
+  [[ $fps =~ ^[0-9]+$ ]] && ((fps >= 1 && fps <= 10)) || rig_die "record: --fps is 1 to 10"
+  [[ $tail =~ ^[0-9]+$ ]] && ((tail <= 10)) || rig_die "record: --tail is 0 to 10"
+  mkdir -p "$out" || rig_die "record: cannot make $out"
+  [[ -z $(ls -A "$out" 2>/dev/null) ]] || rig_die "record: $out is not empty"
+
+  local child="" status=0 n=0 ended_us=0 period_us=$((1000000 / fps)) start_us tick_us now_us
+  if ((${#cmd[@]})); then
+    "${cmd[@]}" &
+    child=$!
+  fi
+  rig_export_env
+  rig_guard_nested_display
+  start_us=$((${EPOCHREALTIME/[.,]/}))
+  while :; do
+    tick_us=$((${EPOCHREALTIME/[.,]/}))
+    rig_grim "$(printf '%s/frame-%05d.png' "$out" $((n + 1)))" || {
+      rig_fail "record: no frame"
+      status=1
+      break
+    }
+    n=$((n + 1))
+    now_us=$((${EPOCHREALTIME/[.,]/}))
+    ((now_us - start_us >= seconds * 1000000)) && break
+    if [[ -n $child ]] && ! kill -0 "$child" 2>/dev/null; then
+      ((ended_us)) || ended_us=$now_us
+      ((now_us - ended_us >= tail * 1000000)) && break
+    fi
+    ((now_us - tick_us < period_us)) && sleep "0.$(printf '%06d' $((period_us - (now_us - tick_us))))"
+  done
+  if [[ -n $child ]]; then
+    wait "$child" || status=$?
+  fi
+  printf '%s\n' "$fps" >"$out/fps"
+  rig_ok "recorded $n frames at up to $fps per second in $out"
+  return "$status"
+}
+
 # --------------------------------------------------------------- show/hide ----
 
 cmd_view() {
@@ -686,6 +764,7 @@ ci) cmd_ci "$@" ;;
 check) cmd_check "$@" ;;
 status) cmd_status "$@" ;;
 screenshot) cmd_screenshot "$@" ;;
+record) cmd_record "$@" ;;
 show) cmd_view visible ;;
 hide) cmd_view hidden ;;
 restart-shell) cmd_restart_shell "$@" ;;

@@ -1,11 +1,20 @@
 name: release
 
 # Releasing (AGENTS.md), the steps after the release pull request:
-# - a pull request into main is checked first: the version in manifest.json
-#   needs its CHANGELOG section (`## X.Y.Z — YYYY-MM-DD`) and no tag yet;
-# - when main gets a version with no tag, the pushed commit is tagged
-#   vX.Y.Z, the release is published with that CHANGELOG section as its
-#   notes, and develop is brought level with main.
+# - a pull request into main is checked first (job check, read-only): the
+#   version in manifest.json needs its CHANGELOG section
+#   (`## X.Y.Z — YYYY-MM-DD`) and no tag yet;
+# - when main gets a version with no tag (job publish, the only job that
+#   writes), the pushed commit is tagged vX.Y.Z, the release is published
+#   with that CHANGELOG section as its notes, and develop is brought level
+#   with main;
+# - a release that reaches main as a single-parent commit (a squash or a
+#   rebase) fails the publish job once it is tagged: the release pull request
+#   is merged with a merge commit. GitHub offers no per-pull-request check of
+#   the merge method, so it is caught here, after the merge.
+# `dev/release-prepare X.Y.Z` makes a branch that passes the first check.
+# Two jobs because GitHub takes no expression under `permissions`: a file
+# with one fails every run in 0 s.
 # A push to main whose version is already tagged does nothing. The
 # marketplace review is still requested by hand (Releasing, step 4).
 
@@ -16,39 +25,21 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  check:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Version and its notes
-        id: version
-        run: |
-          version=$(jq -r .version manifest.json)
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          # The section under "## X.Y.Z — date", up to the next "## ",
-          # without the blank lines around it.
-          awk -v v="$version" '
-            index($0, "## " v " ") == 1 { found = 1; next }
-            found && /^## / { exit }
-            found { print }
-          ' CHANGELOG.md | sed -e '/[^[:space:]]/,$!d' | sed -e ':a' -e '/^[[:space:]]*$/{$d;N;ba' -e '}' > "$RUNNER_TEMP/notes.md"
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
-            echo "tagged=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "tagged=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: A release into main is ready
-        if: github.event_name == 'pull_request'
         run: |
-          version='${{ steps.version.outputs.version }}'
-          if [ '${{ steps.version.outputs.tagged }}' = true ]; then
+          eval "$(dev/release-notes "$RUNNER_TEMP/notes.md" | sed 's/^/export /')"
+          if [ "$tagged" = true ]; then
             echo "::error file=manifest.json::v$version is already released: set the new version in manifest.json"
             exit 1
           fi
@@ -56,15 +47,31 @@ jobs:
             echo "::error file=CHANGELOG.md::No '## $version — YYYY-MM-DD' section with entries"
             exit 1
           fi
+          echo "::notice::Merge this pull request with a merge commit, never squash: the release run fails on a single-parent commit on main"
           echo "Release notes for v$version:"
           cat "$RUNNER_TEMP/notes.md"
 
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version and its notes
+        id: version
+        run: dev/release-notes "$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+
       - name: Tag and publish
-        if: github.event_name == 'push' && steps.version.outputs.tagged == 'false'
+        if: steps.version.outputs.tagged == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          version='${{ steps.version.outputs.version }}'
+          version="$VERSION"
           if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
             echo "::error file=CHANGELOG.md::No '## $version — YYYY-MM-DD' section with entries; nothing tagged"
             exit 1
@@ -76,11 +83,20 @@ jobs:
           gh release create "v$version" --title "Devices $version" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag --latest
 
       - name: Bring develop level with main
-        if: github.event_name == 'push' && steps.version.outputs.tagged == 'false'
+        if: steps.version.outputs.tagged == 'false'
         run: |
           git fetch origin develop
           if git merge-base --is-ancestor origin/develop "$GITHUB_SHA"; then
             git push origin "$GITHUB_SHA:refs/heads/develop"
           else
             echo "::warning::develop has commits main does not; merge main into develop by hand (AGENTS.md, Workflow: an urgent fix)"
+          fi
+
+      - name: The release arrived as a merge commit
+        if: steps.version.outputs.tagged == 'false' && !cancelled()
+        run: |
+          parents=$(git rev-list --parents -n 1 "$GITHUB_SHA" | wc -w)
+          if [ "$parents" -lt 3 ]; then
+            echo "::error::$GITHUB_SHA has one parent: the release pull request was squashed or rebased. It is tagged and published as it stands; merge with a merge commit next time so main and develop keep one history"
+            exit 1
           fi

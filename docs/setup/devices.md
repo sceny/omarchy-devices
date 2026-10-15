@@ -19,7 +19,8 @@ place it shows, and goes on by itself when it is done.
 | Messages, Contacts | The Messages and Contacts pages: SMS, contacts ([Contacts](contacts.md)) |
 | Calls | On the phone, when KDE Connect asks for the phone and call log |
 | Calls here | Bluetooth here; the phone [paired over Bluetooth](calls-here.md) |
-| Files, Clipboard, Ring, Battery | Never: they just work |
+| Files, Ring, Battery | Never: they just work |
+| Clipboard | Never: **Clipboard** sends it on your click |
 
 With the screen set up, the panel sees what is missing and *Allow* grants
 it from here.

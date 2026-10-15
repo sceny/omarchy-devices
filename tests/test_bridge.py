@@ -107,6 +107,80 @@ class Sends(unittest.TestCase):
         self.assertEqual(self.calls, [])
 
 
+class OsdLine(unittest.TestCase):
+    """The panel asks for the line Omarchy's on-screen display may show
+    (DEVICES_OSD_LINE): it names nothing a device sent."""
+
+    def said(self, osd_asked, argv, run=None):
+        saved = (bridge.bus, bridge.call, bridge.device_name, os.environ.get(bridge.OSD_ENV))
+        bridge.bus = lambda: None
+        bridge.call = lambda *a, **k: ()
+        bridge.device_name = lambda conn, device_id: "Pixel 8"
+        if osd_asked:
+            os.environ[bridge.OSD_ENV] = "1"
+        else:
+            os.environ.pop(bridge.OSD_ENV, None)
+        out = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out):
+                (run or bridge.act)(*([argv] if run is None else argv))
+        finally:
+            bridge.bus, bridge.call, bridge.device_name = saved[:3]
+            if saved[3] is None:
+                os.environ.pop(bridge.OSD_ENV, None)
+            else:
+                os.environ[bridge.OSD_ENV] = saved[3]
+        return out.getvalue().rstrip("\n")
+
+    def test_the_toast_names_the_device_and_the_display_does_not(self):
+        text, _, osd = self.said(True, ["ring", "d1"]).partition(bridge.OSD_MARK)
+        self.assertEqual(text, "Ringing Pixel 8")
+        self.assertEqual(osd, "Ringing the device")
+
+    def test_a_pairing_answer_names_no_device(self):
+        for verb in ("pair", "accept", "reject", "unpair"):
+            _, _, osd = self.said(True, [verb, "d1"]).partition(bridge.OSD_MARK)
+            self.assertTrue(osd, verb)
+            self.assertNotIn("Pixel", osd, verb)
+
+    def test_a_sent_file_is_not_named(self):
+        with tempfile.NamedTemporaryFile(suffix=".txt", prefix="holiday-") as f:
+            text, _, osd = self.said(True, ["share", "d1", f.name]).partition(bridge.OSD_MARK)
+            self.assertIn(os.path.basename(f.name), text)
+            self.assertEqual(osd, "Sending a file")
+
+    def test_a_saved_file_is_not_named(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "IMG_1.jpg")
+            open(src, "w").close()
+            saved = bridge.pictures_dir
+            bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
+            try:
+                text, _, osd = self.said(True, [src, "Pixel 8"], run=bridge.save_file).partition(bridge.OSD_MARK)
+            finally:
+                bridge.pictures_dir = saved
+        self.assertIn("IMG_1", text)
+        self.assertEqual(osd, "Saved to Pictures")
+
+    def test_without_the_ask_the_line_is_plain(self):
+        self.assertEqual(self.said(False, ["ring", "d1"]), "Ringing Pixel 8")
+
+    def test_an_error_gives_the_generic_line(self):
+        saved = bridge.pick_files
+        bridge.pick_files = lambda title: (None, "/home/someone/Pixel 8/secret.txt: denied")
+        try:
+            out = io.StringIO()
+            os.environ[bridge.OSD_ENV] = "1"
+            bridge.bus, bridge.call, bridge.device_name = (lambda: None), (lambda *a, **k: ()), (lambda c, d: "Pixel 8")
+            with contextlib.redirect_stderr(out):
+                bridge.act(["share", "d1"])
+        finally:
+            os.environ.pop(bridge.OSD_ENV, None)
+            bridge.pick_files = saved
+        _, _, osd = out.getvalue().rstrip("\n").partition(bridge.OSD_MARK)
+        self.assertEqual(osd, "")
+
+
 class Resync(unittest.TestCase):
     """The sms bridge asks the phone again when the daemon comes back after
     a restart, retrying while the device reconnects."""
@@ -417,11 +491,28 @@ class OmarchyContactsApp(unittest.TestCase):
 
     def test_opened_as_omarchy_opens_a_web_app(self):
         launched = []
-        with contextlib.redirect_stdout(open(os.devnull, "w")):
-            bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
-                                     launch=launched.append)
-        self.assertEqual(launched, [["omarchy-launch-or-focus-webapp", "Google Contacts",
-                                     "https://contacts.google.com/"]])
+        saved, bridge.hypr_json = bridge.hypr_json, lambda what: []
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
+                                         launch=launched.append)
+        finally:
+            bridge.hypr_json = saved
+        self.assertEqual(launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
+
+    def test_an_open_web_app_is_focused_not_launched_again(self):
+        launched, focused = [], []
+        saved = bridge.hypr_json, bridge.focus_window
+        bridge.hypr_json = lambda what: [{"class": "chrome-contacts.google.com__-Default", "title": "Google Contacts", "address": "0xabc"}]
+        bridge.focus_window = focused.append
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app({"name": "Google Contacts", "url": "https://contacts.google.com/"},
+                                         launch=launched.append)
+        finally:
+            bridge.hypr_json, bridge.focus_window = saved
+        self.assertEqual(launched, [])
+        self.assertEqual([w["address"] for w in focused], ["0xabc"])
 
     def test_a_person_opens_its_search_in_a_window_of_its_own(self):
         launched = []
@@ -440,14 +531,15 @@ class ContactVerbsOverStdin(unittest.TestCase):
 
     def setUp(self):
         self.launched = []
-        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app
+        self.saved = bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app, bridge.hypr_json
         bridge.launch_detached = self.launched.append
+        bridge.hypr_json = lambda what: []
         bridge.omarchy_contacts_app = lambda: {"name": "Google Contacts", "url": "https://contacts.google.com/",
                                                 "find": "https://contacts.google.com/search/{}"}
         bridge.omarchy_maps_app = lambda: None
 
     def tearDown(self):
-        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app = self.saved
+        bridge.launch_detached, bridge.omarchy_contacts_app, bridge.omarchy_maps_app, bridge.hypr_json = self.saved
 
     def run_main(self, argv, stdin=""):
         saved, sys.stdin = sys.stdin, io.StringIO(stdin)
@@ -463,7 +555,7 @@ class ContactVerbsOverStdin(unittest.TestCase):
 
     def test_a_search_in_argv_is_not_searched(self):
         self.run_main(["contacts-app", "--find", "Sam Chen"])
-        self.assertEqual(self.launched, [["omarchy-launch-or-focus-webapp", "Google Contacts", "https://contacts.google.com/"]])
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
 
     def test_a_detail_comes_from_stdin(self):
         self.assertEqual(self.run_main(["contact-open", "mail"], "alex@example.invalid\n"), bridge.EXIT_OK)
@@ -552,6 +644,10 @@ class Calls(unittest.TestCase):
     def test_a_name_that_is_the_number_is_no_name(self):
         # KDE Connect fills contactName with the number when it knows no name.
         self.assertEqual(bridge.call_event("callReceived", "5550123", "5550123", 0)["name"], "")
+
+    def test_a_name_and_number_are_capped(self):
+        long = bridge.call_event("callReceived", "5" * 4000, "A" * 4000, 0)
+        self.assertEqual((len(long["number"]), len(long["name"])), (bridge.CAP_SHORT, bridge.CAP_SHORT))
 
     def test_other_events_are_ignored(self):
         self.assertIsNone(bridge.call_event("talking", "5550123", "", 0))
@@ -941,8 +1037,16 @@ class FetchedAttachments(unittest.TestCase):
 
     def reader(self, d):
         r = bridge.Sms.__new__(bridge.Sms)
-        r.thumbs, r.file_mimes = d, {}
+        r.thumbs, r.file_mimes, r.requested = d, {}, set()
+        r.sent = []
+        r.out = r.sent.append
         return r
+
+    def png(self, path):
+        from gi.repository import GdkPixbuf
+        pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, True, 8, 40, 30)
+        pix.fill(0x3366cc80)
+        pix.savev(path, "png", [], [])
 
     @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
     def test_a_picture_opens_as_a_copy_made_in_the_sandbox(self):
@@ -957,15 +1061,18 @@ class FetchedAttachments(unittest.TestCase):
                 pix.savev(src, "png", [], [])
                 r = self.reader(d)
                 r.file_mimes["PART_1_image"] = "image/heic"
+                r.requested.add("PART_1_image")
                 ev = r.arrived(src, "PART_1_image")
                 self.assertEqual(ev["ev"], "attachment")
                 self.assertTrue(ev["path"].startswith(os.path.join(d, "state", "open")) and ev["path"].endswith(".jpg"))
                 self.assertEqual(open(ev["path"], "rb").read(2), b"\xff\xd8", "a JPEG written here")
                 out = GdkPixbuf.Pixbuf.new_from_file(ev["path"])
                 self.assertEqual((out.get_width(), out.get_height()), (300, 200), "full size, never enlarged")
+                r.requested.add("PART_1_image")
                 self.assertEqual(r.arrived(src, "PART_1_image")["path"], ev["path"], "made once")
                 open(src, "wb").write(b"\x89PNG not really")
                 os.utime(src, (5000, 5000))
+                r.requested.add("PART_1_image")
                 bad = r.arrived(src, "PART_1_image")
                 self.assertEqual(bad["ev"], "error", "not readable: not opened at all")
             finally:
@@ -977,9 +1084,68 @@ class FetchedAttachments(unittest.TestCase):
             open(src, "w").write("x")
             r = self.reader(d)
             r.file_mimes["PART_2_video"] = "video/mp4"
+            r.requested.add("PART_2_video")
             ev = r.arrived(src, "PART_2_video")
             self.assertEqual(ev["ev"], "attachment")
+            self.assertEqual(ev["safe"], False)
             self.assertTrue(ev["path"].endswith(".mp4"), "under a name with its type")
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_an_attachment_nobody_asked_for_is_not_opened(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "PART_9_other")
+                self.png(src)
+                r = self.reader(d)
+                r.requested.add("PART_1_image")   # something else is pending
+                self.assertIsNone(r.arrived(src, "PART_9_other"), "a name never asked for")
+                r.path = "/dev"
+                r.on_signal(None, None, "/dev", None, "attachmentReceived", bridge.GLib.Variant("(ss)", (src, "PART_9_other")))
+                self.assertEqual(r.sent, [], "no event at all: nothing for the panel to open")
+                self.assertFalse(os.path.exists(os.path.join(d, "state", "open")), "and no copy made")
+                r.requested.add("PART_9_other")
+                self.assertEqual(r.arrived(src, "PART_9_other")["ev"], "attachment")
+                self.assertIsNone(r.arrived(src, "PART_9_other"), "one request, one opening")
+            finally:
+                bridge.state_dir = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_with_no_recorded_type_still_opens_in_the_sandbox(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = bridge.state_dir
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "PART_3_file")
+                self.png(src)
+                r = self.reader(d)
+                r.requested.add("PART_3_file")   # asked for, the type unknown
+                ev = r.arrived(src, "PART_3_file")
+                self.assertEqual(ev["safe"], True)
+                self.assertTrue(ev["path"].startswith(os.path.join(d, "state", "open")) and ev["path"].endswith(".jpg"))
+                self.assertEqual(open(ev["path"], "rb").read(2), b"\xff\xd8", "a JPEG written here, not the phone's PNG")
+                r.file_mimes["PART_4_file"] = "video/mp4"   # a type that lies
+                r.requested.add("PART_4_file")
+                lie = os.path.join(d, "PART_4_file")
+                self.png(lie)
+                self.assertEqual(r.arrived(lie, "PART_4_file")["safe"], True, "what it holds decides")
+            finally:
+                bridge.state_dir = saved
+
+    def test_no_sandbox_no_picture(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "PART_5_file")
+            open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+            r = self.reader(d)
+            r.requested.add("PART_5_file")
+            saved = (bridge.state_dir, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                self.assertEqual(r.arrived(src, "PART_5_file")["ev"], "error")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
 
 
 class OpenFromDevice(unittest.TestCase):
@@ -1066,6 +1232,213 @@ class OpenPicturesSafely(unittest.TestCase):
                 self.assertEqual(len(ran), 2, "not readable: not opened")
             finally:
                 bridge.state_dir, bridge.default_app = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_picture_under_any_name_opens_as_a_copy(self):
+        """The gate looks at what the file holds: no name (none, .bin, .txt)
+        sends a picture around the sandbox."""
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            try:
+                for name in ("PART_1_image", "x.bin", "x.txt"):
+                    for flag in ({"from_device": True}, {"local": True}):
+                        src = os.path.join(d, name)
+                        pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 40, 30)
+                        pix.fill(0x3366ccff)
+                        pix.savev(src, "png", [], [])
+                        ran = []
+                        self.assertEqual(bridge.open_file(src, launch=ran.append, **flag), bridge.EXIT_OK)
+                        self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")) and ran[0][4].endswith(".jpg"),
+                                        "%s %s: the sandboxed copy, not the device's file" % (name, flag))
+                src = os.path.join(d, "no_sandbox")
+                open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+                bridge.fit_image = lambda *a, **k: False
+                ran = []
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    code = bridge.open_file(src, launch=ran.append, from_device=True)
+                self.assertEqual((code, ran), (bridge.EXIT_FAILED, []), "no sandbox: no picture, never the device's bytes")
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
+
+    def test_a_name_that_makes_gio_open_a_picture_goes_the_sandboxed_way(self):
+        """GIO opens .svg, .svgz and .jp2 as pictures by their name, whatever
+        the first bytes say; none of them reaches `gio open` unsandboxed."""
+        prolog = b"<?xml version='1.0'?><!-- " + b"x" * 400 + b" --><svg xmlns='http://www.w3.org/2000/svg'/>"
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                for name, body in (("a.svg", prolog), ("a.svgz", b"\x1f\x8b\x08\x00 not really"),
+                                   ("a.jp2", b"\0\0\0\x0cjP  \r\n\x87\n")):
+                    src = os.path.join(d, name)
+                    open(src, "wb").write(body)
+                    self.assertTrue(bridge.looks_like_picture(src), name)
+                    for flag in ({"from_device": True}, {"local": True}):
+                        ran = []
+                        with contextlib.redirect_stdout(open(os.devnull, "w")):
+                            code = bridge.open_file(src, launch=ran.append, **flag)
+                        self.assertEqual((code, ran), (bridge.EXIT_FAILED, []), "%s %s: no sandbox, never the device's bytes" % (name, flag))
+                notes = os.path.join(d, "notes.txt")
+                open(notes, "w").write("plain text")
+                self.assertFalse(bridge.looks_like_picture(notes))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
+
+    def test_a_fetched_svg_under_another_type_does_not_reach_gio_unsandboxed(self):
+        """The recorded type is the sender's: `application/svg` links the file
+        as .svg, and the gate then treats it as the picture GIO opens."""
+        prolog = b"<?xml version='1.0'?><!-- " + b"x" * 400 + b" --><svg xmlns='http://www.w3.org/2000/svg'/>"
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                r = bridge.Sms.__new__(bridge.Sms)
+                r.thumbs, r.file_mimes, r.requested = d, {"PART_7_file": "application/svg"}, {"PART_7_file"}
+                src = os.path.join(d, "PART_7_file")
+                open(src, "wb").write(prolog)
+                ev = r.arrived(src, "PART_7_file")
+                self.assertEqual(ev["ev"], "attachment")
+                ran = []
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    code = bridge.open_file(ev["path"], launch=ran.append, from_device=True)
+                self.assertEqual((code, ran), (bridge.EXIT_FAILED, []))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
+
+    def test_a_file_over_the_storage_link_is_read_from_its_copy(self):
+        """What is sniffed is the file that is opened: the copy made here, not
+        the device's file, which could change between two reads."""
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.looks_like_picture)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            sniffed = []
+            bridge.looks_like_picture = lambda path: sniffed.append(path) or False
+            try:
+                src = os.path.join(d, "notes.txt")
+                open(src, "w").write("plain text")
+                ran = []
+                self.assertEqual(bridge.open_file(src, launch=ran.append, local=True), bridge.EXIT_OK)
+                self.assertEqual(sniffed, [ran[0][4]])
+                self.assertTrue(sniffed[0].startswith(os.path.join(d, "state", "open")))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.looks_like_picture = saved
+
+
+class CopyFileThroughTheGate(unittest.TestCase):
+    """Copying a file from the device to the clipboard goes through the same
+    gate as opening it: a copy here, what it holds decides, a picture leaves
+    only as the sandbox's JPEG, anything else as a file here."""
+
+    SANDBOX_JPEG = b"\xff\xd8\xff\xe0 made in the sandbox"
+
+    def setup_paths(self, d):
+        saved = (bridge.state_dir, bridge.fit_image)
+        bridge.state_dir = lambda: os.path.join(d, "state")
+
+        def fit(src, dst, box, fmt="png"):
+            open(dst, "wb").write(self.SANDBOX_JPEG)
+            return True
+        bridge.fit_image = fit
+        return saved
+
+    def runner(self, sent):
+        def run(cmd, stdin=None, input=None, **kwargs):
+            sent.append((cmd, stdin.read() if stdin else input))
+        return run
+
+    def copy(self, path, **flags):
+        sent = []
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            code = bridge.copy_file(path, run=self.runner(sent), **flags)
+        return code, sent
+
+    def test_a_picture_by_name_with_other_bytes_leaves_as_the_sandbox_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            try:
+                src = os.path.join(d, "IMG_1.png")
+                open(src, "wb").write(b"II*\x00 not a png at all, a TIFF")
+                code, sent = self.copy(src, local=True)
+                self.assertEqual(code, bridge.EXIT_OK)
+                self.assertEqual(sent, [(["wl-copy", "--type", "image/jpeg"], self.SANDBOX_JPEG)],
+                                 "the sandbox's JPEG, never the device's bytes")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_a_picture_that_does_not_decode_copies_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                for name in ("a.jpg", "a.png", "a.webp", "a.svg", "no_extension"):
+                    src = os.path.join(d, name)
+                    open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+                    code, sent = self.copy(src, local=True)
+                    self.assertEqual((code, sent), (bridge.EXIT_FAILED, []), name)
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_a_file_that_is_not_a_picture_leaves_as_its_copy_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            try:
+                src = os.path.join(d, "mount", "notes.txt")
+                os.makedirs(os.path.dirname(src))
+                open(src, "w").write("plain text")
+                code, sent = self.copy(src, local=True)
+                self.assertEqual(code, bridge.EXIT_OK)
+                self.assertEqual([c for c, _ in sent], [["wl-copy", "--type", "text/uri-list"]])
+                uri = sent[0][1].decode().strip()
+                self.assertTrue(uri.startswith("file://" + os.path.join(d, "state", "open")), uri)
+                self.assertNotIn("mount", uri, "never a path on the storage link")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_the_gate_is_read_from_the_copy_not_the_source(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d) + (bridge.looks_like_picture,)
+            sniffed = []
+            bridge.looks_like_picture = lambda path: sniffed.append(path) or False
+            try:
+                src = os.path.join(d, "a.txt")
+                open(src, "w").write("x")
+                self.copy(src, local=True)
+                self.assertEqual(len(sniffed), 1)
+                self.assertTrue(sniffed[0].startswith(os.path.join(d, "state", "open")))
+            finally:
+                bridge.state_dir, bridge.fit_image, bridge.looks_like_picture = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_real_picture_under_another_name_is_decoded_in_the_sandbox(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir,)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "IMG_2.webp")
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 40, 30)
+                pix.fill(0x3366ccff)
+                pix.savev(src, "png", [], [])
+                code, sent = self.copy(src, local=True)
+                if code != bridge.EXIT_OK:
+                    self.skipTest("no sandbox for pictures here")
+                self.assertEqual(sent[0][0], ["wl-copy", "--type", "image/jpeg"])
+                self.assertEqual(sent[0][1][:2], b"\xff\xd8")
+                self.assertNotEqual(sent[0][1], open(src, "rb").read())
+            finally:
+                (bridge.state_dir,) = saved
+
+    def test_a_missing_file_says_it_is_gone(self):
+        code, sent = self.copy("/nonexistent/none.png", local=True)
+        self.assertEqual((code, sent), (bridge.EXIT_FAILED, []))
 
 
 class ReceivedFolderWatch(unittest.TestCase):
@@ -1309,7 +1682,42 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.screen_open("p1", launch=launched.append), bridge.EXIT_OK)
         finally:
             bridge.screen_device, bridge.find_window, bridge.screen_status = saved
-        self.assertEqual(launched, [["true"]], "omarchy-launch-or-focus focuses it; nothing new runs")
+        self.assertEqual(launched, [["true"]], "the window is focused by its address; nothing new runs")
+
+    def test_a_hostile_title_is_one_literal_element_and_no_omarchy_launcher_gets_it(self):
+        title = "a /tmp/x/* b'$(id)' \u00b7 Pixel 8"
+        launched, calls = [], []
+        saved = bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run
+        bridge.find_window = lambda t: None
+        bridge.launch_detached = launched.append
+        bridge.subprocess.Popen = lambda cmd, *a, **k: calls.append(cmd)
+        bridge.subprocess.run = lambda cmd, *a, **k: calls.append(cmd)
+        try:
+            bridge.launch_or_focus(title, ["uwsm-app", "--", "scrcpy", "--window-title", title])
+            bridge.find_window = lambda t: {"address": "0xabc", "title": t}
+            bridge.launch_or_focus(title, ["true"])
+        finally:
+            bridge.find_window, bridge.launch_detached, bridge.subprocess.Popen, bridge.subprocess.run = saved
+        self.assertEqual(launched, [["uwsm-app", "--", "scrcpy", "--window-title", title]])
+        self.assertEqual(calls, [["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:0xabc" })']])
+        for cmd in launched + calls:
+            self.assertFalse(any("launch-or-focus" in str(part) for part in cmd), "no evaluating Omarchy launcher")
+
+    def test_the_bridge_never_calls_an_evaluating_omarchy_launcher(self):
+        source = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "bin", "kdeconnect-bridge")).read()
+        code = [line for line in source.splitlines() if not line.lstrip().startswith("#")]
+        self.assertEqual([line for line in code if re.search(r'"omarchy-launch-or-focus(-webapp)?"', line)], [])
+
+    def test_a_package_name_is_checked_where_the_window_opens(self):
+        saved = bridge.screen_device
+        bridge.screen_device = lambda i: self.fail("a bad package stops first")
+        try:
+            for bad in ("x'; id", "--new-display", "a b.c", "com.\u0661.x", "nodots", "com..x"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(bridge.screen_open("p1", bad), bridge.EXIT_FAILED, bad)
+                    self.assertEqual(bridge.screen_sound("p1", "here", bad), bridge.EXIT_FAILED, bad)
+        finally:
+            bridge.screen_device = saved
 
     def test_the_display_as_it_is_now(self):
         self.assertEqual(bridge.parse_display("  init=1080x2316 450dpi cur=2316x1080 app=2148x1080"), (2316, 1080), "rotated")

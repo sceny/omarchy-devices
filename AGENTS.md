@@ -26,9 +26,10 @@ permissions on the phone from adb; calls with their audio here from
 PipeWire's Bluetooth hands-free service (`org.pipewire.Telephony`, with
 BlueZ for what is paired). KDE Connect is one source among them, not
 the centre (`docs/design/setup.md`). The only files the plugin writes outside
-its folder are caches under `~/.cache/sceny.devices/`.
+its folder are caches under `~/.cache/sceny.devices/` and each device's
+clipboard settings in KDE Connect's config (*Rules*).
 
-- **The plugin takes control of what it needs** (the owner's premise): it
+- **The plugin takes control of what it needs:** it
   does every setup step it can itself (its packages, KDE Connect's plugins
   per device, the phone's permissions over adb, the mount) and asks only for
   what it cannot, one step at a time, then carries on by itself. KDE
@@ -43,7 +44,7 @@ its folder are caches under `~/.cache/sceny.devices/`.
   KDE Connect specialist, linking every KDE report, merge request, branch
   and fork) and a plugin issue (`bug`) (`diagnose-panel`, step 5). The
   plugin's handling goes when KDE Connect has its own fix.
-- **Second sources, one feature each, by the owner's decision.** The
+- **Second sources serve one feature each.** The
   device's screen and apps come from scrcpy over adb (`kdeconnect-bridge
   screen*`), which KDE Connect does not offer. Calls come from PipeWire's
   Bluetooth hands-free service (`kdeconnect-bridge call*`, #59): a call's
@@ -51,8 +52,9 @@ its folder are caches under `~/.cache/sceny.devices/`.
   KDE Connect still names the caller and reports a missed call. Each second
   source serves only its feature; everything else stays KDE Connect.
 - **Omarchy only: use what Omarchy provides.** Its commands
-  (`omarchy-pkg-add`, `omarchy-launch-or-focus`,
-  `omarchy-hyprland-window-pop`, `omarchy-osd`), the packages and services
+  (`omarchy-pkg-add`, `omarchy-launch-webapp`,
+  `omarchy-hyprland-window-pop`, `omarchy-osd`; never `omarchy-launch-or-focus`
+  or its `-webapp` form, which evaluate the command line they are given), the packages and services
   it installs (Avahi, `qrencode`, `uwsm-app`, ufw letting mDNS in) and its
   Hyprland (Lua dispatch). Read `/usr/share/omarchy/bin` and
   `/usr/share/omarchy/default/hypr` before writing a helper; no paths for
@@ -81,15 +83,17 @@ its folder are caches under `~/.cache/sceny.devices/`.
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `Clipboard.qml`, `qmldir` | the one clipboard door (a singleton): copy and bounded read through `wl-copy` / `wl-paste` out of the shell |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
+| `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
 
-## Rules: what the owner decided, so nobody undoes it
+## Rules
 
-Each rule is a decision the owner made or guards against a known fault.
-Keep them; change one only with the owner.
+Each rule guards a design decision or a known fault. Keep them; change
+one only with the owner.
 
 - **Never send a text message while testing.** A test reply goes to a real
   person. Check the send path up to the D-Bus argument types, and leave the
@@ -114,6 +118,17 @@ Keep them; change one only with the owner.
   conversation: the bridge asks at start and after a KDE Connect restart,
   never per user action. When the panel acts on a text-message
   notification, it marks the conversation read itself.
+- **The clipboard leaves on the user's act.** KDE Connect's clipboard
+  plugin sends every copy to the device, passwords a password manager marks
+  included, unless its `autoShare` and `sendPassword` are off. Both default
+  to on and have no D-Bus setter, so the bridge writes them off into the
+  plugin's own config file for each paired device that has no choice of its
+  own (`keep_clipboard_here`: before the plugin is turned on, and once per
+  device when `watch` sees it, starting a loaded plugin again to read it;
+  `isAutoShareDisabled` says the result). An `autoShare=true` already in the
+  file is the user's choice and stays. The Clipboard shortcut
+  (`sendClipboard`) is the only way a copy leaves; a copy made on the device
+  still arrives here. Never turn auto-share on from the plugin.
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player, which goes stale when the phone
   switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.
@@ -179,6 +194,12 @@ Keep them; change one only with the owner.
 - **Results never push the layout.** A click's outcome is a toast floating
   over the panel, or Omarchy's OSD (`omarchy-osd`) when no panel is open.
   Nothing appears in the flow of the panel for a moment and moves the rest.
+  The OSD's line is on a command line any local user reads: it names nothing
+  a device sent (its name, a file's, an app's). `report(text, failed, osd)`
+  takes the line for a text that carries such a value, and the bridge's
+  `say(message, osd=...)` writes it after `\x1e` when asked
+  (`DEVICES_OSD_LINE`); an output without one gives "Done" or "That did not
+  work" (`tests/test_argv.py`, `OsdLines`).
 - **Orders move with a glide, never a jump.** The pill in the bar slides
   its parts to a new order too (a slot per kind, `Model.BAR_PART_KEYS`).
   Every order (devices,
@@ -221,8 +242,8 @@ Keep them; change one only with the owner.
   since the defaults have no page of their own. There is no Devices section: tabs switch devices, the
   pairing card answers requests, and Settings' device list pairs, orders
   and unpairs (Unpair asks twice).
-- **Setup never shows plumbing** (`docs/design/setup.md`, the owner's
-  decision after a new user installed dependencies by hand): the engine
+- **Setup never shows plumbing** (`docs/design/setup.md`): nobody
+  installs a dependency by hand; the engine
   (gateways, items, states) runs unseen, and the panel shows only the
   thing working, the one act only the user can do when they reach for it,
   and their preferences. Settings says nothing while everything works:
@@ -355,6 +376,29 @@ Keep them; change one only with the owner.
   (`escapeStep`: `keep` a draft, `clear` a search, `revert` a setting); then the field is
   left and the page's Esc takes over. A field never sets its own
   `Keys.onEscapePressed`; a new field uses `PanelField`, not a copy.
+- **The shell is never a Wayland data-transfer party** (the owner's
+  decision, `docs/architecture/001`): Qt serves a selection with a blocking
+  write and reads one on the GUI thread without a bound, so a program that
+  never reads or never answers freezes the bar. Every crossing goes through
+  `Clipboard` (`copyText`, `readInto`): a short-lived `wl-copy` with the
+  text on stdin, a `wl-paste` stopped at a deadline and cut at a byte
+  limit, in a Process; `wl-copy` and `wl-paste` appear in no other file. No
+  text item copies, cuts, pastes or selects through Qt, since Qt makes the
+  shell the owner whenever its own key or click leaves a selection
+  standing. The one `TextEdit` is `PanelField`'s, and it writes
+  `selectByMouse: false` (it defaults to true). `PanelField` owns its
+  selection: Ctrl+A, every Shift selection key and the mouse move it with
+  `select`, a key that would leave one standing finds it gone, and the
+  mouse never reaches its TextEdit (no middle-click paste). Read-only text
+  is a `Text`, which has no selection, copy or keys in Qt (a message
+  bubble copies on a double click, through `Clipboard`). No `DropArea`, no
+  drag out of the window. A new field is a `PanelField`, new read-only
+  text a `Text`;
+  `tests/test_panelfield.py` (`ShippedQml`) and `tests/test_argv.py` fail
+  the build naming file:line, and `dev/clip-check --rig ID` shows it in the
+  rig: a reader that never reads does not stop the shell. The shell's own
+  read of a new clipboard while any panel has the keyboard is Omarchy's
+  (omacom/omarchy#8753), not ours.
 - **Apps are windows of their own, tiled by default** (no setting;
   Shift+Enter or Shift+click opens one as Omarchy's pop-out instead,
   floating and pinned at the top right in the device's shape; its sound
@@ -382,7 +426,7 @@ Keep them; change one only with the owner.
 - **Each window chooses where its sound plays** (#129): *Here*
   (scrcpy's default: the device's whole output, the device quiet), *On
   the phone* (`--no-audio`) or *Both* (`--audio-source=playback
-  --audio-dup`, Android 13; offered by the owner's decision, easy to take
+  --audio-dup`, Android 13; an option that is easy to take
   out: `Model.SOUND_PLACES`), on the open window's tile (its badge, `v`;
   the Screen shortcut's speaker for the screen), on a card over the
   panel. scrcpy cannot switch while running, so a choice closes the
@@ -617,6 +661,29 @@ Keep them; change one only with the owner.
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
+- **Contributor code runs only after the owner has read about it and
+  approved it, head by head.** Contributor code is any commit not written
+  by the owner or a Sceny agent: a fork's pull request, an outside
+  author's commit, a bot's dependency bump. A Sceny branch holding such a
+  commit counts as contributor code until that commit has merged into
+  `develop` through this rule.
+  1. **Each new head is reviewed inside Sceny first, by reading only.**
+     Panel QA reviews the code and the Plugin Security Reviewer evaluates
+     its safety, both from the diff, without checking it out or running
+     anything. Both results go on the Paperclip task only, never on GitHub.
+  2. **Nothing goes on the pull request meanwhile:** no comment, review,
+     label or CI approval, until the owner has read both results.
+  3. **The owner's go is *Approve workflows to run* on that head.** No
+     agent ever presses it. Each new push needs a new approval (the
+     repository requires approval for all external contributors).
+  4. **After the go, for that head only:** CI runs, and Panel QA runs the
+     head in the sandbox (`dev/sandbox run`): its tests, the rig check and
+     screenshots. Never in the plain rig, never on the host. Then Panel QA
+     posts the review on the pull request. A newer head starts again at 1.
+  5. **It merges into `develop`** (which reaches the owner's installed
+     copy) only after the sandbox run passes on an approved head. Until
+     `dev/sandbox` has passed its security review, contributor code runs
+     nowhere on this machine, even after the go; only CI runs.
 - **Without the rig** (a cloud session, a machine without Omarchy, `labwc`
   or an Android SDK), do the rest (code, tests, CI, the pull request), say in
   the pull request that the change is not checked in a running shell, and
@@ -653,7 +720,9 @@ Keep them; change one only with the owner.
   the installed copy on a feature branch. The rig installs your working tree into its own
   throwaway plugin folder (`dev/rig sync`), so a branch is checked without
   touching the installed copy.
-- **An urgent fix for users** is a branch from `main` with a pull request
+- **An urgent fix for users** is a branch from `main` made with
+  `dev/release-prepare X.Y.Z --from main --note "…"` (`fix-X.Y.Z`, its
+  version and CHANGELOG section already in the first push) with a pull request
   into `main`, only while `main` is not frozen (*Releasing*, step 5) and
   only after the owner's go (*Releasing*, step 1d);
   afterwards merge `main` into `develop`.
@@ -683,6 +752,29 @@ run in order; the detail, the checklist and the record templates are in
 `docs/internals/releasing.md`. Stop at a failed check, at a frozen `main`
 (step 0) and at the owner's go (step 1d), and report.
 
+- **Every release runs the same chain**, created together at the start
+  (`docs/internals/releasing.md`, *The release template*). Three kinds: a
+  **minor** (a new feature) and a **patch** (fixes only) are a `release-X.Y.Z`
+  branch from `develop`, into `develop` and then `develop` into `main`; an
+  **urgent** fix (needed by users now, or a maintainer's finding) is a
+  `fix-X.Y.Z` branch from `main`, into `main` and then `main` into `develop`,
+  only after the owner's go. The chain: prepare (`dev/release-prepare`), the
+  review with security check, the regression with the cold install and the
+  upgrade, the release security review, the owner's machine on the candidate,
+  the owner's go, then merge, tag and publish. The review, the regression, the
+  install and upgrade checks and the security review stay in every kind; a new
+  commit on the candidate runs them again on the new head.
+- **The go request is one status page** with every pre-go check and its
+  verdict on one candidate SHA (`docs/internals/releasing.md`, *The release
+  status page*). The owner is asked only when it reads PASS for all of them
+  on that SHA; a row on another SHA counts as not done.
+- **Findings from outside become classes.** A fault the marketplace's
+  maintainer or a security report finds is fixed as its class, with a test or
+  lint that fails the build (`tests/test_argv.py`: private text on argv, the
+  clipboard, the on-screen display's line), and its line in the per-pull-request
+  review list (`docs/internals/releasing.md`). The `marketplace-check` job
+  runs the marketplace's own checks on every pull request into `main`, so a
+  finding reaches us before the bots'.
 - **Every pull request gets the regular review with a security check**
   (Panel QA, one reviewer): private text (messages, contact names,
   numbers, clipboard) stays off argv and out of logs; nothing from a
@@ -705,17 +797,19 @@ run in order; the detail, the checklist and the record templates are in
    `main` is frozen: say so and release nothing.
 1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
    alone raise Z (`0.6.0` → `0.6.1`).
-   **Prepare on a branch from `develop`** (`release-X.Y.Z`): turn
-   `## Unreleased` in `CHANGELOG.md` (the guide's *What's new*, linked from
-   the README) into `## X.Y.Z — YYYY-MM-DD` with *Highlights* (a few lines
+   **Prepare on a branch from `develop`** with `dev/release-prepare X.Y.Z`:
+   it creates `release-X.Y.Z`, turns `## Unreleased` in `CHANGELOG.md` (the
+   guide's *What's new*, linked from the README) into `## X.Y.Z — YYYY-MM-DD`,
+   sets `"version": "X.Y.Z"` in `manifest.json` and commits both; it refuses
+   a version already tagged. Then write the section: *Highlights* (a few lines
    on the big things), *Issues* and *Pull requests without an issue* (each
    linked, with its title), and *Upgrading* when a setting or a default
-   changes. Set `"version": "X.Y.Z"` in `manifest.json`. Pull request into
-   `develop`, CI green, squash-merge.
+   changes. Pull request into `develop`, CI green, squash-merge.
    The candidate is the head of `develop` once that pull request is merged.
    The security review task opens with the regression, when the release
    branch is prepared.
-   Steps 1a to 1c run on it before anything touches `main`.
+   Steps 1a to 1c run on it before anything touches `main`; the status page
+   holds their verdicts on that SHA.
 
 1a. **Regression and install checks** (`docs/internals/releasing.md`): the
    full regression on the emulator in the rig, a cold install and an
@@ -726,8 +820,8 @@ run in order; the detail, the checklist and the record templates are in
    `last-tag..candidate`. A FAIL rejects the candidate: it is fixed and
    re-reviewed on the new head, or the release does not happen; only the
    owner can waive it.
-1c. **Bring the owner** the regression record, the security verdict and the
-   *needs a real device* list, in one request, once, with every item,
+1c. **Bring the owner** the status page: the regression record, the security
+   verdict and the *needs a real device* list, in one request, once, with every item,
    only after every agent check (review, full regression, cold install,
    upgrade, security review) passed on **one exact candidate SHA**. The
    request names that SHA. A new commit on the candidate voids every check
@@ -744,9 +838,12 @@ run in order; the detail, the checklist and the record templates are in
 2. **Merge `develop` into `main`** through a pull request titled
    *Release X.Y.Z* (`gh pr create --base main --head develop`), CI green,
    merged with a merge commit, never squashed, so both branches keep one
-   history. The `release` check on that pull request fails while the
+   history (a single-parent commit on `main` fails the `release` run after it
+   tags). The `release` check on that pull request fails while the
    version in `manifest.json` is already tagged or has no CHANGELOG
-   section with entries.
+   section with entries. The `marketplace-check` job runs the marketplace's
+   own validation and security baseline on the same head and fails where
+   its bots would (`docs/internals/releasing.md`).
 3. **The `release` workflow tags and publishes** when the merge lands on
    `main`: it tags the merge commit `vX.Y.Z`, publishes the release with
    that CHANGELOG section as its notes, and brings `develop` level with

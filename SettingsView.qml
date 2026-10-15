@@ -368,6 +368,31 @@ Column {
     }
   }
 
+  // ---- Keys: its row last on Settings' first page, and the page ----
+  Item { visible: root.firstIndex("keys") >= 0; width: 1; height: Style.space(6) }
+  PanelSeparator { visible: root.firstIndex("keys") >= 0; foreground: root.foreground }
+  Repeater {
+    model: root.rows
+    ListRow {
+      required property var modelData
+      required property int index
+      visible: modelData.kind === "keys"
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+  Repeater {
+    model: root.scopeKind === "keys" ? root.rows : []
+    KeyRow {
+      required property var modelData
+      required property int index
+      width: root.width
+      row: modelData
+      rowIndex: index
+    }
+  }
+
   Column {
     id: groupsBox
     visible: root.hasGroups
@@ -872,6 +897,77 @@ Column {
     onMoved: function(a, b) { var r = root.rowAt("shortcut", a); if (r) root.moveRequested(r.key, b - a) }
   }
 
+  // A key on the Keys page: its group's heading on the group's first key,
+  // then the keys in a column of their own and what they do. Nothing to
+  // press: the cursor stops on it so the page scrolls with the keys.
+  component KeyRow: Column {
+    id: keyRow
+    property var row: ({})
+    property int rowIndex: -1
+    spacing: Style.space(2)
+
+    Item { visible: keyRow.row.group !== "" && keyRow.rowIndex > 0; width: 1; height: Style.space(6) }
+    PanelSectionHeader {
+      visible: keyRow.row.group !== ""
+      text: String(keyRow.row.group || "").toUpperCase()
+      foreground: root.foreground
+      fontFamily: root.fontFamily
+    }
+    // One height for every key, as tall as a list row (a title and its
+    // hint): two lines of keys or of what they do, never more.
+    FontMetrics { id: keyBody; font.family: root.fontFamily; font.pixelSize: Style.font.body }
+    FontMetrics { id: keyCaption; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
+    FontMetrics { id: keySmall; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall }
+    CursorSurface {
+      width: keyRow.width
+      hasCursor: false
+      foreground: root.foreground
+      implicitHeight: Math.ceil(Math.max(keyBody.height + keyCaption.height + Style.space(1), keySmall.height * 2, keyBody.height * 2)) + Style.space(12)
+      CursorStop { here: root.cursorIndex === keyRow.rowIndex; glide: root.cursorGlide }
+
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: root.hovered(keyRow.rowIndex)
+      }
+
+      RowLayout {
+        id: keyContent
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.leftMargin: Style.space(10)
+        anchors.rightMargin: Style.space(6)
+        spacing: Style.space(10)
+        Text {
+          textFormat: Text.PlainText
+          Layout.preferredWidth: Math.round(keyRow.width * 0.38)
+          Layout.alignment: Qt.AlignVCenter
+          text: keyRow.row.keys || ""
+          color: root.foreground
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          font.bold: true
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
+        }
+        Text {
+          textFormat: Text.PlainText
+          Layout.fillWidth: true
+          Layout.alignment: Qt.AlignVCenter
+          text: keyRow.row.label || ""
+          color: root.dim
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.bodySmall
+          wrapMode: Text.WordWrap
+          maximumLineCount: 2
+          elide: Text.ElideRight
+        }
+      }
+    }
+  }
+
   // A row of the device list (a device, one asking to pair, one in reach),
   // the Defaults row, or a group's "use the defaults".
   component ListRow: CursorSurface {
@@ -1003,7 +1099,7 @@ Column {
       }
 
       Text {
-        visible: ["device", "defaults", "editPage", "connection", "addDevice"].indexOf(listRow.row.kind) >= 0
+        visible: ["device", "defaults", "editPage", "connection", "addDevice", "keys"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily

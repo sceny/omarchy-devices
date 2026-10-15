@@ -24,6 +24,7 @@ var GLYPH = {
   send: "\u{F048A}",
   close: "\u{F0156}",
   clearAll: "\u{F039F}",     // notification-clear-all: dismiss every notification
+  keyboard: "\u{F030C}",     // keyboard: the Keys page
   back: "\u{F004D}",         // arrow-left
   home: "\u{F02DC}",         // home: back to the main page
   wave: "\u{F1821}",         // hand-wave
@@ -416,10 +417,31 @@ function shownInPlace(kind) { return SHOWN_IN_PLACE.indexOf(String(kind)) >= 0 }
 
 function waitLimit(kind, deviceName) {
   var name = String(deviceName || "The device")
-  if (kind === "note") return { ms: 4000, fail: "" }
-  if (kind === "track") return { ms: 3000, fail: "" }
-  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it" }
-  return { ms: 15000, fail: name + " did not answer" }
+  if (kind === "note") return { ms: 4000, fail: "", failOsd: "" }
+  if (kind === "track") return { ms: 3000, fail: "", failOsd: "" }
+  if (kind === "dismiss") return { ms: 10000, fail: name + " did not dismiss it", failOsd: "The device did not dismiss it" }
+  return { ms: 15000, fail: name + " did not answer", failOsd: "The device did not answer" }
+}
+
+// The bridge's lines, when asked (DEVICES_OSD_LINE), end with OSD_MARK and the
+// line Omarchy's on-screen display may show: its command line is readable by
+// every local user, so that line names nothing a device sent (a name, a file,
+// an app). A line without the mark (a crash's output) has no such line.
+var OSD_MARK = "\u001e"
+
+function splitOsd(raw) {
+  var s = String(raw || "")
+  var i = s.lastIndexOf(OSD_MARK)
+  if (i < 0) return { text: s.trim(), osd: "" }
+  return { text: s.slice(0, i).trim(), osd: s.slice(i + 1).trim() }
+}
+
+// What the on-screen display says. A caller that passes no `osd` wrote a
+// literal; "" says only that it ended.
+function osdLine(text, osd, failed) {
+  var line = osd === undefined ? String(text || "") : String(osd || "")
+  if (line === "") return failed ? "That did not work" : "Done"
+  return line.length > 120 ? line.slice(0, 119) + "…" : line
 }
 
 function charging(device) {
@@ -1045,11 +1067,15 @@ function withWindows(apps, openLabels, sounds, fallback) {
   })
 }
 
-// A player belongs to this phone when KDE Connect exported it and its
-// identity ends with the phone's name. With no name to match, any KDE Connect
-// player counts.
+// A player belongs to this phone when KDE Connect exported it (its bus name
+// starts with KDE Connect's own prefix; a Flatpak app may own any name under
+// org.mpris.MediaPlayer2.) and its identity ends with the phone's name. With
+// no name to match, any KDE Connect player counts.
+var PHONE_PLAYER_PREFIX = "org.mpris.MediaPlayer2.kdeconnect."
+
 function isPhonePlayer(dbusName, identity, deviceName) {
-  if (String(dbusName || "").indexOf("kdeconnect") < 0) return false
+  var name = String(dbusName || "")
+  if (name.length <= PHONE_PLAYER_PREFIX.length || name.slice(0, PHONE_PLAYER_PREFIX.length) !== PHONE_PLAYER_PREFIX) return false
   if (!deviceName) return true
   var id = String(identity || "")
   var suffix = " - " + deviceName
@@ -2980,6 +3006,59 @@ function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
   return rows
 }
 
+// The Keys page (#194): every key the panel answers to, by where it works.
+// Keep it in step with the key handlers in Panel.qml and docs/use/keyboard.md.
+var KEYS_ROW = { kind: "keys", key: "keys", glyph: GLYPH.keyboard, label: "Keys", hint: "Every key the panel answers to (?)" }
+var KEYS = [
+  { group: "Everywhere", keys: [
+    ["j k · ↑ ↓", "Move"],
+    ["h l · ← →", "Sideways: shortcuts, players, into a conversation"],
+    ["PgUp PgDn", "A page at a time"],
+    ["Enter · Space", "Activate"],
+    ["Tab Shift+Tab", "Next · previous panel in the bar"],
+    ["Esc", "Back where you came from, then close"],
+    ["0", "Home, from two pages deep"],
+    ["?", "This page"]] },
+  { group: "Main page", keys: [
+    ["c", "Fold the section under the cursor"],
+    ["m · a · s", "Messages · all apps · Settings"],
+    ["E", "Edit the page; again when done"],
+    ["1–9 · Shift+H Shift+L", "Switch device · previous · next device"]] },
+  { group: "Notifications", keys: [
+    ["r", "Reply"],
+    ["x", "Dismiss (a notification or a received file)"],
+    ["e", "Show all of it"],
+    ["o", "Open its app or conversation"]] },
+  { group: "Now playing", keys: [
+    ["[ ]", "Previous · next track"],
+    [", .", "Seek 10 s"],
+    ["- =", "Volume"]] },
+  { group: "Apps", keys: [
+    ["Enter · Shift+Enter", "Open · open popped out"],
+    ["p", "Pin or unpin (All apps)"],
+    ["Shift+H Shift+L", "Move a pinned app"],
+    ["x", "Take one out of Recent"],
+    ["v", "Where an open app's sound plays"]] },
+  { group: "Messages", keys: [
+    ["/ · u", "Search · unread only"],
+    ["n · i", "New message · write a reply"],
+    ["g G", "First · last"]] },
+  { group: "Contacts", keys: [
+    ["/ · r", "Search · refresh"],
+    ["g G", "First · last"],
+    ["m", "Messages"]] },
+  { group: "Editing and Settings", keys: [
+    ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
+    ["Esc", "Put back what was there (editing)"]] }
+]
+function keysRows() {
+  var rows = []
+  KEYS.forEach(function(g) {
+    g.keys.forEach(function(k, i) { rows.push({ kind: "key", key: g.group + ":" + i, group: i === 0 ? g.group : "", keys: k[0], label: k[1] }) })
+  })
+  return rows
+}
+
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
 //   scope: "root" | "defaults" | "device"
@@ -3010,6 +3089,7 @@ function settingsPageRows(ctx) {
     rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
     if (!ctx.single)
       rows.push({ kind: "defaults", key: "defaults", label: "For all devices", hint: "Sections, shortcuts and bar, for a device that did not change them and for new ones" })
+    rows.push(KEYS_ROW)
     return rows
   }
   // A panel torn down mid-reload can ask with nothing to edit.
@@ -3041,6 +3121,7 @@ function settingsPageRows(ctx) {
                     hint: "This device changed it; the defaults apply again" })
     })
     if (ctx.single) rows.push({ kind: "addDevice", key: "addDevice", glyph: GLYPH.add, label: "Add a device", hint: "Pair another phone or tablet" })
+    if (ctx.single) rows.push(KEYS_ROW)
     rows.push({ kind: "unpair", key: "unpair", label: "Unpair" })
     return rows
   }
@@ -3116,8 +3197,17 @@ function aiQuote(text, cap) {
   if (t.length > n) t = t.slice(0, n - 1) + "\u2026"
   return JSON.stringify(t)
 }
-function aiPrompt(problems, folder) {
-  var lines = (problems || []).map(function(p) {
+function aiScrub(text, names) {
+  var t = String(text === undefined || text === null ? "" : text)
+  ;(names || []).forEach(function(n) {
+    var name = String(n || "")
+    if (name.length > 0) t = t.split(name).join("the device")
+  })
+  return t
+}
+function aiPrompt(problems, folder, names) {
+  var lines = (problems || []).map(function(q) {
+    var p = { label: q.label, where: q.where, detail: aiScrub(q.detail, names), tried: aiScrub(q.tried, names) }
     var where = p.where ? " (" + String(p.where).replace(/[^A-Za-z0-9 ]+/g, "").slice(0, 30) + ")" : ""
     return "  - " + String(p.label || "").replace(/[^\x20-\x7e]+/g, " ").slice(0, 80) + where
       + (p.detail ? "\n      detail: " + aiQuote(p.detail) : "")
@@ -3718,6 +3808,7 @@ function navLabel(key, ctx) {
   if (scope === "connection") return "Diagnostics"
   if (scope === "addDevice") return "Add a device"
   if (scope === "ready") return "Getting ready"
+  if (scope === "keys") return "Keys"
   if (scope.indexOf("screen:") === 0) return "Screen and apps"
   if (scope.indexOf("reach:") === 0) return "From anywhere"
   if (ctx.single) return "Settings"

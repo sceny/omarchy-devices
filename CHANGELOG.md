@@ -10,67 +10,86 @@ GitHub release with these notes.
 
 ### Highlights
 
-- **One card for a problem, and it closes**: whatever failed shows in the
-  same place under the device header (*Fix*, *Details*, *Fix with AI*, *+N
-  more*), and ✕ folds it away for good until something new breaks. The
-  red dot stays on the gear, the section, the shortcut and the page it
-  affects. Using an affected action (the Screen shortcut, say) brings the
-  card over the panel; Fix, and the action carries on.
+- **Text fields never read the clipboard until you paste**: a field is
+  built on a text edit, which asks only which formats the clipboard offers
+  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
+  field, or another program copying while one has the keyboard, makes the
+  shell read nothing. Typing, accented characters, Esc's steps, drafts and
+  suggestions work as before; Enter stops at the field. A field holds at most
+  32767 characters, as before, and a paste is cut to that before it is
+  inserted, so a huge paste or a line-broken one is instant instead of
+  stopping the shell. Middle-click paste and dropping text onto a field no
+  longer insert anything.
+- **A paste never makes the shell wait on the clipboard**: the text is read
+  when you paste, outside the shell, with a size limit (128 KiB) and a
+  deadline (a few seconds), and the shell goes on meanwhile. A clipboard that
+  is slow, empty or not text inserts nothing, and the text is cut to the
+  field's length as before
+  ([marketplace review](https://github.com/omacom/omarchy-plugin-marketplace/issues/10096)).
+- **The shell never takes part in a clipboard transfer**: copy, cut, paste and
+  selecting text go through one door that runs the system's clipboard tools
+  outside the shell, with a size limit and a deadline, so a program that
+  never reads what you copied (or never finishes what it pastes) cannot
+  freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with
+  the arrow keys work as before, and the mouse still places the cursor and
+  selects (a drag, Shift+click, a word on a double click, all on a triple).
+  A message in a conversation is copied by a double click; it can no longer
+  be selected by dragging. A gallery photo is
+  no longer dragged out of the panel: use its copy button, then paste it
+  where you want it.
+- **The on-screen display names nothing a device sent**: with no panel
+  open, a result shows in Omarchy's display, whose line any local user can
+  read. It now says "Saved to Pictures", "The app is open" or "Ringing the
+  device", never a received file's name, an app's label or the device's
+  name; the panel's toast keeps the full text.
+- **Hardening**: windows are launched and focused by exact title and address,
+  contact and call fields are capped, and the firewall rules open KDE
+  Connect's ports to private ranges only.
+- **A message attachment opens only when you clicked it**: one that
+  arrives for a click you did not make is not opened, and a picture opens only
+  as the copy decoded in the sandbox, whatever name or type the phone gives it
+  (marketplace review omacom/omarchy-plugin-marketplace#10096).
 
-- **Back goes where you came from**: the pages form one stack. Esc and the
-  back arrow return to the page you left (a text started on a contact goes
-  back to that contact, with its scroll and row), the arrow's tooltip says
-  where (*Back to Contacts*), and a new **Home** button (`0`) fades in
-  from two pages deep and goes to the main page. Close and reopen within
-  five minutes and Back still goes to the previous page.
+## 0.9.0 — 2026-10-12
 
-- **Contacts**: the phone's address book in the panel, two panes like
-  Messages: a searchable list, each person with their photo in a circle,
-  and the full card (numbers, emails, addresses, websites, birthday, note,
-  photo).
-  *Message* starts a text, *Call* opens the dialer on the phone, an email
-  opens the mail app, an address Omarchy's Google Maps, a website the
-  browser, *Copy* takes a detail; read-only. Add the
-  *Contacts* shortcut; the card last open comes back, per device. Texts
-  take their names from the same cards. A card synced with an account
-  opens in Google Contacts; one kept on the phone only says so.
+### Highlights
 
-- **Setup that gets out of the way**: Settings no longer shows the
-  plumbing. With one device it is that device's page: what it shares with
-  this computer, a switch each, and nothing about its state while all is
-  well. This computer's checks are diagnostics, reached from a problem
-  they cause.
-- **Asked where you use it**: notification access in Notifications, SMS
-  and contacts on the Messages page, the screen on the first *Open* of a
-  notification's app (it then opens by itself). A feature that stops says
-  so in its own section, with *Fix*, *Details* and *Fix with AI*.
-- **The first run is one card**: one password installs everything any
-  feature needs here; a new pairing lands on the phone's main page.
-- **An iPhone** shows only what it can do; the away card keeps the likely
-  causes behind *Why?*.
-- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
-  an open app's tile and the Screen shortcut say where its sound plays;
-  click (or `v`) for Here, On the phone or Both, and its volume here. The
-  window reopens in its place; an app keeps its choice.
-- **From anywhere**: the phone in the panel away from home, through
-  Tailscale (Omarchy's installer, from the panel) or NordVPN Meshnet, or an
-  address you type. Its page says how it is connected now; a new network
-  is announced at once; a Wi-Fi that keeps its devices apart is named as
-  the likely cause.
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
-  answer and make calls with the audio on this computer, over Bluetooth;
-  the card follows a call to its end, with the microphone, the keypad, the
-  volume, a second call held or joined, and music here paused meanwhile.
-  Call back or call from a conversation. Set up from the device's page:
-  Bluetooth here, the phone paired in Omarchy's Bluetooth, then it carries
-  on by itself.
-- **The panel opens at once**: a click on the chip draws the main page on
-  the first frame from what is already in memory, with no wait. It took
-  about half a second every time, and several seconds the first time
-  after the shell started; it now takes no longer than the click itself.
-- **A hidden test rig** (`dev/rig`): a second shell in its own compositor
-  and a small Android emulator as the phone, paired to a private KDE
-  Connect, so changes are tried without touching the desktop or a real phone
+  answer and make calls with the audio on this computer, over Bluetooth. The
+  card follows a call to its end: microphone, keypad, volume, a second call
+  held or joined, music here paused meanwhile. Call back, or call from a
+  conversation.
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list with each person's photo, and the full card.
+  *Message* starts a text, *Call* opens the dialer on the phone, an email, an
+  address and a website open in their app. Texts take their names from the
+  same cards.
+- **From anywhere**: the phone in the panel away from home, through Tailscale
+  or NordVPN Meshnet, or an address you type. Its page says how it is
+  connected now.
+- **Sound, per window** ([#129](https://github.com/sceny/omarchy-devices/issues/129)):
+  an open app and the Screen shortcut say where their sound plays (Here, On
+  the phone, Both), with its volume here.
+- **Setup that gets out of the way**: Settings shows no plumbing. With one
+  device it is that device's page: what it shares with this computer, a
+  switch each. What a feature needs is asked where you use it. The first run
+  is one card: one password installs everything, starts KDE Connect and goes
+  on to Add a device.
+- **One card for a problem, and it closes**: whatever failed shows in one
+  place under the device header (*Fix*, *Details*, *Fix with AI*), ✕ folds it
+  away until something new breaks, and a red dot stays on the gear, section,
+  shortcut and page it affects.
+- **Back goes where you came from**: the pages form one stack. Esc and the
+  back arrow return to the page you left, and a **Home** button (`0`) goes to
+  the main page from two pages deep.
+- **The panel opens at once**: a click on the chip draws the main page on the
+  first frame, with no wait.
+- **Private text stays private**: call numbers, keypad tones and contact
+  searches no longer go on a command line, and Fix with AI names a device by
+  its kind and quotes every detail as data.
+- **A hidden test rig** (`dev/rig`): a second shell and a small Android
+  emulator paired to a private KDE Connect, so changes are tried without
+  touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
 
 ### Issues
@@ -80,15 +99,116 @@ GitHub release with these notes.
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
 - [#129](https://github.com/sceny/omarchy-devices/issues/129) Sound: where a device's sound plays, per window, from the plugin
 - [#122](https://github.com/sceny/omarchy-devices/issues/122) Notification open: a text message opens its conversation, any other its app; the exact screen inside it needs KDE Connect's help
-- [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cut its name and wrapped its detail
+- [#153](https://github.com/sceny/omarchy-devices/issues/153) Problems: one fixed card that closes, red dots where the effect is, an ask on use
+- [#159](https://github.com/sceny/omarchy-devices/issues/159) Settings shows "Everything works" although the rules say it shows nothing while everything works
 - [#152](https://github.com/sceny/omarchy-devices/issues/152) Editing a device's page offered the Screen shortcut and the Apps section while Screen and apps was off
+- [#160](https://github.com/sceny/omarchy-devices/issues/160) MessagesView: binding loop on a picture message's "picture" property
+- [#171](https://github.com/sceny/omarchy-devices/issues/171) Call numbers, keypad tones and contact searches still go on the bridge's command line
+- [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cuts its name and wraps its detail
+- [#175](https://github.com/sceny/omarchy-devices/issues/175) First run: KDE Connect is not started after the install, so the card never goes on to Add a device
+- [#176](https://github.com/sceny/omarchy-devices/issues/176) First run: the password card shows two of the seven actions, one cut off mid-line
+- [#177](https://github.com/sceny/omarchy-devices/issues/177) Gallery shows a problem on a fresh pairing, before the user has used it
+- [#178](https://github.com/sceny/omarchy-devices/issues/178) Gallery keeps saying to allow storage after the plugin has granted it
+- [#191](https://github.com/sceny/omarchy-devices/issues/191) Bridge `watch` leaves its `ip -o monitor address` child running when it exits
+
+### Pull requests without an issue
+
+- [#143](https://github.com/sceny/omarchy-devices/pull/143) Contacts: the phone's address book in the panel (with [#144](https://github.com/sceny/omarchy-devices/pull/144), [#145](https://github.com/sceny/omarchy-devices/pull/145), [#146](https://github.com/sceny/omarchy-devices/pull/146), [#147](https://github.com/sceny/omarchy-devices/pull/147): photos, links that open in their app, Google Contacts, round photos)
+- [#148](https://github.com/sceny/omarchy-devices/pull/148) Nested navigation: Back returns to where you came from, Home from two deep
+- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator: all development goes into it
+- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once: draw from what is in memory
+- [#142](https://github.com/sceny/omarchy-devices/pull/142) Setup that gets out of the way: asked where you use it, no plumbing in Settings
+- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check that the shell runs the plugin's files, not the code it read at start
+- [#179](https://github.com/sceny/omarchy-devices/pull/179) Rig: a cold computer for the cold-install check
+- [#185](https://github.com/sceny/omarchy-devices/pull/185) Fix with AI: fence device-supplied names and details
+- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: its edges are two items, not a Repeater's delegates that move away
+- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver and its media-player fixture
+- [#150](https://github.com/sceny/omarchy-devices/pull/150), [#157](https://github.com/sceny/omarchy-devices/pull/157), [#158](https://github.com/sceny/omarchy-devices/pull/158), [#166](https://github.com/sceny/omarchy-devices/pull/166), [#167](https://github.com/sceny/omarchy-devices/pull/167), [#180](https://github.com/sceny/omarchy-devices/pull/180) Development and release docs: install follows `develop`, release procedure, security review, Contacts and Calls limits
 
 ### Upgrading
 
-- **The firewall's fix** opens KDE Connect's ports to every private
-  network (home, office) and to your mesh, instead of only the network
-  you were on. Rules you have stay.
+- **The tabs can change order after the upgrade**: a stored `deviceOrder` is
+  now honoured, so devices you reordered before show in that order.
+- **A firewall problem card can appear after the upgrade**, with *Fix*, when
+  the firewall does not let KDE Connect in.
+- **The firewall's fix** opens KDE Connect's ports to every private network
+  (home, office) and to your mesh, instead of only the network you were on.
+  Rules you have stay.
 - **This computer** has a *Mesh network* row (optional).
+- Nothing else in your settings is rewritten; new keys (`closedProblems`)
+  appear on your next change.
+
+## 0.8.5 — 2026-10-14
+
+### Fixes
+
+- An attachment you did not ask for no longer opens: only the attachment you clicked is opened, and a picture is always opened as the copy decoded in the sandbox, whatever name or type the phone gives it (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- A gallery photo's copy button now copies the same sandbox-decoded picture that opening it shows, never the phone's file as it came; a picture that cannot be read safely is not copied, and any other file is copied from a copy made here (marketplace review omacom/omarchy-plugin-marketplace#10096).
+
+## 0.8.4 — 2026-10-14
+
+### Fixes
+
+- A paste no longer makes the shell read the clipboard unbounded or wait on it: the text is read when you paste, outside the shell, with a size limit and a deadline, and a slow or failed read inserts nothing (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- The shell never takes part in a clipboard transfer: copy, cut, paste and selecting text go through one door that runs the system's clipboard tools outside the shell, with a size limit and a deadline, so a program that never reads what you copied (or never finishes what it pastes) cannot freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with the arrow keys work as before, and the mouse still places the cursor and selects (a drag, Shift+click, a word on a double click, all on a triple). A message in a conversation is copied by a double click; it can no longer be selected by dragging. A gallery photo is no longer dragged out of the panel: use its copy button, then paste it where you want it (marketplace review omacom/omarchy-plugin-marketplace#10096; `docs/architecture/001`).
+
+## 0.8.3 — 2026-10-13
+
+### Highlights
+
+- **Text fields never read the clipboard until you paste**: a field is
+  built on a text edit, which asks only which formats the clipboard offers
+  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
+  field, or another program copying while one has the keyboard, makes the
+  shell read nothing. Typing, accented characters, Esc's steps, drafts and
+  suggestions work as before; Enter stops at the field. A field holds at most
+  32767 characters, as before, and a paste is cut to that before it is
+  inserted, so a huge paste or a line-broken one is instant instead of
+  stopping the shell. Middle-click paste and dropping text onto a field no
+  longer insert anything.
+- **A window is found by its exact title**: opening the device's screen or
+  an app focuses an open window by its address and otherwise starts it
+  directly, with each part of the command kept as it is.
+- **Clipboard: a copy leaves on your click**: the Clipboard shortcut is the
+  only way a copy is sent to a device. The plugin turns KDE Connect's
+  automatic sharing off for each paired device that has no choice of its
+  own, and leaves a choice you made there alone. `docs/security.md` says so.
+- **Call details are kept short**: a caller's name and number are cut to
+  the same length as other device text before they are used.
+
+### Issues
+
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review: omacom/omarchy-plugin-marketplace#10096 (a focused text field made the shell read the clipboard's whole text)
+
+## 0.8.2 — 2026-10-11
+
+### Highlights
+
+- **Text fields no longer read the clipboard while they are not in use**: a
+  field is editable only while it has the keyboard, so a hidden composer,
+  reply or search field no longer makes the shell read whatever another
+  program put on the clipboard, however large. Typing, Esc's steps, drafts
+  and suggestions work as before.
+- **No typed text or clipboard in a log**: the screen window's log keeps only
+  the two lines that tell the plugin the phone turned or folded. It is kept in
+  memory (`$XDG_RUNTIME_DIR`), readable by you alone, and removed when the
+  window closes; logs an earlier version left in the cache are removed.
+- **Text from a device is capped**: notifications (title, text, the newest
+  100, the newest 50 messages of a conversation), text messages, app names and
+  contact files are cut to a size no real device reaches before they reach the
+  panel.
+- **A track's art is read only from KDE Connect's art cache**, one picture at a
+  time per player.
+- **The cache folder is yours alone** (`~/.cache/sceny.devices`, mode 0700), and
+  the screen's stills no longer fall back to `/tmp` without a runtime folder.
+
+### Issues
+
+- [#170](https://github.com/sceny/omarchy-devices/issues/170) Text fields read the clipboard on every change, before any paste
+
+### Upgrading
+
+- Nothing in your settings changes.
 
 ## 0.8.1 — 2026-10-10
 

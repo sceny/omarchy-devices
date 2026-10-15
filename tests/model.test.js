@@ -197,6 +197,12 @@ test("media: player app from identity, phone players only, track line, times", (
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), true)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_2", "Podcasts - Tablet", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.spotify", "Spotify", "Pixel 8"), false)
+  // look-alikes: a sandboxed app's id may contain "kdeconnect" anywhere
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.org.example.kdeconnect_helper", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnectfake", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.example.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.", "Podcasts - Pixel 8", "Pixel 8"), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts", ""), true)
   assert.equal(M.trackLine("Ep 1", "Ep 1"), "Ep 1")
   assert.equal(M.trackLine("Song", "Band"), "Song · Band")
   assert.deepEqual([0, 75, 3725].map(M.formatTime), ["0:00", "1:15", "1:02:05"])
@@ -318,6 +324,20 @@ test("a click is answered when its effect shows in the snapshot", () => {
   assert.equal(M.waitLimit("note", "Pixel 8").fail, "", "an action may leave the notification as it was")
   assert.equal(M.waitLimit("dismiss", "Pixel 8").fail, "Pixel 8 did not dismiss it")
   assert.equal(M.waitLimit("unpair", "Pixel 8").fail, "Pixel 8 did not answer")
+})
+
+test("the on-screen display's line names nothing a device sent", () => {
+  assert.equal(M.waitLimit("dismiss", "Pixel 8").failOsd, "The device did not dismiss it")
+  assert.equal(M.waitLimit("unpair", "Pixel 8").failOsd, "The device did not answer")
+  assert.equal(M.waitLimit("note", "Pixel 8").failOsd, "")
+  const said = M.splitOsd("Saved to Pictures/Pixel 8/IMG_1.jpg" + M.OSD_MARK + "Saved to Pictures\n")
+  assert.deepEqual(said, { text: "Saved to Pictures/Pixel 8/IMG_1.jpg", osd: "Saved to Pictures" })
+  assert.deepEqual(M.splitOsd("Traceback: /home/x/Pixel 8"), { text: "Traceback: /home/x/Pixel 8", osd: "" }, "no mark, no line")
+  assert.equal(M.osdLine("Saved to Pictures/Pixel 8/IMG_1.jpg", said.osd, false), "Saved to Pictures")
+  assert.equal(M.osdLine("Copied", undefined, false), "Copied", "a literal speaks for itself")
+  assert.equal(M.osdLine("Pixel 8 did not answer", "", true), "That did not work", "an empty line says only that it ended")
+  assert.equal(M.osdLine("Pixel 8 is open", "", false), "Done")
+  assert.ok(M.osdLine("x".repeat(500), undefined, false).length <= 120)
 })
 
 test("demo mode drops a notification from its own snapshot only", () => {
@@ -504,11 +524,11 @@ test("settings rows: one device's Settings is its page; several: My devices and 
     identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
-  assert.deepEqual(kinds, ["device", "addDevice"], "This computer is reached from a problem it causes, never listed")
+  assert.deepEqual(kinds, ["device", "addDevice", "keys"], "This computer is reached from a problem it causes, never listed")
   assert.ok(!kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
   const page = M.settingsPageRows(ctx({ scope: "device" })).map(r => r.kind)
   assert.deepEqual(page.slice(0, 2), ["nickname", "icon"])
-  assert.deepEqual(page.slice(-2), ["addDevice", "unpair"], "one device: Add a device on its page, which is Settings")
+  assert.deepEqual(page.slice(-3), ["addDevice", "keys", "unpair"], "one device: Add a device and Keys on its page, which is Settings")
   const broken = [{ where: "computer", whereLabel: "This computer", key: "firewall", label: "Firewall", detail: "Closed", steps: [] }]
   assert.equal(M.settingsPageRows(ctx({ scope: "device", problems: broken }))[0].kind, "problem", "one device: the status leads its page")
   assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false, problems: broken })).some(r => r.kind === "problem" || r.kind === "addDevice"),
@@ -523,7 +543,30 @@ test("settings rows: one device's Settings is its page; several: My devices and 
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults"], "in reach: on Add a device")
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults", "keys"], "in reach: on Add a device")
+  assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false })).some(r => r.kind === "keys"), "several: Keys is on Settings' first page")
+})
+
+test("keys page: every key once per group, each group headed once, named in Back to", () => {
+  const rows = M.keysRows()
+  assert.ok(rows.length > 0 && rows.every(r => r.kind === "key" && r.keys !== "" && r.label !== ""))
+  assert.deepEqual(rows.filter(r => r.group !== "").map(r => r.group), M.KEYS.map(g => g.group))
+  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a key per row")
+  assert.ok(rows.some(r => r.keys === "?"), "the page names its own key")
+  assert.equal(M.navLabel("settings/keys"), "Keys")
+})
+
+test("keys page: every key the panel's text-key handler answers to is listed", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "..", "Panel.qml"), "utf8")
+  const start = panel.indexOf("onTextKey: function(t) {")
+  assert.ok(start >= 0, "the handler is found")
+  const body = panel.slice(start, panel.indexOf("\n      }\n", start))
+  const handled = new Set([...body.matchAll(/t === "(.)"/g)].map(m => m[1]))
+  assert.ok(handled.has("?") && handled.has("c") && handled.has("]"), "the handler's keys are read")
+  // A key on the page is a token of its keys, Shift+X as X.
+  const listed = new Set(M.KEYS.flatMap(g => g.keys.flatMap(k => k[0].split(/[\s·]+/).map(s => s.replace(/^Shift\+/, "")))))
+  const allowed = new Set(["+"]) // the alias of =
+  assert.deepEqual([...handled].filter(k => !listed.has(k) && !allowed.has(k)), [], "handled but not on the Keys page")
 })
 
 test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {
@@ -1759,6 +1802,12 @@ test("Fix with AI: nothing a device sent reaches the prompt except quoted, cappe
   const found = M.settingsProblems([], [], [{ id: "h1", title: M.deviceLabel(hostile), noun: M.deviceNoun(hostile), setup, rows }])
   found.forEach(p => assert.equal(p.whereKind, "phone"))
   assert.ok(!M.aiPrompt(found.map(p => ({ label: p.label, where: p.whereKind, detail: p.detail, tried: p.tried })), "/p").includes("MARKER-9Q"))
+})
+
+test("Fix with AI: a device's own name is replaced by its kind in the details", () => {
+  const prompt = M.aiPrompt([{ label: "Gallery", where: "phone", detail: "Not found. On Rex's Phone: open KDE Connect", tried: "asked Rex's Phone" }], "/p", ["Rex's Phone"])
+  assert.ok(!prompt.includes("Rex"))
+  assert.ok(prompt.includes("On the device: open KDE Connect"))
 })
 
 test("Fix with AI: a quote or control character in a value cannot leave its quotes", () => {

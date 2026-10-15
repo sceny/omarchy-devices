@@ -3,8 +3,8 @@
 # Releasing
 
 The steps for a release are in [AGENTS.md](../../AGENTS.md), *Releasing*.
-This page holds the checks that close one, with the templates. Releasing a
-version to Omarchy is always the owner's call.
+This page holds the chain every release follows, the checks that close one,
+and their templates. Releasing a version to Omarchy is always the owner's call.
 
 | Check | Who | When |
 |---|---|---|
@@ -14,28 +14,202 @@ version to Omarchy is always the owner's call.
 | Security review | the security specialist | every release, patch included, opened with the regression |
 | Go | the owner | before anything touches `main` or the marketplace |
 
+## The release template
+
+Every release is the same chain of tasks, created together when the release is
+started. Nothing is added by hand later: a task found missing is a change to
+this template. `X.Y.Z` is the version.
+
+| Kind | When | Branch | Pull request into |
+|---|---|---|---|
+| **minor** | a new feature on `develop` | `release-X.Y.Z` from `develop` | `develop`, then `develop` into `main` |
+| **patch** | fixes only on `develop` | the same as minor | the same as minor |
+| **urgent** | a fix users need now, or a maintainer's finding on the marketplace issue; only after the owner's go for it | `fix-X.Y.Z` from `main` | `main`, then `main` into `develop` |
+
+| # | Task | Role | After | Done when |
+|---|---|---|---|---|
+| R0 | the release (holds the status page) | Omar | R1 to R7 | the freeze check is clean, the release is published, the marketplace issue is filed or not needed, both trackers are closed |
+| R1 | prepare: `dev/release-prepare X.Y.Z` (version, CHANGELOG section, branch); for urgent, the fix itself is on this pull request | Panel Engineer | | the head has the version and its CHANGELOG section; CI is green, `release` check included, on the first push |
+| R2 | review with security check (the regular pull-request review) | Panel QA | R1 | PASS on the candidate SHA; for minor and patch, merged into `develop` |
+| R3 | regression, cold install, upgrade from the live tag | Plugin DevOps runs, Panel QA gives the verdict | R2 | the regression record is PASS on the candidate SHA, with the *needs a real device* list |
+| R4 | release security review: the whole plugin, plus `last-tag..candidate` | the security specialist | R2 | PASS on the candidate SHA; a FAIL rejects the candidate |
+| R5 | the owner's machine on the candidate | Plugin DevOps | R3, R4 | the owner's folder is at the SHA, the shell is restarted and `dev/loaded-code` exits 0 |
+| R6 | the owner's go: the status page and nothing else | the chief of staff carries it to the owner | R5 | the owner said go or no for that SHA |
+| R7 | merge, tag, publish, back to `develop` (*Releasing* steps 2 and 3; the owner's machine back to `develop`) | Plugin DevOps | R6 | tag `vX.Y.Z` on a merge commit, never a squash; the release is published; `develop` is level with `main` |
+
+On R0, Omar then files or edits the marketplace issue and opens the
+`marketplace-review` tracking issue (*Releasing* step 4) and runs the freeze
+check. A step only the owner's account can do on the marketplace issue is a
+named step for the chief of staff, once, in this chain.
+
+- **The candidate is the head of R1's pull request when R2 passes.** R3 and R4
+  start only then. A new commit on it voids R2 to R6: each runs again on the
+  new head, and no task is created.
+- **R4 is always the full review.** Its kind is never decided per release.
+- **R6 is asked only when the status page reads PASS for R2, R3, R4 and R5, all
+  on one SHA.**
+- **A maintainer's finding** starts an urgent chain for the next Z. Its R1
+  fixes the class (*Every pull request: review with a security check*), not
+  only the case.
+
+## The release status page
+
+One page holds the state of a release and is kept current on R0: the owner
+and the team read it, and the go request is this page and a link to it. It
+changes when a check's verdict or the candidate changes, never because time
+passed. It holds nothing private beyond what the tasks already hold.
+
+```markdown
+# Devices X.Y.Z: <minor | patch | urgent>
+
+**Candidate:** `<full SHA>` (head of <pull request link>)  ·  **Freeze:** none | marketplace #<n> open
+**Why this release:** <one line; for urgent, the finding, linked>
+
+## Pre-go checks (all PASS on the candidate SHA before the go request)
+
+| Check | Task | Verdict | On SHA |
+|---|---|---|---|
+| CI (test, release) | <pull request checks link> | green / red | `<sha>` |
+| Review with security check | R2 | PASS / FAIL / not yet | `<sha>` |
+| Regression on the emulator | R3 | PASS / FAIL / not yet | `<sha>` |
+| Cold install, upgrade from vLAST | R3 | PASS / FAIL / not yet | `<sha>` |
+| Release security review | R4 | PASS / FAIL / not yet | `<sha>` |
+| Owner's machine on the candidate | R5 | done / not yet | `<sha>` |
+
+## Needs a real device (for the owner)
+- <item>, or *none*
+
+## Outside findings this release answers
+- <finding, link>, then <fix pull request>, then <its class test or lint>
+
+## Next
+- **<step>**, <role>, <after which task>
+```
+
+A row on another SHA than the candidate counts as not done. Nothing in the
+table is removed or shortened for any kind.
+
+## Preparing the branch: `dev/release-prepare`
+
+A pull request into `main` runs the `release` check from its first push: the
+version in `manifest.json` has a `## X.Y.Z — YYYY-MM-DD` section in
+`CHANGELOG.md` with entries and no tag yet. The script makes a branch that
+passes it before anything is pushed.
+
+```bash
+dev/release-prepare 0.10.0                                         # release-0.10.0 from origin/develop
+dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 from origin/main
+```
+
+- From `develop`, `## Unreleased` becomes the version's section (it must have
+  entries). From `main` there is no Unreleased section: the section is added
+  above the newest version with each `--note` under *Fixes* (at least one).
+- It sets `"version"`, commits both files (`--no-commit` leaves them staged, uncommitted)
+  and prints the next step. Write the section's remaining groups after it.
+- It refuses a version already tagged (here or on origin), one not above the
+  base's version, one the base's CHANGELOG already has, an empty Unreleased
+  section, an existing branch and a tree with tracked changes.
+- Tested in `tests/test_release_prepare.py`, which runs `dev/release-notes`,
+  the `release` workflow's own extraction, on what the script wrote.
+
+The release pull request into `main` is merged with a merge commit. GitHub has
+no per-pull-request check of the merge method, so the pull request's `release`
+check prints a reminder and the `release` run on `main` fails, after tagging
+and publishing, when the tagged commit has one parent. Merge `main` into
+`develop` meanwhile and use a merge commit for the next release.
+
+## Every pull request into `main`: the marketplace's checks
+
+The `marketplace-check` job runs the marketplace's own validation and
+security baseline (the two steps of its *Validate plugin update* workflow,
+taken from `omacom/omarchy-plugin-marketplace` `main`, not copied) on the
+pull request's head commit, so their answer reaches us before the bots'.
+`dev/marketplace-check.mjs` only gives those scripts that commit. The job
+summary holds the bots' two reports, word for word. The job fails when the
+validation fails, the baseline says it needs fixes, or the check cannot
+complete (a change in the marketplace's scripts shows up here first). A
+baseline that needs a maintainer's review passes, with a warning naming any
+capability new since the listed snapshot.
+
+Run it on any commit (the listed one, a candidate) with *Run workflow*, or
+by hand:
+
+```bash
+git clone --depth 1 https://github.com/omacom/omarchy-plugin-marketplace /tmp/mp
+(cd /tmp/mp && npm ci)
+GITHUB_TOKEN=$(gh auth token) MARKETPLACE_DIR=/tmp/mp node dev/marketplace-check.mjs <full-sha> /tmp/reports
+```
+
 ## Every pull request: review with a security check
 
 One reviewer, Panel QA. This list is the record of faults already met: each
 class the security specialist finds is added here, with a test that fails the
-build where one can. Besides the change itself, the reviewer answers each line
-below from the diff. A finding blocks the pull request.
+build where one can; a finding from outside the team (the marketplace's
+maintainer, a security report) is fixed as its class, with that test. Besides
+the change itself, the reviewer answers each line below from the diff. A
+finding blocks the pull request.
 
-- Private text (messages, contact names, numbers, clipboard) stays off
-  argv and out of logs. A bridge verb reads it from stdin; a test fails if it
-  reaches a command line.
+- No value a person, a device or the API wrote is on the argv of any process
+  the plugin starts, whichever process or helper starts it. A bridge verb reads
+  such text from stdin. `tests/test_argv.py` finds every place QML starts a
+  process and fails on any argument that is not a literal or on its reviewed
+  allowlist (`ARGV_ALLOWED`, with the reason each is not private text); an
+  allowed bare name (`id`) also has every value it is given in its file read
+  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
+  The reviewer reads every new line of either list from the diff.
+- The shell is never a party to a Wayland data transfer, and nothing reaches
+  the clipboard's contents without the user's own paste (Ctrl+V): no
+  `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
+  (`NumberField`, `MultiSelect`, `SearchableDropdown`, `TextField` from
+  `qs.Ui`, and any other its folder holds), no `Quickshell.clipboardText`
+  read anywhere (it reads the whole clipboard in the shell, unbounded,
+  waiting for the program that offers it), no `TextEdit` but `PanelField`'s
+  and no Omarchy type with one inside (read-only text is a `Text`),
+  `selectByMouse: false` written on it (the default is true; Qt would own
+  the primary selection), no `selectByKeyboard: true`, no text item's own
+  `copy()`, `cut()` or `paste()`, no `DropArea`, no system drag (`Drag.Automatic`), `wl-copy` and `wl-paste` only in
+  `Clipboard.qml`, the copy's text on stdin, the read with a byte limit and
+  a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`)
+  and `tests/test_panelfield.py` (`ShippedQml`, naming file:line) fail on
+  each; `dev/clip-check --rig ID` shows it in a running rig (every
+  selection gesture, a reader that never reads, an owner that never
+  writes).
+- Private text (messages, contact names, numbers, clipboard) stays out of
+  logs.
+- The on-screen display's line (`omarchy-osd`, read by any local user) names
+  nothing a device sent: a toast with a value passes its own display line
+  (`report`'s third argument, the bridge's `say(..., osd=...)`).
+  `tests/test_argv.py` (`OsdLines`) fails on a toast that does not.
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
   points at a file the device sent.
+- A file from the device reaches `open-file` / `gio open` only through one
+  gate (`open_file`, `--from-device` or `--local`): what the file holds
+  decides whether it is a picture (then only the sandbox's copy opens, and
+  with no sandbox nothing opens), never its name or a type the device
+  claims. A fetched attachment is opened only when this plugin asked for
+  that id: the bridge sends no event for another, and the panel matches the
+  exact id. `tests/test_bridge.py` (`FetchedAttachments`,
+  `OpenPicturesSafely`) fails for an unrequested name and for a picture with
+  no recorded type; `tests/test_qml.py` (`DeviceFilesOpenThroughTheGate`)
+  fails on a QML start of `open-file` without the flag.
 - Root goes only through `pkexec`, described first (`--describe`) and run
   only as confirmed (`--confirm <hash>`).
-- The firewall opens only the private ranges and a mesh's interface.
+- The firewall opens only the private ranges and a mesh's interface: its
+  rule sources are a subset of `PRIVATE_LANS`, whatever network this
+  computer is on. A test feeds a public network, a `/1` and a `/0`.
+- No command line is handed to a script that evaluates it
+  (`omarchy-launch-or-focus`, `omarchy-launch-or-focus-webapp`). A window is
+  found by its exact title and focused by address, else the command runs as an
+  argv list. A test fails if the bridge calls those scripts.
 - No new network listener. No command, path or argument built from device
   data without a fixed verb and a checked value.
 - No third-party verbose log that records input or the clipboard. A log of
   another program's output keeps only the lines the plugin reads
   (`SCREEN_LOG_LINES`), in `$XDG_RUNTIME_DIR`, mode 0600.
 - Device strings are capped at the bridge (`cap_text`, one limit per kind of
-  text), before they reach the shell. A test sends oversized input.
+  text), before they reach the shell: contact fields, call names and numbers,
+  Bluetooth names included, and a total budget per read. A test sends
+  oversized input.
 - No work per foreign event at rest without a rate limit and a check of what
   the event names (a player's art URL, a file the device sent).
 - No personal data in code, comments, docs, tests, screenshots or commit
@@ -57,6 +231,12 @@ pass or fail against its rule in AGENTS.md, not only what changed.
 Calls and texts go only as far as the *Never* rules allow: the D-Bus argument
 types (`tests/test_calls.py`) and demo mode (`demoCall`, `pressCall`). The
 panel is looked at, not only measured (`slowMotion 10` for a transition).
+
+The clipboard is a row of its own: `dev/clip-check --rig ID` passes on the
+candidate, and the row records Omarchy's Qt beside it (`pacman -Q qt6-base
+qt6-declarative`). When that Qt meets a trigger in
+`docs/architecture/001` (section 5.1), the regression's author files the
+retirement it names as its own issue for Panel Engineer.
 
 The record is a document on the release task:
 

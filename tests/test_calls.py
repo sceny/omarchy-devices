@@ -103,9 +103,15 @@ class CallAudio(unittest.TestCase):
         self.assertEqual([nodes["source"]["id"], nodes["sink"]["id"]], [51, 52])
         cmds = bridge.loopback_commands(nodes, "Call (Pixel 8)")
         self.assertEqual(len(cmds), 2)
-        self.assertIn("target.object=bluez_input.x node.dont-reconnect=true stream.dont-remix=true", cmds[0])
-        self.assertIn("target.object=bluez_output.x node.dont-reconnect=true", cmds[1])
+        self.assertIn('target.object="bluez_input.x" node.dont-reconnect=true stream.dont-remix=true', cmds[0])
+        self.assertIn('target.object="bluez_output.x" node.dont-reconnect=true', cmds[1])
         self.assertTrue(all("media.role=Communication" in " ".join(c) for c in cmds))
+
+    def test_a_node_name_is_one_quoted_value(self):
+        nodes = {"source": {"id": 1, "name": 'x" node.dont-reconnect=false target.object="y'}, "sink": None,
+                 "linked": {"source": False, "sink": False}}
+        props = bridge.loopback_commands(nodes, 'Call ("x")')[0]
+        self.assertIn('target.object="x\\" node.dont-reconnect=false target.object=\\"y" ', props[4])
 
     def test_a_half_already_played_is_left_alone(self):
         nodes = bridge.call_nodes(pw([(51, "Audio/Source", "bluez_input.x", False), (52, "Audio/Sink", "bluez_output.x", False)],

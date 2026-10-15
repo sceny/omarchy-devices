@@ -247,7 +247,7 @@ Panel {
     if (key === "settings/root") return pairedDevices.length !== 1
     if (key.indexOf("settings/") !== 0) return true
     var scope = key.slice(9)
-    if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
+    if (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(scope) >= 0) return true
     return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope.indexOf("reach:") === 0 ? scope.slice(6) : scope)
   }
   function navAsk(hint, open) {
@@ -1208,6 +1208,12 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("addDevice")
   }
+  // Every key the panel answers to (#194): ? from any page, the page menu,
+  // or its row in Settings.
+  function openKeys() {
+    if (!settingsOpen) openSettings()
+    openScope("keys")
+  }
   // A pairing on Add a device that completes: its card says so in place
   // (✓ Paired with …) for a moment, then the panel goes to the device's
   // page. No toast: the card and the page say it. Adding another is the
@@ -1273,7 +1279,7 @@ Panel {
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
     else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0 && settingsScope.indexOf("reach:") !== 0
-             && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0)
+             && ["root", "defaults", "connection", "addDevice", "ready", "keys"].indexOf(settingsScope) < 0)
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
@@ -1313,6 +1319,7 @@ Panel {
     : reachId !== "" ? Model.reachRows(reachSetup)
     : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "ready" ? Model.readyRows(setupChecks)
+    : settingsScope === "keys" ? Model.keysRows()
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -1819,7 +1826,7 @@ Panel {
     var target = phone.findDevice(id)
     if (messagesOpen && target && !hasTexts(target)) {
       if (leaveMessages === true) closeMessagesView()
-      else { phone.report(Model.deviceLabel(target) + " has no text messages", false); return }
+      else { phone.report(Model.deviceLabel(target) + " has no text messages", false, "The device has no text messages"); return }
     }
     // Contacts follows the tab to the device's own cards (the reader follows
     // the viewed device by itself); a device that keeps its contacts has
@@ -2159,7 +2166,7 @@ Panel {
   // keystrokes into a text field (AGENTS.md).
   function openContactsView(id) {
     if (device && can.contacts !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " does not share its contacts", false, "The device does not share its contacts")
       return
     }
     replyingTo = ""
@@ -2209,7 +2216,7 @@ Panel {
                             rows: c.rows.count, reading: c.reading, syncing: c.syncing, error: c.lastError,
                             app: c.appName, card: c.openId !== "", details: c.details.count,
                             pane: contactsView ? contactsView.pane : "", cursor: contactsView && contactsView.cursorActive ? contactsView.rowCursor : -1,
-                            search: contactsView ? contactsView.searchText : "",
+                            searching: contactsView ? contactsView.searchText !== "" : false,
                             searchFocused: contactsView ? contactsView.searchFocused : false })
   }
 
@@ -2341,7 +2348,7 @@ Panel {
     else if (row.kind === "resetGroup") resetGroup(row.key)
     else if (row.kind === "editPage" && scopeDevice) { phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
-    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
+    else if (row.kind === "connection" || row.kind === "addDevice" || row.kind === "keys") openScope(row.kind)
     else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "reachAction") reachAction(row.key, row.address)
@@ -2355,7 +2362,7 @@ Panel {
   function openMessagesView(threadId, typeHere, fresh) {
     // A tablet without a SIM (or a computer) has no text messages.
     if (device && can.sms !== true) {
-      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false)
+      if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false, "The device has no text messages")
       return
     }
     replyingTo = ""
@@ -2789,6 +2796,7 @@ Panel {
       else if (name === "connection") root.openConnection()
       else if (name === "ready") root.openReady()
       else if (name === "addDevice") root.openAddDevice()
+      else if (name === "keys") root.openKeys()
       else if (name === "messages") root.openMessagesView(-1)
       else if (name === "contacts") root.openContactsView()
       else if (name === "apps") root.openAppsView()
@@ -3030,7 +3038,15 @@ Panel {
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, contacts: root.contactsOpen, apps: root.appsOpen, open: root.opened }) }
     function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
-    function pressEnter(): string { keyCatcher.activateRequested(); return root.appsInfo() }
+    // Never where Enter would focus a text field (a reply, the composer, a
+    // setting): keystrokes meant for another window would land in it.
+    function pressEnter(): string {
+      var focusesField = root.messagesOpen || root.contactsOpen || root.settingsOpen
+        || (root.mainView && root.focusSection === "notifications")
+      if (focusesField) return "refused: Enter would focus a text field here"
+      keyCatcher.activateRequested()
+      return root.appsInfo()
+    }
     function appsInfo(): string { return root.appsInfo() }
     // A feature's switch on the device page shown (as a click on it), and
     // what the main page then has of the screen.
@@ -3401,6 +3417,7 @@ Panel {
         if (root.fixAsk) return
         // Home: the start, from two pages deep. Esc never means Home.
         if (t === Model.HOME_KEY) { root.goHome(); return }
+        if (t === "?") { root.openKeys(); return }
         if (root.contactsOpen) {
           if (!contactsView) return
           if (t === "/") contactsView.focusSearch()
@@ -3505,7 +3522,7 @@ Panel {
           id: menuColumn
           anchors.centerIn: parent
           // As wide as its widest entry (the entries fill it).
-          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth)
+          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
           Button {
             id: menuEdit
             width: menuColumn.width
@@ -3527,6 +3544,17 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+          Button {
+            id: menuKeys
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.keyboard
+            text: "Keys"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openKeys() }
           }
         }
       }
@@ -4561,6 +4589,7 @@ Panel {
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.reachId !== "" ? "From anywhere" : root.settingsScope === "connection" ? "Diagnostics · this computer" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "ready" ? "Getting ready"
+                : root.settingsScope === "keys" ? "Keys"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
                 : root.editingDevice ? (root.pairedDevices.length === 1 ? "Settings" : "Settings · This device")
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices"))
@@ -6165,7 +6194,7 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 screenSetup: root.screenSetup
                 screenQr: root.screenPairing ? root.screenPairing.qr : null
                 screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)
@@ -6544,7 +6573,6 @@ Panel {
     id: tile
     property var photo: ({})
     property int place: 0
-    readonly property string url: "file://" + encodeURI(String(photo.path || ""))
     hasCursor: false
     CursorStop { here: root.cursorActive && root.focusSection === "photos" && root.photoIndex === place; glide: root.cursorGlide }
     foreground: root.foreground
@@ -6614,12 +6642,6 @@ Panel {
         font.pixelSize: Style.font.bodySmall
       }
     }
-    // The file itself, for a drop into another window.
-    Drag.active: tileDrag.active
-    Drag.dragType: Drag.Automatic
-    Drag.supportedActions: Qt.CopyAction
-    Drag.mimeData: ({ "text/uri-list": tile.url })
-    DragHandler { id: tileDrag; target: null; enabled: !tile.photo.demo }
     // Hover without taking it from the buttons: ↗ shows only on this tile.
     HoverHandler { id: tileHover }
 
@@ -6664,7 +6686,7 @@ Panel {
     PanelToolTip {
       visible: tileMouse.containsMouse
       text: (tile.photo.album || "Photo") + (tile.photo.video ? " · video" : "") + " · " + Model.threadTime(tile.photo.at, Date.now())
-        + (tile.photo.video ? " · click to play" : " · click to open") + ", drag into a window"
+        + (tile.photo.video ? " · click to play" : " · click to open")
     }
   }
 

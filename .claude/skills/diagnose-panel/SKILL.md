@@ -73,7 +73,8 @@ and all of a phone's players share one position.
 ## 5. When KDE Connect is at fault
 
 The panel agrees with KDE Connect, and KDE Connect disagrees with the phone.
-The fault is KDE Connect's, and the plugin does not work around it: the
+The fault is KDE Connect's, and the plugin handles it where a user meets it
+(AGENTS.md, *The boundary*): fixed or filtered in the plugin, while the
 owner's KDE Connect specialist fixes it at the source. A suspected KDE
 Connect fault gets two issues here, so the plugin side and the KDE Connect
 side are tracked apart.
@@ -98,8 +99,8 @@ side are tracked apart.
    or follow; add each one as it appears. #35 is the model.
 5. **File the plugin issue**, labelled `bug`: what the user sees, why (one
    line, pointing to the KDE Connect issue), and when it closes (a KDE
-   Connect release with the fix, checked in the panel). Mark it blocked by
-   the KDE Connect issue. #33 is the model.
+   Connect release with the fix, checked in the panel, when the plugin's
+   handling is removed). Mark it blocked by the KDE Connect issue. #33 is the model.
 
    ```bash
    gh issue create --label external:kde-connect --title "KDE Connect: <what it does>" --body-file <scratchpad>/kde.md
@@ -111,8 +112,10 @@ side are tracked apart.
    No real data in either: no app, track, contact or message names from
    the device.
 6. **Add it to the list below** with the plugin issue's number, so the next
-   diagnosis stops here. Change the plugin only when the owner asks for a
-   workaround.
+   diagnosis stops here. Fix or filter the fault in the plugin when a user
+   meets it, with a test or a check in the rig; the plugin issue closes when
+   KDE Connect ships its fix, and the plugin's handling is removed in the
+   same change.
 
 ## Known KDE Connect limits (not bugs here)
 

@@ -233,19 +233,9 @@ Item {
     if (String(m.body || "") !== "") { copyText(m.body); return }
     if (files.length > 0) view.sms.fetchAttachment(files[0].part, files[0].id, files[0].mime)
   }
-  // The text goes to wl-copy over stdin, never on its command line.
-  Process {
-    id: textCopier
-    property string text: ""
-    command: ["wl-copy"]
-    stdinEnabled: true
-    onStarted: { write(text); text = ""; stdinEnabled = false }
-    onExited: { stdinEnabled = true; view.reported("Copied") }
-  }
+  // Through Clipboard: the text goes over stdin, never on a command line.
   function copyText(t) {
-    if (textCopier.running) return
-    textCopier.text = String(t)
-    textCopier.running = true
+    Clipboard.copyText(t, function() { view.reported("Copied") })
   }
 
   function cursorTo(i) {
@@ -1308,21 +1298,41 @@ Item {
             }
           }
 
-          TextEdit {
+          // Lights the message a moment once it is copied.
+          Rectangle {
+            x: bodyText.x
+            y: bodyText.y
+            width: bodyText.width
+            height: bodyText.height
+            visible: bodyText.visible
+            color: Style.selectionFillFor(view.foreground, Color.accent)
+            opacity: copied.running ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * view.motion; easing.type: Easing.OutCubic } }
+          }
+
+          // A Text, not a TextEdit: Qt's Text has no selection, no copy and
+          // no keys, so nothing done to it makes the shell own a selection.
+          // A double click copies the whole message through Clipboard.
+          Text {
             id: bodyText
             visible: bubble.body !== ""
             x: bubble.padX
             y: bubble.padY + (fileColumn.visible ? fileColumn.height + Style.space(6) : 0)
             width: Math.min(implicitWidth, bubble.maxWidth - bubble.padX * 2)
-            readOnly: true
-            selectByMouse: true
-            textFormat: TextEdit.PlainText
-            wrapMode: TextEdit.Wrap
+            textFormat: Text.PlainText
+            wrapMode: Text.Wrap
             text: bubble.body
             color: view.foreground
-            selectionColor: Style.selectionFillFor(view.foreground, Color.accent)
             font.family: view.fontFamily
             font.pixelSize: Style.font.body
+
+            Timer { id: copied; interval: 900 }
+            TapHandler {
+              onDoubleTapped: {
+                view.copyText(bodyText.text)
+                copied.restart()
+              }
+            }
           }
         }
       }

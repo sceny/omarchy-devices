@@ -1,0 +1,60 @@
+# The image dev/sandbox runs a contributor's commit in. Built beforehand, with
+# a network, from pinned sources and Sceny's own develop (its dev/ only); no
+# contributor code ever enters a build. A run has no network at all.
+#
+# Pinned: the base image by digest, Arch packages by an Arch Linux Archive
+# snapshot date, Omarchy's two packages and every download by sha256.
+# Bump a pin on purpose, in a pull request.
+
+# archlinux:latest of 2026-10-12
+FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722
+
+ARG ARCHIVE_DATE=2026/09/16
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
+ && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
+ && pacman -Syu --noconfirm --needed \
+      hyprland quickshell labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
+      glycin iproute2 dbus kdeconnect scrcpy ffmpegthumbnailer sshfs bubblewrap \
+      pipewire wireplumber qrencode nodejs procps-ng psmisc util-linux unzip zstd perl gum uwsm \
+      mesa vulkan-swrast libva ttf-jetbrains-mono-nerd noto-fonts qt6-declarative qt6-wayland qt6-svg \
+      libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
+ && pacman -Scc --noconfirm
+
+# Omarchy's shell and commands: the two packages' files, not their desktop
+# dependencies (display manager, bootloader, snapshots).
+ARG OMARCHY_REPO=https://pkgs.omarchy.org/stable/x86_64
+ARG OMARCHY_VERSION=4.0.4-1
+RUN set -e; cd /tmp; \
+    curl -fsSLo omarchy.pkg "$OMARCHY_REPO/omarchy-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
+    curl -fsSLo settings.pkg "$OMARCHY_REPO/omarchy-settings-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
+    echo "78fa778d48180aaf776b44f89ae86780f78e7b47440aa20faeb4a1be9240339c  omarchy.pkg" | sha256sum -c -; \
+    echo "748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100  settings.pkg" | sha256sum -c -; \
+    for f in omarchy.pkg settings.pkg; do bsdtar -xf $f -C / --exclude '.PKGINFO' --exclude '.MTREE' --exclude '.BUILDINFO' --exclude '.INSTALL'; done; \
+    rm -f /tmp/*.pkg
+
+# The Android SDK parts the rig's emulator uses, and the KDE Connect APK it
+# installs: fetched here so a run needs no network.
+RUN set -e; mkdir -p /opt/android-sdk/system-images/android-34/google_apis /opt/sandbox/cache; cd /tmp; \
+    get() { curl -fsSLo "$1" "$2"; echo "$3  $1" | sha256sum -c -; }; \
+    get pt.zip https://dl.google.com/android/repository/platform-tools_r37.0.1-linux.zip d230f13842f60f782a8645f9c813f8f845bf36089ea7289f28c48f17979313f1; \
+    get emu.zip https://dl.google.com/android/repository/emulator-linux_x64-16428233.zip b08fc43d8608d2955f607f1b287beb525041e730086bdca3af152accac3af9c1; \
+    get img.zip https://dl.google.com/android/repository/sys-img/google_apis/x86_64-34_r14.zip 783a40134baf4f3012d4464fbe1571b1612a0dbd2e7a44d14bd8328923443833; \
+    get /opt/sandbox/cache/org.kde.kdeconnect_tp_13517.apk https://f-droid.org/repo/org.kde.kdeconnect_tp_13517.apk 081f95a9f54a2113f65ef5cb81d79cab42cabe815aad6052e3f0ef1000929dad; \
+    unzip -q pt.zip -d /opt/android-sdk; unzip -q emu.zip -d /opt/android-sdk; \
+    unzip -q img.zip -d /tmp/img; mv /tmp/img/x86_64 /opt/android-sdk/system-images/android-34/google_apis/x86_64; \
+    rm -rf /tmp/*.zip /tmp/img
+
+# Omarchy's firewall as the plugin finds it once set up: ufw on, KDE Connect's
+# ports open to the private ranges. The cold computer (`dev/rig cold begin`)
+# binds its own empty copy over user.rules, so the file has to exist.
+RUN set -e; mkdir -p /etc/ufw; printf 'ENABLED=yes\n' >/etc/ufw/ufw.conf; \
+    for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do for proto in tcp udp; do \
+      printf '### tuple ### allow %s 1714:1764 0.0.0.0/0 any %s in comment=4b444520436f6e6e656374\n-A ufw-user-input -p %s -m multiport --dports 1714:1764 -s %s -j ACCEPT\n\n' "$proto" "$net" "$proto" "$net"; \
+    done; done >/etc/ufw/user.rules; \
+    chmod 644 /etc/ufw/ufw.conf /etc/ufw/user.rules
+
+RUN useradd -m -u 1000 -s /bin/bash sandbox
+
+# Sceny's own develop, dev/ only: the harness a run uses, never the commit's.
+COPY harness/dev/ /opt/harness/dev/
+LABEL org.sceny.sandbox.harness="unset"
