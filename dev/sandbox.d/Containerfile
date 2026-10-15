@@ -44,6 +44,15 @@ RUN set -e; mkdir -p /opt/android-sdk/system-images/android-34/google_apis /opt/
     unzip -q img.zip -d /tmp/img; mv /tmp/img/x86_64 /opt/android-sdk/system-images/android-34/google_apis/x86_64; \
     rm -rf /tmp/*.zip /tmp/img
 
+# Omarchy's firewall as the plugin finds it once set up: ufw on, KDE Connect's
+# ports open to the private ranges. The cold computer (`dev/rig cold begin`)
+# binds its own empty copy over user.rules, so the file has to exist.
+RUN set -e; mkdir -p /etc/ufw; printf 'ENABLED=yes\n' >/etc/ufw/ufw.conf; \
+    for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16; do for proto in tcp udp; do \
+      printf '### tuple ### allow %s 1714:1764 0.0.0.0/0 any %s in comment=4b444520436f6e6e656374\n-A ufw-user-input -p %s -m multiport --dports 1714:1764 -s %s -j ACCEPT\n\n' "$proto" "$net" "$proto" "$net"; \
+    done; done >/etc/ufw/user.rules; \
+    chmod 644 /etc/ufw/ufw.conf /etc/ufw/user.rules
+
 RUN useradd -m -u 1000 -s /bin/bash sandbox
 
 # Sceny's own develop, dev/ only: the harness a run uses, never the commit's.
