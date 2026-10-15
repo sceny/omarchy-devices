@@ -6,6 +6,12 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## 0.8.5 — 2026-10-14
+
+### Fixes
+
+- An attachment you did not ask for no longer opens: only the attachment you clicked is opened, and a picture is always opened as the copy decoded in the sandbox, whatever name or type the phone gives it (marketplace review omacom/omarchy-plugin-marketplace#10096).
+
 ## 0.8.4 — 2026-10-14
 
 ### Fixes
