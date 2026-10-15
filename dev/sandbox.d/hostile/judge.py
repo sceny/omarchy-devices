@@ -76,7 +76,15 @@ if kind in ("probe", "probe-rig"):
     conn = os.path.join(work, "connections.log")
     seen = [l for l in (open(conn).read().split("\n") if os.path.exists(conn) else []) if l]
     check("the listeners this test opened on the host saw no connection", seen == [], seen)
-    leaked = {k: v for k, v in p["host_paths"].items() if not k.startswith("listing") and v != "ABSENT"}
+    # The rig step's compositor parent opens an X socket of its own in the container's /tmp (the tests step has none):
+    # that one is a listener made inside, owned by the sandbox uid. Anything else at an X socket path fails.
+    own_x = {k for k, v in p["host_paths"].items() if k.startswith("/tmp/.X11-unix/") and v == "OWN-LISTENER"} if kind == "probe-rig" else set()
+    leaked = {k: v for k, v in p["host_paths"].items() if not k.startswith("listing") and v != "ABSENT" and k not in own_x}
+    x_bad = {n: v for n, v in p.get("x_sockets", {}).items() if not (kind == "probe-rig" and v == "OWN-LISTENER")}
+    check("no X socket besides the rig's own (a listener made in this container by the sandbox uid, rig step only)",
+          x_bad == {}, p.get("x_sockets"))
+    if p.get("x_sockets"):
+        info("X sockets: " + json.dumps(p["x_sockets"]))
     check("no host session bus, Wayland, PipeWire, Hyprland, podman or docker socket, no ssh, config, gh, android or paperclip directory, no shadow file",
           leaked == {}, leaked)
     check("/run/user has nothing in it", p["host_paths"].get("listing /run/user", []) == [], p["host_paths"].get("listing /run/user"))
