@@ -45,6 +45,28 @@ def status_field(name):
     return ""
 
 
+def own_listening_sockets():
+    """Paths of unix sockets listening in this container's network namespace: only a process in here made them."""
+    paths = set()
+    for line in open("/proc/net/unix").read().splitlines()[1:]:
+        f = line.split()
+        if len(f) == 8 and f[3] == "00010000" and f[5] == "01":
+            paths.add(f[7])
+    return paths
+
+
+def x_socket_state(path, listening):
+    """OWN-LISTENER: a socket this uid owns with a listener in this namespace (the rig's compositor parent opens one
+    in the container's own /tmp). EXISTS: anything else at an X socket path."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return "ABSENT"
+    if stat.S_ISSOCK(st.st_mode) and st.st_uid == os.getuid() and path in listening:
+        return "OWN-LISTENER"
+    return "EXISTS"
+
+
 def write_fail(path):
     try:
         with open(path, "w") as f:
@@ -184,6 +206,12 @@ def probe():
     for base in ("/run/user", "/tmp/.X11-unix", "/tmp/hypr", "/var/run"):
         if os.path.isdir(base):
             paths["listing " + base] = sorted(os.listdir(base))
+    listening = own_listening_sockets()
+    r["x_sockets"] = {n: x_socket_state(os.path.join("/tmp/.X11-unix", n), listening)
+                      for n in paths.get("listing /tmp/.X11-unix", [])}
+    for p in list(paths):
+        if p.startswith("/tmp/.X11-unix/") and paths[p] == "EXISTS":
+            paths[p] = x_socket_state(p, listening)
     r["host_paths"] = paths
     r["dev"] = sorted(os.listdir("/dev"))
 

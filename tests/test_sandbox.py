@@ -20,11 +20,13 @@ import io
 import json
 import os
 import re
+import stat
 import struct
 import subprocess
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -213,6 +215,123 @@ class Isolation(unittest.TestCase):
         self.assertIn("UNIT_NO_USERNS=1", self.script)
         self.assertNotIn("seccomp=unconfined", self.script)
         self.assertIn("seccomp.py", self.script.split("make_seccomp() {")[1].split("}")[0])
+
+
+class XSockets(unittest.TestCase):
+    """The rig step's compositor parent opens an X socket in the container's /tmp; a host's is never told from it by name."""
+
+    HOSTILE = os.path.join(ROOT, "dev", "sandbox.d", "hostile")
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(cls.HOSTILE, "test_hostile.py")) as f:
+            src = f.read()
+        funcs = [m.group(0) for m in re.finditer(r"^def (?:own_listening_sockets|x_socket_state)\(.*?(?=^def |\Z)", src, re.S | re.M)]
+        cls.ns = {"os": os, "stat": stat}
+        exec("\n\n".join(funcs), cls.ns)
+
+    def test_a_listener_made_here_by_this_uid_is_the_rigs_own(self):
+        import socket
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:
+            path = os.path.join(d, "X0")
+            srv = socket.socket(socket.AF_UNIX)
+            srv.bind(path)
+            srv.listen(1)
+            try:
+                self.assertEqual(self.ns["x_socket_state"](path, self.ns["own_listening_sockets"]()), "OWN-LISTENER")
+            finally:
+                srv.close()
+
+    def test_a_file_or_a_dead_socket_at_the_path_is_not(self):
+        import socket
+        with tempfile.TemporaryDirectory(dir="/tmp") as d:
+            plain = os.path.join(d, "X0")
+            open(plain, "w").close()
+            dead = os.path.join(d, "X1")
+            srv = socket.socket(socket.AF_UNIX)
+            srv.bind(dead)
+            srv.close()
+            listening = self.ns["own_listening_sockets"]()
+            self.assertEqual(self.ns["x_socket_state"](plain, listening), "EXISTS")
+            self.assertEqual(self.ns["x_socket_state"](dead, listening), "EXISTS")
+            self.assertEqual(self.ns["x_socket_state"](os.path.join(d, "X2"), listening), "ABSENT")
+
+    def test_a_listener_owned_by_another_uid_is_not(self):
+        import types
+        fake_os = types.SimpleNamespace(
+            lstat=lambda p: types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o755, st_uid=65534),
+            getuid=lambda: 1000)
+        listening = {"/tmp/.X11-unix/X0"}
+        with mock.patch.dict(self.ns, {"os": fake_os}):
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", listening), "EXISTS")
+            fake_os.getuid = lambda: 65534
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", listening), "OWN-LISTENER")
+
+    def test_a_socket_of_this_uid_with_no_listener_here_is_not(self):
+        import types
+        fake_os = types.SimpleNamespace(
+            lstat=lambda p: types.SimpleNamespace(st_mode=stat.S_IFSOCK | 0o755, st_uid=1000),
+            getuid=lambda: 1000)
+        with mock.patch.dict(self.ns, {"os": fake_os}):
+            self.assertEqual(self.ns["x_socket_state"]("/tmp/.X11-unix/X0", set()), "EXISTS")
+
+    def test_an_abstract_entry_is_not_the_listener_of_the_path(self):
+        header = "Num       RefCount Protocol Flags    Type St Inode Path\n"
+        table = (header
+                 + "0000: 00000002 00000000 00010000 0001 01 1 @/tmp/.X11-unix/X0\n"
+                 + "0000: 00000002 00000000 00010000 0001 01 2 /tmp/.X11-unix/X1\n"
+                 + "0000: 00000003 00000000 00000000 0001 03 3 /tmp/.X11-unix/X2\n")
+        with mock.patch.dict(self.ns, {"open": lambda p: io.StringIO(table)}):
+            listening = self.ns["own_listening_sockets"]()
+        self.assertEqual(listening, {"@/tmp/.X11-unix/X0", "/tmp/.X11-unix/X1"})
+        self.assertNotIn("/tmp/.X11-unix/X0", listening)
+        self.assertNotIn("/tmp/.X11-unix/X2", listening)
+
+    def judge(self, kind, host_paths, x_sockets):
+        probe = {
+            "canary_paths": {}, "canary_found_anywhere": [], "canary_search_control": True,
+            "home_listing": "NO SUCH DIRECTORY", "uid": 1000, "uid_map": ["0", "1", "65536"],
+            "cap_eff": "0", "cap_bnd": "0", "no_new_privs": "1", "seccomp": "2", "env_leaks": [],
+            "process_env_leaks": [], "interfaces": ["lo"], "network": {},
+            "host_paths": host_paths, "x_sockets": x_sockets, "dev": [], "mount_tmpfs": "EPERM",
+            "setuid_0": "EPERM", "ptrace_init": "EPERM", "reboot": "EPERM", "userns": {},
+            "write_outside": {}, "write_allowed": {}, "harness_replaced_by_commit": False,
+        }
+        with tempfile.TemporaryDirectory() as work:
+            out = os.path.join(work, "out")
+            unit = os.path.join(out, "script" if kind == "probe-rig" else "unit-bridge")
+            os.makedirs(unit)
+            for path, data in ((os.path.join(unit, "probe.json"), probe), (os.path.join(out, "summary.json"), {}),
+                               (os.path.join(work, "targets.json"), {})):
+                with open(path, "w") as f:
+                    json.dump(data, f)
+            r = subprocess.run(["python3", os.path.join(self.HOSTILE, "judge.py"), work, kind, out],
+                               capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        verdicts = {}
+        for line in r.stdout.splitlines():
+            f = line.split("\t")
+            if f[0] in ("PASS", "FAIL") and ("X socket" in f[1] or "session bus" in f[1]):
+                verdicts[f[1][:24]] = f[0]
+        return verdicts
+
+    def test_the_rig_step_passes_with_its_own_x_socket_only(self):
+        v = self.judge("probe-rig", {"/tmp/.X11-unix/X0": "OWN-LISTENER", "listing /tmp/.X11-unix": ["X0"]},
+                       {"X0": "OWN-LISTENER"})
+        self.assertEqual(set(v.values()), {"PASS"}, v)
+        self.assertEqual(len(v), 2, v)
+
+    def test_the_rig_step_fails_on_an_x_socket_that_is_not_its_own(self):
+        v = self.judge("probe-rig", {"/tmp/.X11-unix/X0": "OWN-LISTENER", "/tmp/.X11-unix/X1": "EXISTS"},
+                       {"X0": "OWN-LISTENER", "X1": "EXISTS"})
+        self.assertEqual(set(v.values()), {"FAIL"}, v)
+        v = self.judge("probe-rig", {"/tmp/.X11-unix/X0": "EXISTS"}, {"X0": "EXISTS"})
+        self.assertIn("FAIL", v.values())
+
+    def test_the_tests_step_fails_on_any_x_socket(self):
+        v = self.judge("probe", {"/tmp/.X11-unix/X0": "OWN-LISTENER"}, {"X0": "OWN-LISTENER"})
+        self.assertEqual(set(v.values()), {"FAIL"}, v)
+        self.assertEqual(len(v), 2, v)
 
 
 class Verdict(unittest.TestCase):
