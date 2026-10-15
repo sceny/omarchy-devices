@@ -231,7 +231,43 @@ dev/sandbox verify-clean                           # nothing left behind
   hostile commit written here: run it after any change to `dev/sandbox`. Its
   modes include a result tree of dangerous names, malformed and oversized
   PNGs, `--out` placed in a repository, and GPU memory allocated through the
-  render node (the host's free memory is recorded before, lowest and after).
+  render node (the host's free memory is recorded before, lowest and after),
+  and a `dev` session: what a synced tree carries, what the session can
+  reach (no network, host listener, socket, home, canary, capability), and
+  what a hostile pull cannot bring out.
+
+### Sceny's own tree: `dev/sandbox dev`
+
+A session for working on the plugin itself, in the same kind of container as a
+run: one container kept until `dev stop` or its TTL (at most four hours), no
+home, no credentials, no network, no host socket, the same limits and the same
+devices (`/dev/kvm` and one render node; the rig's display needs the node, and
+no software fallback exists). The tree is not mounted. `dev sync` streams its
+tracked files in as a tar (`dev/sandbox.d/tree_tar.py`): an untracked or
+ignored file, a link, `.git` and a path that leaves the tree stay here, so
+`git add` a new file first. The session unpacks it as its own git checkout, and
+its `dev/sandbox.d/devside.sh` is the host's file, mounted read-only, never
+the synced one. `dev start` fails while the image's Omarchy, Hyprland or
+Quickshell is older than this machine's (`dev/sandbox pins` runs the same
+check; bump the pins in `dev/sandbox.d/Containerfile` and build again).
+
+```bash
+dev/sandbox dev start [--ttl 3600]                 # prints the session id; at most two at once
+dev/sandbox dev sync                               # the tree in (after every edit)
+dev/sandbox dev up                                 # the rig, once per session
+dev/sandbox dev rig sync                           # dev/rig verbs inside: sync, ipc, phone, check ...
+dev/sandbox dev shot name                          # a screenshot of the rig into the session
+dev/sandbox dev record name 8 5 -- /opt/devside.sh rig ipc open   # 8 s at up to 5 frames/s while the command runs, plus 2 s
+dev/sandbox dev pull --out DIR                     # screenshots/ and recordings/ out as data
+dev/sandbox dev stop --all                         # then dev/sandbox verify-clean
+```
+
+What leaves is read as a run's results are, and frames never leave as a video:
+a recording is PNG frames, each decoded again in the picture container, then
+assembled to WebM in a container that holds only those frames; the host keeps a
+file only if it starts as WebM, and refuses any other video or sound
+(`read_result.py`). A pull empties the session's output. `dev exec -- CMD`
+runs a command in the session, as its unprivileged user.
 
 ## Screenshots
 
