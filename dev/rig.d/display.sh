@@ -376,12 +376,16 @@ rig_start_compositor_once() {
     # does), so the compositor's Wayland parent is labwc's own socket, in the
     # rig's runtime dir, and nothing else.
     rig_write_parent_conf
-    local node
+    local node in_ns=("${RIG_IN_NS[@]}")
     node=$(rig_render_node) || return 1
+    # Inside the sandbox's container (no network of its own) the start is lost
+    # about every time when the compositor joins the rig's nested namespaces
+    # and found at the second or third try outside them (RIG_COMPOSITOR_OUTSIDE_NS=1).
+    [[ ${RIG_COMPOSITOR_OUTSIDE_NS:-} == 1 ]] && in_ns=()
     WLR_BACKENDS=headless WLR_HEADLESS_OUTPUTS=1 WLR_LIBINPUT_NO_DEVICES=1 \
       WLR_RENDER_DRM_DEVICE="$node" \
       __EGL_VENDOR_LIBRARY_FILENAMES=$(rig_mesa_egl_vendor) \
-      nohup "${RIG_IN_NS[@]}" labwc -C "$RIG_PARENT_CONF" -S "Hyprland -c $RIG_HYPR_CONF" >>"$log" 2>&1 &
+      nohup "${in_ns[@]}" labwc -C "$RIG_PARENT_CONF" -S "Hyprland -c $RIG_HYPR_CONF" >>"$log" 2>&1 &
     RIG_PARENT_PID=$!
     RIG_HYPR_PID=""
     rig_wake_parent_start
