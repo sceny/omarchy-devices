@@ -16,7 +16,9 @@
   still arrives here. Turn automatic sharing back on in KDE Connect's own
   settings and the plugin leaves it on.
 - A picture from the phone is decoded in a sandbox, and you see a copy made
-  from its pixels, never the phone's file.
+  from its pixels, never the phone's file. A picture is recognised by what
+  the file holds, not its name, and a message attachment opens only when you
+  clicked it.
 
 ## The screen and apps: what Wireless debugging allows
 
