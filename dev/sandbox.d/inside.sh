@@ -105,7 +105,7 @@ rig-ci)
   git_tree || exit "$E_PREPARE"
   seed_rig
   # the rig's compositor start-up race is lost more often in a container
-  RIG_COMPOSITOR_ATTEMPTS=60 unit rig-ci env dev/rig ci --evidence "$OUT/rig" || status=$?
+  RIG_COMPOSITOR_OUTSIDE_NS=1 RIG_COMPOSITOR_ATTEMPTS=60 unit rig-ci env dev/rig ci --evidence "$OUT/rig" || status=$?
   collect_rig
   ;;
 script)
@@ -113,7 +113,7 @@ script)
   [[ -r /in/script.sh ]] || exit "$E_PREPARE"
   git_tree || exit "$E_PREPARE"
   seed_rig
-  if RIG_COMPOSITOR_ATTEMPTS=60 unit script-up env dev/rig up --owner none --ttl 3000; then
+  if RIG_COMPOSITOR_OUTSIDE_NS=1 RIG_COMPOSITOR_ATTEMPTS=60 unit script-up env dev/rig up --owner none --ttl 3000; then
     unit script env SANDBOX_OUT="$OUT" bash /in/script.sh || status=$?
   else
     status=$E_UNIT
