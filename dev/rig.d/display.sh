@@ -323,6 +323,15 @@ rig_runtime_sockets() {
   ls -tr "$RIG_RUNTIME_DIR" 2>/dev/null | grep '^wayland-' | tr '\n' ' '
 }
 
+rig_note_lost_start() {
+  # Hyprland's own log goes under its runtime dir and is gone with the rig; keep its end with the compositor's.
+  local f
+  f=$(ls -t "$XDG_RUNTIME_DIR"/hypr/*/hyprland.log 2>/dev/null | head -n 1)
+  [[ -n $f ]] || return 0
+  printf -- '--- end of %s ---\n' "$f" >>"$RIG_LOGS/compositor.log"
+  tail -n 40 "$f" >>"$RIG_LOGS/compositor.log" 2>/dev/null || true
+}
+
 rig_start_compositor() {
   # The hidden start can lose a race inside Aquamarine (see rig_start_compositor_once);
   # it is cheap to try again, so it does, a bounded number of times.
@@ -335,6 +344,7 @@ rig_start_compositor() {
     rig_start_compositor_once "$attempt" && return 0
     status=$?
     ((status == 75)) || return "$status"
+    rig_note_lost_start
     rig_stop_display
     ((attempt < max)) && rig_step "the parent dropped the compositor's window (${RIG_LOST_REASON:-no reason}; sockets left: $(rig_runtime_sockets)); starting again ($((attempt + 1))/$max)"
   done
