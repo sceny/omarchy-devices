@@ -243,7 +243,7 @@ Panel {
     if (key === "settings/root") return pairedDevices.length !== 1
     if (key.indexOf("settings/") !== 0) return true
     var scope = key.slice(9)
-    if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
+    if (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(scope) >= 0) return true
     return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope.indexOf("reach:") === 0 ? scope.slice(6) : scope)
   }
   function navAsk(hint, open) {
@@ -1204,6 +1204,12 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("addDevice")
   }
+  // Every key the panel answers to (#194): ? from any page, the page menu,
+  // or its row in Settings.
+  function openKeys() {
+    if (!settingsOpen) openSettings()
+    openScope("keys")
+  }
   // A pairing on Add a device that completes: its card says so in place
   // (✓ Paired with …) for a moment, then the panel goes to the device's
   // page. No toast: the card and the page say it. Adding another is the
@@ -1269,7 +1275,7 @@ Panel {
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
     else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0 && settingsScope.indexOf("reach:") !== 0
-             && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0)
+             && ["root", "defaults", "connection", "addDevice", "ready", "keys"].indexOf(settingsScope) < 0)
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
@@ -1309,6 +1315,7 @@ Panel {
     : reachId !== "" ? Model.reachRows(reachSetup)
     : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "ready" ? Model.readyRows(setupChecks)
+    : settingsScope === "keys" ? Model.keysRows()
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -2337,7 +2344,7 @@ Panel {
     else if (row.kind === "resetGroup") resetGroup(row.key)
     else if (row.kind === "editPage" && scopeDevice) { phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
-    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
+    else if (row.kind === "connection" || row.kind === "addDevice" || row.kind === "keys") openScope(row.kind)
     else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "reachAction") reachAction(row.key, row.address)
@@ -2785,6 +2792,7 @@ Panel {
       else if (name === "connection") root.openConnection()
       else if (name === "ready") root.openReady()
       else if (name === "addDevice") root.openAddDevice()
+      else if (name === "keys") root.openKeys()
       else if (name === "messages") root.openMessagesView(-1)
       else if (name === "contacts") root.openContactsView()
       else if (name === "apps") root.openAppsView()
@@ -3397,6 +3405,7 @@ Panel {
         if (root.fixAsk) return
         // Home: the start, from two pages deep. Esc never means Home.
         if (t === Model.HOME_KEY) { root.goHome(); return }
+        if (t === "?") { root.openKeys(); return }
         if (root.contactsOpen) {
           if (!contactsView) return
           if (t === "/") contactsView.focusSearch()
@@ -3501,7 +3510,7 @@ Panel {
           id: menuColumn
           anchors.centerIn: parent
           // As wide as its widest entry (the entries fill it).
-          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth)
+          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
           Button {
             id: menuEdit
             width: menuColumn.width
@@ -3523,6 +3532,17 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openSettings() }
+          }
+          Button {
+            id: menuKeys
+            width: menuColumn.width
+            leftAlign: true
+            iconText: Model.GLYPH.keyboard
+            text: "Keys"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openKeys() }
           }
         }
       }
@@ -4557,6 +4577,7 @@ Panel {
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.reachId !== "" ? "From anywhere" : root.settingsScope === "connection" ? "Diagnostics · this computer" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "ready" ? "Getting ready"
+                : root.settingsScope === "keys" ? "Keys"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
                 : root.editingDevice ? (root.pairedDevices.length === 1 ? "Settings" : "Settings · This device")
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices"))
@@ -6133,7 +6154,7 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 screenSetup: root.screenSetup
                 screenQr: root.screenPairing ? root.screenPairing.qr : null
                 screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)

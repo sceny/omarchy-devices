@@ -524,11 +524,11 @@ test("settings rows: one device's Settings is its page; several: My devices and 
     identity: { nickname: "", icon: "", glyph: M.GLYPH.phone, bar: "always", showInPanel: true }, edit, ...over })
   const flat = M.settingsPageRows(ctx({}))
   const kinds = flat.map(r => r.kind)
-  assert.deepEqual(kinds, ["device", "addDevice"], "This computer is reached from a problem it causes, never listed")
+  assert.deepEqual(kinds, ["device", "addDevice", "keys"], "This computer is reached from a problem it causes, never listed")
   assert.ok(!kinds.includes("kdeconnect"), "no KDE Connect settings row: the plugin sets it up")
   const page = M.settingsPageRows(ctx({ scope: "device" })).map(r => r.kind)
   assert.deepEqual(page.slice(0, 2), ["nickname", "icon"])
-  assert.deepEqual(page.slice(-2), ["addDevice", "unpair"], "one device: Add a device on its page, which is Settings")
+  assert.deepEqual(page.slice(-3), ["addDevice", "keys", "unpair"], "one device: Add a device and Keys on its page, which is Settings")
   const broken = [{ where: "computer", whereLabel: "This computer", key: "firewall", label: "Firewall", detail: "Closed", steps: [] }]
   assert.equal(M.settingsPageRows(ctx({ scope: "device", problems: broken }))[0].kind, "problem", "one device: the status leads its page")
   assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false, problems: broken })).some(r => r.kind === "problem" || r.kind === "addDevice"),
@@ -543,7 +543,30 @@ test("settings rows: one device's Settings is its page; several: My devices and 
   assert.ok(M.settingsPageRows({ scope: "root", single: false, devices: list, edit: M.resolveProfile(M.readSettings({}), null, true) })
     .filter(r => r.kind !== "request" && r.kind !== "available").every(r => !r.pairKey), "only pairing rows carry a key")
   const root = M.settingsPageRows({ scope: "root", single: false, devices: list, edit })
-  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults"], "in reach: on Add a device")
+  assert.deepEqual(root.map(r => r.kind), ["device", "device", "request", "addDevice", "defaults", "keys"], "in reach: on Add a device")
+  assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false })).some(r => r.kind === "keys"), "several: Keys is on Settings' first page")
+})
+
+test("keys page: every key once per group, each group headed once, named in Back to", () => {
+  const rows = M.keysRows()
+  assert.ok(rows.length > 0 && rows.every(r => r.kind === "key" && r.keys !== "" && r.label !== ""))
+  assert.deepEqual(rows.filter(r => r.group !== "").map(r => r.group), M.KEYS.map(g => g.group))
+  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a key per row")
+  assert.ok(rows.some(r => r.keys === "?"), "the page names its own key")
+  assert.equal(M.navLabel("settings/keys"), "Keys")
+})
+
+test("keys page: every key the panel's text-key handler answers to is listed", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "..", "Panel.qml"), "utf8")
+  const start = panel.indexOf("onTextKey: function(t) {")
+  assert.ok(start >= 0, "the handler is found")
+  const body = panel.slice(start, panel.indexOf("\n      }\n", start))
+  const handled = new Set([...body.matchAll(/t === "(.)"/g)].map(m => m[1]))
+  assert.ok(handled.has("?") && handled.has("c") && handled.has("]"), "the handler's keys are read")
+  // A key on the page is a token of its keys, Shift+X as X.
+  const listed = new Set(M.KEYS.flatMap(g => g.keys.flatMap(k => k[0].split(/[\s·]+/).map(s => s.replace(/^Shift\+/, "")))))
+  const allowed = new Set(["+"]) // the alias of =
+  assert.deepEqual([...handled].filter(k => !listed.has(k) && !allowed.has(k)), [], "handled but not on the Keys page")
 })
 
 test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {

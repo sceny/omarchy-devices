@@ -138,6 +138,48 @@ GitHub release with these notes.
 - Nothing else in your settings is rewritten; new keys (`closedProblems`)
   appear on your next change.
 
+## 0.8.5 — 2026-10-14
+
+### Fixes
+
+- An attachment you did not ask for no longer opens: only the attachment you clicked is opened, and a picture is always opened as the copy decoded in the sandbox, whatever name or type the phone gives it (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- A gallery photo's copy button now copies the same sandbox-decoded picture that opening it shows, never the phone's file as it came; a picture that cannot be read safely is not copied, and any other file is copied from a copy made here (marketplace review omacom/omarchy-plugin-marketplace#10096).
+
+## 0.8.4 — 2026-10-14
+
+### Fixes
+
+- A paste no longer makes the shell read the clipboard unbounded or wait on it: the text is read when you paste, outside the shell, with a size limit and a deadline, and a slow or failed read inserts nothing (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- The shell never takes part in a clipboard transfer: copy, cut, paste and selecting text go through one door that runs the system's clipboard tools outside the shell, with a size limit and a deadline, so a program that never reads what you copied (or never finishes what it pastes) cannot freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with the arrow keys work as before, and the mouse still places the cursor and selects (a drag, Shift+click, a word on a double click, all on a triple). A message in a conversation is copied by a double click; it can no longer be selected by dragging. A gallery photo is no longer dragged out of the panel: use its copy button, then paste it where you want it (marketplace review omacom/omarchy-plugin-marketplace#10096; `docs/architecture/001`).
+
+## 0.8.3 — 2026-10-13
+
+### Highlights
+
+- **Text fields never read the clipboard until you paste**: a field is
+  built on a text edit, which asks only which formats the clipboard offers
+  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
+  field, or another program copying while one has the keyboard, makes the
+  shell read nothing. Typing, accented characters, Esc's steps, drafts and
+  suggestions work as before; Enter stops at the field. A field holds at most
+  32767 characters, as before, and a paste is cut to that before it is
+  inserted, so a huge paste or a line-broken one is instant instead of
+  stopping the shell. Middle-click paste and dropping text onto a field no
+  longer insert anything.
+- **A window is found by its exact title**: opening the device's screen or
+  an app focuses an open window by its address and otherwise starts it
+  directly, with each part of the command kept as it is.
+- **Clipboard: a copy leaves on your click**: the Clipboard shortcut is the
+  only way a copy is sent to a device. The plugin turns KDE Connect's
+  automatic sharing off for each paired device that has no choice of its
+  own, and leaves a choice you made there alone. `docs/security.md` says so.
+- **Call details are kept short**: a caller's name and number are cut to
+  the same length as other device text before they are used.
+
+### Issues
+
+- [#137](https://github.com/sceny/omarchy-devices/issues/137) Marketplace review: omacom/omarchy-plugin-marketplace#10096 (a focused text field made the shell read the clipboard's whole text)
+
 ## 0.8.2 — 2026-10-11
 
 ### Highlights
