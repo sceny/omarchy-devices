@@ -10,8 +10,10 @@
 #
 # Inputs (read-only): /in/src.tar = `git archive` of the exact commit;
 #                     /in/script.sh = an optional QA script (--script).
-# Environment: SANDBOX_UNIT (unit-model, unit-bridge, qml-parse, manifest,
-#              rig-ci, script), SANDBOX_HARNESS (develop | pr), SANDBOX_SHA.
+# Environment: SANDBOX_UNIT (unit-model, unit-bridge, pc-tests, pc-selftest,
+#              qml-parse, manifest, rig-ci, script), SANDBOX_REPO (the
+#              repository's owner/name), SANDBOX_HARNESS (develop | pr),
+#              SANDBOX_SHA.
 #
 # shellcheck shell=bash
 
@@ -21,6 +23,24 @@ OUT=/out
 SRC=/work/src
 UNIT=${SANDBOX_UNIT:-}
 HARNESS=${SANDBOX_HARNESS:-develop}
+REPO=${SANDBOX_REPO:-sceny/omarchy-devices}
+
+# The plugin id the repository's manifest.json must carry, and the dev/ of the
+# repository's own develop that the image holds.
+case $REPO in
+sceny/omarchy-devices)
+  PLUGIN_ID=sceny.devices
+  HARNESS_DEV=/opt/harness/dev
+  ;;
+sceny/omarchy-paperclipai)
+  PLUGIN_ID=sceny.paperclipai
+  HARNESS_DEV=/opt/harness/paperclipai/dev
+  ;;
+*)
+  printf '[sandbox] unknown repository %s\n' "$REPO" >&2
+  exit 70
+  ;;
+esac
 
 # Exit codes of the harness itself, apart from the unit's.
 E_PREPARE=70
@@ -48,12 +68,12 @@ if ! tar -x --no-same-owner --no-same-permissions -f /in/src.tar -C "$SRC" 2>"$O
   exit "$E_PREPARE"
 fi
 
-# The checks come from Sceny's develop, so a commit cannot loosen the checks it
-# is judged by. `--harness pr` keeps the commit's own dev/ (for a change to dev/
-# itself).
+# The checks come from Sceny's develop (the repository's own), so a commit
+# cannot loosen the checks it is judged by. `--harness pr` keeps the commit's
+# own dev/ (for a change to dev/ itself).
 if [[ $HARNESS == develop ]]; then
   rm -rf "$SRC/dev"
-  cp -a /opt/harness/dev "$SRC/dev"
+  cp -a "$HARNESS_DEV" "$SRC/dev"
 fi
 
 # dev/rig packages the tracked tree of a git checkout, so the rig units make
@@ -92,7 +112,9 @@ unit-bridge) unit unit-bridge bash -c 'python3 -m unittest discover -s tests -v'
 qml-parse)
   unit qml-parse bash -c 'fmt=/usr/lib/qt6/bin/qmlformat; for f in *.qml; do "$fmt" "$f" >/dev/null || { echo "$f does not parse"; exit 1; }; done' || status=$?
   ;;
-manifest) unit manifest bash -c 'jq -e ".id == \"sceny.devices\" and .schemaVersion == 1" manifest.json' || status=$? ;;
+pc-tests) unit pc-tests bash test/run_all.sh || status=$? ;;
+pc-selftest) unit pc-selftest dev/rig selftest || status=$? ;;
+manifest) unit manifest jq -e --arg id "$PLUGIN_ID" '.id == $id and .schemaVersion == 1' manifest.json || status=$? ;;
 rig-ci | script)
   # These two units keep podman's default seccomp profile, which allows a new
   # user namespace: the rig's phone side runs in one (`unshare -Urn`,

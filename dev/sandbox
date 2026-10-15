@@ -4,8 +4,10 @@
 # script) in a rootless podman container that cannot reach the owner.
 #
 # Usage:
-#   dev/sandbox build [--ref REV]        build the image from pinned sources and REV's dev/
-#                                        (default origin/develop; never contributor code)
+#   dev/sandbox build [--ref REV] [--paperclip-ref REV]
+#                                        build the image from pinned sources, REV's dev/ and
+#                                        sceny/omarchy-paperclipai's dev/ at its branch REV (defaults:
+#                                        origin/develop here, develop there; never contributor code)
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name)
@@ -38,8 +40,9 @@
 #     picks it). Memory, CPU, processes, tmpfs sizes and
 #     time are limited; the root filesystem is read-only; every capability is
 #     dropped.
-#   * Every unit (unit-model, unit-bridge, qml-parse, manifest, rig-ci, script)
-#     runs in a container of its own, from a fresh unpack of the commit and
+#   * Every unit (a repository's tests: for Devices unit-model, unit-bridge,
+#     qml-parse, manifest; for Paperclip pc-tests, pc-selftest, qml-parse,
+#     manifest; then rig-ci, script) runs in a container of its own, from a fresh unpack of the commit and
 #     develop's dev/. The verdict is the container's exit code, taken by this
 #     script on the host; it writes results.tsv and summary.json itself. A
 #     pass says the checks ran and exited 0: it does not make the commit safe
@@ -130,11 +133,15 @@ require_tools() {
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
-  local ref=origin/develop
+  local ref=origin/develop pc_ref=develop
   while (($#)); do
     case $1 in
     --ref)
       ref=${2:?--ref needs a revision}
+      shift
+      ;;
+    --paperclip-ref)
+      pc_ref=${2:?--paperclip-ref needs a revision}
       shift
       ;;
     *) die "build: unknown option $1" ;;
@@ -142,21 +149,29 @@ cmd_build() {
     shift
   done
   require_tools
-  local sha ctx
+  local sha pc_sha pc_git ctx
   sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify "$ref^{commit}" 2>/dev/null) ||
     die "build: $ref is not a revision of this checkout"
   git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
     die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
 
+  fetch_mirror sceny/omarchy-paperclipai
+  pc_git=$(mirror_dir sceny/omarchy-paperclipai)
+  # Only a branch of the repository itself: a pull request's head is contributor code.
+  pc_sha=$(git -C "$pc_git" rev-parse --verify "refs/heads/$pc_ref^{commit}" 2>/dev/null) ||
+    die "build: $pc_ref is not a branch of sceny/omarchy-paperclipai"
+
   ctx=$(mktemp -d "${TMPDIR:-/tmp}/sceny-sandbox-build.XXXXXX")
   trap 'rm -rf "$ctx"' RETURN
-  mkdir -p "$ctx/harness"
+  mkdir -p "$ctx/harness" "$ctx/harness-paperclipai"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
+  git -C "$pc_git" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
-  say "building $SB_IMAGE from pinned sources and dev/ of ${sha:0:12} (this downloads about 6 GB the first time)"
-  pm build --label "org.sceny.sandbox.harness=$sha" -t "$SB_IMAGE" -f "$ctx/Containerfile" "$ctx" ||
+  say "building $SB_IMAGE from pinned sources, dev/ of ${sha:0:12} and paperclipai's dev/ of ${pc_sha:0:12} (this downloads about 6 GB the first time)"
+  pm build --label "org.sceny.sandbox.harness=$sha" --label "org.sceny.sandbox.harness.paperclipai=$pc_sha" \
+    -t "$SB_IMAGE" -f "$ctx/Containerfile" "$ctx" ||
     die "the image did not build"
-  ok "image built (harness ${sha:0:12})"
+  ok "image built (harness ${sha:0:12}, paperclipai harness ${pc_sha:0:12})"
 }
 
 # -------------------------------------------------------------------- run ----
@@ -167,6 +182,24 @@ valid_repo() {
   return 1
 }
 
+mirror_dir() { printf '%s/mirrors/%s.git\n' "$SB_STATE" "${1//\//__}"; }
+
+# This machine's mirror of a repository: heads and pull requests, fetched
+# without credentials.
+fetch_mirror() {
+  local repo=$1 gitdir
+  gitdir=$(mirror_dir "$repo")
+  [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
+  step "fetching $repo (heads and pull requests, no credentials)"
+  # Public, unauthenticated: the owner's git and gh credentials are not read.
+  env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$gitdir" -c transfer.fsckObjects=true -c protocol.allow=never -c protocol.https.allow=always \
+    fetch -q --no-tags "https://github.com/$repo.git" \
+    '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head' ||
+    die "could not fetch $repo"
+}
+
 # The commit's files as a tar, from this machine's mirror of the repository
 # (or --from, a local repository). Only a full 40-hex sha that names a commit.
 make_archive() {
@@ -174,16 +207,8 @@ make_archive() {
   if [[ -n $from ]]; then
     gitdir=$from
   else
-    gitdir="$SB_STATE/mirrors/${repo//\//__}.git"
-    [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
-    step "fetching $repo (heads and pull requests, no credentials)"
-    # Public, unauthenticated: the owner's git and gh credentials are not read.
-    env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
-      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-      git -C "$gitdir" -c transfer.fsckObjects=true -c protocol.allow=never -c protocol.https.allow=always \
-      fetch -q --no-tags "https://github.com/$repo.git" \
-      '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head' ||
-      die "could not fetch $repo"
+    fetch_mirror "$repo"
+    gitdir=$(mirror_dir "$repo")
   fi
   local type
   type=$(git -C "$gitdir" cat-file -t "$sha" 2>/dev/null) || die "$sha is not an object of ${from:-$repo}"
@@ -210,6 +235,7 @@ read_result() { # <tar> <dest> <out> <unit> [extra args]
 
 SB_RUN_NAME=""
 SB_RUN_DIR=""
+SB_RUN_REPO=""
 
 run_cleanup() {
   [[ -n $SB_RUN_NAME ]] && pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
@@ -275,7 +301,7 @@ run_unit() {
       --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
       "${mounts[@]}" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
-      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
+      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_REPO=$SB_RUN_REPO" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
       --workdir /work \
       "$SB_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
@@ -365,10 +391,16 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
   rm -rf -- "$tarfile" "$png"
 }
 
-# The units each step runs, in order.
-units_of_step() {
-  case $1 in
-  tests) echo unit-model unit-bridge qml-parse manifest ;;
+# The units each step runs, in order, for a repository. A repository's tests
+# are its own: what it checks itself with, split so one unit is one container.
+units_of_step() { # <repo> <step>
+  case $2 in
+  tests)
+    case $1 in
+    sceny/omarchy-devices) echo unit-model unit-bridge qml-parse manifest ;;
+    sceny/omarchy-paperclipai) echo pc-tests pc-selftest qml-parse manifest ;;
+    esac
+    ;;
   rig) echo rig-ci ;;
   script) echo script ;;
   esac
@@ -498,7 +530,7 @@ cmd_run() {
   [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "run: $out exists and is not empty"
   out_in_git "$out" && die "run: $out is inside a git repository (or is one); results go in a directory git does not manage"
   SB_RUN_DIR="$SB_STATE/runs/$id"
-  SB_HARNESS=$harness SB_SHA=$sha
+  SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
   mkdir -p -m 700 "$SB_RUN_DIR"
@@ -516,7 +548,7 @@ cmd_run() {
   IFS=, read -ra wanted <<<"$steps"
   IFS=$IFS_SAVE
   for step_name in "${wanted[@]}"; do
-    for unit in $(units_of_step "$step_name"); do
+    for unit in $(units_of_step "$repo" "$step_name"); do
       left=$((timeout - (SECONDS - started)))
       if ((left < 5)); then
         UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
