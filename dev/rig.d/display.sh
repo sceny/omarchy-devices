@@ -162,6 +162,10 @@ hl.config({
     disable_xdg_env_checks = true,
   },
   input = { follow_mouse = 1 },
+  -- Nothing in the rig is an X client (scrcpy runs on Wayland), and an X
+  -- display would put a socket in /tmp/.X11-unix, where the sandbox's hostile
+  -- test looks for the owner's.
+  xwayland = { enabled = false },
   -- No autostart, no portals, no session wiring: the rig starts exactly what
   -- it wants to test and nothing else.
   debug = { disable_logs = false, suppress_errors = true },
