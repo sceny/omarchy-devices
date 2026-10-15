@@ -3,10 +3,13 @@
 Read this before changing, testing or diagnosing anything here. Two skills carry
 the procedures:
 
-- `.claude/skills/develop-panel/`: how to change it and see the change working, in the rig.
+- `.claude/skills/develop-panel/`: how to change it and see the change working, in the sandbox.
 - `.claude/skills/diagnose-panel/`: something looks wrong in the bar or panel, and why.
 
-All development and testing happens in the hidden rig (`dev/rig`, *Workflow*).
+**All development and testing happens in the sandbox** (`dev/sandbox`,
+*Workflow*): `dev/sandbox dev` for Sceny's own working tree, `dev/sandbox run`
+for one exact commit. The hidden rig (`dev/rig`) and its emulator run only
+inside it.
 
 ## What this is
 
@@ -395,8 +398,8 @@ one only with the owner.
   drag out of the window. A new field is a `PanelField`, new read-only
   text a `Text`;
   `tests/test_panelfield.py` (`ShippedQml`) and `tests/test_argv.py` fail
-  the build naming file:line, and `dev/clip-check --rig ID` shows it in the
-  rig: a reader that never reads does not stop the shell. The shell's own
+  the build naming file:line, and `dev/sandbox dev exec -- dev/clip-check --rig ID`
+  shows it in the session's rig: a reader that never reads does not stop the shell. The shell's own
   read of a new clipboard while any panel has the keyboard is Omarchy's
   (omacom/omarchy#8753), not ours.
 - **Apps are windows of their own, tiled by default** (no setting;
@@ -472,8 +475,8 @@ one only with the owner.
   that). The shell reads a plugin's QML once: `omarchy-shell shell
   rescanPlugins`, a `git pull` and `dev/rig sync` change the files and leave
   the old code answering, and `status` answers either way. Run
-  `dev/loaded-code <plugin folder>` (in a rig: `dev/rig exec -- dev/loaded-code
-  <plugin folder>`); it compares the IPC functions the files declare with the
+  `dev/loaded-code <plugin folder>` (in the sandbox: `dev/sandbox dev rig exec --
+  dev/loaded-code <plugin folder>`); it compares the IPC functions the files declare with the
   ones the running shell lists. Exit 1 means restart the shell
   (`omarchy-restart-shell`). It sees functions added or removed, not an
   edited body.
@@ -645,19 +648,28 @@ one only with the owner.
   unreviewed code to anyone who installs or updates, and shows the listing
   as *Update unverified*. `develop` is where work lands. Keep `main` the
   GitHub default branch.
-- **Develop and test in the rig, never on the owner's desktop or phone.**
-  `dev/rig up` starts a hidden second shell with the working tree installed
-  as the plugin and a small Android emulator paired to a private KDE Connect
-  daemon; `dev/rig sync`, `ipc`, `phone`, `screenshot`, `check` and `down`
-  do everything the checks in the skills need (`docs/internals/development.md`).
-  The owner's shell, Hyprland, `~/.config`, KDE Connect daemon, adb server
-  and phone are never driven, restarted or written to by an agent; the owner
-  is asked only to look at a finished result (`dev/rig show`). A rig is
-  always taken down (`dev/rig down`, then `dev/rig verify-clean`), and
-  nothing is ever killed by process name.
+- **Develop and test in the sandbox, never on the owner's desktop or phone.**
+  `dev/sandbox` is a rootless podman container with no home, no credentials,
+  no network and no host socket, in two modes. `dev/sandbox dev` is a
+  session for Sceny's own working tree, kept until `dev stop` or its TTL:
+  `dev start`, `dev sync` (the tracked files, after every edit), `dev up`
+  (the hidden rig: a second shell with the tree installed as the plugin and a
+  small Android emulator paired to a private KDE Connect daemon), `dev rig
+  <verb>` for `dev/rig`'s `sync`, `ipc`, `phone`, `check` and the rest, `dev
+  exec -- <command>` for the tests, `dev shot` and `dev record` for what the
+  owner sees, `dev pull` to bring those out as data. `dev/sandbox run <repo>
+  <sha>` runs one exact commit read-only, in containers deleted afterwards
+  (contributor code, CI-like checks, the release regression, the cold
+  install). `dev/rig` is not run on the host: the sandbox runs it
+  (`docs/internals/development.md`). The owner's shell, Hyprland,
+  `~/.config`, KDE Connect daemon, adb server and phone are never driven,
+  restarted or written to by an agent; the owner looks at screenshots and
+  recordings, never at a live rig. A session is always stopped
+  (`dev/sandbox dev stop`, then `dev/sandbox verify-clean`), and nothing is
+  ever killed by process name.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
-  green, the change checked in the rig, squash-merge, delete the branch. `Closes #n` in a pull
+  green, the change checked in the sandbox, squash-merge, delete the branch. `Closes #n` in a pull
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
@@ -678,14 +690,14 @@ one only with the owner.
      repository requires approval for all external contributors).
   4. **After the go, for that head only:** CI runs, and Panel QA runs the
      head in the sandbox (`dev/sandbox run`): its tests, the rig check and
-     screenshots. Never in the plain rig, never on the host. Then Panel QA
+     screenshots. Never in `dev/sandbox dev`, never on the host. Then Panel QA
      posts the review on the pull request. A newer head starts again at 1.
   5. **It merges into `develop`** (which reaches the owner's installed
-     copy) only after the sandbox run passes on an approved head. Until
-     `dev/sandbox` has passed its security review, contributor code runs
-     nowhere on this machine, even after the go; only CI runs.
-- **Without the rig** (a cloud session, a machine without Omarchy, `labwc`
-  or an Android SDK), do the rest (code, tests, CI, the pull request), say in
+     copy) only after the sandbox run passes on an approved head.
+     Contributor code runs nowhere else on this machine; CI runs it on
+     GitHub.
+- **Without the sandbox** (a cloud session, a machine without Omarchy,
+  podman or `/dev/kvm`), do the rest (code, tests, CI, the pull request), say in
   the pull request that the change is not checked in a running shell, and
   leave the merge until someone checks it there.
 - **Check the freeze before merging anything into `main`**, and whenever
@@ -717,9 +729,9 @@ one only with the owner.
   pulls by hand
   (`omarchy plugin update` reads `main` and does not bring `develop`
   changes). It skips a checkout that is dirty or off `develop`, so never leave
-  the installed copy on a feature branch. The rig installs your working tree into its own
-  throwaway plugin folder (`dev/rig sync`), so a branch is checked without
-  touching the installed copy.
+  the installed copy on a feature branch. The sandbox's rig installs your working tree into its own
+  throwaway plugin folder (`dev/sandbox dev rig sync`), so a branch is checked
+  without touching the installed copy.
 - **An urgent fix for users** is a branch from `main` made with
   `dev/release-prepare X.Y.Z --from main --note "…"` (`fix-X.Y.Z`, its
   version and CHANGELOG section already in the first push) with a pull request
@@ -782,7 +794,7 @@ run in order; the detail, the checklist and the record templates are in
   with `--describe`/`--confirm`; the firewall stays on private ranges and
   the mesh; no new listener and no command built from device data; no
   personal data. A finding blocks the pull request.
-- **A release closes with** a full regression on the emulator in the rig
+- **A release closes with** a full regression on the emulator in the sandbox
   (a regression record; what the emulator cannot judge goes on a *needs a
   real device* list for the owner), a cold install and an upgrade from the
   live tag, and the security specialist's review: the whole plugin against
@@ -812,7 +824,7 @@ run in order; the detail, the checklist and the record templates are in
    holds their verdicts on that SHA.
 
 1a. **Regression and install checks** (`docs/internals/releasing.md`): the
-   full regression on the emulator in the rig, a cold install and an
+   full regression on the emulator in the sandbox, a cold install and an
    upgrade from the live tag. Every failure is fixed on `develop` and the
    checks run again on the new head.
 1b. **Security review** by the security specialist, after the regression has
@@ -927,10 +939,12 @@ run in order; the detail, the checklist and the record templates are in
 ## Never
 
 - Test against the owner's running shell, Hyprland, KDE Connect daemon, adb
-  server or phone: use the rig (`dev/rig`, *Workflow*).
+  server or phone: use the sandbox (`dev/sandbox`, *Workflow*).
 - Send a text, place, answer or end a call, ring a device, pair it over
   Bluetooth, or change the device's volume or playback in a test without
   the owner's go.
-- Leave a test's side effect behind: opening an unread thread marks it seen in
-  `~/.cache/sceny.devices/sms-seen-<device>.json`; undo it.
+- Leave a session or a test's side effect behind: stop sessions
+  (`dev/sandbox dev stop --all`, then `dev/sandbox verify-clean`). A cache a test
+  changes (an unread thread marked seen) is the session's own and goes with it;
+  on the host nothing is changed.
 - Commit anything read from a real device.
