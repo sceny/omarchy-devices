@@ -155,12 +155,13 @@ class Isolation(unittest.TestCase):
         self.assertTrue(mounts)
         for m in mounts:
             with self.subTest(mount=m):
-                self.assertTrue(m.startswith(("type=bind,src=$SB_RUN_DIR/", "type=bind,src=$png,", "type=bind,src=$SB_DIR/sandbox.d/reencode.py,")), m)
+                self.assertTrue(m.startswith(("type=bind,src=$SB_RUN_DIR/", "type=bind,src=$png,", "type=bind,src=$SB_DIR/sandbox.d/reencode.py,",
+                                         "type=bind,src=$SB_DIR/sandbox.d/devside.sh,", "type=bind,src=$frames,dst=/in/frames,")), m)
                 self.assertTrue(m.endswith(",ro"), m)
         self.assertNotIn("--mount", self.run_cmd.replace('"${mounts[@]}"', ""))
 
     def test_devices_are_only_what_the_rig_needs(self):
-        self.assertEqual(self.script.count("--device"), 2)
+        self.assertEqual(self.script.count("--device"), 4)  # a run's two, the dev session's two
         self.assertIn('devices=(--device /dev/kvm --device "$node")', self.script)
         self.assertIn('[[ $step_name == tests ]] || { unit_devices=("${devices[@]}")', self.script)
         self.assertIn('$node == /dev/dri/renderD*', self.script)
@@ -215,6 +216,225 @@ class Isolation(unittest.TestCase):
         self.assertIn("UNIT_NO_USERNS=1", self.script)
         self.assertNotIn("seccomp=unconfined", self.script)
         self.assertIn("seccomp.py", self.script.split("make_seccomp() {")[1].split("}")[0])
+
+
+class DevSession(unittest.TestCase):
+    """`dev/sandbox dev`: a session for Sceny's own tree, held to what a run is held to."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+        start = cls.script.index("dev_start() {")
+        cls.start = cls.script[start : cls.script.index("\n}\n", start)]
+
+    def test_the_session_has_every_flag_a_run_has(self):
+        for flag in ("--network none", "--no-hosts", "--uidmap 0:1:65536", "--gidmap 0:1:65536", "--user 1000:1000", "--read-only",
+                     "--cap-drop all", "--security-opt no-new-privileges", "--pull never", "--memory", "--pids-limit", "--cpus",
+                     "--timeout", "--rm", "--ulimit core=0"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, self.start)
+
+    def test_nothing_in_the_session_opens_it(self):
+        for flag in ("--privileged", "--network host", "--network=host", "--pid host", "--ipc host", "--userns host", "--userns keep-id",
+                     "--cap-add", "unconfined", "--env-host", "--env-file", "--volume", " -v ", "--group-add", "--publish", " -p ",
+                     "--security-opt unmask"):
+            with self.subTest(flag=flag):
+                self.assertNotIn(flag, self.start)
+
+    def test_the_only_host_path_is_the_session_script_read_only(self):
+        mounts = re.findall(r'--mount "([^"]+)"', self.start)
+        self.assertEqual(mounts, ["type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro"])
+
+    def test_the_session_has_the_two_devices_the_rig_needs(self):
+        self.assertEqual(self.start.count("--device"), 2)
+        self.assertIn('--device /dev/kvm --device "$node"', self.start)
+        self.assertIn("$node == /dev/dri/renderD*", self.start)
+        self.assertNotIn("/dev/dri/card", self.start)
+
+    def test_the_session_is_given_only_its_own_variables(self):
+        env = re.findall(r"--env ([A-Z_]+)=", self.start)
+        self.assertEqual(sorted(env), ["HOME", "LANG", "TERM"])
+
+    def test_the_session_ends_by_itself_and_the_ttl_is_bounded(self):
+        self.assertIn('--timeout "$ttl"', self.start)
+        self.assertIn("SB_DEV_TTL_MAX=14400", self.script)
+        self.assertIn("ttl >= 60 && ttl <= SB_DEV_TTL_MAX", self.start)
+
+    def test_the_image_must_not_be_behind_this_machine(self):
+        self.assertIn("pins_check ||", self.start)
+        body = self.script[self.script.index("pins_check() {") : self.script.index("cmd_pins() {")]
+        for name in ("omarchy", "hyprland", "quickshell"):
+            self.assertIn(name, body)
+        self.assertIn("vercmp", body)
+        self.assertIn("--network none", body)
+
+    def test_the_tree_goes_in_as_tracked_files_and_not_as_a_mount(self):
+        sync = self.script[self.script.index("dev_sync() {") : self.script.index("# Pictures and recordings out")]
+        self.assertIn("ls-files -z", sync)
+        self.assertIn("tree_tar.py", sync)
+        self.assertNotIn("--mount", sync)
+        self.assertNotIn("--volume", sync)
+        self.assertIn("GIT_CONFIG_GLOBAL=/dev/null", sync)
+
+    def test_what_comes_out_is_read_as_data_and_pictures_are_decoded_again(self):
+        pull = self.script[self.script.index("dev_pull() {") : self.script.index("dev_assemble() {")]
+        self.assertIn("read_result ", pull)
+        self.assertIn("reencode_pngs", pull)
+        self.assertNotIn("tar -x", pull)
+        self.assertIn("head -c $((SB_MAX_RESULT + 1))", pull)
+        self.assertIn("out_in_git", pull)
+
+    def test_the_video_is_built_in_a_container_with_only_the_decoded_frames(self):
+        body = self.script[self.script.index("dev_assemble() {") : self.script.index("dev_status() {")]
+        for flag in ("--network none", "--cap-drop all", "--security-opt no-new-privileges", "--read-only", "--uidmap 0:1:65536",
+                     "--user 1000:1000", "--pull never", "--memory", "--pids-limit", "--timeout", "--no-hosts", "env -i"):
+            with self.subTest(flag=flag):
+                self.assertIn(flag, body)
+        for flag in ("--device", "--privileged", "--cap-add", "--network host"):
+            with self.subTest(flag=flag):
+                self.assertNotIn(flag, body)
+        self.assertEqual(re.findall(r'--mount "([^"]+)"', body), ["type=bind,src=$frames,dst=/in/frames,ro"])
+        self.assertIn("--only-video", body)
+
+    def test_the_verbs_refuse_what_is_not_a_session(self):
+        r = sandbox("dev", "--timeout", "5m", "status")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("whole seconds", r.stderr)
+
+
+DEVSIDE = os.path.join(ROOT, "dev", "sandbox.d", "devside.sh")
+TREE_TAR = os.path.join(ROOT, "dev", "sandbox.d", "tree_tar.py")
+
+
+class DevSide(unittest.TestCase):
+    """The script the session runs for the host: it takes names, not paths."""
+
+    def run_verb(self, *args):
+        return subprocess.run(["bash", DEVSIDE, *args], capture_output=True, text=True, timeout=30,
+                              env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")})
+
+    def test_a_name_is_lower_case_words(self):
+        for name in ("../x", "A", "a b", "a/b", "-x", "", "x" * 62, "a;b", "$(id)"):
+            for verb in (("shot", name), ("record", name, "5", "5")):
+                with self.subTest(verb=verb):
+                    r = self.run_verb(*verb)
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("lower-case", r.stderr)
+
+    def test_an_unknown_verb(self):
+        r = self.run_verb("bash")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("unknown verb", r.stderr)
+
+    def test_the_tree_is_not_replaced_by_what_it_carries(self):
+        with open(DEVSIDE) as f:
+            text = f.read()
+        self.assertNotIn("/work/src/dev/sandbox.d", text)
+
+
+class TreeTar(unittest.TestCase):
+    """What leaves this machine when the tree goes into a session."""
+
+    def tree(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = os.path.realpath(tmp.name)
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": root, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+        self.env = env
+        subprocess.run(["git", "init", "-q", root], check=True, env=env)
+        return root
+
+    def sync(self, root, limit=1 << 30):
+        names = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, check=True, env=self.env).stdout
+        r = subprocess.run(["python3", TREE_TAR, root, str(limit)], input=names, capture_output=True, timeout=60)
+        members = []
+        if r.stdout:
+            with tarfile.open(fileobj=io.BytesIO(r.stdout)) as t:
+                members = {m.name: (m, t.extractfile(m).read() if m.isreg() else None) for m in t.getmembers()}
+        return r, members
+
+    def add(self, root, *paths):
+        subprocess.run(["git", "-C", root, "add", "-f", *paths], check=True, env=self.env)
+
+    def test_only_tracked_files_leave(self):
+        root = self.tree()
+        for name, data in (("a.txt", b"a"), ("sub/b.txt", b"b"), (".env", b"SECRET"), ("untracked.txt", b"u")):
+            os.makedirs(os.path.dirname(os.path.join(root, name)), exist_ok=True)
+            with open(os.path.join(root, name), "wb") as f:
+                f.write(data)
+        self.add(root, "a.txt", "sub/b.txt")
+        r, members = self.sync(root)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sorted(members), ["a.txt", "sub/b.txt"])
+
+    def test_the_working_tree_bytes_go_not_the_index(self):
+        root = self.tree()
+        path = os.path.join(root, "a.txt")
+        with open(path, "wb") as f:
+            f.write(b"one")
+        self.add(root, "a.txt")
+        with open(path, "wb") as f:
+            f.write(b"two")
+        r, members = self.sync(root)
+        self.assertEqual(members["a.txt"][1], b"two")
+
+    def test_a_link_to_the_outside_is_left_out_and_never_followed(self):
+        root = self.tree()
+        outside = tempfile.NamedTemporaryFile(delete=False)
+        self.addCleanup(os.unlink, outside.name)
+        outside.write(b"PRIVATE")
+        outside.close()
+        os.symlink(outside.name, os.path.join(root, "link"))
+        os.symlink("/etc", os.path.join(root, "dirlink"))
+        with open(os.path.join(root, "ok.txt"), "wb") as f:
+            f.write(b"ok")
+        self.add(root, "link", "dirlink", "ok.txt")
+        r, members = self.sync(root)
+        self.assertEqual(sorted(members), ["ok.txt"])
+        self.assertNotIn(b"PRIVATE", r.stdout)
+
+    def test_a_file_behind_a_linked_directory_is_left_out(self):
+        root = self.tree()
+        outer = tempfile.mkdtemp()
+        self.addCleanup(subprocess.run, ["rm", "-rf", outer])
+        with open(os.path.join(outer, "x.txt"), "wb") as f:
+            f.write(b"PRIVATE")
+        os.symlink(outer, os.path.join(root, "d"))
+        self.add(root, "d")
+        names = b"d/x.txt\0"
+        r = subprocess.run(["python3", TREE_TAR, root, "1000000"], input=names, capture_output=True, timeout=60)
+        self.assertNotIn(b"PRIVATE", r.stdout)
+
+    def test_git_dirs_and_paths_that_leave_the_tree_are_left_out(self):
+        root = self.tree()
+        with open(os.path.join(root, "ok.txt"), "wb") as f:
+            f.write(b"ok")
+        names = b"ok.txt\0.git/config\0sub/.git/hooks/x\0../x\0/etc/passwd\0a/../../b\0"
+        r = subprocess.run(["python3", TREE_TAR, root, "1000000"], input=names, capture_output=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        with tarfile.open(fileobj=io.BytesIO(r.stdout)) as t:
+            self.assertEqual(t.getnames(), ["ok.txt"])
+
+    def test_nothing_arrives_owned_or_privileged(self):
+        root = self.tree()
+        path = os.path.join(root, "run.sh")
+        with open(path, "wb") as f:
+            f.write(b"#!/bin/sh\n")
+        os.chmod(path, 0o4755)
+        self.add(root, "run.sh")
+        r, members = self.sync(root)
+        info = members["run.sh"][0]
+        self.assertEqual((info.uid, info.gid, info.mode), (0, 0, 0o755))
+
+    def test_a_tree_over_the_limit_fails(self):
+        root = self.tree()
+        with open(os.path.join(root, "big"), "wb") as f:
+            f.write(b"x" * 5000)
+        self.add(root, "big")
+        r, _ = self.sync(root, limit=1000)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("larger than", r.stderr.decode())
 
 
 class XSockets(unittest.TestCase):
@@ -631,6 +851,20 @@ class ReadResult(unittest.TestCase):
         self.assertNotIn(b"HOSTILE-TEXT", data)
         self.assertTrue(data.startswith(b"\x89PNG") and data.endswith(b"IEND\xaeB`\x82"))
         for name in ("crc.png", "bomb.png", "trail.png", "nothing.png"):
+            self.assertIn(name, self.skipped)
+
+    def test_a_video_is_refused_unless_it_is_the_assembled_one(self):
+        webm = b"\x1a\x45\xdf\xa3" + b"\x00" * 64
+        self.read({"a.webm": webm, "b.mp4": b"\x00\x00\x00\x18ftypmp42", "c.mkv": webm, "d.mp3": b"ID3", "e.txt": b"x"})
+        self.assertEqual(self.on_disk(), ["e.txt"])
+        for name in ("a.webm", "b.mp4", "c.mkv", "d.mp3"):
+            self.assertIn(name, self.skipped)
+
+    def test_only_a_webm_that_starts_as_one_comes_out_of_the_video_container(self):
+        webm = b"\x1a\x45\xdf\xa3" + b"\x00" * 64
+        self.read({"recording.webm": webm, "fake.webm": b"MZ not a video", "a.png": png(2, 2), "x.txt": b"x", "o.mp4": webm}, "--only-video")
+        self.assertEqual(self.on_disk(), ["recording.webm"])
+        for name in ("fake.webm", "a.png", "x.txt", "o.mp4"):
             self.assertIn(name, self.skipped)
 
     def test_mise_and_codex_instruction_names_are_refused(self):
