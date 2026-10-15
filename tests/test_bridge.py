@@ -942,6 +942,74 @@ class OpenPicturesSafely(unittest.TestCase):
             finally:
                 bridge.state_dir, bridge.default_app, bridge.fit_image = saved
 
+    def test_a_name_that_makes_gio_open_a_picture_goes_the_sandboxed_way(self):
+        """GIO opens .svg, .svgz and .jp2 as pictures by their name, whatever
+        the first bytes say; none of them reaches `gio open` unsandboxed."""
+        prolog = b"<?xml version='1.0'?><!-- " + b"x" * 400 + b" --><svg xmlns='http://www.w3.org/2000/svg'/>"
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                for name, body in (("a.svg", prolog), ("a.svgz", b"\x1f\x8b\x08\x00 not really"),
+                                   ("a.jp2", b"\0\0\0\x0cjP  \r\n\x87\n")):
+                    src = os.path.join(d, name)
+                    open(src, "wb").write(body)
+                    self.assertTrue(bridge.looks_like_picture(src), name)
+                    for flag in ({"from_device": True}, {"local": True}):
+                        ran = []
+                        with contextlib.redirect_stdout(open(os.devnull, "w")):
+                            code = bridge.open_file(src, launch=ran.append, **flag)
+                        self.assertEqual((code, ran), (bridge.EXIT_FAILED, []), "%s %s: no sandbox, never the device's bytes" % (name, flag))
+                notes = os.path.join(d, "notes.txt")
+                open(notes, "w").write("plain text")
+                self.assertFalse(bridge.looks_like_picture(notes))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
+
+    def test_a_fetched_svg_under_another_type_does_not_reach_gio_unsandboxed(self):
+        """The recorded type is the sender's: `application/svg` links the file
+        as .svg, and the gate then treats it as the picture GIO opens."""
+        prolog = b"<?xml version='1.0'?><!-- " + b"x" * 400 + b" --><svg xmlns='http://www.w3.org/2000/svg'/>"
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.fit_image)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                r = bridge.Sms.__new__(bridge.Sms)
+                r.thumbs, r.file_mimes, r.requested = d, {"PART_7_file": "application/svg"}, {"PART_7_file"}
+                src = os.path.join(d, "PART_7_file")
+                open(src, "wb").write(prolog)
+                ev = r.arrived(src, "PART_7_file")
+                self.assertEqual(ev["ev"], "attachment")
+                ran = []
+                with contextlib.redirect_stdout(open(os.devnull, "w")):
+                    code = bridge.open_file(ev["path"], launch=ran.append, from_device=True)
+                self.assertEqual((code, ran), (bridge.EXIT_FAILED, []))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.fit_image = saved
+
+    def test_a_file_over_the_storage_link_is_read_from_its_copy(self):
+        """What is sniffed is the file that is opened: the copy made here, not
+        the device's file, which could change between two reads."""
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir, bridge.default_app, bridge.looks_like_picture)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            bridge.default_app = lambda path: object()
+            sniffed = []
+            bridge.looks_like_picture = lambda path: sniffed.append(path) or False
+            try:
+                src = os.path.join(d, "notes.txt")
+                open(src, "w").write("plain text")
+                ran = []
+                self.assertEqual(bridge.open_file(src, launch=ran.append, local=True), bridge.EXIT_OK)
+                self.assertEqual(sniffed, [ran[0][4]])
+                self.assertTrue(sniffed[0].startswith(os.path.join(d, "state", "open")))
+            finally:
+                bridge.state_dir, bridge.default_app, bridge.looks_like_picture = saved
+
 
 class ReceivedFolderWatch(unittest.TestCase):
     """The folders of received files are watched: a rename is followed, a
