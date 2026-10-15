@@ -3,7 +3,8 @@
 # container, one verb at a time. The host mounts this file read-only at
 # /opt/devside.sh, so a tree that is synced in never replaces it.
 #
-#   unpack            a tar of the tree on stdin becomes /work/src (a git checkout, for dev/rig)
+#   unpack [src|live] a tar of the tree on stdin becomes /work/src (a git checkout, for dev/rig),
+#                     or /work/live, a second tree (the tag an upgrade starts from)
 #   up [TTL]          seed the rig's phone cache and bring the rig up (no owner, TTL seconds)
 #   rig ARGS...       dev/rig on the session's one rig
 #   shot NAME         a screenshot of the rig into /out/screenshots/NAME.png
@@ -43,6 +44,11 @@ verb=${1:-}
 shift || true
 case $verb in
 unpack)
+  case ${1:-src} in
+  src) dest=$SRC ;;
+  live) dest=/work/live ;;
+  *) die "unpack: src or live" ;;
+  esac
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=sandbox GIT_AUTHOR_EMAIL=sandbox@invalid GIT_COMMITTER_NAME=sandbox GIT_COMMITTER_EMAIL=sandbox@invalid
   rm -rf /work/incoming && mkdir -p /work/incoming || die "no room in /work"
@@ -53,8 +59,8 @@ unpack)
       git add -f -A . &&
       git commit -q -m "sandbox dev tree"
   ) >/dev/null 2>&1 || die "the tree is not a git checkout"
-  rm -rf "$SRC"
-  mv /work/incoming "$SRC" || die "could not put the tree in place"
+  rm -rf "$dest"
+  mv /work/incoming "$dest" || die "could not put the tree in place"
   ;;
 up)
   ttl=${1:-7200}

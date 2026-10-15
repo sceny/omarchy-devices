@@ -17,7 +17,7 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
       glycin iproute2 dbus kdeconnect scrcpy ffmpegthumbnailer sshfs bubblewrap \
       pipewire wireplumber qrencode nodejs procps-ng psmisc util-linux unzip zstd perl gum uwsm \
       mesa vulkan-swrast libva ttf-jetbrains-mono-nerd noto-fonts qt6-declarative qt6-wayland qt6-svg \
-      libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools \
+      libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
  && pacman -Scc --noconfirm
 
 # Omarchy's shell and commands: the two packages' files, not their desktop

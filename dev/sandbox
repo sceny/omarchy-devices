@@ -680,9 +680,14 @@ dev_start() {
 }
 
 dev_sync() {
-  local tree=$SB_REPO_ROOT top
+  local tree=$SB_REPO_ROOT top as=src
   while (($#)); do
     case $1 in
+    --as)
+      as=${2:?--as needs src or live}
+      [[ $as == src || $as == live ]] || die "dev sync: --as is src or live"
+      shift
+      ;;
     --tree)
       tree=${2:?--tree needs a directory}
       shift
@@ -701,7 +706,7 @@ dev_sync() {
     python3 "$SB_DIR/sandbox.d/tree_tar.py" "$tree" "$SB_MAX_ARCHIVE" |
     timeout 120 env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec -i --user 1000:1000 --workdir /work \
-      --env HOME=/home/sandbox "$DEV_NAME" /opt/devside.sh unpack 2>&1 |
+      --env HOME=/home/sandbox "$DEV_NAME" /opt/devside.sh unpack "$as" 2>&1 |
     python3 "$SB_DIR/sandbox.d/filter-stderr.py" ""
   local rc=("${PIPESTATUS[@]}")
   ((rc[0] == 0 && rc[1] == 0 && rc[2] == 0)) || die "dev sync: the tree did not reach the session (${rc[*]})"
