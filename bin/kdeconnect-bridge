@@ -1196,7 +1196,9 @@ PICTURE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF8", b"II*\x00", b"M
 def looks_like_picture(path):
     """Whether a file from the device is a picture, by its name or by what it
     holds. A name proves nothing, so a picture under any name (or none) goes
-    the sandboxed way. Raises OSError when the file cannot be read."""
+    the sandboxed way; so does a file whose name makes GIO open it as one
+    (.svg, .svgz, .jp2), whatever it holds. Raises OSError when the file
+    cannot be read."""
     if os.path.splitext(path)[1].lower() in IMAGE_EXTENSIONS:
         return True
     with open(path, "rb") as f:
@@ -1204,8 +1206,11 @@ def looks_like_picture(path):
     if head.startswith(PICTURE_MAGIC) or (head[:4] == b"RIFF" and head[8:12] == b"WEBP") \
             or (head[4:8] == b"ftyp" and head[8:12] in (b"heic", b"heix", b"mif1", b"msf1", b"avif", b"avis")):
         return True
-    ctype, _uncertain = Gio.content_type_guess(None, head)
-    return ctype.startswith("image/")
+    for guess in (None, os.path.basename(path)):
+        ctype, _uncertain = Gio.content_type_guess(guess, head)
+        if ctype.startswith("image/") or Gio.content_type_is_a(ctype, "image/*"):
+            return True
+    return False
 
 
 def open_file(path, launch=None, local=False, from_device=False):
@@ -1221,6 +1226,11 @@ def open_file(path, launch=None, local=False, from_device=False):
     if not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
     if (local or from_device) and os.path.isfile(path):
+        if local:
+            try:
+                path = local_copy(path)
+            except OSError as error:
+                return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
         try:
             picture = looks_like_picture(path)
         except OSError as error:
@@ -1230,11 +1240,6 @@ def open_file(path, launch=None, local=False, from_device=False):
             if not copy:
                 return say("This picture could not be read safely, so it was not opened", EXIT_FAILED)
             path = copy
-        elif local:
-            try:
-                path = local_copy(path)
-            except OSError as error:
-                return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
     if default_app(path) is None:
         launch(["uwsm-app", "--", "nautilus", "--select", file_uri(path)])
         ext = os.path.splitext(path)[1] or "these"
