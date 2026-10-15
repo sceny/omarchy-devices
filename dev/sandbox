@@ -786,6 +786,12 @@ dev_pull() {
 # that starts as WebM and is not too large.
 dev_assemble() {
   local name=$1 frames=$2 fps=$3 out=$4 id tarfile="$SB_RUN_DIR/video.tar" rc=0
+  # The name is the session's; it goes into --mount, where "," and "=" would add options.
+  if [[ ! $name =~ ^[A-Za-z0-9._-]{1,64}$ || $name == .* ]]; then
+    printf "recording '%s': not assembled: the name is not letters, digits, '.', '_' and '-'\n" "$name" >>"$out/SKIPPED.txt"
+    warn "recording left out: its name is not plain (see SKIPPED.txt)"
+    return 0
+  fi
   ls "$frames"/frame-*.png >/dev/null 2>&1 || {
     warn "recording $name: no frame came back"
     return 0
@@ -820,8 +826,12 @@ dev_assemble() {
   local dest="$SB_RUN_DIR/video-$name"
   read_result "$tarfile" "$dest" "$out" "recording-$name" --only-video >/dev/null || rc=$?
   if [[ -f $dest/recording.webm ]]; then
-    mv -n -- "$dest/recording.webm" "$out/recordings/$name.webm"
-    ok "recording $name: recordings/$name.webm"
+    if [[ -e $out/recordings/$name.webm ]]; then
+      warn "recording $name: recordings/$name.webm exists already; not replaced"
+    else
+      mv -- "$dest/recording.webm" "$out/recordings/$name.webm"
+      ok "recording $name: recordings/$name.webm"
+    fi
   else
     warn "recording $name: no video came back (see SKIPPED.txt)"
   fi

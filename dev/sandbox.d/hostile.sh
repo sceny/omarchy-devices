@@ -269,6 +269,8 @@ open("/out/rec/hostile/fps", "w").write("5\n")
 for i in range(1, 6):
     open("/out/rec/hostile/frame-%04d.png" % i, "wb").write(png(64, 48))
 open("/out/rec/hostile/frame-0006.png", "wb").write(b"GIF89a" + b"\0" * 64)
+os.makedirs("/out/rec/a,src=..", exist_ok=True)
+open("/out/rec/a,src=../frame-0001.png", "wb").write(png(64, 48))
 PY
   dev_exec "$DEV_NAME" 60 python3 -c "$plant" >/dev/null 2>&1
   (dev_pull --out "$out/pull") >"$HOSTILE_WORK/dev-pull.log" 2>&1
@@ -286,6 +288,8 @@ PY
   check_dev "the video starts as WebM, and was built here from the frames, not sent" $?
   grep -q 'raw.webm' "$out/pull/SKIPPED.txt" && grep -q 'raw.mp4' "$out/pull/SKIPPED.txt" && grep -q 'fake.png' "$out/pull/SKIPPED.txt"
   check_dev "a raw video, a GIF named .png and the rest are listed as left out" $?
+  grep -q 'a,src=' "$out/pull/SKIPPED.txt"
+  check_dev "a recording named like mount options is left out and listed" $?
   [[ ! -e /tmp/pwned && -z $(find "$out/pull" -name '.git*' -o -name 'CLAUDE.md' -o -type l 2>/dev/null) ]]
   check_dev "no repository, instruction file or link reached the results" $?
   dev_exec "$DEV_NAME" 30 bash -c 'test -z "$(ls -A /out)"' >/dev/null 2>&1

@@ -296,6 +296,10 @@ class DevSession(unittest.TestCase):
                 self.assertNotIn(flag, body)
         self.assertEqual(re.findall(r'--mount "([^"]+)"', body), ["type=bind,src=$frames,dst=/in/frames,ro"])
         self.assertIn("--only-video", body)
+        guard = body.index("A-Za-z0-9._-")
+        self.assertLess(guard, body.index("podman"))
+        self.assertIn("SKIPPED.txt", body[guard : body.index("podman")])
+        self.assertNotIn("mv -n", body)
 
     def test_the_verbs_refuse_what_is_not_a_session(self):
         r = sandbox("dev", "--timeout", "5m", "status")
