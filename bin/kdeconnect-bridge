@@ -31,7 +31,8 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge received-dismiss <device> <path>   forget one received file
   kdeconnect-bridge open-file <path>               in its app (uwsm-app, GIO's default),
                                               else shown in Files
-  kdeconnect-bridge copy-file <path>               the file on the clipboard
+  kdeconnect-bridge copy-file <path> [--local|--from-device]   the file on the clipboard
+                                              (a picture as the sandbox's JPEG, as open-file)
   kdeconnect-bridge doctor                    setup checks, as JSON
   kdeconnect-bridge fix install|start|firewall|sshfs|screen|search   fix one
                                               (install, firewall, sshfs and screen ask
@@ -1205,20 +1206,34 @@ def open_file(path, launch=None, local=False, from_device=False):
     return EXIT_OK
 
 
-def copy_file(path):
-    """The file on the clipboard: an image as image data, anything else as
-    a file (a URI list, as file managers copy)."""
+def copy_file(path, local=False, from_device=False, run=None):
+    """The file on the clipboard, through the same gate as open_file: a copy
+    is made here first (`local`: the file is read over the device's storage),
+    what it holds decides, and a picture goes out only as the sandbox's JPEG
+    (image data), never as the device's bytes; one that does not decode
+    copies nothing. Anything else goes out as a URI list naming the copy
+    here, as file managers copy, never a path on the storage link.
+    `from_device`: a file the device sent, already here. `run` replaces
+    subprocess.run in tests."""
+    run = run or subprocess.run
     if not os.path.isfile(path):
         return say("The file is gone", EXIT_FAILED)
-    ext = os.path.splitext(path)[1].lower().lstrip(".")
-    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp"}.get(ext)
     try:
-        if mime:
-            with open(path, "rb") as f:
-                subprocess.run(["wl-copy", "--type", mime], stdin=f, timeout=15, check=True)
+        if local:
+            path = local_copy(path)
+        picture = looks_like_picture(path)
+    except OSError as error:
+        return say("Could not read it: %s" % (error.strerror or error), EXIT_FAILED)
+    try:
+        if picture:
+            copy = safe_full_picture(path)
+            if not copy:
+                return say("This picture could not be read safely, so it was not copied", EXIT_FAILED)
+            with open(copy, "rb") as f:
+                run(["wl-copy", "--type", "image/jpeg"], stdin=f, timeout=15, check=True)
         else:
-            subprocess.run(["wl-copy", "--type", "text/uri-list"], input=("file://" + urllib.parse.quote(path) + "\n").encode(),
-                           timeout=15, check=True)
+            run(["wl-copy", "--type", "text/uri-list"], input=file_uri(path).encode() + b"\n",
+                timeout=15, check=True)
     except (OSError, subprocess.SubprocessError) as error:
         return say(str(error), EXIT_FAILED)
     return say("Copied")
@@ -4776,7 +4791,7 @@ def main(argv):
         print(safe_art(argv[1] if len(argv) > 1 else "", int(argv[2]) if len(argv) > 2 else ART_BOX))
         return EXIT_OK
     if argv[0] == "copy-file":
-        return copy_file(argv[1] if len(argv) > 1 else "")
+        return copy_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:], from_device="--from-device" in argv[2:])
     if argv[0] == "doctor":
         print(json.dumps(doctor()))
         return EXIT_OK

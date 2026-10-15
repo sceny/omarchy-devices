@@ -1011,6 +1011,115 @@ class OpenPicturesSafely(unittest.TestCase):
                 bridge.state_dir, bridge.default_app, bridge.looks_like_picture = saved
 
 
+class CopyFileThroughTheGate(unittest.TestCase):
+    """Copying a file from the device to the clipboard goes through the same
+    gate as opening it: a copy here, what it holds decides, a picture leaves
+    only as the sandbox's JPEG, anything else as a file here."""
+
+    SANDBOX_JPEG = b"\xff\xd8\xff\xe0 made in the sandbox"
+
+    def setup_paths(self, d):
+        saved = (bridge.state_dir, bridge.fit_image)
+        bridge.state_dir = lambda: os.path.join(d, "state")
+
+        def fit(src, dst, box, fmt="png"):
+            open(dst, "wb").write(self.SANDBOX_JPEG)
+            return True
+        bridge.fit_image = fit
+        return saved
+
+    def runner(self, sent):
+        def run(cmd, stdin=None, input=None, **kwargs):
+            sent.append((cmd, stdin.read() if stdin else input))
+        return run
+
+    def copy(self, path, **flags):
+        sent = []
+        with contextlib.redirect_stdout(open(os.devnull, "w")):
+            code = bridge.copy_file(path, run=self.runner(sent), **flags)
+        return code, sent
+
+    def test_a_picture_by_name_with_other_bytes_leaves_as_the_sandbox_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            try:
+                src = os.path.join(d, "IMG_1.png")
+                open(src, "wb").write(b"II*\x00 not a png at all, a TIFF")
+                code, sent = self.copy(src, local=True)
+                self.assertEqual(code, bridge.EXIT_OK)
+                self.assertEqual(sent, [(["wl-copy", "--type", "image/jpeg"], self.SANDBOX_JPEG)],
+                                 "the sandbox's JPEG, never the device's bytes")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_a_picture_that_does_not_decode_copies_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            bridge.fit_image = lambda *a, **k: False
+            try:
+                for name in ("a.jpg", "a.png", "a.webp", "a.svg", "no_extension"):
+                    src = os.path.join(d, name)
+                    open(src, "wb").write(b"\xff\xd8\xff\xe0" + b"\0" * 40)
+                    code, sent = self.copy(src, local=True)
+                    self.assertEqual((code, sent), (bridge.EXIT_FAILED, []), name)
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_a_file_that_is_not_a_picture_leaves_as_its_copy_here(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            try:
+                src = os.path.join(d, "mount", "notes.txt")
+                os.makedirs(os.path.dirname(src))
+                open(src, "w").write("plain text")
+                code, sent = self.copy(src, local=True)
+                self.assertEqual(code, bridge.EXIT_OK)
+                self.assertEqual([c for c, _ in sent], [["wl-copy", "--type", "text/uri-list"]])
+                uri = sent[0][1].decode().strip()
+                self.assertTrue(uri.startswith("file://" + os.path.join(d, "state", "open")), uri)
+                self.assertNotIn("mount", uri, "never a path on the storage link")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_the_gate_is_read_from_the_copy_not_the_source(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d) + (bridge.looks_like_picture,)
+            sniffed = []
+            bridge.looks_like_picture = lambda path: sniffed.append(path) or False
+            try:
+                src = os.path.join(d, "a.txt")
+                open(src, "w").write("x")
+                self.copy(src, local=True)
+                self.assertEqual(len(sniffed), 1)
+                self.assertTrue(sniffed[0].startswith(os.path.join(d, "state", "open")))
+            finally:
+                bridge.state_dir, bridge.fit_image, bridge.looks_like_picture = saved
+
+    @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
+    def test_a_real_picture_under_another_name_is_decoded_in_the_sandbox(self):
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as d:
+            saved = (bridge.state_dir,)
+            bridge.state_dir = lambda: os.path.join(d, "state")
+            try:
+                src = os.path.join(d, "IMG_2.webp")
+                pix = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 40, 30)
+                pix.fill(0x3366ccff)
+                pix.savev(src, "png", [], [])
+                code, sent = self.copy(src, local=True)
+                if code != bridge.EXIT_OK:
+                    self.skipTest("no sandbox for pictures here")
+                self.assertEqual(sent[0][0], ["wl-copy", "--type", "image/jpeg"])
+                self.assertEqual(sent[0][1][:2], b"\xff\xd8")
+                self.assertNotEqual(sent[0][1], open(src, "rb").read())
+            finally:
+                (bridge.state_dir,) = saved
+
+    def test_a_missing_file_says_it_is_gone(self):
+        code, sent = self.copy("/nonexistent/none.png", local=True)
+        self.assertEqual((code, sent), (bridge.EXIT_FAILED, []))
+
+
 class ReceivedFolderWatch(unittest.TestCase):
     """The folders of received files are watched: a rename is followed, a
     delete or move-away goes at once; a watch the system refuses changes

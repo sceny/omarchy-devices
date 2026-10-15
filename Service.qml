@@ -1619,13 +1619,14 @@ Item {
     Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--select", Model.fileUri(path)])
   }
 
-  // The file on the clipboard (an image as image data).
+  // A file on the device on the clipboard: copied here first, a picture as the
+  // sandbox's JPEG (the bridge's gate), anything else as a file here.
   function copyFile(path) {
     if (demo) { report("Copied", false); return }
     var key = "copy:" + String(path)
     if (isBusy(key)) return
     setBusy(key, true)
-    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", path] })
+    var proc = actionComponent.createObject(root, { key: key, command: [bridge, "copy-file", String(path), "--local"] })
     proc.running = true
   }
 

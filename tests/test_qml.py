@@ -145,28 +145,90 @@ class FetchedAttachmentsOpenOnlyWhenAsked(unittest.TestCase):
         self.assertIn('cmd.push("--from-device")', open(os.path.join(ROOT, "SmsService.qml")).read())
 
 
-class DeviceFilesOpenThroughTheGate(unittest.TestCase):
-    """A QML start of the bridge's `open-file` that can carry a file the
-    device sent passes `--from-device` or `--local`, so the bridge's gate
-    (what the file holds decides; a picture opens only as the sandbox's
-    copy) applies. A file the plugin made itself is on this list."""
+def call_args(text, open_paren):
+    """The top-level arguments of the call whose "(" is at open_paren."""
+    depth, args, start = 0, [], open_paren + 1
+    for i in range(open_paren, len(text)):
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(text[start:i].strip())
+                return [a for a in args if a != ""]
+        elif c == "," and depth == 1:
+            args.append(text[start:i].strip())
+            start = i + 1
+    return args
+
+
+def enclosing_function(text, at):
+    m = None
+    for m in re.finditer(r"function\s+(\w+)", text[:at]):
+        pass
+    return m.group(1) if m else ""
+
+
+class DeviceFilesGoThroughTheGate(unittest.TestCase):
+    """A QML start of the bridge's `open-file` or `copy-file` that can carry
+    a file the device sent passes `--from-device` or `--local`, so the
+    bridge's gate (what the file holds decides; a picture opens or is copied
+    only as the sandbox's copy) applies. Each caller of the QML functions
+    that start them is checked too: `openPath` builds its flag from its
+    second argument, so a caller that leaves it out skips the gate while the
+    function's own text still names the flag. A file the plugin made itself
+    is on these lists."""
 
     OWN_FILES = {("SmsService.qml", "files[j].thumb"): "the demo's picture, a local file"}
+    OWN_PATHS = {("Panel.qml", "openPhotoFolder"): "an album's folder, never a file"}
 
-    def test_every_open_file_start_names_the_gate(self):
+    def gaps(self, paths):
         found = []
-        for path in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
+        for path in paths:
             raw = open(path).read()
             text = code_only(raw)
-            for m in re.finditer(r'"open-file"', raw):
+            name = os.path.basename(path)
+            for m in re.finditer(r'"(?:open|copy)-file"', raw):
                 start = max(text.rfind("function ", 0, m.start()), 0)
                 end = text.find("function ", m.end())
                 scope = raw[start:len(raw) if end < 0 else end]
                 line = raw[raw.rfind("\n", 0, m.start()) + 1:raw.find("\n", m.end())]
-                own = any(f == os.path.basename(path) and k in line for (f, k) in self.OWN_FILES)
+                own = any(f == name and k in line for (f, k) in self.OWN_FILES)
                 if not own and "--from-device" not in scope and "--local" not in scope:
-                    found.append("%s:%d" % (os.path.basename(path), raw.count("\n", 0, m.start()) + 1))
-        self.assertEqual(found, [], "an open-file start without --from-device or --local")
+                    found.append("%s:%d %s without --from-device or --local" % (name, raw.count("\n", 0, m.start()) + 1, m.group(0)))
+            for m in re.finditer(r"\b(openPath|openFromDevice|copyFile)\s*\(", text):
+                if text[:m.start()].rstrip().endswith("function"):
+                    continue
+                args = call_args(text, m.end() - 1)
+                where = (name, enclosing_function(text, m.start()))
+                ok = (m.group(1) == "openPath" and len(args) > 1 and args[1] == "true") or m.group(1) != "openPath"
+                if not ok and where not in self.OWN_PATHS:
+                    found.append("%s:%d openPath(%s) without true: the gate is not named" % (name, raw.count("\n", 0, m.start()) + 1, ", ".join(args)))
+        return found
+
+    def test_every_start_and_caller_names_the_gate(self):
+        self.assertEqual(self.gaps(sorted(glob.glob(os.path.join(ROOT, "*.qml")))), [])
+
+    def test_the_check_sees_a_start_or_caller_without_the_gate(self):
+        import tempfile
+        cases = ('function a() { run([bridge, "copy-file", path]) }\n',
+                 'function a() { run([bridge, "open-file", String(path)]) }\n',
+                 'function f(p) { phone.openPath(p) }\n',
+                 'function f(p) { phone.openPath(p, fromDevice) }\n')
+        for body in cases:
+            with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+                f.write(body)
+            try:
+                self.assertEqual(len(self.gaps([f.name])), 1, body)
+            finally:
+                os.remove(f.name)
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write('function a() { run([bridge, "copy-file", path, "--local"]) }\nfunction f(p) { phone.openPath(p, true) }\n')
+        try:
+            self.assertEqual(self.gaps([f.name]), [])
+        finally:
+            os.remove(f.name)
 
 
 if __name__ == "__main__":
