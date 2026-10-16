@@ -11,9 +11,12 @@ All of them run in a `dev/sandbox dev` session (next section):
 
 ```bash
 dev/sandbox dev exec -- node --test tests/*.test.js              # Model.js
-dev/sandbox dev exec -- python3 -m unittest discover -s tests    # the bridge's pure pieces
+dev/sandbox dev --timeout 900 exec -- python3 -m unittest discover -s tests    # the bridge's pure pieces; the full run outlasts the default timeout
 dev/sandbox dev rig exec -- bin/kdeconnect-bridge snapshot       # what the plugin sees, on the rig's bus
 ```
+
+With two or more sessions open, name yours after `dev`: `dev/sandbox dev --session ID ...`
+(`dev/sandbox dev status` lists them).
 
 `tests.test_sandbox` tests `dev/sandbox` itself and runs on the host: it needs
 podman and builds pictures too large for a running rig.

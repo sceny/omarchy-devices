@@ -22,13 +22,17 @@ RIG=(dev/sandbox dev rig)          # dev/rig's verbs, on the session's rig
 IPC=(dev/sandbox dev rig ipc)      # the panel's IPC
 ```
 
+With two or more sessions open, every `dev/sandbox dev` command needs the
+session named: `dev/sandbox dev --session ID rig`, `dev/sandbox dev --session ID
+rig ipc` (`dev/sandbox dev status` lists them). Leave other agents' sessions alone.
+
 ## 2. Check logic before the shell sees it
 
 Pure logic lives in `Model.js` and in the bridge. Test both in the session:
 
 ```bash
 dev/sandbox dev exec -- node --test tests/*.test.js              # Model.js
-dev/sandbox dev exec -- python3 -m unittest discover -s tests    # kdeconnect-bridge helpers
+dev/sandbox dev --timeout 900 exec -- python3 -m unittest discover -s tests    # kdeconnect-bridge helpers (the full run outlasts the default timeout)
 "${RIG[@]}" exec -- bin/kdeconnect-bridge snapshot               # what the plugin sees, as JSON
 ```
 
