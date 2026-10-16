@@ -795,7 +795,9 @@ run in order; the detail, the checklist and the record templates are in
   the mesh; no new listener and no command built from device data; no
   personal data. A finding blocks the pull request. A finding that does
   not block it becomes an issue with an owner before the review is done,
-  and the review comment links it. The comment on GitHub holds the
+  and the review comment links it. An item not checked is checked
+  before the merge, or it is an issue with an owner that the comment
+  links; the merge waits for one of the two. The comment on GitHub holds the
   verdict, what was checked as the plugin's behaviour and the changes
   asked for, never how or where we ran it (sandbox, rig, emulator,
   images, paths, test counts, our own setup's failures): that stays on

@@ -228,6 +228,14 @@ its owner and its priority, before the review task is marked done. The review
 comment links it. A finding written only in a comment has no owner and is
 lost once the pull request merges.
 
+**Nothing merges unchecked and untracked.** An item the review did not check
+(an entry point read in the diff but not driven, a path opened another way,
+a rule the author says is kept by hand with no test holding it) is checked
+before the merge, or it becomes a GitHub issue with its owner that the
+comment links. The merge waits for one of the two. A question the author
+asks in the pull request (a design doubt, an alternative) goes to the role
+that decides it, and the author gets the answer on the pull request.
+
 **What a public comment holds.** A review comment on GitHub is read by the
 author and by anyone after them. It holds the verdict, what was checked,
 described as the plugin's behaviour (what was done in the panel and what it
