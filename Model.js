@@ -3007,7 +3007,8 @@ function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
 }
 
 // The Keys page (#194): every key the panel answers to, by where it works.
-// Keep it in step with the key handlers in Panel.qml and docs/use/keyboard.md.
+// tests/keys.test.js fails the build when it drifts from the key handlers in
+// Panel.qml or from docs/use/keyboard.md.
 var KEYS_ROW = { kind: "keys", key: "keys", glyph: GLYPH.keyboard, label: "Keys", hint: "Every key the panel answers to (?)" }
 var KEYS = [
   { group: "Everywhere", keys: [

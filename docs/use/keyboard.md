@@ -18,6 +18,7 @@ field, so a stray keystroke never becomes a sent text.
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |
 | `/` · `u` · `n` · `i` · `p` | Search · unread · new message · reply · pin |
+| `v` | Where an open app's sound plays |
 | `r` | Refresh (Contacts) |
 | `1`–`9` · `Shift+H` `Shift+L` | Switch device · previous · next device, or move a pinned app |
 | `Shift+K` `Shift+J` | Move a section, a device, a shortcut |
