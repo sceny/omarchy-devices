@@ -5,7 +5,8 @@
 #
 # Usage:
 #   dev/sandbox build [--profile devices|paperclipai|all] [--ref REV] [--paperclip-ref REV]
-#                                        build the image of a profile (default all) from pinned sources:
+#                                        build the common base image (Arch, Hyprland, Quickshell, Omarchy),
+#                                        then the image of a profile (default all) on it, from pinned sources:
 #                                        devices = the emulator and Android SDK, from REV's dev/;
 #                                        paperclipai = Paperclip's server and Postgres, from REV's
 #                                        dev/sandbox.d and sceny/omarchy-paperclipai's dev/ at its branch
@@ -25,8 +26,8 @@
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
 #   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
 #                                        could not reach (the sandbox's own acceptance test)
-#   dev/sandbox status                   the image, its pins, the limits
-#   dev/sandbox remove-image             delete the image and its storage
+#   dev/sandbox status                   the images (base and profiles), the limits
+#   dev/sandbox remove-image             delete the images and their storage
 #
 # What a run is:
 #
@@ -116,7 +117,15 @@ profile_of() { # <repo>
   esac
 }
 
-image_of() { printf '%s-%s:current\n' "$SB_IMAGE_PREFIX" "$1"; } # <profile>
+image_of() { printf '%s-%s:current\n' "$SB_IMAGE_PREFIX" "$1"; } # <profile|base>
+
+# Whether a profile's image begins with every layer of the base image, in order.
+on_base() { # <profile>
+  local base mine
+  base=$(pm image inspect --format '{{range .RootFS.Layers}}{{.}} {{end}}' "$(image_of base)") || return 1
+  mine=$(pm image inspect --format '{{range .RootFS.Layers}}{{.}} {{end}}' "$(image_of "$1")") || return 1
+  [[ -n $base && $mine == "$base"* ]]
+}
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
 step() { printf '\033[36m  ·\033[0m %s\n' "$*" >&2; }
@@ -195,6 +204,14 @@ cmd_build() {
     git -C "$pc_git" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai"
   fi
 
+  # The common base first, as an image of its own: both profiles start from
+  # exactly its layers, so what they share is one thing to check and pin.
+  say "building $(image_of base) from pinned sources (a download of several GB the first time)"
+  pm build --target base --label "org.sceny.sandbox.harness=$sha" \
+    -t "$(image_of base)" -f "$ctx/Containerfile" "$ctx" ||
+    die "the base image did not build"
+  ok "base image built"
+
   local one labels
   for one in "${SB_PROFILES[@]}"; do
     [[ $profile == all || $profile == "$one" ]] || continue
@@ -208,7 +225,8 @@ cmd_build() {
     pm build --target "$one" "${labels[@]}" \
       -t "$(image_of "$one")" -f "$ctx/Containerfile" "$ctx" ||
       die "the $one image did not build"
-    ok "$one image built (harness ${sha:0:12})"
+    on_base "$one" || die "the $one image does not start with the base image's layers"
+    ok "$one image built on the base (harness ${sha:0:12})"
   done
 }
 
@@ -1091,7 +1109,7 @@ $list"
     bad=1
   else ok "no process"; fi
   local profile image
-  for profile in "${SB_PROFILES[@]}"; do
+  for profile in base "${SB_PROFILES[@]}"; do
     image=$(image_of "$profile")
     if pm image exists "$image"; then
       step "image kept on purpose: $image ($(pm image inspect --format '{{.Size}}' "$image" | numfmt --to=iec 2>/dev/null))"
@@ -1106,13 +1124,15 @@ cmd_status() {
   require_tools
   say "sandbox"
   echo "  store:   $SB_STATE"
-  local profile image
-  for profile in "${SB_PROFILES[@]}"; do
+  local profile image based
+  for profile in base "${SB_PROFILES[@]}"; do
     image=$(image_of "$profile")
     if pm image exists "$image"; then
-      echo "  image:   $image, harness $(pm image inspect --format '{{index .Labels "org.sceny.sandbox.harness"}}' "$image" | cut -c1-12), created $(pm image inspect --format '{{.Created}}' "$image" | cut -c1-19)"
+      based=""
+      [[ $profile == base ]] || { on_base "$profile" && based=", on the base" || based=", NOT on the current base (build again)"; }
+      echo "  image:   $image, harness $(pm image inspect --format '{{index .Labels "org.sceny.sandbox.harness"}}' "$image" | cut -c1-12), created $(pm image inspect --format '{{.Created}}' "$image" | cut -c1-19)$based"
     else
-      echo "  image:   $image none (dev/sandbox build --profile $profile)"
+      echo "  image:   $image none (dev/sandbox build)"
     fi
   done
   echo "  limits:  memory $SB_MEMORY, cpus $SB_CPUS, processes $SB_PIDS, tmp $SB_TMP_SIZE, time ${SB_TIMEOUT}s"
@@ -1122,7 +1142,7 @@ cmd_status() {
 cmd_remove_image() {
   require_tools
   local profile
-  for profile in "${SB_PROFILES[@]}"; do pm rmi -f "$(image_of "$profile")" >/dev/null 2>&1; done
+  for profile in "${SB_PROFILES[@]}" base; do pm rmi -f "$(image_of "$profile")" >/dev/null 2>&1; done
   pm system prune -f -a >/dev/null 2>&1
   ok "images removed"
 }

@@ -1,5 +1,6 @@
 # The images dev/sandbox runs a contributor's commit in: one per repository (a
-# profile, built with `--target`) over one shared base. Devices' image holds the
+# profile, built with `--target`) on one common base, itself built and tagged
+# first (sceny-sandbox-base, `--target base`). Devices' image holds the
 # emulator, the Android SDK and KDE Connect and nothing of Paperclip;
 # Paperclip's holds its server, Postgres and npm and nothing of Android. Built
 # beforehand, with a network, from pinned sources and Sceny's own develop (its

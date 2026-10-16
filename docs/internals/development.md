@@ -42,12 +42,15 @@ only inside it. Two modes:
 SDK, KDE Connect and the build tools `dev/soak` needs, and nothing of
 Paperclip. `sceny/omarchy-paperclipai`'s image holds Paperclip's server (the
 `paperclipai` CLI, from a lockfile), Postgres and npm, and nothing of Android
-or KDE Connect. Both build from one `Containerfile` over a shared base
-(`--target`), and `run` and `dev start` pick the image from the repository.
+or KDE Connect. Both build from one `Containerfile` on a common base image,
+`sceny-sandbox-base` (Arch at a snapshot date, Hyprland, Quickshell,
+Omarchy's shell, the sandbox user), built first and tagged on its own; a
+profile that does not start with exactly the base's layers fails the build.
+`run` and `dev start` pick the image from the repository.
 No container of either has a network, so the Paperclip server in a run is a
 throwaway instance on loopback with no route out.
 
-`dev/sandbox build [--profile devices|paperclipai|all]` makes the images from
+`dev/sandbox build [--profile devices|paperclipai|all]` makes the base and the images from
 pinned sources (once, and after develop's `dev/` changes); `dev/sandbox pins`
 fails while an image's Omarchy, Hyprland or Quickshell is behind this
 machine's; `dev/sandbox status` shows the images and the limits;
