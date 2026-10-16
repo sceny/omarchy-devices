@@ -221,6 +221,21 @@ finding blocks the pull request.
 The review comment names each line it checked, including the ones that do not
 apply.
 
+**Every finding has an owner before the review is done.** A finding that does
+not block the pull request becomes a GitHub issue here (`bug`, or
+`enhancement`; a Paperclip task when it concerns only our own tooling), with
+its owner and its priority, before the review task is marked done. The review
+comment links it. A finding written only in a comment has no owner and is
+lost once the pull request merges.
+
+**What a public comment holds.** A review comment on GitHub is read by the
+author and by anyone after them. It holds the verdict, what was checked,
+described as the plugin's behaviour (what was done in the panel and what it
+showed), and each change the author must make, with the rule it follows. It
+never holds how or where we ran it: the sandbox, an image, the rig, an
+emulator, a local path, a host name, test-run counts, or a failure that comes
+from our own setup. Those go on the Paperclip task.
+
 ## Regression on the emulator
 
 Panel QA runs the whole plugin in the sandbox, on the candidate: the head of
