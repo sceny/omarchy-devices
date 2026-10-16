@@ -115,8 +115,10 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
 The release pull request into `main` is merged with a merge commit. GitHub has
 no per-pull-request check of the merge method, so the pull request's `release`
 check prints a reminder and the `release` run on `main` fails, after tagging
-and publishing, when the tagged commit has one parent. Merge `main` into
-`develop` meanwhile and use a merge commit for the next release.
+and publishing, when the tagged commit has one parent. When that happens, the
+tag and the release stand: merge `main` into `develop` with a merge commit, so
+`develop` holds `main`'s squashed commit, and merge the next release pull
+request with a merge commit.
 
 ## Every pull request into `main`: the marketplace's checks
 
