@@ -15,6 +15,7 @@ field, so a stray keystroke never becomes a sent text.
 | Esc · `0` | Back to where you came from, one step at a time; then close · Home (the main page, from two pages deep) |
 | `c` | Fold the section under the cursor |
 | `r` · `x` · `e` · `o` | Reply · dismiss (a notification or a received file) · show all · open its app |
+| `Shift+Delete` | Dismiss all notifications (cursor in Notifications) |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |
 | `/` · `u` · `n` · `i` · `p` | Search · unread · new message · reply · pin |

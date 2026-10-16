@@ -37,6 +37,10 @@ Panel {
   // any dismiss is still on its way to the device.
   readonly property var dismissableNotes: notifications.filter(function(n) { return n.dismissable === true })
   readonly property bool dismissingAll: !!phone && dismissableNotes.some(function(n) { return phone.isBusy("dismiss:" + n.id) })
+  // Shift+Delete, as the header's button, from the Notifications section
+  // only: not while editing, and (the key catcher's `blocked`) never in a field.
+  readonly property bool dismissAllKeyReady: opened && mainView && !editing && cursorActive && focusSection === "notifications"
+    && !isCollapsed("notifications") && !!phone && !dismissingAll && dismissableNotes.length > 0
   readonly property var can: device && device.can ? device.can : ({})
 
   // Layout settings, from this widget's shell.json entry. Written only by the
@@ -3289,6 +3293,11 @@ Panel {
       // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut,
       // so it comes before the catcher, whose Enter carries no modifiers.
       Shortcut {
+        sequences: ["Shift+Delete"]
+        enabled: root.dismissAllKeyReady && !keyCatcher.blocked
+        onActivated: root.phone.dismissAll()
+      }
+      Shortcut {
         sequences: ["Shift+Return", "Shift+Enter"]
         enabled: root.opened && !keyCatcher.blocked && root.cursorActive
           && (root.appsOpen || (root.mainView && root.focusSection === "apps"))
@@ -5666,7 +5675,7 @@ Panel {
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
                       motion: root.motion
-                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device)
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device) + " (Shift+Delete)"
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
