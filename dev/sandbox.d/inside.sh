@@ -77,7 +77,7 @@ if [[ $HARNESS == develop ]]; then
 fi
 
 # dev/rig packages the tracked tree of a git checkout, so the rig units make
-# one (the archive is files only); -f because the commit's own .gitignore would
+# one (the archive is files only), as does pc-tests; -f because the commit's own .gitignore would
 # otherwise drop files the commit tracks.
 git_tree() {
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -113,7 +113,11 @@ unit-bridge) unit unit-bridge bash -c 'python3 -m unittest discover -s tests -v'
 qml-parse)
   unit qml-parse bash -c 'fmt=/usr/lib/qt6/bin/qmlformat; for f in *.qml; do "$fmt" "$f" >/dev/null || { echo "$f does not parse"; exit 1; }; done' || status=$?
   ;;
-pc-tests) unit pc-tests bash test/run_all.sh || status=$? ;;
+pc-tests)
+  # its security rules read the tracked files (`git ls-files`)
+  git_tree || exit "$E_PREPARE"
+  unit pc-tests bash test/run_all.sh || status=$?
+  ;;
 pc-selftest) unit pc-selftest dev/rig selftest || status=$? ;;
 manifest) unit manifest jq -e --arg id "$PLUGIN_ID" '.id == $id and .schemaVersion == 1' manifest.json || status=$? ;;
 rig-ci | script)
