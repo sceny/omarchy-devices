@@ -5652,12 +5652,14 @@ Panel {
                     }
 
                     // Dismiss all: open, it fades in as the rows do; folded,
-                    // it fades out with them.
+                    // it fades out with them. Its room stays in the row while
+                    // any note can be dismissed, so the title and the summary
+                    // never move as it fades.
                     WaitButton {
                       id: notesDismissAll
                       readonly property bool shown: !root.isCollapsed("notifications") && root.dismissableNotes.length > 0
                       opacity: shown ? 1 : 0
-                      visible: opacity > 0
+                      visible: root.dismissableNotes.length > 0 || opacity > 0
                       Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (notesDismissAll.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                       Layout.alignment: Qt.AlignVCenter
                       // In the rows' ✕ column: a row's buttons sit inside its right margin.
@@ -5670,7 +5672,7 @@ Panel {
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
-                      enabled: !!root.phone && !root.dismissingAll
+                      enabled: shown && !!root.phone && !root.dismissingAll
                       onClicked: root.phone.dismissAll()
                     }
                   }
