@@ -793,7 +793,14 @@ run in order; the detail, the checklist and the record templates are in
   device is decoded outside the sandbox; root goes only through `pkexec`
   with `--describe`/`--confirm`; the firewall stays on private ranges and
   the mesh; no new listener and no command built from device data; no
-  personal data. A finding blocks the pull request.
+  personal data. A finding blocks the pull request. A finding that does
+  not block it becomes an issue with an owner before the review is done,
+  and the review comment links it. The comment on GitHub holds the
+  verdict, what was checked as the plugin's behaviour and the changes
+  asked for, never how or where we ran it (sandbox, rig, emulator,
+  images, paths, test counts, our own setup's failures): that stays on
+  the Paperclip task (`docs/internals/releasing.md`, *Every pull
+  request*).
 - **A release closes with** a full regression on the emulator in the sandbox
   (a regression record; what the emulator cannot judge goes on a *needs a
   real device* list for the owner), a cold install and an upgrade from the
