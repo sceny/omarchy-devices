@@ -188,7 +188,10 @@ cmd_build() {
   git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
     die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
 
-  ctx=$(mktemp -d "${TMPDIR:-/tmp}/sceny-sandbox-build.XXXXXX")
+  # In the store, not $TMPDIR: a build takes longer than some callers' temporary
+  # directory lives, and its context gone mid-way fails the later images.
+  mkdir -p "$SB_STATE/builds"
+  ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
   trap 'rm -rf "$ctx"' RETURN
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
@@ -1091,7 +1094,7 @@ cmd_verify_clean() {
     fail "run directories left: $list"
     bad=1
   else ok "no run directory (commit tars, results)"; fi
-  list=$(ls -d "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
+  list=$(ls -d "$SB_STATE"/builds/sceny-sandbox-build.* "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
   if [[ -n $list ]]; then
     fail "build directories left: $list"
     bad=1
