@@ -1,6 +1,6 @@
 ---
 name: develop-panel
-description: Change the Devices Omarchy plugin (sceny.devices) and see the change working, in the hidden test rig (dev/rig) with its Android emulator. Use when editing any of its QML, Model.js, the KDE Connect bridge or manifest.json, adding a control, a setting or a messages feature, or restyling the panel. Covers the edit loop, the tests, when the shell must restart, driving the panel over IPC, demo mode, the emulator, and how to look at the render (including transitions). Read AGENTS.md first for the boundary and the rules.
+description: Change the Devices Omarchy plugin (sceny.devices) and see the change working, in the sandbox (dev/sandbox dev) where the hidden test rig (dev/rig) and its Android emulator run. Use when editing any of its QML, Model.js, the KDE Connect bridge or manifest.json, adding a control, a setting or a messages feature, or restyling the panel. Covers the edit loop, the tests, when the shell must restart, driving the panel over IPC, demo mode, the emulator, and how to look at the render (including transitions) and bring screenshots and recordings out. Read AGENTS.md first for the boundary and the rules.
 ---
 
 # Changing the plugin
@@ -9,76 +9,95 @@ description: Change the Devices Omarchy plugin (sceny.devices) and see the chang
 
 This repository is the plugin. Work in your own clone, never in the owner's
 installed copy (`~/.config/omarchy/plugins/sceny.devices`). Everything below
-runs in the hidden rig (`dev/rig`, `docs/internals/development.md`): a
-second shell in its own compositor, the working tree installed as the
-plugin, and a small Android emulator as the phone. The owner's shell, desktop
-and phone are never used.
+runs in the sandbox (`dev/sandbox dev`, `docs/internals/development.md`): a
+rootless container with no home, no credentials, no network and no host
+socket, holding the hidden rig (`dev/rig`): a second shell in its own
+compositor, the working tree installed as the plugin, and a small Android
+emulator as the phone. `dev/rig` is not run on the host. The owner's shell,
+desktop and phone are never used. Commands in this skill that start with
+`RIG` or `IPC` go through the session:
+
+```bash
+RIG=(dev/sandbox dev rig)          # dev/rig's verbs, on the session's rig
+IPC=(dev/sandbox dev rig ipc)      # the panel's IPC
+```
+
+With two or more sessions open, every `dev/sandbox dev` command needs the
+session named: `dev/sandbox dev --session ID rig`, `dev/sandbox dev --session ID
+rig ipc` (`dev/sandbox dev status` lists them). Leave other agents' sessions alone.
 
 ## 2. Check logic before the shell sees it
 
-Pure logic lives in `Model.js` and in the bridge. Test both:
+Pure logic lives in `Model.js` and in the bridge. Test both in the session:
 
 ```bash
-node --test tests/*.test.js                       # Model.js
-python3 -m unittest discover -s tests    # kdeconnect-bridge helpers
-bin/kdeconnect-bridge snapshot           # what the plugin sees, as JSON
+dev/sandbox dev exec -- node --test tests/*.test.js              # Model.js
+dev/sandbox dev --timeout 900 exec -- python3 -m unittest discover -s tests    # kdeconnect-bridge helpers (the full run outlasts the default timeout)
+"${RIG[@]}" exec -- bin/kdeconnect-bridge snapshot               # what the plugin sees, as JSON
 ```
 
 Add a test for every rule you touch. The data comes from a real device: never
 paste real numbers, names or message text into a test; use 555 numbers.
+`bin/kdeconnect-bridge` runs only through `RIG exec`: on the host it would read
+the owner's KDE Connect.
 
 ## 3. Get the change into the rig
 
 ```bash
-dev/rig up                 # once: hidden, emulator paired (2 to 4 minutes); --no-phone for demo-only work
-dev/rig sync               # after each edit: installs the working tree as the plugin
-dev/rig restart-shell      # after Panel.qml, SettingsView.qml, MessagesView.qml, BarWidget.qml, Model.js
-dev/rig ipc status         # the panel answers
-dev/rig logs shell         # a QML error lands here
+dev/sandbox dev start      # once: prints the session id; it ends by itself (TTL, at most four hours)
+dev/sandbox dev sync       # after each edit: the tracked files go in (git add a new file first)
+dev/sandbox dev up         # once per session: the rig, emulator booted and paired (2 to 4 minutes)
+"${RIG[@]}" sync           # after each sync: installs the synced tree as the plugin
+"${RIG[@]}" restart-shell  # after Panel.qml, SettingsView.qml, MessagesView.qml, BarWidget.qml, Model.js
+"${IPC[@]}" status         # the panel answers
+"${RIG[@]}" logs shell     # a QML error lands here
 ```
 
 - `Service.qml`, `SmsService.qml` and the bridge reload by themselves on
-  `dev/rig sync`. `BarWidget.qml` logs the same line but the pill keeps
+  `rig sync`. `BarWidget.qml` logs the same line but the pill keeps
   drawing the old code: restart the rig's shell.
 - **Anything the panel or the pill loads is cached by the shell:** only
-  `dev/rig restart-shell` picks it up. New IPC functions answer "Function not
+  `rig restart-shell` picks it up. New IPC functions answer "Function not
   found" until then.
-- **After every restart, confirm the panel answers** (`dev/rig ipc status`)
-  **and runs the files you synced** (`dev/rig exec -- dev/loaded-code
-  <plugin dir>/sceny.devices`, the plugin dir from `dev/rig status`). `status` is answered
+- **After every restart, confirm the panel answers** (`"${IPC[@]}" status`)
+  **and runs the files you synced** (`"${RIG[@]}" exec -- dev/loaded-code
+  <plugin dir>/sceny.devices`, the plugin dir from `"${RIG[@]}" status`). `status` is answered
   by old code too; a rescan does not reload a plugin, only a restart does.
   "Target not found" means the plugin failed to load and the widget is gone
-  from the bar; read `dev/rig logs shell`. The error can land after a quick
+  from the bar; read `"${RIG[@]}" logs shell`. The error can land after a quick
   log check has passed; the IPC check cannot.
-- **Always take the rig down** (`dev/rig down`, then `dev/rig verify-clean`).
-  Several rigs may run at once; with `--owner none` address one with
-  `dev/rig --rig <id> <command>`. Never kill a rig's processes by name.
-- Without the rig (a cloud session, no `labwc` or Android SDK), follow
-  AGENTS.md, *Workflow*: the pull request says the change is not checked live,
-  and the merge waits for someone who checks it.
+- **Always stop the session** (`dev/sandbox dev stop --all`, then
+  `dev/sandbox verify-clean`). At most two sessions run at once; `dev/sandbox
+  dev status` lists them and `--session <id>` addresses one. Never kill a
+  process by name.
+- A session needs podman, `/dev/kvm` and a GPU render node on the host. Without
+  them (a cloud session, no Omarchy), follow AGENTS.md, *Workflow*: the pull
+  request says the change is not checked live, and the merge waits for someone
+  who checks it.
+- A commit not written by Sceny never goes through `dev`: it runs only in
+  `dev/sandbox run` after the owner's go (AGENTS.md, *Workflow*).
 
 The phone is the rig's emulator, named by the rig, with 555 numbers:
 
 ```bash
-dev/rig phone status
-dev/rig phone battery 20                       # the battery, in the bar and the panel
-dev/rig phone notify Calendar "Team sync"      # a notification on the phone
-dev/rig phone sms 5550100 "Lunch at noon?"     # an incoming text
-dev/rig phone call 5550100 ; dev/rig phone hangup 0   # a call on the phone
-dev/rig check                                  # every check against the rig, including the screen link
+"${RIG[@]}" phone status
+"${RIG[@]}" phone battery 20                       # the battery, in the bar and the panel
+"${RIG[@]}" phone notify Calendar "Team sync"      # a notification on the phone
+"${RIG[@]}" phone sms 5550100 "Lunch at noon?"     # an incoming text
+"${RIG[@]}" phone call 5550100 ; "${RIG[@]}" phone hangup 0   # a call on the phone
+"${RIG[@]}" check                                  # every check against the rig, including the screen link
 ```
 
-Anything a check does to the emulator is free: it is deleted by `dev/rig
-down`. Sending a text from the panel, ringing and changing volume still wait
-for the owner's go, though the emulator is the one that would receive them.
+Anything a check does to the emulator is free: it goes with the session.
+Sending a text from the panel, ringing and changing volume still wait for the
+owner's go, though the emulator is the one that would receive them.
 
 ## 4. Drive it over IPC
 
-`dev/rig ipc <function> [args]` is the call in the rig; the list gives the
-function names (write `IPC=(dev/rig ipc)` to use them as shown).
+`"${IPC[@]}" <function> [args]` is the call in the rig; the list gives the
+function names.
 
 ```bash
-IPC=(dev/rig ipc)
 "${IPC[@]}" status                  # what the panel shows
 "${IPC[@]}" open ; "${IPC[@]}" close
 "${IPC[@]}" page settings           # also: main, messages, connection (diagnostics), ready (the first run's card)
@@ -118,40 +137,46 @@ IPC=(dev/rig ipc)
 ```
 
 None of these focus a text field, by design (AGENTS.md). Opening an unread
-thread marks it seen: undo that in
-`~/.cache/sceny.devices/sms-seen-<device>.json` after a test.
+thread marks it seen in the session's own cache, which `dev stop` deletes.
 
-**A sync reloads the plugin.** `dev/rig sync` drops the IPC target for a
+**A sync reloads the plugin.** `rig sync` drops the IPC target for a
 moment (`Target not found`). Wait about 2 s after it before scripted IPC, and check each call's answer before a
 later step that undoes it: an undo after a failed call makes the change
 instead of undoing it.
 
 **Simulated keys go to whatever has keyboard focus.** For keyboard checks,
-send them to the rig's compositor only (`dev/rig exec -- wtype ...`, which
+send them to the rig's compositor only (`"${RIG[@]}" exec -- wtype ...`, which
 runs with the rig's Wayland display), open the panel over IPC, and before
 every key check that `status` shows `"opened": true` and the expected
-`cursor`; stop at the first mismatch. Never `wtype` outside `dev/rig exec`:
-it would type into the owner's windows. `wtype -M shift -k k` types a
+`cursor`; stop at the first mismatch. Never `wtype` on the host: it would type
+into the owner's windows. `wtype -M shift -k k` types a
 lowercase k: type `K` for Shift+K.
 
 ## 5. Look at it
 
 ```bash
-dev/rig ipc open; sleep 1.2; dev/rig screenshot /tmp/panel.png
+"${IPC[@]}" open; sleep 1.2; dev/sandbox dev shot panel
+dev/sandbox dev pull --out /tmp/panel-shots      # screenshots/panel.png, as data; a directory outside any git repository
 ```
 
 Read the image: cut edges, wrapped labels, anything that jumped. For motion,
-`slowMotion 10`, trigger it, and capture a frame part-way. The rig has no
-lock screen and takes no keyboard from the owner. A screenshot of a rig shows
-only the emulator's data (the demo or a 555 number), so it can go in a pull
-request; never one of a real device. The owner looks at a finished result
-with `dev/rig show` (and `dev/rig hide` afterwards): an agent never runs it
-unasked.
+`slowMotion 10`, trigger it, and capture a frame part-way, or record it:
+
+```bash
+dev/sandbox dev record move 8 5 -- /opt/devside.sh rig ipc open   # 8 s at up to 5 frames/s while the command runs, plus 2 s
+```
+
+A pull brings the recording out as WebM and empties the session's output. The
+rig has no lock screen and takes no keyboard from the owner. A screenshot or
+recording of a rig shows only the emulator's data (the demo or a 555 number),
+so it can go in a pull request or on the task; never one of a real device.
+The owner looks at a finished result in those files: an agent never puts a rig
+on the owner's screen.
 
 ## 6. Ship
 
 Branch from `develop`, `gh pr create --base develop`, CI green, the change
-checked in the rig, squash-merge (AGENTS.md, *Workflow*). A pull request into
+checked in the sandbox, squash-merge (AGENTS.md, *Workflow*). A pull request into
 `main` is only a release or an urgent fix, and never while `main` is frozen
 for a marketplace review (AGENTS.md, *Releasing*). Users get `main` with
 `omarchy plugin update sceny.devices` after a release.

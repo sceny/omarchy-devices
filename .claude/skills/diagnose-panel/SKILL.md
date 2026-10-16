@@ -8,22 +8,34 @@ description: Diagnose the Devices Omarchy plugin (sceny.devices) when the bar or
 Work down the layers. Each step says which layer is at fault; stop at the first
 that disagrees with what the device shows.
 
-**Reproduce it in the rig first** (`dev/rig up`, `docs/internals/development.md`):
-the commands below run there with `dev/rig exec -- <command>` (the rig's
-session bus, adb server and display) and `dev/rig ipc <function>` for the
-panel's IPC, against the rig's emulator (`dev/rig phone ...` makes the
-notification, text, call or battery change in question). Everything the
+**Reproduce it in the sandbox first** (`dev/sandbox dev start`, `sync`, `up`;
+`docs/internals/development.md`, `develop-panel`): the commands below run in its
+rig with `RIG exec -- <command>` (the rig's session bus, adb server and
+display) and `IPC <function>` for the panel's IPC, against the rig's emulator
+(`RIG phone ...` makes the notification, text, call or battery change in
+question):
+
+```bash
+RIG=(dev/sandbox dev rig)
+IPC=(dev/sandbox dev rig ipc)
+```
+
+With two or more sessions open, name yours in each: `dev/sandbox dev --session ID
+rig`, `dev/sandbox dev --session ID rig ipc` (`dev/sandbox dev status` lists them).
+
+No command here runs on the host: `kdeconnect-cli`, `busctl`, `dbus-monitor`
+and `bin/kdeconnect-bridge` would read the owner's daemon. Everything the
 owner's machine adds (a real phone, a firewall, Samsung's battery
 optimisation) is asked of the owner, never run against their desktop, daemon
-or phone by an agent. A fault that does not reproduce in the rig is a fact
-about their setup: say so and ask.
+or phone by an agent. A fault that does not reproduce in the sandbox is a fact
+about their setup: say so and ask. Stop the session when done
+(`dev/sandbox dev stop --all`, then `dev/sandbox verify-clean`).
 
 ## 1. Is the plugin loaded?
 
 ```bash
-IPC=(dev/rig ipc)
 "${IPC[@]}" status
-dev/rig logs shell | grep -F sceny.devices | grep -vE 'IpcHandler|Local plugin'
+"${RIG[@]}" logs shell | grep -F sceny.devices | grep -vE 'IpcHandler|Local plugin'
 ```
 
 "Target not found", or a QML error in the log, is the shell layer: the widget
@@ -33,8 +45,8 @@ panel per monitor).
 ## 2. Is the bridge running and reading?
 
 ```bash
-ps -eo pid,etimes,args | grep '[k]deconnect-bridge'   # one `watch`; `sms` once messages were opened
-bin/kdeconnect-bridge snapshot
+"${RIG[@]}" exec -- ps -eo pid,etimes,args | grep '[k]deconnect-bridge'   # one `watch`; `sms` once messages were opened
+"${RIG[@]}" exec -- bin/kdeconnect-bridge snapshot
 ```
 
 `status` shows `watchError` from the bridge. If `snapshot` disagrees with the
@@ -43,10 +55,9 @@ panel, the fault is in QML; if it agrees, go down a layer.
 ## 3. Is KDE Connect itself right?
 
 ```bash
-kdeconnect-cli -l                                       # paired and reachable?
-systemctl --user status app-org.kde.kdeconnect.daemon@autostart.service
-busctl --user tree org.kde.kdeconnect | grep devices     # the device's plugin objects
-busctl --user list | grep kdeconnect.mpris               # media players KDE Connect exports
+"${RIG[@]}" exec -- kdeconnect-cli -l                                # paired and reachable?
+"${RIG[@]}" exec -- busctl --user tree org.kde.kdeconnect | grep devices   # the device's plugin objects
+"${RIG[@]}" exec -- busctl --user list | grep kdeconnect.mpris         # media players KDE Connect exports
 ```
 
 "Reachable" false with the phone on the same Wi-Fi: the firewall
@@ -56,9 +67,9 @@ set KDE Connect to *Unrestricted*), or the phone app closed.
 ## 4. Watch what actually arrives
 
 ```bash
-dbus-monitor --session "type='signal',sender='org.kde.kdeconnect'" | grep -E 'member=|string'
-dbus-monitor --session "type='signal',interface='org.freedesktop.DBus.Properties',path='/org/mpris/MediaPlayer2'"
-dbus-monitor --session "type='signal',member='NameOwnerChanged',arg0='org.kde.kdeconnect'"   # KDE Connect restarts
+"${RIG[@]}" exec -- dbus-monitor --session "type='signal',sender='org.kde.kdeconnect'" | grep -E 'member=|string'
+"${RIG[@]}" exec -- dbus-monitor --session "type='signal',interface='org.freedesktop.DBus.Properties',path='/org/mpris/MediaPlayer2'"
+"${RIG[@]}" exec -- dbus-monitor --session "type='signal',member='NameOwnerChanged',arg0='org.kde.kdeconnect'"   # KDE Connect restarts
 ```
 
 Match `NameOwnerChanged` without `sender='org.freedesktop.DBus'`: with
@@ -113,7 +124,7 @@ side are tracked apart.
    the device.
 6. **Add it to the list below** with the plugin issue's number, so the next
    diagnosis stops here. Fix or filter the fault in the plugin when a user
-   meets it, with a test or a check in the rig; the plugin issue closes when
+   meets it, with a test or a check in the sandbox; the plugin issue closes when
    KDE Connect ships its fix, and the plugin's handling is removed in the
    same change.
 
