@@ -20,6 +20,9 @@ RIG=(dev/sandbox dev rig)
 IPC=(dev/sandbox dev rig ipc)
 ```
 
+With two or more sessions open, name yours in each: `dev/sandbox dev --session ID
+rig`, `dev/sandbox dev --session ID rig ipc` (`dev/sandbox dev status` lists them).
+
 No command here runs on the host: `kdeconnect-cli`, `busctl`, `dbus-monitor`
 and `bin/kdeconnect-bridge` would read the owner's daemon. Everything the
 owner's machine adds (a real phone, a firewall, Samsung's battery

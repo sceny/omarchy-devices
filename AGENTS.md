@@ -473,7 +473,7 @@ one only with the owner.
   can be logged after a quick log check has already passed (an attached
   handler that does not exist, such as `Keys.onPageUpPressed`, does exactly
   that). The shell reads a plugin's QML once: `omarchy-shell shell
-  rescanPlugins`, a `git pull` and `dev/rig sync` change the files and leave
+  rescanPlugins`, a `git pull` and `dev/sandbox dev rig sync` change the files and leave
   the old code answering, and `status` answers either way. Run
   `dev/loaded-code <plugin folder>` (in the sandbox: `dev/sandbox dev rig exec --
   dev/loaded-code <plugin folder>`); it compares the IPC functions the files declare with the
