@@ -72,6 +72,7 @@ RUN set -e; mkdir -p /opt/android-sdk/build-tools /opt/android-sdk/platforms; cd
     get plat.zip https://dl.google.com/android/repository/platform-34-ext7_r03.zip 16fdb74c55e59ae3ef52def135aec713508467bd56d7dabcd8c9be31fa8b20f3; \
     unzip -q bt.zip -d /tmp/bt && mv /tmp/bt/android-14 /opt/android-sdk/build-tools/34.0.0; \
     unzip -q plat.zip -d /tmp/plat && mv /tmp/plat/android-34 /opt/android-sdk/platforms/android-34; \
+    chmod -R a+rX /opt/android-sdk; \
     rm -rf /tmp/*.zip /tmp/bt /tmp/plat
 ENV ANDROID_SDK_ROOT=/opt/android-sdk ANDROID_HOME=/opt/android-sdk
 

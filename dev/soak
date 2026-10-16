@@ -46,6 +46,8 @@ class Soak:
         self.last_panel = {}
         self.faults = []
         self.checkpoints = []
+        self.log_start = 0  # set again by setup; a setup that fails still reports
+        self.baseline_log = set()
         self.stack_log = []
         self.watch_proc = None
         self.watch_pid = None
