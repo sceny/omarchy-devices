@@ -171,7 +171,7 @@ finding blocks the pull request.
   `Clipboard.qml`, the copy's text on stdin, the read with a byte limit and
   a deadline, no `cliphist`. `tests/test_argv.py` (`ClipboardOnlyOnPaste`)
   and `tests/test_panelfield.py` (`ShippedQml`, naming file:line) fail on
-  each; `dev/clip-check --rig ID` shows it in a running rig (every
+  each; `dev/sandbox dev exec -- dev/clip-check --rig ID` shows it in a session's rig (every
   selection gesture, a reader that never reads, an owner that never
   writes).
 - Private text (messages, contact names, numbers, clipboard) stays out of
@@ -223,16 +223,26 @@ apply.
 
 ## Regression on the emulator
 
-Panel QA runs the whole plugin in the rig (`dev/rig up`, then `dev/rig check`
-and the feature passes in `develop-panel`), on the candidate: the head of
-`develop` after the release pull request is merged. Every feature gets one
-pass or fail against its rule in AGENTS.md, not only what changed.
+Panel QA runs the whole plugin in the sandbox, on the candidate: the head of
+`develop` after the release pull request is merged, by its full SHA:
+
+```bash
+dev/sandbox run sceny/omarchy-devices <sha> --steps tests,rig,script --script regression.sh
+```
+
+The tests run, `dev/rig ci` runs its checks, and the script runs with a rig up
+and drives the feature passes of `develop-panel`; it writes its evidence
+(screenshots, recordings, logs) under `$SANDBOX_OUT`, which the run brings out as
+data. While writing or debugging the script, a `dev/sandbox dev` session on a
+checkout of that SHA does the same interactively; the record is the `run`.
+Every feature gets one pass or fail against its rule in AGENTS.md, not only
+what changed.
 
 Calls and texts go only as far as the *Never* rules allow: the D-Bus argument
 types (`tests/test_calls.py`) and demo mode (`demoCall`, `pressCall`). The
 panel is looked at, not only measured (`slowMotion 10` for a transition).
 
-The clipboard is a row of its own: `dev/clip-check --rig ID` passes on the
+The clipboard is a row of its own: `dev/clip-check --rig ID` passes in the sandbox on the
 candidate, and the row records Omarchy's Qt beside it (`pacman -Q qt6-base
 qt6-declarative`). When that Qt meets a trigger in
 `docs/architecture/001` (section 5.1), the regression's author files the
@@ -242,12 +252,12 @@ The record is a document on the release task:
 
 | Feature | Rule (AGENTS.md) | How checked | Pass/fail | Evidence |
 |---|---|---|---|---|
-| Media: seek | Nothing blinks on a seek | `dev/rig phone` pause/play within 100 ms, three screenshots | pass | `seek-1.png`..`seek-3.png` |
+| Media: seek | Nothing blinks on a seek | `dev/sandbox dev rig phone` pause/play within 100 ms, three screenshots | pass | `seek-1.png`..`seek-3.png` |
 
 - *Rule* names the rule by its bold title.
 - *How checked* is a command or IPC call someone else can repeat.
-- *Evidence* is a screenshot, a log line or a test name, from the rig or demo
-  mode only.
+- *Evidence* is a screenshot, a log line or a test name, from the sandbox's rig or
+  demo mode only.
 - A fail is a GitHub issue, fixed on `develop`, and the row is checked again
   on the new head. A release does not go with a fail.
 
@@ -267,14 +277,18 @@ it or waived it, and the go waits for it.
 ## Cold install and upgrade
 
 Both start from the tag that is live now (`git tag`, the latest `vX.Y.Z` on
-`main`). Plugin DevOps runs them in the rig and Panel QA passes them.
+`main`). Plugin DevOps runs them in the sandbox and Panel QA passes them: the
+cold install in `dev/sandbox run` on the candidate's SHA (`--steps script`), the
+upgrade in a `dev/sandbox dev` session, which holds the live tag beside the
+candidate's tree (`dev sync --tree DIR --as live`,
+`docs/internals/development.md`).
 
-**Cold install.** A rig with none of the plugin's dependencies: the first-run
+**Cold install.** A sandbox rig with none of the plugin's dependencies: the first-run
 card, `fix ready` with one password, pairing, then each feature switch in
 turn. Every step finishes by itself or stops at the user's one step, and no
-package is asked for twice. `dev/rig cold begin` makes the cold computer
+package is asked for twice. `dev/rig cold begin` in the script makes the cold computer
 (`docs/internals/development.md`); each step is a row with its evidence, and
-what the rig cannot prove goes on the *needs a real device* list.
+what the sandbox's rig cannot prove goes on the *needs a real device* list.
 
 **Upgrade.** Install the live tag with a `shell.json` entry for one device
 and another for two devices with profiles, then move to the candidate. Old
