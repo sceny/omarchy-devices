@@ -93,6 +93,7 @@ git_tree() {
 # The rig's phone cache holds the pinned KDE Connect APK; the run has no
 # network to fetch it.
 seed_rig() {
+  [[ -d /opt/sandbox/cache ]] || return 0 # only Devices' image has a phone
   local cache=/tmp/omarchy-plugin-rig-$(id -u)/cache
   mkdir -p "$cache" && cp /opt/sandbox/cache/* "$cache"/
 }

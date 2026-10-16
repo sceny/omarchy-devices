@@ -177,11 +177,17 @@ hostile_out_dir() {
 
 # The dev session: what a tree and a session can and cannot carry across.
 # Own files only; nothing a contributor wrote runs here.
-hostile_dev() {
-  local tree="$HOSTILE_WORK/devtree" out="$HOSTILE_WORK/dev-out" id line status what rc
+hostile_dev() { # <profile>: devices or paperclipai
+  local profile=${1:-devices} repo plugin_id
+  local tree="$HOSTILE_WORK/devtree-$profile" out="$HOSTILE_WORK/dev-out-$profile" id line status what rc
+  case $profile in
+  devices) repo=sceny/omarchy-devices plugin_id=sceny.devices ;;
+  paperclipai) repo=sceny/omarchy-paperclipai plugin_id=sceny.paperclipai ;;
+  esac
   mkdir -p "$tree" "$out"
   env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git init -q -b main "$tree"
   printf 'tracked\n' >"$tree/a.txt"
+  printf '{"id": "%s", "schemaVersion": 1}\n' "$plugin_id" >"$tree/manifest.json"
   printf 'SANDBOX-CANARY-untracked\n' >"$tree/.env"
   printf 'SANDBOX-CANARY-ignored\n' >"$tree/ignored.txt"
   printf 'ignored.txt\n.env\n' >"$tree/.gitignore"
@@ -190,12 +196,12 @@ hostile_dev() {
   mkdir -p "$tree/linked"
   ln -s "$SB_HOME/.ssh" "$tree/linked/ssh"
   (cd "$tree" && env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-    git add -f a.txt .gitignore link-to-canary link-to-home linked/ssh &&
+    git add -f a.txt manifest.json .gitignore link-to-canary link-to-home linked/ssh &&
     env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
       git -c user.name=h -c user.email=h@invalid commit -q -m dev)
 
-  say "dev. a session: what the tree carries in, what the session can reach, what comes out"
-  id=$(dev_start --ttl 600 2>"$HOSTILE_WORK/dev-start.log" | tail -1)
+  say "dev ($profile). a session: what the tree carries in, what the session can reach, what comes out"
+  id=$(dev_start --repo "$repo" --ttl 600 2>"$HOSTILE_WORK/dev-start.log" | tail -1)
   if [[ ! $id =~ ^[0-9a-f]{8}$ ]]; then
     fail "the dev session did not start"
     sed 's/^/    /' "$HOSTILE_WORK/dev-start.log" >&2
@@ -203,6 +209,7 @@ hostile_dev() {
     return 0
   fi
   DEV_NAME=sceny-sandbox-dev-$id
+  DEV_PROFILE=$profile
   local check_dev
   check_dev() { # <what> <status>
     if (($2 == 0)); then
@@ -239,6 +246,30 @@ hostile_dev() {
   done <"$HOSTILE_WORK/dev-probe.log"
   grep -q '^PASS ' "$HOSTILE_WORK/dev-probe.log"
   check_dev "the probe ran inside the session" $?
+  if [[ $profile == paperclipai ]]; then
+    dev_exec "$DEV_NAME" 240 python3 -c "$(cat "$SB_DIR/sandbox.d/hostile/cli_probe.py")" "$targets" >"$HOSTILE_WORK/cli-probe.log" 2>&1
+    while IFS= read -r line; do
+      case $line in
+      "PASS "*)
+        ok "${line#PASS }"
+        HOSTILE_PASS=$((HOSTILE_PASS + 1))
+        ;;
+      "FAIL "*)
+        fail "${line#FAIL }"
+        HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+        ;;
+      esac
+    done <"$HOSTILE_WORK/cli-probe.log"
+    grep -q '^PASS ' "$HOSTILE_WORK/cli-probe.log"
+    check_dev "the Paperclip server probe ran inside the session" $?
+  else
+    dev_exec "$DEV_NAME" 30 bash -c '! command -v paperclipai && ! command -v psql' >/dev/null 2>&1
+    check_dev "the devices image has no Paperclip server and no Postgres" $?
+  fi
+  if [[ $profile == paperclipai ]]; then
+    dev_exec "$DEV_NAME" 30 bash -c '! command -v adb && ! test -e /opt/android-sdk && ! command -v scrcpy && ! command -v kdeconnect-cli' >/dev/null 2>&1
+    check_dev "the Paperclip image has no Android SDK, adb, scrcpy or KDE Connect" $?
+  fi
   if [[ -s $HOSTILE_WORK/connections.log ]]; then
     fail "a host listener saw a connection from the session"
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
@@ -298,7 +329,7 @@ PY
   (dev_stop) >/dev/null 2>&1
   [[ -z $(dev_names) ]]
   check_dev "the session is stopped and removed" $?
-  DEV_NAME=""
+  DEV_NAME="" DEV_PROFILE=""
 }
 
 cmd_hostile_test() {
@@ -307,14 +338,22 @@ cmd_hostile_test() {
     case $1 in
     --quick) quick=1 ;;
     --keep) keep=1 ;;
-    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang,stdout-flood,stderr-escape,stderr-flood,many-dirs,rewrite,gitconfig,pngs,gpu,out-dir,dev)}; shift ;;
+    --only) only=${2:?--only needs a list (probe,probe-rig,memory,processes,disk,hang,stdout-flood,stderr-escape,stderr-flood,many-dirs,rewrite,gitconfig,pngs,gpu,out-dir,dev,dev-paperclipai)}; shift ;;
     *) die "hostile-test: unknown option '$1'" ;;
     esac
     shift
   done
   want() { [[ -z $only || ,$only, == *",$1,"* ]]; }
   require_tools
-  pm image exists "$SB_IMAGE" || die "hostile-test: no image; run 'dev/sandbox build' first"
+  # The runs and the devices session need the devices image, the Paperclip session its own.
+  local only_paperclip=0
+  [[ $only == dev-paperclipai ]] && only_paperclip=1
+  if ((only_paperclip == 0)); then
+    pm image exists "$(image_of devices)" || die "hostile-test: no devices image; run 'dev/sandbox build --profile devices' first"
+  fi
+  if want dev-paperclipai && ((quick == 0)); then
+    pm image exists "$(image_of paperclipai)" || die "hostile-test: no paperclipai image; run 'dev/sandbox build --profile paperclipai' first"
+  fi
   HOSTILE_WORK=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile.XXXXXX")
   trap 'hostile_cleanup' EXIT INT TERM
   local rand
@@ -452,7 +491,14 @@ PY
     if ((quick)); then
       warn "dev session skipped (--quick)"
     else
-      hostile_dev
+      hostile_dev devices
+    fi
+  fi
+  if want dev-paperclipai; then
+    if ((quick)); then
+      warn "paperclipai dev session skipped (--quick)"
+    else
+      hostile_dev paperclipai
     fi
   fi
 
