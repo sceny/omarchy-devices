@@ -289,6 +289,7 @@ dev/sandbox dev rig exec -- bin/kdeconnect-bridge photos-cached <device>   # the
 "${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # This computer's checks; the phone away; Reconnect
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
+"${IPC[@]}" pressDismissAll        # demo only: the Notifications header's dismiss all
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card's Text back (nothing focused) and X
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc on the panel

@@ -33,6 +33,10 @@ Panel {
   readonly property var players: phone ? phone.players : []
   readonly property var volumePlayer: phone ? phone.volumePlayer : null
   readonly property var notifications: phone ? phone.notifications : []
+  // Dismiss all (#194): offered while any can be dismissed, waiting while
+  // any dismiss is still on its way to the device.
+  readonly property var dismissableNotes: notifications.filter(function(n) { return n.dismissable === true })
+  readonly property bool dismissingAll: !!phone && dismissableNotes.some(function(n) { return phone.isBusy("dismiss:" + n.id) })
   readonly property var can: device && device.can ? device.can : ({})
 
   // Layout settings, from this widget's shell.json entry. Written only by the
@@ -2932,6 +2936,14 @@ Panel {
       root.phone.dismiss(n)
       return "ok"
     }
+    // Demo only: the Notifications header's dismiss all, as a click would.
+    // Refused on live data.
+    function pressDismissAll(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (root.dismissableNotes.length === 0) return "nothing to dismiss"
+      root.phone.dismissAll()
+      return "ok"
+    }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     // Many devices. A device is its id, nickname or name. Every verb acts on
@@ -5616,23 +5628,51 @@ Panel {
 
                   EditBar { section: "notifications"; item: notificationsColumn }
 
-                  FoldToggle {
+                  RowLayout {
                     visible: !root.editing
-
-                    foreground: root.foreground
-
-                    fontFamily: root.fontFamily
-
-                    motion: root.motion
-
-                    animate: root.settled
                     width: parent.width
-                    title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
-                    folded: root.isCollapsed("notifications")
-                    marked: root.marks.sections["notifications"] === true
-                    urgent: root.urgent
-                    summary: Model.notificationsSummary(root.notifications)
-                    onToggled: root.toggleCollapsed("notifications")
+                    spacing: Style.space(4)
+
+                    FoldToggle {
+
+                      foreground: root.foreground
+
+                      fontFamily: root.fontFamily
+
+                      motion: root.motion
+
+                      animate: root.settled
+                      Layout.fillWidth: true
+                      title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
+                      folded: root.isCollapsed("notifications")
+                      marked: root.marks.sections["notifications"] === true
+                      urgent: root.urgent
+                      summary: Model.notificationsSummary(root.notifications)
+                      onToggled: root.toggleCollapsed("notifications")
+                    }
+
+                    // Dismiss all: open, it fades in as the rows do; folded,
+                    // it fades out with them.
+                    WaitButton {
+                      id: notesDismissAll
+                      readonly property bool shown: !root.isCollapsed("notifications") && root.dismissableNotes.length > 0
+                      opacity: shown ? 1 : 0
+                      visible: opacity > 0
+                      Behavior on opacity { enabled: root.settled; NumberAnimation { duration: (notesDismissAll.shown ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
+                      Layout.alignment: Qt.AlignVCenter
+                      // In the rows' ✕ column: a row's buttons sit inside its right margin.
+                      Layout.rightMargin: Style.space(6)
+                      size: Style.space(22)
+                      glyph: Model.GLYPH.clearAll
+                      waiting: root.dismissingAll
+                      motion: root.motion
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device)
+                      foreground: root.foreground
+                      hoverColor: root.urgent
+                      fontFamily: root.fontFamily
+                      enabled: !!root.phone && !root.dismissingAll
+                      onClicked: root.phone.dismissAll()
+                    }
                   }
 
                   SectionNote { note: root.editing ? null : root.sectionNotes.notifications; width: parent.width }
