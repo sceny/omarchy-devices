@@ -878,6 +878,8 @@ dev_pull() {
   out_in_git "$out" && die "dev pull: $out is inside a git repository (or is one); results go in a directory git does not manage"
   rid=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   SB_RUN_DIR="$SB_STATE/runs/$rid"
+  # The pictures are re-encoded in the session's own image.
+  SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
