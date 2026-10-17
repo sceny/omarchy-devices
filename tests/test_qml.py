@@ -214,6 +214,54 @@ def verbs_started(path):
             found.append((line(m.start()), literal(args[0]), args[1:], "launch"))
     return found
 
+CURSOR_WORDS = re.compile(r"focusSection\s*=|[iI]ndex\s*=|[cC]ursor\s*=")
+PAGES_WITH_A_CURSOR = ("Panel.qml", "AppsView.qml")
+HOVER_HANDLER = re.compile(r"^\s*(?:onEntered|onHovered)\s*:(.*)$")
+
+
+def hover_that_takes_the_cursor_unasked(path):
+    """A hover handler that moves a keyboard cursor without asking whether
+    the pointer moved. Content that scrolls or folds under a resting pointer
+    sends the row now beneath it an enter, and that took the cursor back from
+    the keys (#254). The handler asks `hoverMoved()` / `pointerMoved()`
+    (PointerGate); a handler that only passes the row on (`root.hovered(i)`)
+    moves nothing, and a list that tracks the position itself calls
+    `pointerAt`. Messages and Contacts keep their own lists and do that."""
+    text = code_only(open(path).read())
+    found = []
+    for number, line in enumerate(text.splitlines(), 1):
+        m = HOVER_HANDLER.match(line)
+        if not m or not CURSOR_WORDS.search(m.group(1)):
+            continue
+        if not re.search(r"\b(?:hoverMoved|pointerMoved|pointerAt)\(", m.group(1)):
+            found.append("%s:%d: a hover moves the cursor without asking if the pointer moved" % (os.path.basename(path), number))
+    return found
+
+
+class HoverNeedsAPointerMove(unittest.TestCase):
+    def test_every_hover_that_moves_a_cursor_asks(self):
+        found = [p for f in PAGES_WITH_A_CURSOR for p in hover_that_takes_the_cursor_unasked(os.path.join(ROOT, f))]
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_one(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  onEntered: { root.cursorActive = true; root.rowIndex = 1 }\n"
+                    "  onHovered: if (root.hoverMoved()) { root.cursorActive = true }\n"
+                    "  onHovered: function(i) { view.cursor = i }\n  onEntered: root.hovered(idx)\n"
+                    "  onEntered: view.pointerAt(this, row.index)\n}\n")
+        try:
+            self.assertEqual(len(hover_that_takes_the_cursor_unasked(f.name)), 2, hover_that_takes_the_cursor_unasked(f.name))
+        finally:
+            os.remove(f.name)
+
+
+# Verbs that carry text a person wrote. Any local process can read a command
+# line from /proc, so the text goes over stdin (`run`'s input), and the
+# arguments after the device are ids only.
+PRIVATE_VERBS = ("ping", "text", "url", "dial", "reply")
+ALLOWED_ARGS = {"reply": ["n.replyId"]}
+
 
 def private_text_in_argv(path):
     """Lines where a verb is not classified, or carries more in its argument

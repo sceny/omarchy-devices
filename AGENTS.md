@@ -376,7 +376,11 @@ one only with the owner.
   the page glides to keep it in sight (`followCursor`). Messages does the
   same with its lists' highlights. Inline buttons keep their own hover. A
   new row, tile or card the keys reach uses `CursorStop`, not its own
-  `hasCursor`.
+  `hasCursor`. A hover takes the cursor only when the pointer moved
+  (`PointerGate`, asked as `hoverMoved()`): a page that scrolls or folds
+  under a pointer at rest sends the row beneath an enter, and that would
+  pull the cursor back from the keys (#254; `tests/test_qml.py`,
+  `HoverNeedsAPointerMove`, fails on a hover that moves one without asking).
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step
