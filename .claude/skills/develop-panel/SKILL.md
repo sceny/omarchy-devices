@@ -109,7 +109,8 @@ function names.
 "${IPC[@]}" demoFeature ask         # demo only: notification access to allow, said in Notifications; stopped: it stopped arriving; "" as set up
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
 "${IPC[@]}" reach ; "${IPC[@]}" reachInfo   # the viewed device's From anywhere page, as its row opens it (#119)
-"${IPC[@]}" demoReach <ready|setup|pick|none|isolated>   # demo only: a made-up network and This computer's mesh row; then `page main` after `demo away` shows the away card's lines
+"${IPC[@]}" demoReach <ready|setup|pick|none|isolated|lost>   # demo only: a made-up network and This computer's mesh row; lost: the address KDE Connect had and lost (the Network problem in Settings' status, the main page's line and Fix all); then `page main` after `demo away` shows the away card's lines
+"${IPC[@]}" demoAwayOn <device> ; "${IPC[@]}" pressAwayWhy   # demo only: one device of `demo many` away and viewed (id, nickname or name); Why? on the away card (toggles), answering what the card shows
 "${IPC[@]}" preview true            # Preview with a demo phone (the user's demo, with its strip); false: Back to setup
 "${IPC[@]}" view <device> ; "${IPC[@]}" openOn <device> ; "${IPC[@]}" tabs   # id, nickname or name
 "${IPC[@]}" settingsScope <root|defaults|device> ; "${IPC[@]}" settingsRowsInfo   # a settings page and its rows

@@ -2518,7 +2518,8 @@ function reachRows(setup) {
 // Made-up networks for the demo phone: nothing in a demo reaches a mesh.
 // "" or "ready": on Tailscale, given to KDE Connect; "setup": Tailscale
 // here, the phone not on it yet; "pick": two phones to choose from; "none":
-// no mesh here; "isolated": away on a Wi-Fi that keeps devices apart.
+// no mesh here; "isolated": away on a Wi-Fi that keeps devices apart; "lost":
+// given to KDE Connect once and gone since (a problem on the device's page).
 function demoNetwork(kind) {
   var tailscale = { mesh: "tailscale", label: "Tailscale", on: kind !== "none", installed: kind !== "none", state: kind === "none" ? "" : "Running" }
   var peer = { name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true }
@@ -2527,6 +2528,7 @@ function demoNetwork(kind) {
   if (kind === "" || kind === "ready") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true })
   if (kind === "pick") return Object.assign(base, { candidates: [{ name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true },
                                                                   { name: "old-phone", mesh: "tailscale", label: "Tailscale", address: "100.101.102.104", online: false }] })
+  if (kind === "lost") return Object.assign(base, { peer: peer, match: "address", given: peer.address })
   if (kind === "isolated") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true, links: [], isolated: true })
   return base
 }

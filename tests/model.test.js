@@ -1629,7 +1629,8 @@ test("from anywhere (#119): a Network gateway, its items, its feature and its pa
   const pick = rowOf("pick", [M.demoMeshCheck("")])
   assert.equal(pick.steps[0].page, "reach", "not certainly it: picked on its page")
   // Given before and gone: it worked and stopped.
-  const lost = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const lost = Object.assign(M.demoFeatures(), { network: M.demoNetwork("lost") })
+  assert.deepEqual(M.demoNetwork("lost"), Object.assign(M.demoNetwork(""), { added: false, givenKept: false }), "the demo's lost address: given once, gone since")
   const broken = M.deviceSetup({ report: lost, screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
   assert.equal(broken.features.find(r => r.key === "reach").state, "attention")
   const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: broken, rows: broken.features }])
