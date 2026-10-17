@@ -3032,6 +3032,13 @@ Panel {
       root.callPress(key)
       return JSON.stringify({ call: root.call, buttons: root.callButtons.map(function(b) { return b.key }), keypad: root.callKeypad, offer: root.callOffer })
     }
+    // Demo only: the missed-call offer's No thanks (none) or Open Calls here (open).
+    function pressCallOffer(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (key !== "none" && key !== "open") return "none or open"
+      root.callOfferPress(key)
+      return JSON.stringify({ offer: root.callOffer })
+    }
     function closeCall(): string { if (root.phone) root.phone.closeCall(); return JSON.stringify(root.call) }
     // Demo only: Text back, without focusing the composer (scripted).
     function pressTextBack(): string {

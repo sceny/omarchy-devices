@@ -117,6 +117,7 @@ function names.
                                     # as a click would; anything changed in a demo (defaults too) is put back by `live`
 "${IPC[@]}" demoCall ringing        # demo only: a call on the viewed device (replaces the last); missed, none
 "${IPC[@]}" demoBluetooth off       # demo only: the missed-call card per Bluetooth state; ready, off, adapter, unpaired, unkept, dropped
+"${IPC[@]}" pressCallOffer none     # demo only: the offer's No thanks (or open: Open Calls here)
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card; never Call back in a test (it opens the phone's dialer)
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc as the key; smsStatus shows newMessage
 "${IPC[@]}" move 0 1                 # an arrow key (dx dy): the cursor moves, the glide slides; never Enter (slowMotion 10 to watch)
