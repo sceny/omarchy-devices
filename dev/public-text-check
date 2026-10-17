@@ -70,27 +70,46 @@ def changes_any(changed_files, globs):
     return any(fnmatch.fnmatch(f, g) for g in globs for f in changed_files)
 
 
-def find_all(patterns, text, changed_files=(), everywhere=()):
+SENTENCE_BREAK = re.compile(r"(?<=[.!?;:])\s+|\s[\u2014\u2013-]\s")
+
+
+def sentence_of(line, start, end):
+    """The sentence of the line that holds the span: between the breaks (a full
+    stop, ; : ! ? or a dash) before and after it."""
+    lo, hi = 0, len(line)
+    for m in SENTENCE_BREAK.finditer(line):
+        if m.end() <= start:
+            lo = m.end()
+        elif m.start() >= end:
+            hi = m.start()
+            break
+    return line[lo:hi]
+
+
+def find_all(patterns, text, changed_files=(), quoting_files=()):
     """(rule id, matched text) for every pattern match in the text's lines, after
-    the exceptions of the pattern: words in the same line (unless_line), its own
-    matched text (unless_match) and the files the pull request changes
-    (allowed_when_changed: a pull request about a tool may name it; `everywhere`
-    holds the files that allow every pattern)."""
+    the exceptions of the pattern: words in the sentence of the match
+    (unless_sentence), the words just before it (unless_before), its own matched
+    text (unless_match) and the files the pull request changes
+    (allowed_when_changed: a pull request about a tool may name it; a pattern
+    marked `quoted` is also allowed by `quoting_files`, the files that hold the
+    rules and quote their words)."""
     found = []
     lines = [URL.sub(" ", line) for line in blank_fences(text)]
-    if changes_any(changed_files, everywhere):
-        return found
     for pat in patterns:
         if changes_any(changed_files, pat.get("allowed_when_changed", [])):
             continue
+        if pat.get("quoted") and changes_any(changed_files, quoting_files):
+            continue
         regex = re.compile(pat["regex"], re.I)
-        unless_line = re.compile(pat["unless_line"], re.I) if "unless_line" in pat else None
-        unless_match = re.compile(pat["unless_match"], re.I) if "unless_match" in pat else None
+        exceptions = {key: re.compile(pat[key], re.I) for key in ("unless_sentence", "unless_before", "unless_match") if key in pat}
         for line in lines:
-            if unless_line and unless_line.search(line):
-                continue
             for m in regex.finditer(line):
-                if unless_match and unless_match.search(m.group(0)):
+                if "unless_match" in exceptions and exceptions["unless_match"].search(m.group(0)):
+                    continue
+                if "unless_before" in exceptions and exceptions["unless_before"].search(line[: m.start()]):
+                    continue
+                if "unless_sentence" in exceptions and exceptions["unless_sentence"].search(sentence_of(line, m.start(), m.end())):
                     continue
                 found.append((pat["id"], m.group(0)))
     return found
@@ -192,7 +211,7 @@ def check_text(rules, text, changed_files=()):
     """[(check, rule id, matched text)] for one public text."""
     problems = []
     env = rules["environment"]
-    for rule_id, matched in find_all(env["patterns"], text, changed_files, env.get("allowed_everywhere_when_changed", [])):
+    for rule_id, matched in find_all(env["patterns"], text, changed_files, env.get("quoted_when_changed", [])):
         problems.append((rules["environment"]["check"], rule_id, matched))
     for rule_id, matched in check_open_items(rules["open_item"], text):
         problems.append((rules["open_item"]["check"], rule_id, matched))

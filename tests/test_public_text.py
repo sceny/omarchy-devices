@@ -69,7 +69,10 @@ class Environment(unittest.TestCase):
             "Thumbnails are decoded in a sandbox with no network.",
             "The cache is `~/.cache/sceny.devices/` and stills live in $XDG_RUNTIME_DIR/sceny.devices/.",
             "The QML container item keeps the row's width.",
-            "Adds tests for the new key. Counts are in tests/model.test.js.",
+            "The container keeps its width.",
+            "Adds 3 tests for the new key. Counts are in tests/model.test.js.",
+            "Adds 4 new tests and writes 2 more tests for the fold.",
+            "Pictures are decoded with glycin in a sandbox, then drawn.",
             "See [the tool](https://github.com/sceny/omarchy-devices/blob/main/dev/sandbox) for how it works.",
             "```\ndev/rig up\n```",
         ]:
@@ -85,7 +88,67 @@ class Environment(unittest.TestCase):
     def test_the_rules_own_pull_request_may_quote_the_words(self):
         text = "It never holds the sandbox, the rig, an emulator or SCE-5."
         self.assertIn(ENV, checks(text))
-        self.assertEqual(checks(text, ["dev/public-text-rules.json"]), set())
+        for rules_file in ("dev/public-text-check", "dev/public-text-rules.json", "tests/test_public_text.py"):
+            with self.subTest(file=rules_file):
+                self.assertEqual(checks(text, [rules_file]), set())
+
+    def test_the_rules_own_pull_request_may_not_name_anything_else(self):
+        files = ["dev/public-text-rules.json"]
+        for rule, text in [
+            ("home-path", "Logs are in /home/someone/logs."),
+            ("dot-path", "The state is under ~/.config/thing."),
+            ("tmp-path", "Output in /tmp/run-1/out.txt."),
+            ("runtime-dir", "Stills in $XDG_RUNTIME_DIR/other/."),
+            ("test-count-passed", "92 passed, 0 failed."),
+            ("test-count", "The suite ran 380 tests."),
+        ]:
+            with self.subTest(rule=rule):
+                self.assertIn((ENV, rule), problems(text, files))
+
+    def test_the_sandbox_and_the_container_are_exempt_only_in_the_sentence_that_needs_them(self):
+        for rule, text in [
+            ("sandbox", "Verified in the sandbox: the picture matches."),
+            ("sandbox", "The image is fine; verified in the sandbox."),
+            ("sandbox", "Thumbnails look right. Checked in the sandbox."),
+            ("sandbox", "Pictures are decoded; the panel was checked in the sandbox."),
+            ("container", "Ran the checks in a container; the QML item is fine."),
+            ("container", "The row is fine - ran it in a container."),
+            ("container", "Started a container and opened the panel."),
+        ]:
+            with self.subTest(text=text):
+                self.assertIn((ENV, rule), problems(text))
+        for text in [
+            "Pictures are decoded in a sandbox. The panel loads them.",
+            "A file with no recorded type is sent around the sandbox.",
+            "A picture is not opened with no sandbox.",
+            "The QML item is placed in a container row.",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(problems(text), [])
+
+    def test_a_container_that_is_not_the_place_we_ran_in_passes(self):
+        for text in [
+            "The container keeps its width.",
+            "A container for the pinned row grows with its content.",
+            "Containers hold the shortcuts.",
+        ]:
+            with self.subTest(text=text):
+                self.assertEqual(problems(text), [])
+        for text in [
+            "Ran it inside a rootless container.",
+            "A fresh container per run.",
+            "The container image is rebuilt.",
+        ]:
+            with self.subTest(text=text):
+                self.assertIn((ENV, "container"), problems(text))
+
+    def test_a_count_of_tests_a_change_adds_is_not_a_run(self):
+        for text in ["Adds 3 tests.", "Added 12 new tests for the key.", "Includes 2 tests for the order."]:
+            with self.subTest(text=text):
+                self.assertEqual(problems(text), [])
+        for text in ["Adds a case. The suite ran 380 tests.", "Adds 3 tests; 380 tests pass.", "Adds 3 tests, 92 passed."]:
+            with self.subTest(text=text):
+                self.assertTrue(checks(text), text)
 
 
 class OpenItems(unittest.TestCase):
@@ -97,6 +160,8 @@ class OpenItems(unittest.TestCase):
             "Left for later.",
             "A follow-up covers the fold.",
             "We can do it later.",
+            "I will look at it later and decide then.",
+            "Looked at it later, no change.",
             "Fix this later, once the key exists.",
             "Handled in a later release.",
             "TODO: the second page.",
@@ -149,6 +214,7 @@ class UnlinkedReferences(unittest.TestCase):
             ("It is the marketplace's #10096.", "named-upstream-bare-number"),
             ("Reported upstream #42.", "named-upstream-bare-number"),
             ("KDE Connect #7 has the report.", "named-upstream-bare-number"),
+            ("See ab#12.", "repo-without-owner"),
         ]:
             with self.subTest(text=text):
                 self.assertIn((UNLINKED, rule), problems(text))
@@ -160,6 +226,7 @@ class UnlinkedReferences(unittest.TestCase):
             "This repository's own #195 and #194 stay bare.",
             "See https://github.com/omacom/omarchy/issues/8753#issuecomment-1 and docs/x.md#12.",
             "Inline `omarchy#8753` is code.",
+            "The C#5 sample compiles.",
         ]:
             with self.subTest(text=text):
                 self.assertNotIn(UNLINKED, checks(text))
@@ -234,7 +301,7 @@ class Rules(unittest.TestCase):
                     RULES["unlinked_reference"]["patterns"] + RULES["standing"]["patterns"])
         for pat in patterns:
             re.compile(pat["regex"])
-            for key in ("unless_line", "unless_match"):
+            for key in ("unless_sentence", "unless_before", "unless_match"):
                 if key in pat:
                     re.compile(pat[key])
         re.compile(RULES["open_item"]["reference"])

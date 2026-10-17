@@ -10,7 +10,8 @@
           "dev/rig*",
           "docs/internals/development.md",
           "tests/test_sandbox.py"
-        ]
+        ],
+        "quoted": true
       },
       {
         "id": "sandbox",
@@ -21,7 +22,8 @@
           "docs/internals/development.md",
           "tests/test_sandbox.py"
         ],
-        "unless_line": "decod|bubblewrap|glycin|thumbnail|picture|image|ffmpeg|pixbuf"
+        "quoted": true,
+        "unless_sentence": "decod|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
       },
       {
         "id": "rig",
@@ -31,7 +33,8 @@
           "dev/rig*",
           "docs/internals/development.md",
           "tests/test_sandbox.py"
-        ]
+        ],
+        "quoted": true
       },
       {
         "id": "emulator",
@@ -41,7 +44,8 @@
           "dev/rig*",
           "docs/internals/development.md",
           "tests/test_sandbox.py"
-        ]
+        ],
+        "quoted": true
       },
       {
         "id": "podman",
@@ -51,26 +55,30 @@
           "dev/rig*",
           "docs/internals/development.md",
           "tests/test_sandbox.py"
-        ]
+        ],
+        "quoted": true
       },
       {
         "id": "container",
-        "regex": "\\bcontainers?\\b",
+        "regex": "\\b(?:in|inside|into|within|using|via|start(?:ed|s|ing)?|ran|run(?:s|ning)?|launch(?:ed|es|ing)?|spun|spin(?:s|ning)?|built|build(?:s|ing)?|creat(?:e|ed|es|ing)|boot(?:ed|s|ing)?)\\s+(?:\\w+\\s+){0,2}containers?\\b|\\b(?:new|fresh|throwaway|rootless|disposable|podman|docker|sandbox|separate|clean|another)\\s+containers?\\b|\\bcontainers?\\s+(?:image|runtime|runs?|starts?|started|stopped|exits?)\\b",
         "allowed_when_changed": [
           "dev/sandbox*",
           "dev/rig*",
           "docs/internals/development.md",
           "tests/test_sandbox.py"
         ],
-        "unless_line": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
+        "quoted": true,
+        "unless_sentence": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
       },
       {
         "id": "paperclip",
-        "regex": "\\bpaperclip\\b"
+        "regex": "\\bpaperclip\\b",
+        "quoted": true
       },
       {
         "id": "task-id",
-        "regex": "\\bSCE-\\d+\\b"
+        "regex": "\\bSCE-\\d+\\b",
+        "quoted": true
       },
       {
         "id": "home-path",
@@ -97,10 +105,11 @@
       },
       {
         "id": "test-count",
-        "regex": "\\b\\d+\\)?\\s+(?:(?:unit|new|node|python|bridge|model|more|extra)\\s+)?tests?\\b(?!/)|\\b(?:ran|run|runs|running)\\s+\\d+\\s+(?:unit\\s+)?tests?\\b|\\bOK \\(\\d+ tests?\\)"
+        "regex": "\\b\\d+\\)?\\s+(?:(?:unit|node|python|bridge|model)\\s+)?tests?\\b(?!/)|\\b(?:ran|run|runs|running)\\s+\\d+\\s+(?:unit\\s+)?tests?\\b|\\bOK \\(\\d+ tests?\\)",
+        "unless_before": "\\b(?:adds?|added|adding|introduc(?:es?|ed|ing)|includes?|including|writes?|wrote)\\s+(?:\\w+\\s+){0,3}$"
       }
     ],
-    "allowed_everywhere_when_changed": [
+    "quoted_when_changed": [
       "dev/public-text-check",
       "dev/public-text-rules.json",
       "tests/test_public_text.py"
@@ -128,7 +137,7 @@
       },
       {
         "id": "later",
-        "regex": "\\b(?:in|at|until|to|for)\\s+(?:a\\s+|the\\s+)?later\\b|\\blater\\s*(?:[.,;:)!?]|—|-\\s|$)|\\b(?:done|handled|fixed|checked|added|looked?(?:\\s+at)?|decided?|do|dealt|revisit(?:ed)?|come\\s+back)\\s+(?:it\\s+|this\\s+)?later\\b"
+        "regex": "\\b(?:in|at|until|to|for)\\s+(?:a\\s+|the\\s+)?later\\b|\\blater\\s*(?:[.,;:)!?]|—|-\\s|$)|\\b(?:done|handled|fixed|checked|added|look(?:ed)?(?:\\s+at)?|decided?|do|dealt|revisit(?:ed)?|come\\s+back)\\s+(?:it\\s+|this\\s+)?later\\b"
       },
       {
         "id": "todo",
@@ -146,7 +155,7 @@
     "patterns": [
       {
         "id": "repo-without-owner",
-        "regex": "(?<![\\w./-])[A-Za-z0-9][\\w.-]*#\\d+\\b"
+        "regex": "(?<![\\w./-])[A-Za-z0-9][\\w.-]+#\\d+\\b"
       },
       {
         "id": "named-upstream-bare-number",
