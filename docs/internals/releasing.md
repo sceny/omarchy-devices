@@ -110,7 +110,8 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
   while `main` is frozen, for the daily check): a release from `develop` is
   refused while an open `marketplace-review` issue points to an open
   marketplace issue, naming both, and also when GitHub cannot be read. A fix
-  from `main` is not refused by it and prints the freeze as a note.
+  from `main` is not refused by it and prints the freeze, or that GitHub could
+  not be read, as a note. `--check-freeze` starts from the repository's top.
 - It refuses a version already tagged (here or on origin), one not above the
   base's version, one the base's CHANGELOG already has, an empty Unreleased
   section, an existing branch and a tree with tracked changes.
