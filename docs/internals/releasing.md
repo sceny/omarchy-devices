@@ -259,6 +259,12 @@ catches a product word gets an exception in the rules file and a case in
 (`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
 dates and the owner's words as history, in the unit tests.
 
+`public-text` is a required status check on `develop` (a repository ruleset,
+no bypass): a pull request into `develop` merges only while its last run
+passes. A direct push to `develop` is refused, so the `release` workflow posts
+a `public-text` success status on the `main` commit it brings `develop` level
+with (a push to `main` has no pull request text).
+
 ## Regression on the emulator
 
 Panel QA runs the whole plugin in the sandbox, on the candidate: the head of
