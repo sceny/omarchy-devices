@@ -33,6 +33,13 @@ Call back, or the phone icon on a conversation in
 [Messages](messages.md), places the call from here; without Calls here,
 it opens on the phone's dialer.
 
+Until Calls here is set up, the missed-call card offers it: one line, *Call
+back from here*, and **Set up**. The setup carries on by
+itself and the card shows where it waits (*Waiting for the phone to
+pair…*, or *Connect* when the phone is paired but not connected). *No
+thanks* turns Calls here off and the line goes. The ringing card never
+offers it.
+
 ![A missed call card with call back and text back (demo data)](../images/call-missed.png)
 
 Setup: [Calls here](../setup/calls-here.md) · Limits: [What it cannot do](../setup/limits.md#calls)

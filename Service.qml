@@ -63,6 +63,8 @@ Item {
     demoChecks = false
     demoNetworkKind = ""
     demoFeature = ""
+    if (demoBtKind !== "") Object.keys(featurePending).forEach(function(k) { if (k.indexOf("demo") === 0 && k.slice(-10) === ":callsHere") setPending(k.split(":")[0], "callsHere", null) })
+    demoBtKind = ""
     runDoctor()
   }
   // ---- Many devices (docs/design/multi-device.md) ----
@@ -334,6 +336,27 @@ Item {
     callClosed = ({})
     callMuted = ({})
     snapshot = copy
+    if (demoBtKind !== "") showDemoBluetooth(demoBtKind)
+  }
+  // Demo: this computer's Bluetooth and the viewed (else first) device's
+  // match in a state (Model.demoBluetoothState); kept for the demo calls
+  // that follow, until `live`.
+  property string demoBtKind: ""
+  function showDemoBluetooth(kind) {
+    if (!demo) return false
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var id = device ? String(device.id) : ""
+    var d = null
+    ;(copy.devices || []).forEach(function(x) { if (String(x.id) === id) d = x })
+    if (!d) d = Model.pickDevice(copy, "")
+    if (!d) return false
+    var st = Model.demoBluetoothState(kind, d.name)
+    copy.bluetooth = st.bluetooth
+    if (st.handsfree) d.handsfree = Object.assign({}, st.handsfree, { calls: (d.handsfree && d.handsfree.calls) || [], ended: (d.handsfree && d.handsfree.ended) || null })
+    else delete d.handsfree
+    demoBtKind = kind === "ready" ? "" : kind
+    snapshot = copy
+    return true
   }
   // Demo only: one device of the demo, away (last seen 12 minutes ago on
   // this network), the others as they are. False when the demo has no such

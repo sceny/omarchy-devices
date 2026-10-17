@@ -17,7 +17,11 @@ GitHub release with these notes.
   stopped, both pages still show that problem. Searching a new message by
   name offers the same *Allow*. A Contacts page with the permission given and
   no cards says so (*No contacts on Pixel 8 yet*) (#272).
-
+- **A missed call offers Calls here**: while it is not set up, the missed-call
+  card says *Call back from here* with **Set up**, which
+  carries the steps on by itself (a password card first when root is needed,
+  Omarchy's Bluetooth to pair the phone, *Connect* when it dropped). *No
+  thanks* turns Calls here off. The ringing card is unchanged.
 - **Text fields never read the clipboard until you paste**: a field is
   built on a text edit, which asks only which formats the clipboard offers
   and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
