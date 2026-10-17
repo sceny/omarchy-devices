@@ -1164,8 +1164,10 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
     decides what is on its storage link, so the source is never a link to a
     file of this computer, never anything but a regular file, and never
     larger than the cache holds: it is opened without following a link, its
-    folder must resolve inside the link's mount (`root`), and the copy is
-    read from that open file, up to `limit` bytes."""
+    folder must resolve inside the link's mount (`root`) before the open and
+    the open file itself must after it (a folder swapped for a link in
+    between is refused), and the copy is read from that open file, up to
+    `limit` bytes."""
     cache = cache or open_cache()
     root = os.path.realpath(root or storage_root(path))
     if os.path.commonpath([os.path.realpath(os.path.dirname(os.path.abspath(path))), root]) != root:
@@ -1175,6 +1177,15 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
     except OSError as error:
         if error.errno == errno.ELOOP:
             raise OSError(errno.ELOOP, "It is a link, not a file") from error
+        raise
+    # O_NOFOLLOW covers the last component only, and the folder check above
+    # is a step apart from the open: where the open file really is settles it.
+    try:
+        opened = os.path.realpath("/proc/self/fd/%d" % fd)
+        if os.path.commonpath([opened, root]) != root:
+            raise OSError(errno.EXDEV, "It is outside the device's storage")
+    except BaseException:
+        os.close(fd)
         raise
     with os.fdopen(fd, "rb") as source:
         st = os.fstat(source.fileno())

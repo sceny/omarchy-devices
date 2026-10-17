@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import errno
 import io
 import re
 import importlib.machinery
@@ -1209,6 +1210,32 @@ class OpenFromDevice(unittest.TestCase):
             with self.assertRaises(OSError):
                 bridge.local_copy(os.path.join(mount, "DCIM", "a.mp4"), cache, root=mount)
             self.assertEqual(os.listdir(cache), [])
+
+    def test_a_folder_swapped_for_a_link_after_the_check_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            other = os.path.join(d, "elsewhere")
+            os.makedirs(other)
+            open(os.path.join(other, "a.mp4"), "w").write("not the device's")
+            mount = os.path.join(d, "mount")
+            os.makedirs(os.path.join(mount, "DCIM"))
+            open(os.path.join(mount, "DCIM", "a.mp4"), "w").write("the device's")
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            real = os.open
+
+            def swap_then_open(path, *args, **kwargs):
+                if path.endswith("a.mp4"):
+                    os.rename(os.path.join(mount, "DCIM"), os.path.join(mount, "DCIM.old"))
+                    os.symlink(other, os.path.join(mount, "DCIM"))
+                return real(path, *args, **kwargs)
+            bridge.os.open = swap_then_open
+            try:
+                with self.assertRaises(OSError) as raised:
+                    bridge.local_copy(os.path.join(mount, "DCIM", "a.mp4"), cache, root=mount)
+            finally:
+                bridge.os.open = real
+            self.assertEqual(raised.exception.errno, errno.EXDEV)
+            self.assertEqual(os.listdir(cache), [], "nothing written")
 
     def test_a_file_larger_than_the_cache_allows_is_refused_before_copying(self):
         with tempfile.TemporaryDirectory() as d:
