@@ -2834,13 +2834,23 @@ Panel {
     }
     // Demo: this computer's Bluetooth and the viewed device's match in a
     // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
-    // row and the missed-call card. Kept until `live`.
+    // row and the missed-call card. "waiting" (the phone not paired, the plugin
+    // waiting for it) and "failed" (a step did not work) also set the row's
+    // pending state; nothing real runs. Kept until `live`.
     function demoBluetooth(kind: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
-      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped"].indexOf(kind) < 0) return "no state " + kind
-      root.phone.showDemoBluetooth(kind)
+      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped", "waiting", "failed"].indexOf(kind) < 0) return "no state " + kind
+      var base = kind === "waiting" ? "unpaired" : kind === "failed" ? "unkept" : kind
+      root.phone.showDemoBluetooth(base)
+      if (root.device) {
+        var id = String(root.device.id)
+        var pend = kind === "waiting" ? { text: "Pair " + Model.deviceLabel(root.device) + " with this computer over Bluetooth", wait: true, waitFor: "bt:pair", failed: false, at: Date.now(), tried: "" }
+          : kind === "failed" ? { text: "That did not work", wait: false, failed: true, at: Date.now(), tried: "it could not keep the phone for calls" }
+          : null
+        root.phone.setPending(id, "callsHere", pend)
+      }
       var row = root.device ? root.featureRowsFor(root.device).filter(function(r) { return r.key === "callsHere" })[0] : null
-      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], offer: root.callOffer })
+      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null, offer: root.callOffer })
     }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).

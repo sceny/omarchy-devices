@@ -63,6 +63,7 @@ Item {
     demoChecks = false
     demoNetworkKind = ""
     demoFeature = ""
+    if (demoBtKind !== "") Object.keys(featurePending).forEach(function(k) { if (k.indexOf("demo") === 0 && k.slice(-10) === ":callsHere") setPending(k.split(":")[0], "callsHere", null) })
     demoBtKind = ""
     runDoctor()
   }
