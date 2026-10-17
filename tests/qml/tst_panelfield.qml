@@ -24,11 +24,13 @@ TestCase {
   }
   function edit(item) {
     if (item.selectionStart !== undefined && item.moveCursorSelection !== undefined) return item
-    var kids = item.children || []
-    if (item.contentItem) kids = kids.concat(item.contentItem.children)
-    for (var i = 0; i < kids.length; i++) {
-      var e = edit(kids[i])
-      if (e) return e
+    var lists = [item.children]
+    if (item.contentItem) lists.push(item.contentItem.children)
+    for (var l = 0; l < lists.length; l++) {
+      for (var i = 0; i < lists[l].length; i++) {
+        var e = edit(lists[l][i])
+        if (e) return e
+      }
     }
     return null
   }
