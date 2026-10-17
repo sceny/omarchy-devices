@@ -457,7 +457,7 @@ Item {
           Button {
             visible: !!view.sms && (view.sms.unreadCount > 0 || view.sms.unreadOnly)
             text: (view.sms ? view.sms.unreadCount : 0) + " unread"
-            tooltipText: view.sms && view.sms.unreadOnly ? "Show all conversations (u)" : "Show unread only (u)"
+            tooltipText: Model.keyTip(view.sms && view.sms.unreadOnly ? "Show all conversations" : "Show unread only", "unread")
             selected: !!view.sms && view.sms.unreadOnly
             bordered: true
             foreground: view.foreground
@@ -469,7 +469,7 @@ Item {
           }
           PanelActionButton {
             iconText: Model.GLYPH.newMessage
-            tooltipText: "New message (n)"
+            tooltipText: Model.keyTip("New message", "newMessage")
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.sms && view.sms.reachable
