@@ -376,7 +376,9 @@ one only with the owner.
   the page glides to keep it in sight (`followCursor`). Messages does the
   same with its lists' highlights. Inline buttons keep their own hover. A
   new row, tile or card the keys reach uses `CursorStop`, not its own
-  `hasCursor`. A hover takes the cursor only when the pointer moved
+  `hasCursor` (a Settings row without one shows no cursor and the page never
+  scrolls to it, #324; `SettingsRowsHaveACursorStop` fails on one, naming the
+  row). A hover takes the cursor only when the pointer moved
   (`PointerGate`, asked as `hoverMoved()`): a page that scrolls or folds
   under a pointer at rest sends the row beneath an enter, and that would
   pull the cursor back from the keys (#254; `tests/test_qml.py`,

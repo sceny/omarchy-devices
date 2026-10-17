@@ -812,6 +812,7 @@ Column {
     spacing: Style.space(8)
 
     Button {
+      id: unpairButton
       readonly property int rowIndex: root.firstIndex("unpair")
       visible: rowIndex >= 0
       text: root.unpairArmed ? "Unpair? Click again to confirm" : "Unpair"
@@ -820,12 +821,14 @@ Column {
       foreground: root.unpairArmed ? Color.urgent : root.foreground
       fontFamily: root.fontFamily
       bordered: true
-      hasCursor: root.cursorIndex === rowIndex
-      onHovered: function(on) { if (on) root.hovered(rowIndex) }
-      onClicked: root.activated(rowIndex)
+      hasCursor: false
+      CursorStop { here: root.cursorIndex === unpairButton.rowIndex; glide: root.cursorGlide }
+      onHovered: function(on) { if (on) root.hovered(unpairButton.rowIndex) }
+      onClicked: root.activated(unpairButton.rowIndex)
     }
 
     Button {
+      id: resetButton
       readonly property int rowIndex: root.firstIndex("reset")
       visible: rowIndex >= 0
       text: "Reset shortcuts"
@@ -834,9 +837,10 @@ Column {
       foreground: root.foreground
       fontFamily: root.fontFamily
       bordered: true
-      hasCursor: root.cursorIndex === rowIndex
-      onHovered: function(on) { if (on) root.hovered(rowIndex) }
-      onClicked: root.activated(rowIndex)
+      hasCursor: false
+      CursorStop { here: root.cursorIndex === resetButton.rowIndex; glide: root.cursorGlide }
+      onHovered: function(on) { if (on) root.hovered(resetButton.rowIndex) }
+      onClicked: root.activated(resetButton.rowIndex)
     }
   }
 
@@ -1203,8 +1207,9 @@ Column {
       width: parent.width
       implicitHeight: pcardContent.implicitHeight + 2 * Style.space(12)
       radius: Style.cornerRadius
-      color: root.panelBackground
-      borderSpec: Border.controlSpec(root.cursorIndex === pcard.rowIndex ? "hover-cursor" : "focus", root.foreground, Color.accent)
+      color: root.cursorIndex === pcard.rowIndex ? "transparent" : root.panelBackground
+      borderSpec: Border.controlSpec("focus", root.foreground, Color.accent)
+      CursorStop { here: root.cursorIndex === pcard.rowIndex; glide: root.cursorGlide }
 
       MouseArea {
         anchors.fill: parent
