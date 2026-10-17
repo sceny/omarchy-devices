@@ -86,6 +86,7 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `QrCode.qml` | every QR code the panel shows: the app's store page, adb's pairing |
 | `PairingPopup.qml`, `PairingKey.qml` | the card under the bar when a device asks to pair, and the key as every pairing card draws it |
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
+| `KeyCap.qml` | one key drawn as a key cap: the Keys page and the Screen and apps page |
 | `Clipboard.qml`, `qmldir` | the one clipboard door (a singleton): copy and bounded read through `wl-copy` / `wl-paste` out of the shell |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |

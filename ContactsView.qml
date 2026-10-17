@@ -306,7 +306,7 @@ Item {
             glyph: Model.GLYPH.refresh
             waiting: !!view.contacts && view.contacts.reading
             motion: view.motion
-            tooltipText: waiting ? "Reading its contacts" : "Read its contacts again (r)"
+            tooltipText: waiting ? "Reading its contacts" : Model.keyTip("Read its contacts again", "refresh")
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.contacts

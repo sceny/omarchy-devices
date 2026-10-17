@@ -105,3 +105,32 @@ test("docs/use/keyboard.md: the same keys as the Keys page, naming the key", () 
   assert.deepEqual(missing(docs, page), [], "on the Keys page but not in docs/use/keyboard.md")
   assert.deepEqual(missing(page, docs), [], "in docs/use/keyboard.md but not on the Keys page")
 })
+
+// Tooltips name their key from Model.TIP_KEYS (Model.keyTip), so the key in
+// a tooltip, the Keys page and the docs cannot disagree.
+const qmlFiles = fs.readdirSync(root).filter(f => f.endsWith(".qml"))
+
+test("tooltips: every key a tooltip names is on the Keys page and has a handler", () => {
+  assert.ok(Object.keys(M.TIP_KEYS).length > 10, "the tooltip keys are read")
+  const named = new Set(Object.values(M.TIP_KEYS).map(norm))
+  assert.deepEqual(missing(page, named), [], "named by a tooltip, not on the Keys page")
+  assert.deepEqual(missing(handled, named), [], "named by a tooltip, handled nowhere in Panel.qml")
+})
+
+test("tooltips: the QML files name a key through Model.keyTip, with an id that exists", () => {
+  const spelled = [], unknown = []
+  for (const f of qmlFiles) read(f).split("\n").forEach((line, i) => {
+    const code = line.replace(/(^|\s)\/\/.*$/, "$1")
+    if (!/tooltipText:|PanelToolTip/.test(code) && !/keyTip\(/.test(code)) return
+    // The composer's own send keys are a text field's, not the panel's.
+    if (!/keyTip\(/.test(code) && /\((?:Esc|Space|Shift\+\w+|[a-zA-Z0-9?,.=\[\]-])\)"/.test(code)) spelled.push(`${f}:${i + 1}`)
+    if (/keyTip\(/.test(code)) for (const m of code.matchAll(/[,?] "([a-z]\w*)"/g)) if (!(m[1] in M.TIP_KEYS)) unknown.push(`${f}:${i + 1} ${m[1]}`)
+  })
+  assert.deepEqual(spelled, [], "a tooltip spells its key: use Model.keyTip")
+  assert.deepEqual(unknown, [], "Model.keyTip with an id not in Model.TIP_KEYS")
+})
+
+test("tooltips: Model.keyTip is used by the controls that have a key", () => {
+  const used = new Set(qmlFiles.flatMap(f => read(f).split("\n").filter(l => /keyTip\(/.test(l)).flatMap(l => [...l.matchAll(/[,?] "([a-z]\w*)"/g)].map(m => m[1]))))
+  for (const id of Object.keys(M.TIP_KEYS)) assert.ok(used.has(id), `${id} is in Model.TIP_KEYS and no control uses it`)
+})

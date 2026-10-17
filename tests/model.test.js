@@ -547,13 +547,27 @@ test("settings rows: one device's Settings is its page; several: My devices and 
   assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false })).some(r => r.kind === "keys"), "several: Keys is on Settings' first page")
 })
 
-test("keys page: every key once per group, each group headed once, named in Back to", () => {
+test("keys page: one row per group, its keys as key caps, named in Back to", () => {
   const rows = M.keysRows()
-  assert.ok(rows.length > 0 && rows.every(r => r.kind === "key" && r.keys !== "" && r.label !== ""))
-  assert.deepEqual(rows.filter(r => r.group !== "").map(r => r.group), M.KEYS.map(g => g.group))
-  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a key per row")
-  assert.ok(rows.some(r => r.keys === "?"), "the page names its own key")
+  assert.deepEqual(rows.map(r => r.group), M.KEYS.map(g => g.group), "each group once, in order")
+  assert.ok(rows.every(r => r.kind === "keyGroup" && r.items.length > 0 && r.items.every(i => i.keys !== "" && i.label !== "")))
+  assert.equal(rows.reduce((n, r) => n + r.items.length, 0), M.KEYS.reduce((n, g) => n + g.keys.length, 0), "every key of Model.KEYS")
+  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a stop per group")
+  assert.ok(rows.some(r => r.items.some(i => i.keys === "?")), "the page names its own key")
   assert.equal(M.navLabel("settings/keys"), "Keys")
+})
+
+test("key caps: one token each, the dot between alternatives", () => {
+  assert.deepEqual(M.keyCaps("j k · ↑ ↓"), ["j", "k", "·", "↑", "↓"])
+  assert.deepEqual(M.keyCaps("1–9 · Shift+H Shift+L"), ["1–9", "·", "Shift+H", "Shift+L"])
+  assert.deepEqual(M.keyCaps("[ ]"), ["[", "]"])
+  assert.deepEqual(M.keyCaps("Esc"), ["Esc"])
+})
+
+test("a tooltip names its key as Label (key); no key, no parentheses", () => {
+  assert.equal(M.keyTip("Reply", "reply"), "Reply (r)")
+  assert.equal(M.keyTip("Home", "home"), "Home (0)")
+  assert.equal(M.keyTip("Nothing", "nope"), "Nothing")
 })
 
 test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {

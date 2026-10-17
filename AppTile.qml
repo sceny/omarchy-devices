@@ -188,7 +188,7 @@ Item {
     anchors.right: parent.right
     size: Style.space(18)
     iconText: tile.pinned ? Model.GLYPH.pinOff : Model.GLYPH.pin
-    tooltipText: tile.pinned ? "Unpin from the Apps section (p)" : "Pin to the Apps section (p)"
+    tooltipText: Model.keyTip(tile.pinned ? "Unpin from the Apps section" : "Pin to the Apps section", "pin")
     foreground: tile.pinned ? Color.accent : tile.foreground
     fontFamily: tile.fontFamily
     onClicked: { tile.pinToggled(); pinFlash.restart() }
@@ -239,7 +239,7 @@ Item {
     anchors.left: parent.left
     size: Style.space(18)
     iconText: Model.GLYPH.close
-    tooltipText: "Remove from recent apps (x)"
+    tooltipText: Model.keyTip("Remove from recent apps", "forget")
     foreground: tile.foreground
     fontFamily: tile.fontFamily
     onClicked: tile.forgetRequested()

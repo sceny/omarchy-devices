@@ -3720,7 +3720,7 @@ Panel {
             spacing: Style.space(8)
             PanelActionButton {
               iconText: soundBox.shown && (soundBox.shown.muted || soundBox.shown.level <= 0.001) ? Model.GLYPH.volumeOff : Model.GLYPH.volume
-              tooltipText: soundBox.shown && soundBox.shown.muted ? "Unmute it here (m)" : "Mute it here (m)"
+              tooltipText: Model.keyTip(soundBox.shown && soundBox.shown.muted ? "Unmute it here" : "Mute it here", "mute")
               foreground: root.foreground
               fontFamily: root.fontFamily
               onClicked: root.soundMute()
@@ -4437,7 +4437,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings"
+            tooltipText: Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.openSettings()
@@ -4657,7 +4657,7 @@ Panel {
                   enabled: opacity > 0.5
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
-                  tooltipText: root.editing ? "Done: keep the changes (Esc undoes them)" : "Edit this page"
+                  tooltipText: root.editing ? Model.keyTip("Done: keep the changes", "edit") + "; Esc undoes them" : Model.keyTip("Edit this page", "edit")
                   foreground: root.editing ? Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
@@ -4671,7 +4671,7 @@ Panel {
                   enabled: root.homeVisible
                   Behavior on opacity { NumberAnimation { duration: (root.homeVisible ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: Model.GLYPH.home
-                  tooltipText: "Home (" + Model.HOME_KEY + ")"
+                  tooltipText: Model.keyTip("Home", "home")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.goHome()
@@ -4679,7 +4679,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices) && root.backVisible
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? root.backTip : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
+                  tooltipText: !root.showMain ? Model.keyTip(root.backTip, "back") : Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
@@ -5015,7 +5015,7 @@ Panel {
                           required property var modelData
                           required property int index
                           iconText: modelData.glyph
-                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : modelData.label
+                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : Model.keyTip(modelData.label, modelData.key === "messages" ? "messages" : "")
                           size: Style.space(22)
                           foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
                           fontFamily: root.fontFamily
@@ -5498,7 +5498,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.left
-                        tooltipText: "Previous player"
+                        tooltipText: Model.keyTip("Previous player", "prevPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5535,7 +5535,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.right
-                        tooltipText: "Next player"
+                        tooltipText: Model.keyTip("Next player", "nextPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5699,7 +5699,7 @@ Panel {
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
                       motion: root.motion
-                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device) + " (Shift+Delete)"
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all on " + Model.deviceLabel(root.device), "dismissAll")
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
@@ -6813,7 +6813,7 @@ Panel {
       }
       PanelActionButton {
         iconText: Model.GLYPH.close
-        tooltipText: "Forget it here (the file stays)"
+        tooltipText: Model.keyTip("Forget it here, the file stays", "forget")
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: if (root.phone) root.phone.dismissReceived(rrow.entry)
@@ -7166,7 +7166,7 @@ Panel {
       anchors.margins: Style.space(2)
       size: Style.space(18)
       iconText: ({ phone: Model.GLYPH.phone, both: Model.GLYPH.devices })[root.screenSoundNow] || Model.GLYPH.volume
-      tooltipText: "Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it (v)"
+      tooltipText: Model.keyTip("Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it", "sound")
       foreground: root.foreground
       fontFamily: root.fontFamily
       onClicked: root.openSoundCard(null)
@@ -7174,7 +7174,7 @@ Panel {
 
     PanelToolTip {
       visible: tileMouse.containsMouse && (tile.action.hint || "") !== ""
-      text: tile.isOn ? "Its screen is open: click to bring it forward" : (tile.action.hint || "")
+      text: tile.isOn ? "Its screen is open: click to bring it forward" : Model.keyTip(tile.action.hint || "", tile.action.key === "messages" ? "messages" : "")
       fontFamily: root.fontFamily
     }
   }
@@ -7640,7 +7640,7 @@ Panel {
         PanelActionButton {
           visible: row.isText
           iconText: Model.GLYPH.messages
-          tooltipText: "Open the conversation (o)"
+          tooltipText: Model.keyTip("Open the conversation", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openNotificationConversation(row.note)
@@ -7652,7 +7652,7 @@ Panel {
           glyph: Model.GLYPH.window
           waiting: root.appWorking(row.app)
           motion: root.motion
-          tooltipText: "Open " + (row.app ? row.app.name : "") + " in a window (o)"
+          tooltipText: Model.keyTip("Open " + (row.app ? row.app.name : "") + " in a window", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openApp(row.app)
@@ -7664,7 +7664,7 @@ Panel {
           glyph: Model.GLYPH.reply
           waiting: sending
           motion: root.motion
-          tooltipText: sending ? "Sending the reply" : "Reply"
+          tooltipText: sending ? "Sending the reply" : Model.keyTip("Reply", "reply")
           foreground: root.foreground
           fontFamily: root.fontFamily
           enabled: !sending
@@ -7677,7 +7677,7 @@ Panel {
           glyph: Model.GLYPH.close
           waiting: dismissing
           motion: root.motion
-          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss on " + Model.deviceLabel(root.device)
+          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss on " + Model.deviceLabel(root.device), "dismiss")
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily

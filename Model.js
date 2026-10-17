@@ -3070,12 +3070,17 @@ var KEYS = [
     ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
     ["Esc", "Put back what was there (editing)"]] }
 ]
+// One row per group: the cursor stops on the group, and its keys are drawn
+// beneath it as key caps. `caps` is a key line's tokens in order: a cap each,
+// and "·" between alternatives ("j k · ↑ ↓").
+function keyCaps(keys) {
+  return String(keys).split(" ").filter(function(c) { return c !== "" })
+}
 function keysRows() {
-  var rows = []
-  KEYS.forEach(function(g) {
-    g.keys.forEach(function(k, i) { rows.push({ kind: "key", key: g.group + ":" + i, group: i === 0 ? g.group : "", keys: k[0], label: k[1] }) })
+  return KEYS.map(function(g) {
+    return { kind: "keyGroup", key: g.group, group: g.group,
+             items: g.keys.map(function(k) { return { keys: k[0], caps: keyCaps(k[0]), label: k[1] } }) }
   })
-  return rows
 }
 
 // Every row of the settings page, in one list so keyboard and mouse share a
@@ -3752,6 +3757,20 @@ function placeToResume(left, nowMs, ctx) {
 // dir +1 slides the new page in from the right, -1 from the left, 0 is a
 // lateral move (tabs) whose direction the caller knows.
 var HOME_KEY = "0"
+
+// The key a control's tooltip names, as "Label (key)". The keys are spelled
+// once, here; tests/keys.test.js fails the build when one is not on the Keys
+// page, and when a tooltip in a .qml file spells a key itself.
+var TIP_KEYS = {
+  home: HOME_KEY, back: "Esc", edit: "E", settings: "s", messages: "m",
+  reply: "r", dismiss: "x", open: "o", forget: "x",
+  prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
+  pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete"
+}
+function keyTip(label, id) {
+  var k = TIP_KEYS[id]
+  return k ? label + " (" + k + ")" : label
+}
 var HOME_MIN_DEPTH = 2
 
 function navIndex(stack, key) {
