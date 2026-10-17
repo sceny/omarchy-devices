@@ -16,6 +16,11 @@ Item {
   id: view
 
   property var sms: null
+  // The note for contacts when the plugin can allow them itself (Model.
+  // sectionNote's ask), else null; contactsWorking: its Allow is running.
+  property var contactsAsk: null
+  property bool contactsWorking: false
+  signal allowContacts()
   property var bar: null
   property color foreground: Color.foreground
   property color urgent: Color.urgent
@@ -742,13 +747,46 @@ Item {
 
           Text {
             Layout.fillWidth: true
-            visible: !!view.sms && view.sms.contactCount === 0
+            visible: !!view.sms && view.sms.contactCount === 0 && !view.contactsAsk
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             text: "Contact names are not synced from the device yet, so search matches numbers. Allow contacts in its KDE Connect app to search by name."
             color: view.dim
             font.family: view.fontFamily
             font.pixelSize: Style.font.caption
+          }
+
+          // The plugin can allow contacts itself (read over adb): the same
+          // Allow as the Contacts page, or the step left on the device.
+          RowLayout {
+            Layout.fillWidth: true
+            visible: !!view.sms && view.sms.contactCount === 0 && !!view.contactsAsk
+            spacing: Style.space(6)
+            Text {
+              Layout.fillWidth: true
+              textFormat: Text.PlainText
+              wrapMode: Text.WordWrap
+              text: "Search matches numbers until contacts are allowed."
+              color: view.dim
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            Button {
+              visible: !!view.contactsAsk && view.contactsAsk.waiting !== true
+              text: view.contactsWorking ? "Working…" : "Allow"
+              enabled: !view.contactsWorking
+              bordered: true
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+              fontSize: Style.font.caption
+              onClicked: view.allowContacts()
+            }
+            WaitRing {
+              visible: !!view.contactsAsk && view.contactsAsk.waiting === true
+              running: visible
+              color: view.dim
+              size: Math.round(Style.font.caption * 0.9)
+            }
           }
         }
 

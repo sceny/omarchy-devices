@@ -303,7 +303,9 @@ one only with the owner.
   it.
 - **Using a feature gets it working.** What a feature needs is asked where
   it is used, once, never ahead: notification access in Notifications,
-  SMS and contacts on the Messages page, the screen on the first **Open**
+  SMS on the Messages page, contacts on the Contacts page (an ask belongs to
+  the feature's own page; a problem shows on every page its effect reaches,
+  so Messages still shows a contacts problem), the screen on the first **Open**
   of a notification's app or the Screen shortcut (it then opens by
   itself). Its one action (*Allow*, *Fix*, a switch turned on) runs every
   step the plugin can, across its gateways, this computer's packages first
