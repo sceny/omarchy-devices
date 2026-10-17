@@ -214,9 +214,34 @@ def verbs_started(path):
             found.append((line(m.start()), literal(args[0]), args[1:], "launch"))
     return found
 
-CURSOR_WORDS = re.compile(r"focusSection\s*=|[iI]ndex\s*=|[cC]ursor\s*=")
-PAGES_WITH_A_CURSOR = ("Panel.qml", "AppsView.qml")
-HOVER_HANDLER = re.compile(r"^\s*(?:onEntered|onHovered)\s*:(.*)$")
+# What a hover handler assigns when it takes a keyboard cursor: the row's
+# place (`...Index`, `...Cursor`) or the section holding it. `cursorActive`
+# alone shows the cursor where it already is: it is not a place.
+CURSOR_WORDS = re.compile(r"\bfocusSection\s*=(?!=)|\b\w*(?:[iI]ndex|[cC]ursor)\s*=(?!=)")
+HOVER_HANDLER = re.compile(r"\bon(?:Entered|Hovered)\s*:")
+HOVER_ASKS = re.compile(r"\b(?:hoverMoved|pointerMoved|pointerAt)\(")
+
+
+def handler_body(text, start):
+    """The handler's text from `start` (just after its colon): a statement to
+    the end of its line, or all the lines of a block, a `function(...) {...}`,
+    or an `if (...)` whose statement is on the next line."""
+    depth, i, n = 0, start, len(text)
+    while i < n:
+        c = text[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif depth <= 0 and (c == ";" or c == "\n"):
+            so_far = text[start:i].strip()
+            after = text[i + 1:].lstrip()
+            open_ended = (so_far == "" or re.fullmatch(r"(?:if\s*\(.*\)|function\s*\(.*\)|else)", so_far, re.S)
+                          or (after.startswith("{") and c == "\n"))
+            if c == ";" or not open_ended:
+                return text[start:i]
+        i += 1
+    return text[start:]
 
 
 def hover_that_takes_the_cursor_unasked(path):
@@ -224,36 +249,64 @@ def hover_that_takes_the_cursor_unasked(path):
     the pointer moved. Content that scrolls or folds under a resting pointer
     sends the row now beneath it an enter, and that took the cursor back from
     the keys (#254). The handler asks `hoverMoved()` / `pointerMoved()`
-    (PointerGate); a handler that only passes the row on (`root.hovered(i)`)
-    moves nothing, and a list that tracks the position itself calls
-    `pointerAt`. Messages and Contacts keep their own lists and do that."""
+    (PointerGate, or a list's own pointer position) or calls `pointerAt`; a
+    handler that only passes the row on (`root.hovered(i)`) moves nothing.
+    The handler is read whole, on one line or across several. A cursor moved
+    through a function the handler calls is not seen: ask in the handler."""
     text = code_only(open(path).read())
     found = []
-    for number, line in enumerate(text.splitlines(), 1):
-        m = HOVER_HANDLER.match(line)
-        if not m or not CURSOR_WORDS.search(m.group(1)):
-            continue
-        if not re.search(r"\b(?:hoverMoved|pointerMoved|pointerAt)\(", m.group(1)):
+    for m in HOVER_HANDLER.finditer(text):
+        body = handler_body(text, m.end())
+        if CURSOR_WORDS.search(body) and not HOVER_ASKS.search(body):
+            number = text.count("\n", 0, m.start()) + 1
             found.append("%s:%d: a hover moves the cursor without asking if the pointer moved" % (os.path.basename(path), number))
     return found
 
 
+QML_FILES = sorted(glob.glob(os.path.join(ROOT, "*.qml")))
+
+
 class HoverNeedsAPointerMove(unittest.TestCase):
     def test_every_hover_that_moves_a_cursor_asks(self):
-        found = [p for f in PAGES_WITH_A_CURSOR for p in hover_that_takes_the_cursor_unasked(os.path.join(ROOT, f))]
+        found = [p for f in QML_FILES for p in hover_that_takes_the_cursor_unasked(f)]
         self.assertEqual(found, [], "\n".join(found))
 
-    def test_the_check_finds_one(self):
+    def test_every_qml_file_is_read(self):
+        names = {os.path.basename(f) for f in QML_FILES}
+        self.assertTrue({"Panel.qml", "AppsView.qml", "MessagesView.qml", "ContactsView.qml", "SettingsView.qml"} <= names)
+
+    def found_in(self, source):
         import tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
-            f.write("Item {\n  onEntered: { root.cursorActive = true; root.rowIndex = 1 }\n"
-                    "  onHovered: if (root.hoverMoved()) { root.cursorActive = true }\n"
-                    "  onHovered: function(i) { view.cursor = i }\n  onEntered: root.hovered(idx)\n"
-                    "  onEntered: view.pointerAt(this, row.index)\n}\n")
+            f.write(source)
         try:
-            self.assertEqual(len(hover_that_takes_the_cursor_unasked(f.name)), 2, hover_that_takes_the_cursor_unasked(f.name))
+            return hover_that_takes_the_cursor_unasked(f.name)
         finally:
             os.remove(f.name)
+
+    def test_the_check_finds_one(self):
+        self.assertEqual(len(self.found_in(
+            "Item {\n  onEntered: { root.cursorActive = true; root.rowIndex = 1 }\n"
+            "  onHovered: if (root.hoverMoved()) { root.cursorActive = true }\n"
+            "  onHovered: function(i) { view.cursor = i }\n  onEntered: root.hovered(idx)\n"
+            "  onEntered: view.pointerAt(this, row.index)\n}\n")), 2)
+
+    def test_the_check_reads_a_handler_across_lines(self):
+        unasked = [
+            "Item {\n  MouseArea {\n    onEntered: {\n      view.suggestionCursor = idx\n    }\n  }\n}\n",
+            "Item {\n  onHovered: function(on) {\n    if (on) {\n      root.focusSection = \"a\"\n    }\n  }\n}\n",
+            "Item {\n  onEntered: if (ready)\n    root.settingsIndex = 2\n}\n",
+            "Item {\n  onEntered:\n  {\n    root.photoIndex = 2\n  }\n}\n",
+        ]
+        for source in unasked:
+            self.assertEqual(len(self.found_in(source)), 1, source)
+        asked = [
+            "Item {\n  onEntered: {\n    if (!view.pointerMoved(this)) return\n    view.suggestionCursor = idx\n  }\n}\n",
+            "Item {\n  onEntered: {\n    root.cursorActive = true\n    root.hovered(idx)\n  }\n}\n",
+            "Item {\n  onEntered: {\n    view.pointerAt(this, row.index)\n  }\n  property int n: index\n  x: cursor == 1 ? 1 : 2\n}\n",
+        ]
+        for source in asked:
+            self.assertEqual(self.found_in(source), [], source)
 
 
 # Verbs that carry text a person wrote. Any local process can read a command

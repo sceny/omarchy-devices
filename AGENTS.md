@@ -380,7 +380,9 @@ one only with the owner.
   (`PointerGate`, asked as `hoverMoved()`): a page that scrolls or folds
   under a pointer at rest sends the row beneath an enter, and that would
   pull the cursor back from the keys (#254; `tests/test_qml.py`,
-  `HoverNeedsAPointerMove`, fails on a hover that moves one without asking).
+  `HoverNeedsAPointerMove`, reads every QML file, each handler whole, and
+  fails on a hover that moves a cursor without asking; Messages' lists ask
+  `pointerMoved`/`pointerAt`, the suggestions list included).
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step

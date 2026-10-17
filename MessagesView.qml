@@ -286,11 +286,14 @@ Item {
   property point lastPointer: Qt.point(-1, -1)
   // The cursor last moved by the pointer: the highlight lands at once.
   property bool cursorByPointer: false
-  function pointerAt(area, index) {
+  function pointerMoved(area) {
     var g = area.mapToGlobal(area.mouseX, area.mouseY)
     var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
     lastPointer = Qt.point(g.x, g.y)
-    if (!moved) return
+    return moved
+  }
+  function pointerAt(area, index) {
+    if (!pointerMoved(area)) return
     cursorByPointer = true
     cursorActive = true
     threadCursor = index
@@ -811,7 +814,8 @@ Item {
               anchors.fill: parent
               hoverEnabled: true
               cursorShape: Qt.PointingHandCursor
-              onEntered: view.suggestionCursor = suggestion.index
+              onEntered: if (view.pointerMoved(this)) view.suggestionCursor = suggestion.index
+              onPositionChanged: if (view.pointerMoved(this)) view.suggestionCursor = suggestion.index
               // The user's own click: on to writing the message.
               onClicked: {
                 view.addRecipient(suggestion.modelData)
