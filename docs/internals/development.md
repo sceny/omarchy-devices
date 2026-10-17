@@ -316,6 +316,8 @@ dev/sandbox dev rig exec -- bin/kdeconnect-bridge photos-cached <device>   # the
 "${IPC[@]}" live                   # back to the phone
 "${IPC[@]}" page settings          # also main, messages, connection
 "${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # This computer's checks; the phone away; Reconnect
+"${IPC[@]}" demoAwayOn "Galaxy Tab S9" ; "${IPC[@]}" pressAwayWhy   # demo many: that device away and viewed; the away card's Why?
+"${IPC[@]}" demoReach lost         # demo only: a From anywhere address KDE Connect lost (a problem on the device's page)
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" pressDismissAll        # demo only: the Notifications header's dismiss all

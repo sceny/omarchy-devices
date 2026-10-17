@@ -335,6 +335,25 @@ Item {
     callMuted = ({})
     snapshot = copy
   }
+  // Demo only: one device of the demo, away (last seen 12 minutes ago on
+  // this network), the others as they are. False when the demo has no such
+  // device.
+  function showDemoAway(id) {
+    if (!demo) return false
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var list = copy.devices || []
+    var hit = false
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) !== String(id)) continue
+      list[i].reachable = false
+      list[i].links = []
+      list[i].lastSeen = { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 }
+      if (list[i].handsfree) list[i].handsfree.connected = false
+      hit = true
+    }
+    if (hit) snapshot = copy
+    return hit
+  }
   readonly property int deviceIndex: {
     for (var i = 0; i < ordered.length; i++) if (device && ordered[i].id === device.id) return i
     return -1

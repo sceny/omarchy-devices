@@ -2841,7 +2841,7 @@ Panel {
     function screenInfo(): string { return root.screenInfo() }
     // From anywhere on the viewed device (#119): its page, as its row would
     // open it; what the page shows. demoReach: a made-up network (ready,
-    // setup, pick, none, isolated; demo only). reachAddress: an address as
+    // setup, pick, none, isolated, lost; demo only). reachAddress: an address as
     // typed and Entered on the page (demo only: nothing reaches KDE Connect).
     function reach(): string { if (root.device) root.openReach(String(root.device.id)); return root.reachInfo() }
     function reachInfo(): string { return root.reachInfo() }
@@ -2912,6 +2912,26 @@ Panel {
       root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.searchedAt = 0
       return "ok"
+    }
+    // Demo only: one device of the demo away, and viewed (demo many: its
+    // second device, by id, nickname or name). The rest stay as they are.
+    function demoAwayOn(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var d = root.phone.findDevice(key)
+      if (!d) return "no device " + key
+      if (!root.phone.showDemoAway(d.id)) return "no device " + key
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.searchedAt = 0
+      if (root.opened) root.switchDevice(d.id); else root.phone.view(d.id)
+      return "ok"
+    }
+    // Demo only: Why? on the away card, as a click would (toggles); what the
+    // card shows.
+    function pressAwayWhy(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (!root.device || root.device.reachable !== false) return "the viewed device is not away"
+      root.awayWhy = !root.awayWhy
+      return JSON.stringify({ why: root.awayWhy, lines: root.awayInfo.lines.concat(root.awayWhy ? root.awayInfo.why : []) })
     }
     // Reconnect on the viewed device, as its button would; what it shows.
     function reconnect(): string {
