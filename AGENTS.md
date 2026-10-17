@@ -92,6 +92,7 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
 | `manifest.json` | id, entry points, settings and their defaults |
 | `dev/marketplace-check.mjs` | the marketplace's validation and security baseline on one commit (CI job `marketplace-check`) |
+| `dev/public-text-check`, `dev/public-text-rules.json` | the rules for a pull request's public text and for the standing texts, as patterns in data (CI workflow `public-text`, `tests/test_public_text.py`) |
 
 ## Rules
 
