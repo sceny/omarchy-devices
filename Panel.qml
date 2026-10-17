@@ -1353,7 +1353,8 @@ Panel {
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
-  // A demo leaves nothing in the settings: entering it keeps a copy of this
+  // A demo leaves nothing in the settings: its edits are never written to
+  // shell.json (persistSettings); entering it keeps a copy of this
   // widget's entry (on the service, shared by every monitor's panel), and
   // leaving it writes that copy back, undoing anything changed meanwhile,
   // defaults included. Keys added during the demo go.
@@ -2267,6 +2268,8 @@ Panel {
     for (var key in values) entry[key] = values[key]
     root.settings = entry
     if (root.hostWidget && "settings" in root.hostWidget) root.hostWidget.settings = entry
+    // A demo is a preview: its layout lives in memory and never reaches shell.json.
+    if (phone && phone.demo) return
     if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
       root.bar.shell.updateEntryInline(root.moduleName, entry)
   }
