@@ -705,24 +705,16 @@ one only with the owner.
   the pull request that the change is not checked in a running shell, and
   leave the merge until someone checks it there.
 - **Check the freeze before merging anything into `main`**, and whenever
-  you look at the open issues. It takes two steps:
-  each open `marketplace-review` issue here points to a marketplace issue,
-  and the marketplace issue says whether its review is still open:
-
-  ```bash
-  gh issue list --label marketplace-review --state open --json number,body \
-    --jq '.[] | "\(.number) \(.body | capture("omacom/omarchy-plugin-marketplace#(?<n>[0-9]+)").n)"' |
-  while read -r ours theirs; do
-    echo "#$ours -> omacom/omarchy-plugin-marketplace#$theirs $(gh issue view "$theirs" \
-      --repo omacom/omarchy-plugin-marketplace --json state -q .state)"
-  done
-  ```
+  you look at the open issues: `dev/release-prepare --check-freeze`. Each open
+  `marketplace-review` issue here points to a marketplace issue, and the
+  marketplace issue says whether its review is still open. The command prints
+  each pair and exits 1 while one is `OPEN`:
 
   - `OPEN`: a review is in progress and `main` is frozen.
   - `CLOSED`: the two are out of sync; sync them now. Read the marketplace
     issue's last report (published, or what to fix), comment the outcome
     on our issue, and close it.
-  - No output: nothing is under review.
+  - No pair: nothing is under review.
 - **Keep the repository apart from the installed copy.** Work in your own
   clone, outside the shell's plugin folder. The plugin folder holds the
   owner's installed copy following `develop`. A user timer
@@ -818,8 +810,11 @@ run in order; the detail, the checklist and the record templates are in
   answered or routed to their owner on the day they arrive (Omar's daily
   check).
 
-0. **Check the freeze** (*Workflow*). A marketplace issue still open means
-   `main` is frozen: say so and release nothing.
+0. **Check the freeze** with `dev/release-prepare --check-freeze` (*Workflow*).
+   A marketplace issue still open means `main` is frozen: say so and release
+   nothing. `dev/release-prepare X.Y.Z` runs the same check and refuses a
+   release from `develop` while `main` is frozen, naming the issue; a fix from
+   `main` is not refused by it.
 1. **Pick the version**: a new feature raises Y (`0.5.0` → `0.6.0`), fixes
    alone raise Z (`0.6.0` → `0.6.1`).
    **Prepare on a branch from `develop`** with `dev/release-prepare X.Y.Z`:

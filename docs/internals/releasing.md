@@ -106,11 +106,17 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
   above the newest version with each `--note` under *Fixes* (at least one).
 - It sets `"version"`, commits both files (`--no-commit` leaves them staged, uncommitted)
   and prints the next step. Write the section's remaining groups after it.
+- It runs the freeze check first (`--check-freeze` prints it alone and exits 1
+  while `main` is frozen, for the daily check): a release from `develop` is
+  refused while an open `marketplace-review` issue points to an open
+  marketplace issue, naming both, and also when GitHub cannot be read. A fix
+  from `main` is not refused by it and prints the freeze as a note.
 - It refuses a version already tagged (here or on origin), one not above the
   base's version, one the base's CHANGELOG already has, an empty Unreleased
   section, an existing branch and a tree with tracked changes.
-- Tested in `tests/test_release_prepare.py`, which runs `dev/release-notes`,
-  the `release` workflow's own extraction, on what the script wrote.
+- Tested in `tests/test_release_prepare.py` (`gh` replaced by a file-backed
+  fake, a frozen and a clear repository), which runs `dev/release-notes`, the
+  `release` workflow's own extraction, on what the script wrote.
 
 The release pull request into `main` is merged with a merge commit. GitHub has
 no per-pull-request check of the merge method, so the pull request's `release`
@@ -217,7 +223,10 @@ finding blocks the pull request.
 - No work per foreign event at rest without a rate limit and a check of what
   the event names (a player's art URL, a file the device sent).
 - No personal data in code, comments, docs, tests, screenshots or commit
-  messages.
+  messages. The repository's secret scanning and push protection are on (with
+  Dependabot security updates): GitHub refuses a push that holds a token
+  before it is public. A refused push is fixed by removing the token from the
+  commit, never by bypassing the protection.
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
