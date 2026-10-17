@@ -69,11 +69,6 @@ GitHub release with these notes.
   rules are now tested by running the field. Smaller: the conversation list
   finds a thread without scanning, and an album-art decode that cannot start
   no longer holds a slot.
-
-## 0.9.0 — 2026-10-12
-
-### Highlights
-
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call
@@ -111,6 +106,20 @@ GitHub release with these notes.
   emulator paired to a private KDE Connect, so changes are tried without
   touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
+- **Contacts asks for contacts, Messages does not**: the permission to read
+  contacts is asked on the Contacts page, with *Allow* when the plugin can
+  grant it, instead of on the Messages page where texts were the errand.
+  Messages is whole with numbers instead of names; if contacts worked and
+  stopped, both pages still show that problem. Searching a new message by
+  name offers the same *Allow*. A Contacts page with the permission given and
+  no cards says so (*No contacts on Pixel 8 yet*) (#272).
+- **The on-screen display names nothing a device sent**: with no panel
+  open, a result shows in Omarchy's display, whose line any local user can
+  read. It now says "Saved to Pictures", "The app is open" or "Ringing the
+  device", never a received file's name, an app's label or the device's
+  name; the panel's toast keeps the full text.
+- **Hardening**: contact fields are capped, and the firewall rules open KDE
+  Connect's ports to private ranges only.
 
 ### Issues
 
