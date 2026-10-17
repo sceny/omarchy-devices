@@ -9,9 +9,11 @@ import importlib.machinery
 import importlib.util
 import io
 import os
+import shutil
 import struct
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -316,6 +318,13 @@ class Cache(unittest.TestCase):
 
 
 class Opens(unittest.TestCase):
+    def setUp(self):
+        run = tempfile.mkdtemp()
+        patch = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": run})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(shutil.rmtree, run, True)
+
     def test_an_app_is_tiled_without_an_on_screen_keyboard(self):
         cmd = bridge.screen_command("SERIAL", "Clock · Pixel 8", "com.example.app", {"flex": True}, sound="phone")
         self.assertIn("--start-app=com.example.app", cmd)

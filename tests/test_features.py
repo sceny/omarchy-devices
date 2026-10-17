@@ -4,7 +4,10 @@ one device. The device and adb are replaced; every dump here is made up."""
 import importlib.machinery
 import importlib.util
 import os
+import tempfile
+import shutil
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "..", "bin", "kdeconnect-bridge")
@@ -209,6 +212,13 @@ class Locked(unittest.TestCase):
 
 
 class AppPopOut(unittest.TestCase):
+    def setUp(self):
+        run = tempfile.mkdtemp()
+        patch = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": run})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(shutil.rmtree, run, True)
+
     def open(self, popout):
         rules, launched = [], []
         names = ["screen_status", "find_window", "hypr_json", "border_size", "apps_opened", "screen_device", "say"]

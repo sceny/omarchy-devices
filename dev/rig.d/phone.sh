@@ -459,8 +459,13 @@ rig_adb_wifi_start() {
   "${RIG_IN_NS[@]}" socat "TCP-LISTEN:$port,bind=$RIG_NS_ADDR,fork,reuseaddr" "TCP:127.0.0.1:$port" \
     >>"$RIG_LOGS/adb-wifi.log" 2>&1 </dev/null &
   rig_state_set adbwifi_pid "$!"
+  # The plugin's own adb server (a socket in the runtime folder, not the rig's
+  # port) finds the phone only through its own connection.
+  install -d -m 700 "$RIG_RUNTIME_DIR/sceny.devices"
   for i in $(seq 1 30); do
-    rig_adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" && return 0
+    rig_adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" &&
+      "${RIG_IN_NS[@]}" env "ADB_SERVER_SOCKET=localfilesystem:$RIG_RUNTIME_DIR/sceny.devices/adb.sock" \
+        adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" && return 0
     sleep 0.3
   done
   rig_warn "adb over Wi-Fi to the emulator did not connect (the screen link will not find it)"

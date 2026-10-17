@@ -237,6 +237,13 @@ finding blocks the pull request.
   found by its exact title and focused by address, else the command runs as an
   argv list. A test fails if the bridge calls those scripts.
   Tests: `tests/test_bridge.py` (`Screen`).
+- Every `adb` and `scrcpy` the bridge starts runs against the plugin's own
+  adb server, a socket in `$XDG_RUNTIME_DIR/sceny.devices/` (0700), through
+  `ADB_SERVER_SOCKET` in its environment (and on the `uwsm-app` line, whose
+  daemon hands on none); `start-server` always carries `-L`; with no runtime
+  folder nothing starts. A test fails, naming file:line, on any other place
+  that runs either.
+  Tests: `tests/test_adb_socket.py` (`ShippedCode`).
 - No new network listener, and no shell on a script built from anything but
   literals: the bridge imports no server, calls no `bind`, `listen` or
   `serve_forever`, uses `socket` only in a reviewed client, and starts
