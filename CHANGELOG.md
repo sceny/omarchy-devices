@@ -74,6 +74,11 @@ GitHub release with these notes.
   rules are now tested by running the field. Smaller: the conversation list
   finds a thread without scanning, and an album-art decode that cannot start
   no longer holds a slot.
+- **Hardening, mesh and files**: a mesh peer is remembered by its id, not its
+  name; the screen's stills and the messages folder are private from the start;
+  Omarchy's folder from the environment is used only when root owns it; the CI
+  actions are pinned to commits and kept current. A contact's value you open
+  goes on the opened program's command line, now said in the security page.
 
 ### Issues
 
