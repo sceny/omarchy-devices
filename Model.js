@@ -3729,6 +3729,37 @@ function photosSummary(photos) {
 var CAP_THREADS = 5000
 function threadOverflow(count) { return Math.max(0, count - CAP_THREADS) }
 
+// Where each conversation sits in the thread list, by id, kept beside the
+// ListModel so a thread event finds its row without reading the list. Every
+// change to the list is made here too (SmsService.qml `threadRows`).
+function threadRowsNew() { return { order: [], at: {} } }
+function threadRowOf(rows, tid) {
+  var i = rows.at[tid]
+  return i === undefined ? -1 : i
+}
+function threadRowsRenumber(rows, from, to) {
+  for (var i = from; i <= to && i < rows.order.length; i++) rows.at[rows.order[i]] = i
+}
+function threadRowsReset(rows, tids) {
+  rows.order = tids.slice()
+  rows.at = {}
+  threadRowsRenumber(rows, 0, rows.order.length - 1)
+}
+function threadRowsInsert(rows, to, tid) {
+  rows.order.splice(to, 0, tid)
+  threadRowsRenumber(rows, to, rows.order.length - 1)
+}
+function threadRowsMove(rows, from, to) {
+  if (from === to) return
+  rows.order.splice(to, 0, rows.order.splice(from, 1)[0])
+  threadRowsRenumber(rows, Math.min(from, to), Math.max(from, to))
+}
+function threadRowsRemove(rows, from, count) {
+  var gone = rows.order.splice(from, count)
+  for (var i = 0; i < gone.length; i++) delete rows.at[gone[i]]
+  threadRowsRenumber(rows, from, rows.order.length - 1)
+}
+
 // Where the panel was when it closed, kept for a while: opened again within
 // KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the
 // conversation), else it starts on its main page. Not when it must open

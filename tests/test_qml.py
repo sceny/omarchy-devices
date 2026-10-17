@@ -288,6 +288,75 @@ class PrivateText(unittest.TestCase):
         self.assertEqual(len(ID_ONLY_VERBS) + len(TEXT_VERBS) + len(REVIEWED_VERBS), len(listed))
 
 
+class ArtDecodeSlotFreesOnExit(unittest.TestCase):
+    """A decode's slot (`artActive`, the player's `artRunning`) frees once, when
+    its process ends. A process that never starts has no output to finish, so
+    the slot cannot wait for the output."""
+
+    def art_process(self, text):
+        clean = code_only(text)
+        start = clean.index("id: artProc")
+        depth, i = 1, clean.rindex("{", 0, start) + 1
+        while depth:
+            depth += {"{": 1, "}": -1}.get(clean[i], 0)
+            i += 1
+        return clean[clean.rindex("{", 0, start):i]
+
+    def check(self, text):
+        proc = self.art_process(text)
+        problems = []
+        if len(re.findall(r"artActive\s*-=\s*1", proc)) != 1:
+            problems.append("artActive is released in one place")
+        exited = re.search(r"onExited:\s*\{(.*?)\n      \}", proc, flags=re.S)
+        if not exited or "release()" not in exited.group(1):
+            problems.append("onExited releases the slot")
+        stream = proc[proc.index("onStreamFinished"):]
+        if "artActive" in stream or "release()" in stream or "nextArt" in stream:
+            problems.append("the output's end does not release the slot")
+        if not re.search(r"if\s*\(\s*released\s*\)\s*return", proc):
+            problems.append("a second release does nothing")
+        return problems
+
+    def test_the_slot_frees_on_exit_once(self):
+        with open(os.path.join(ROOT, "Service.qml")) as f:
+            self.assertEqual(self.check(f.read()), [])
+
+    def test_the_check_finds_a_release_waiting_for_the_output(self):
+        with open(os.path.join(ROOT, "Service.qml")) as f:
+            text = f.read()
+        late = text.replace("        release()\n        if (streamed)", "        if (streamed)", 1).replace(
+            "          artProc.streamed = true\n", "          artProc.streamed = true\n          root.artActive -= 1\n", 1)
+        self.assertNotEqual(self.check(late), [])
+
+
+class ThreadListHasOneWriter(unittest.TestCase):
+    """SmsService keeps an id -> row index beside the thread ListModel
+    (Model.threadRows*); a change to the list outside the five functions that
+    also change the index would leave it wrong."""
+
+    WRITERS = ("clearThreads", "setThreads", "insertThread", "moveThread", "removeThreadAt")
+
+    def offenders(self, text):
+        clean = code_only(text)
+        found = []
+        for m in re.finditer(r"\bthreadModel\.(clear|append|insert|remove|move)\s*\(", clean):
+            fn = re.findall(r"function\s+(\w+)\s*\(", clean[:m.start()])
+            if not fn or fn[-1] not in self.WRITERS:
+                found.append(clean.count("\n", 0, m.start()) + 1)
+        return found
+
+    def test_only_the_five_writers_change_the_thread_list(self):
+        with open(os.path.join(ROOT, "SmsService.qml")) as f:
+            text = f.read()
+        self.assertEqual(self.offenders(text), [])
+        for writer in self.WRITERS:
+            self.assertRegex(text, r"function\s+%s\s*\(" % writer)
+
+    def test_the_check_finds_a_write_outside_them(self):
+        planted = "Item {\n  function upsert(t) {\n    threadModel.insert(0, t)\n  }\n}\n"
+        self.assertEqual(self.offenders(planted), [3])
+
+
 class FetchedAttachmentsOpenOnlyWhenAsked(unittest.TestCase):
     """An attachment arriving opens only when its own id was asked for: no
     "anything is pending" fallback, and the bridge's file gate is told it
