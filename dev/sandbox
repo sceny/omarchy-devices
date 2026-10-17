@@ -1035,7 +1035,7 @@ cmd_dev() {
   [[ -z $secs || $secs =~ ^[0-9]+$ ]] || die "dev: --timeout is whole seconds"
   verb=${1:-}
   shift || true
-  require_tools
+  [[ $verb == start ]] || require_tools # start checks its options first, then the tools
   case $verb in
   start) dev_start "$@" ;;
   status) dev_status ;;
