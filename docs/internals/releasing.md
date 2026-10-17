@@ -155,8 +155,12 @@ finding blocks the pull request.
   process and fails on any argument that is not a literal or on its reviewed
   allowlist (`ARGV_ALLOWED`, with the reason each is not private text); an
   allowed bare name (`id`) also has every value it is given in its file read
-  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
-  The reviewer reads every new line of either list from the diff.
+  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text;
+  a function whose parameter is such a name has every call read the same way.
+  `tests/test_shell_argv.py` fails on `shell=True`, `os.system`, `bash -c` and
+  `sh -c` in `bin/`, `lib/`, `dev/` and `tools/` unless the line is on its
+  allowlist with a reason. The reviewer reads every new line of any list from
+  the diff.
 - The shell is never a party to a Wayland data transfer, and nothing reaches
   the clipboard's contents without the user's own paste (Ctrl+V): no
   `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
