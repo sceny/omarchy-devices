@@ -29,9 +29,9 @@ import glob
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
-import time
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -126,7 +126,7 @@ class PanelFieldClipboard(unittest.TestCase):
         self.assertIsNotNone(m)
         return re.sub(r"\\(.)", r"\1", m.group(1))
 
-    def run_paste(self, mode):
+    def run_paste(self, mode, limit=20):
         script = self.paste_script()
         with tempfile.TemporaryDirectory(dir=ROOT) as d:
             fake = os.path.join(d, "wl-paste")
@@ -135,13 +135,20 @@ class PanelFieldClipboard(unittest.TestCase):
                         " text) printf 'h\\303\\251llo\\nworld' ;;\n"
                         " endless) exec yes 'x' ;;\n"
                         " euro) yes \"$(printf '\\342\\202\\254')\" | tr -d '\\n' ;;\n"
-                        " stall) printf partial; exec sleep 30 ;;\n"
+                        " stall) printf partial; echo $$ > \"$PIDFILE\"; exec sleep 600 ;;\n"
                         " fail) printf partial; exit 1 ;;\n"
                         "esac\n")
             os.chmod(fake, 0o755)
-            return subprocess.run(["bash", "-c", "export PATH=%s:$PATH; %s" % (d, script)],
-                                  env={**os.environ, "MODE": mode}, capture_output=True,
-                                  timeout=20)
+            proc = subprocess.Popen(["bash", "-c", "export PATH=%s:$PATH; %s" % (d, script)],
+                                    env={**os.environ, "MODE": mode, "PIDFILE": os.path.join(d, "pid")},
+                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+            try:
+                out, err = proc.communicate(timeout=limit)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.communicate()
+                raise
+            return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
     @unittest.skipUnless(shutil.which("timeout") and shutil.which("iconv"), "needs coreutils and iconv")
     def test_the_read_script_against_a_fake_clipboard(self):
@@ -159,12 +166,12 @@ class PanelFieldClipboard(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("timeout") and shutil.which("iconv"), "needs coreutils and iconv")
     def test_a_stalled_provider_inserts_nothing_after_the_deadline(self):
-        started = time.monotonic()
-        stalled = self.run_paste("stall")
+        # The provider holds for 600 s and the run is given 120: the script
+        # returns only because its own deadline (2 s, a kill at 3 s) stopped
+        # the provider, whatever the machine's load. No wall-clock bound
+        # tighter than that is asserted, since load stretches it.
+        stalled = self.run_paste("stall", limit=120)
         self.assertEqual(stalled.stdout, b"")
-        # The deadline is 2 s (then a kill at 3 s); 10 s leaves room for a
-        # loaded machine and still fails a provider held for its 30 s.
-        self.assertLess(time.monotonic() - started, 10)
 
     def test_the_text_edit_takes_no_selection_from_qt(self):
         text = code(os.path.join(ROOT, "PanelField.qml"))
@@ -272,6 +279,63 @@ def clipboard_door_problems(path, text=None):
         elif not re.search(literal("selectByMouse", "false"), top_level(body(text, m.end()))):
             found.append("%s:%d: a TextEdit says selectByMouse: false (Qt 6 may default it on)" % (name, at))
     return found
+
+
+QML_TESTS = os.path.join(HERE, "qml")
+QMLTESTRUNNER = next((p for p in ("/usr/lib/qt6/bin/qmltestrunner", "/usr/lib/x86_64-linux-gnu/qt6/bin/qmltestrunner")
+                      if os.path.exists(p)), shutil.which("qmltestrunner"))
+
+
+def run_qml_tests(mutation=None):
+    """PanelField (optionally with one text replaced) under qmltestrunner,
+    offscreen, next to a stub Clipboard; the shell's own modules are stubs
+    in tests/qml/stubs. Returns the failing test names and the output."""
+    with tempfile.TemporaryDirectory() as work:
+        with open(os.path.join(ROOT, "PanelField.qml")) as f:
+            source = f.read()
+        if mutation:
+            old, new = mutation
+            assert old in source, old
+            source = source.replace(old, new, 1)
+        with open(os.path.join(work, "PanelField.qml"), "w") as f:
+            f.write(source)
+        for name in ("Clipboard.qml", "tst_panelfield.qml"):
+            shutil.copy(os.path.join(QML_TESTS, name), work)
+        with open(os.path.join(work, "qmldir"), "w") as f:
+            f.write("singleton Clipboard 1.0 Clipboard.qml\nPanelField 1.0 PanelField.qml\n")
+        env = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        out = subprocess.run([QMLTESTRUNNER, "-import", os.path.join(QML_TESTS, "stubs"), "-input", work],
+                             env=env, capture_output=True, text=True, timeout=120)
+    text = out.stdout + out.stderr
+    return re.findall(r"^FAIL!\s*:\s*\S+::(\w+)\(\)", text, flags=re.M), text, out.returncode
+
+
+@unittest.skipUnless(QMLTESTRUNNER or os.environ.get("CI"), "qmltestrunner (Qt 6 declarative tools) is not installed")
+class PanelFieldBehaviour(unittest.TestCase):
+    """The field run headless: a selection never stands where Qt could make
+    the shell its owner, and the mouse is the field's own. The text lints in
+    ShippedQml cannot tell a guard from a guard that no longer runs; each
+    mutation below removes one guard and must fail a test."""
+
+    def test_the_field_behaves(self):
+        failed, text, code_ = run_qml_tests()
+        self.assertEqual((failed, code_), ([], 0), text)
+
+    def test_each_removed_guard_fails_a_test(self):
+        mutations = {
+            "a selection never lets a key past": (
+                "function _keepsSelection(event) {", "function _keepsSelection(event) { return true"),
+            "the control and meta keys count as text": (" && !ctrl", ""),
+            "the mouse area is under the text": (
+                "  MouseArea {\n    anchors.fill: parent", "  MouseArea {\n    z: -1\n    anchors.fill: parent"),
+            "the mouse area is off": (
+                "acceptedButtons: Qt.LeftButton | Qt.MiddleButton",
+                "enabled: false\n    acceptedButtons: Qt.LeftButton | Qt.MiddleButton"),
+        }
+        for name, mutation in mutations.items():
+            with self.subTest(name):
+                failed, text, _ = run_qml_tests(mutation)
+                self.assertTrue(failed, "no test noticed: " + name + "\n" + text)
 
 
 class ShippedQml(unittest.TestCase):

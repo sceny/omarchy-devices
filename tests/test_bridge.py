@@ -6,6 +6,7 @@ bus replaced, so nothing reaches a device). All data is made up.
 """
 
 import contextlib
+import errno
 import io
 import re
 import importlib.machinery
@@ -99,8 +100,19 @@ class Sends(unittest.TestCase):
         for argv in (["text", "d1", "in argv"], ["url", "d1", "https://example.com"],
                      ["dial", "d1", "+15145550123"], ["reply", "d1", "reply-1", "in argv"]):
             self.assertIn(self.run_quiet(argv), (bridge.EXIT_CANCELLED, bridge.EXIT_FAILED), argv)
-        self.run_quiet(["ping", "d1", "in argv"])
-        self.assertEqual(self.calls, [("ping", "ping", "sendPing", None, None)])
+        self.assertEqual(self.run_quiet(["ping", "d1", "in argv"]), bridge.EXIT_FAILED)
+        self.assertEqual(self.run_quiet(["ping", "d1", "in argv"], "on stdin"), bridge.EXIT_FAILED)
+        self.assertEqual(self.calls, [])
+
+    def test_a_refused_argument_is_not_echoed(self):
+        saved, sys.stdin = sys.stdin, io.StringIO("")
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                bridge.act(["ping", "d1", "private words"])
+        finally:
+            sys.stdin = saved
+        self.assertNotIn("private", out.getvalue() + err.getvalue())
 
     def test_nothing_to_send_sends_nothing(self):
         self.assertEqual(self.run_quiet(["text", "d1"], "  "), bridge.EXIT_CANCELLED)
@@ -1171,6 +1183,101 @@ class OpenFromDevice(unittest.TestCase):
             os.utime(src, (2000, 2000))
             self.assertEqual(open(bridge.local_copy(src, cache)).read(), "abcd", "copied again once it changed")
 
+    def test_a_link_to_a_file_of_this_computer_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            outside = os.path.join(d, "outside.txt")
+            open(outside, "w").write("not the device's")
+            mount = os.path.join(d, "mount")
+            os.makedirs(mount)
+            link = os.path.join(mount, "VID_1.mp4")
+            os.symlink(outside, link)
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            with self.assertRaises(OSError):
+                bridge.local_copy(link, cache, root=mount)
+            self.assertEqual(os.listdir(cache), [], "nothing written")
+
+    def test_a_folder_that_leaves_the_mount_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            other = os.path.join(d, "elsewhere")
+            os.makedirs(other)
+            open(os.path.join(other, "a.mp4"), "w").write("x")
+            mount = os.path.join(d, "mount")
+            os.makedirs(mount)
+            os.symlink(other, os.path.join(mount, "DCIM"))
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            with self.assertRaises(OSError):
+                bridge.local_copy(os.path.join(mount, "DCIM", "a.mp4"), cache, root=mount)
+            self.assertEqual(os.listdir(cache), [])
+
+    def test_a_folder_swapped_for_a_link_after_the_check_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            other = os.path.join(d, "elsewhere")
+            os.makedirs(other)
+            open(os.path.join(other, "a.mp4"), "w").write("not the device's")
+            mount = os.path.join(d, "mount")
+            os.makedirs(os.path.join(mount, "DCIM"))
+            open(os.path.join(mount, "DCIM", "a.mp4"), "w").write("the device's")
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            real = os.open
+
+            def swap_then_open(path, *args, **kwargs):
+                if path.endswith("a.mp4"):
+                    os.rename(os.path.join(mount, "DCIM"), os.path.join(mount, "DCIM.old"))
+                    os.symlink(other, os.path.join(mount, "DCIM"))
+                return real(path, *args, **kwargs)
+            bridge.os.open = swap_then_open
+            try:
+                with self.assertRaises(OSError) as raised:
+                    bridge.local_copy(os.path.join(mount, "DCIM", "a.mp4"), cache, root=mount)
+            finally:
+                bridge.os.open = real
+            self.assertEqual(raised.exception.errno, errno.EXDEV)
+            self.assertEqual(os.listdir(cache), [], "nothing written")
+
+    def test_a_file_larger_than_the_cache_allows_is_refused_before_copying(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "big.mp4")
+            open(src, "wb").write(b"x" * 100)
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            with self.assertRaises(OSError):
+                bridge.local_copy(src, cache, limit=99)
+            self.assertEqual(os.listdir(cache), [], "nothing written")
+            self.assertTrue(os.path.exists(bridge.local_copy(src, cache, limit=100)))
+
+    def test_a_file_that_grows_while_copied_stops_at_the_limit(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "grows.mp4")
+            open(src, "wb").write(b"x" * 10)
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            real = os.fstat
+
+            def small(fd):
+                st = real(fd)
+                return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink, st.st_uid, st.st_gid,
+                                       5, st.st_atime, st.st_mtime, st.st_ctime))
+            bridge.os.fstat = small
+            try:
+                with self.assertRaises(OSError):
+                    bridge.local_copy(src, cache, limit=8)
+            finally:
+                bridge.os.fstat = real
+            folder = [os.path.join(cache, f) for f in os.listdir(cache)]
+            self.assertEqual([os.listdir(f) for f in folder], [[]], "no part file left")
+
+    def test_a_pipe_is_not_a_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            fifo = os.path.join(d, "pipe.mp4")
+            os.mkfifo(fifo)
+            cache = os.path.join(d, "cache")
+            os.makedirs(cache)
+            with self.assertRaises(OSError):
+                bridge.local_copy(fifo, cache)
+
     def test_the_cache_drops_the_oldest(self):
         with tempfile.TemporaryDirectory() as d:
             cache = os.path.join(d, "cache")
@@ -1370,6 +1477,20 @@ class CopyFileThroughTheGate(unittest.TestCase):
                 self.assertEqual(code, bridge.EXIT_OK)
                 self.assertEqual(sent, [(["wl-copy", "--type", "image/jpeg"], self.SANDBOX_JPEG)],
                                  "the sandbox's JPEG, never the device's bytes")
+            finally:
+                bridge.state_dir, bridge.fit_image = saved
+
+    def test_a_link_to_a_file_of_this_computer_copies_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            saved = self.setup_paths(d)
+            try:
+                outside = os.path.join(d, "outside.txt")
+                open(outside, "w").write("not the device's")
+                link = os.path.join(d, "notes.txt")
+                os.symlink(outside, link)
+                code, sent = self.copy(link, local=True)
+                self.assertEqual((code, sent), (bridge.EXIT_FAILED, []))
+                self.assertEqual(bridge.open_file(link, launch=lambda cmd: None, local=True), bridge.EXIT_FAILED)
             finally:
                 bridge.state_dir, bridge.fit_image = saved
 

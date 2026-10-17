@@ -1,7 +1,9 @@
 """dev/release-prepare in a throwaway repository with its own origin, and the
 release workflow's notes extraction run on what it wrote."""
 
+import json
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +18,23 @@ OLD = "## 0.8.2 — 2026-10-11\n\n### Highlights\n\n- Old.\n"
 UNRELEASED = "## Unreleased\n\n### Highlights\n\n- New thing.\n\n"
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
            GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com", GIT_CONFIG_GLOBAL="/dev/null")
+
+
+# A gh that answers from a file: {"ours": [{"number": 7, "body": "..."}], "theirs": {"12": "OPEN"}},
+# or {"error": "..."} for a GitHub that cannot be reached.
+FAKE_GH = """#!/usr/bin/env python3
+import json, os, sys
+state = json.load(open(os.environ["FAKE_GH_STATE"]))
+if "error" in state:
+    sys.exit(state["error"])
+args = sys.argv[1:]
+if args[:2] == ["issue", "list"]:
+    print(json.dumps(state["ours"]))
+elif args[:2] == ["issue", "view"]:
+    print(json.dumps({"state": state["theirs"][args[2]]}))
+else:
+    sys.exit("unexpected gh call: %s" % args)
+"""
 
 
 def git(cwd, *args):
@@ -47,6 +66,23 @@ class ReleasePrepare(unittest.TestCase):
         self.commit("develop", MANIFEST % "0.8.2", HEAD + UNRELEASED + OLD)
         git(self.work, "push", "-q", "origin", "develop")
         git(self.work, "switch", "-q", "main")
+        self.bin = os.path.join(root, "bin")
+        os.mkdir(self.bin)
+        gh = os.path.join(self.bin, "gh")
+        with open(gh, "w") as handle:
+            handle.write(FAKE_GH)
+        os.chmod(gh, os.stat(gh).st_mode | stat.S_IXUSR)
+        self.gh_state = os.path.join(root, "gh.json")
+        self.freeze(clear=True)
+
+    def freeze(self, clear=False, **state):
+        """What the fake gh reports: nothing under review, or the given state."""
+        with open(self.gh_state, "w") as handle:
+            json.dump({"ours": [], "theirs": {}} if clear else state, handle)
+
+    def under_review(self, state="OPEN"):
+        self.freeze(ours=[{"number": 7, "body": "Marketplace: omacom/omarchy-plugin-marketplace#12\nCommit under review: abc"}],
+                    theirs={"12": state})
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -59,7 +95,8 @@ class ReleasePrepare(unittest.TestCase):
         git(self.work, "commit", "-q", "-m", name)
 
     def run_script(self, *args):
-        return subprocess.run(["python3", SCRIPT, *args], cwd=self.work, env=ENV, capture_output=True, text=True)
+        env = dict(ENV, PATH=self.bin + os.pathsep + ENV["PATH"], FAKE_GH_STATE=self.gh_state)
+        return subprocess.run(["python3", SCRIPT, *args], cwd=self.work, env=env, capture_output=True, text=True)
 
     def read(self, file):
         with open(os.path.join(self.work, file)) as handle:
@@ -145,6 +182,58 @@ class ReleasePrepare(unittest.TestCase):
             handle.write("\n")
         done = self.run_script("0.9.0")
         self.assertIn("tracked changes", done.stderr)
+
+    def test_frozen_main_refuses_a_release_from_develop(self):
+        self.under_review("OPEN")
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("main is frozen", done.stderr)
+        self.assertIn("omacom/omarchy-plugin-marketplace#12 OPEN", done.stderr)
+        self.assertIn("#7", done.stderr)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "main")
+        self.assertEqual(git(self.work, "branch", "--list", "release-0.9.0").strip(), "")
+
+    def test_frozen_main_does_not_refuse_an_urgent_fix(self):
+        self.under_review("OPEN")
+        done = self.run_script("0.8.3", "--from", "main", "--note", "x")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("main is frozen", done.stderr)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "fix-0.8.3")
+
+    def test_a_closed_marketplace_issue_does_not_refuse_but_is_named(self):
+        self.under_review("CLOSED")
+        done = self.run_script("0.9.0")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        done = self.run_script("--check-freeze")
+        self.assertEqual(done.returncode, 0)
+        self.assertIn("CLOSED: out of sync", done.stdout)
+        self.assertIn("main is not frozen", done.stdout)
+
+    def test_unreadable_github_or_unreadable_issue_refuses(self):
+        self.freeze(error="gh: HTTP 502")
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("could not read GitHub", done.stderr)
+        self.freeze(ours=[{"number": 7, "body": "no link here"}], theirs={})
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("treated as frozen", done.stderr)
+
+    def test_check_freeze_prints_frozen_and_clear(self):
+        done = self.run_script("--check-freeze")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("main is not frozen: nothing is under review", done.stdout)
+        self.under_review("OPEN")
+        done = self.run_script("--check-freeze")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("omacom/omarchy-plugin-marketplace#12 OPEN", done.stdout)
+        self.assertIn("main is frozen", done.stdout)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "main")
+
+    def test_check_freeze_takes_no_version(self):
+        done = self.run_script("0.9.0", "--check-freeze")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("takes no version", done.stderr)
 
 
 if __name__ == "__main__":
