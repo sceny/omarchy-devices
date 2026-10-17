@@ -1899,7 +1899,23 @@ def bluetooth_checks(bt):
     return out
 
 
-OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
+def omarchy_bin(env=None, stat=os.stat):
+    """Omarchy's bin folder. Its helpers run as root through pkexec, so
+    OMARCHY_PATH counts only when that folder is owned by root and nobody
+    else can write to it; otherwise the packaged one."""
+    default = "/usr/share/omarchy/bin"
+    env = os.environ if env is None else env
+    path = os.path.join(env.get("OMARCHY_PATH") or "/usr/share/omarchy", "bin")
+    if path == default:
+        return default
+    try:
+        st = stat(path)
+    except OSError:
+        return default
+    return path if st.st_uid == 0 and not st.st_mode & 0o022 else default
+
+
+OMARCHY_BIN = omarchy_bin()
 
 
 def as_root(argv):
@@ -2010,7 +2026,9 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         commands = [as_root(["/bin/sh", "-c", " && ".join(wanted)])] if wanted else []
     elif what == "tailscale":
         # Omarchy's own installer, as its Install menu runs it: in its
-        # terminal, which asks for the password itself.
+        # terminal, which asks for the password itself. No `--accept-routes`
+        # in the card: it takes subnet routes other nodes advertise, and the
+        # device is reached at its own tailnet address.
         reason = "To set up Tailscale with Omarchy's own installer, as its Install menu does"
         actions = ["Opens Omarchy's Tailscale installer in a terminal; it asks for your password there",
                    "Installs tailscale and starts it",
@@ -2596,8 +2614,9 @@ def norm_name(name):
 
 def parse_tailscale(text):
     """`tailscale status --json` as a mesh: {mesh, label, on, state,
-    address, peers: [{name, host, os, address, online}]}; None when it is
-    not JSON (tailscaled not running)."""
+    address, peers: [{name, host, key, os, address, online}]}; None when it is
+    not JSON (tailscaled not running). A peer's key is its stable node id:
+    its name is whatever it sets itself."""
     try:
         data = json.loads(text or "")
     except ValueError:
@@ -2608,7 +2627,7 @@ def parse_tailscale(text):
     for p in (data.get("Peer") or {}).values():
         ips = [a for a in (p.get("TailscaleIPs") or []) if ":" not in a]
         peers.append({"name": p.get("HostName") or "", "host": (p.get("DNSName") or "").split(".")[0],
-                      "os": str(p.get("OS") or "").lower(), "address": ips[0] if ips else "", "online": bool(p.get("Online"))})
+                      "key": str(p.get("ID") or ""), "os": str(p.get("OS") or "").lower(), "address": ips[0] if ips else "", "online": bool(p.get("Online"))})
     mine = [a for a in ((data.get("Self") or {}).get("TailscaleIPs") or []) if ":" not in a]
     state = str(data.get("BackendState") or "")
     return {"mesh": "tailscale", "label": "Tailscale", "on": state == "Running", "state": state,
@@ -2629,7 +2648,8 @@ def parse_meshnet(text):
             mesh["address"] = block.get("IP", "")
         elif section:
             mesh["peers"].append({"name": block.get("Nickname") or block.get("Hostname", ""),
-                                  "host": block.get("Hostname", "").split(".")[0], "os": block.get("OS", "").lower(),
+                                  "host": block.get("Hostname", "").split(".")[0], "key": block.get("Public Key", ""),
+                                  "os": block.get("OS", "").lower(),
                                   "address": block.get("IP", ""), "online": block.get("Status", "") == "connected"})
         block.clear()
 
@@ -2726,7 +2746,8 @@ def link_kind(address, meshes):
 def match_peer(device, meshes, record=None, sure=()):
     """The device among the meshes' peers, and how it was found: "address"
     (KDE Connect or adb reaches it there: certain), "remembered" (picked or
-    found before), "name" (its name and the peer's are the same, ignoring
+    found before: the same peer by its key, else its address, which the mesh
+    assigns; never its name, which the peer chooses), "name" (its name and the peer's are the same, ignoring
     case and punctuation); (None, "") otherwise."""
     record = record or {}
     peers = [dict(p, mesh=m["mesh"], label=m["label"]) for m in meshes if m.get("on")
@@ -2735,10 +2756,15 @@ def match_peer(device, meshes, record=None, sure=()):
     for p in peers:
         if p["address"] in sure:
             return p, "address"
-    if record.get("peer"):
-        for p in peers:
-            if p["mesh"] == record.get("mesh") and p["name"] == record["peer"]:
-                return p, "remembered"
+    for p in peers:
+        if p["mesh"] != record.get("mesh"):
+            continue
+        if record.get("peerKey") and p.get("key"):
+            same = p["key"] == record["peerKey"]
+        else:
+            same = bool(record.get("address")) and p["address"] == record["address"]
+        if same:
+            return p, "remembered"
     name = norm_name(device.get("name"))
     if name:
         named = [p for p in peers if name in (norm_name(p["name"]), norm_name(p["host"]))]
@@ -2880,7 +2906,7 @@ def reach(device_id, address="", conn=None, meshes=None):
             set_custom(conn, wanted)
         update = {kind: address}
         if picked:
-            update.update(mesh=picked["mesh"], peer=picked["name"])
+            update.update(mesh=picked["mesh"], peer=picked["name"], peerKey=picked.get("key", ""))
         network_record(device_id, update)
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
@@ -4331,6 +4357,19 @@ def resting(win, mons, border=0):
             win["size"][0] + 2 * border, win["size"][1] + 2 * border)
 
 
+def clear_stills(title):
+    """The stills of this window's turns left in memory, e.g. by a watcher
+    that ended mid-turn."""
+    folder = runtime_dir()
+    if not folder:
+        return
+    for old in glob.glob(os.path.join(folder, "turn-%s-*.ppm" % hashlib.sha1(title.encode()).hexdigest()[:8])):
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
+
 def turn_still(win, title, which):
     """A still of the window's own picture (grim -T: the window itself, by
     its toplevel id, even while it is hidden), taken on this computer: the
@@ -4471,6 +4510,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
     os.makedirs(os.path.dirname(lock), exist_ok=True)
     open(lock, "w").write(str(os.getpid()))
     try:
+        clear_stills(title)
         for _ in range(20):   # the window may still be opening
             if find_window(title):
                 break
@@ -4638,6 +4678,7 @@ def screen_watch(device_id, serial, ctx, sleep=time.sleep, emit=None, clock=time
                         rot = new_rot
             sleep(WATCH_LOG_SEC)
     finally:
+        clear_stills(title)
         for gone in (lock, screen_log(title)):
             try:
                 if gone:
@@ -5921,8 +5962,7 @@ SENT_TYPES = (2, 4, 5, 6)          # Android: sent, outbox, failed, queued
 
 
 def cache_dir():
-    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
-    path = os.path.join(base, "sceny.devices", "sms")
+    path = os.path.join(state_dir(), "sms")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -6340,7 +6380,9 @@ def contact_open(kind, value, launch=None, maps=None):
         return say("Nothing to open", EXIT_FAILED)
     launch = launch or launch_detached
     # The last hop: the link is an argument of the launcher (xdg-open and the
-    # others take no stdin), so it is as short-lived as the launch itself.
+    # others take no stdin). When the browser or app is not running yet, it
+    # becomes that program's own command line for as long as it runs, where
+    # another program on this computer can read it.
     if kind == "map" and (maps if maps is not None else omarchy_maps_app()):
         launch(["omarchy-launch-webapp", link])
     elif kind == "mail":

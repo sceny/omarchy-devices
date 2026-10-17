@@ -37,9 +37,9 @@ TAILSCALE = json.dumps({
     "BackendState": "Running",
     "Self": {"HostName": "laptop", "TailscaleIPs": ["100.64.0.1", "fd7a::1"]},
     "Peer": {
-        "k1": {"HostName": "pixel-8", "DNSName": "pixel-8.tail0000.ts.net.", "OS": "android",
+        "k1": {"ID": "n111", "HostName": "pixel-8", "DNSName": "pixel-8.tail0000.ts.net.", "OS": "android",
                "TailscaleIPs": ["100.101.102.103", "fd7a::2"], "Online": True},
-        "k2": {"HostName": "desk", "DNSName": "desk.tail0000.ts.net.", "OS": "linux",
+        "k2": {"ID": "n222", "HostName": "desk", "DNSName": "desk.tail0000.ts.net.", "OS": "linux",
                "TailscaleIPs": ["100.101.102.110"], "Online": False},
     },
 })
@@ -148,7 +148,7 @@ class Meshes(unittest.TestCase):
     def test_tailscale_status(self):
         m = bridge.parse_tailscale(TAILSCALE)
         self.assertEqual((m["on"], m["address"]), (True, "100.64.0.1"))
-        self.assertEqual(m["peers"][0], {"name": "pixel-8", "host": "pixel-8", "os": "android", "address": "100.101.102.103", "online": True})
+        self.assertEqual(m["peers"][0], {"name": "pixel-8", "host": "pixel-8", "key": "n111", "os": "android", "address": "100.101.102.103", "online": True})
         self.assertIsNone(bridge.parse_tailscale("failed to connect to local tailscaled"))
         self.assertFalse(bridge.parse_tailscale(json.dumps({"BackendState": "NeedsLogin"}))["on"])
 
@@ -191,12 +191,24 @@ class Matching(unittest.TestCase):
         peer, how = bridge.match_peer({"name": "Anything"}, self.meshes, sure=["100.70.0.5"])
         self.assertEqual((peer["name"], peer["mesh"], how), ("work-phone", "meshnet", "address"))
 
-    def test_remembered_then_by_name(self):
-        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "peer": "pixel-8"})
+    def test_remembered_by_its_key_then_by_name(self):
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111"})
         self.assertEqual((peer["address"], how), ("100.101.102.103", "remembered"))
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "meshnet", "peerKey": "def"})
+        self.assertEqual((peer["address"], how), ("100.70.0.5", "remembered"), "a Meshnet peer by its public key")
+        peer, how = bridge.match_peer({"name": "Phone"}, self.meshes, {"mesh": "tailscale", "address": "100.101.102.103"})
+        self.assertEqual((peer["name"], how), ("pixel-8", "remembered"), "a record without a key: the address the mesh gave")
         peer, how = bridge.match_peer({"name": "Pixel 8"}, self.meshes)
         self.assertEqual((peer["address"], how), ("100.101.102.103", "name"), "case and punctuation aside")
         self.assertEqual(bridge.match_peer({"name": "Galaxy"}, self.meshes), (None, ""))
+
+    def test_a_peer_renamed_to_the_remembered_name_is_not_matched(self):
+        record = {"mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111", "address": "100.101.102.103"}
+        renamed = [{"mesh": "tailscale", "label": "Tailscale", "on": True,
+                    "peers": [{"name": "pixel-8", "host": "other", "key": "n999", "os": "linux", "address": "100.64.0.9", "online": True}]}]
+        self.assertEqual(bridge.match_peer({"name": "Galaxy"}, renamed, record), (None, ""))
+        self.assertEqual(bridge.match_peer({"name": "Galaxy"}, renamed, {"mesh": "tailscale", "peer": "pixel-8"}), (None, ""),
+                         "a name alone is not remembered")
 
     def test_two_peers_with_its_name_is_no_match(self):
         twins = [{"mesh": "tailscale", "label": "Tailscale", "on": True,
@@ -268,7 +280,7 @@ class Reach(unittest.TestCase):
         self.assertEqual(bridge.reach("p1", conn=object(), meshes=self.meshes), bridge.EXIT_OK)
         self.assertEqual(d.custom, ["10.0.0.5", "100.101.102.103"], "the user's own stays")
         self.assertIn("forceOnNetworkChange", d.calls)
-        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8"})
+        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111"})
 
     def test_an_address_that_changed_replaces_the_one_given_before(self):
         d = self.use(FakeDaemon(["10.0.0.5", "100.101.102.99"]))
