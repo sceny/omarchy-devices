@@ -519,6 +519,8 @@ Panel {
   property var screenDetour: null
   // The page's keyboard cursor, drawn once (CursorGlide, in pageHost).
   property Item cursorGlide: null
+  // A hover moves the cursor only when the pointer moved (PointerGate).
+  function hoverMoved() { return pointerGate.moved() }
 
   // Size animations (folds, the carousel, the cover) run for the user's own
   // changes only. A hidden page has no height, so while a page appears (or
@@ -3354,6 +3356,8 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
+      PointerGate { id: pointerGate }
+      HoverHandler { onPointChanged: pointerGate.at = point.scenePosition }
       // Shift+Enter on an app: it opens as Omarchy's pop-out. A shortcut,
       // so it comes before the catcher, whose Enter carries no modifiers.
       Shortcut {
@@ -3376,6 +3380,7 @@ Panel {
 
       onMoveRequested: function(dx, dy) {
         if (root.fixAsk) return
+        pointerGate.settle()
         // The sound card: ← → among its places, ↑ ↓ its volume here.
         if (root.soundTarget) {
           if (dx !== 0 && root.soundCard) {
@@ -3740,7 +3745,7 @@ Panel {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
                 fontSize: Style.font.bodySmall
-                onHovered: function(on) { if (on && modelData.enabled) root.soundCursor = index }
+                onHovered: function(on) { if (on && modelData.enabled && root.hoverMoved()) root.soundCursor = index }
                 onClicked: root.chooseSound(modelData.key)
               }
             }
@@ -5120,7 +5125,7 @@ Panel {
                           fontFamily: root.fontFamily
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
-                          onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index } }
+                          onHovered: function(on) { if (on && root.hoverMoved()) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index } }
                           onClicked: root.runAction(modelData.key)
                           GearDot { visible: root.marks.shortcuts[modelData.key] === true }
                         }
@@ -5334,7 +5339,7 @@ Panel {
                           foreground: root.foreground
                           fontFamily: root.fontFamily
                           onActivated: function(pop) { root.openApp(modelData, pop) }
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
+                          onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = index }
                         }
                       }
                       // Between the pinned and the recent ones, while both are there.
@@ -5364,7 +5369,7 @@ Panel {
                           foreground: root.foreground
                           fontFamily: root.fontFamily
                           onActivated: function(pop) { root.openApp(modelData, pop) }
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
+                          onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionRows.pinned.length + index }
                         }
                       }
                       // All apps, always last: the same place whatever the row holds.
@@ -5381,7 +5386,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
+                        onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
                       }
                     }
                   }
@@ -5422,7 +5427,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = 0 }
+                        onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = 0 }
                       }
                     }
 
@@ -5450,7 +5455,7 @@ Panel {
                       foreground: root.foreground
                       fontFamily: root.fontFamily
                       onActivated: function(app, pop) { root.openApp(app, pop) }
-                      onHovered: function(i) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
+                      onHovered: function(i) { if (!root.hoverMoved()) return; root.cursorActive = true; root.focusSection = "apps"; root.appIndex = i === root.sectionRows.pinned.length ? root.sectionApps.length : i }
                       onReordered: function(a, b) { root.movePinned(a, b) }
                       onPinRequested: function(app, at) { root.pinAppAt(app, at) }
                       onUnpinRequested: function(app) { root.pinApp(app, false) }
@@ -5508,7 +5513,7 @@ Panel {
                           onPinToggled: root.pinApp(modelData, true)
                           canForget: true
                           onForgetRequested: root.forgetApp(modelData)
-                          onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index }
+                          onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = recentRow.base + index }
                         }
                       }
                       // All apps ends this row only while nothing is pinned (else PINNED's).
@@ -5523,7 +5528,7 @@ Panel {
                         foreground: root.foreground
                         fontFamily: root.fontFamily
                         onActivated: root.openAppsView()
-                        onHovered: { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
+                        onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "apps"; root.appIndex = root.sectionApps.length }
                       }
                     }
                   }
@@ -6298,6 +6303,7 @@ Panel {
                 isWorking: function(app) { return root.appWorking(app) }
                 glide: root.cursorGlide
                 cursorActive: root.cursorActive
+                pointerMoved: root.hoverMoved
                 motion: root.motion
                 animate: root.settled
                 foreground: root.foreground
@@ -6393,7 +6399,7 @@ Panel {
                 onMoveRequested: function(key, delta) { root.moveShortcutKey(key, delta) }
                 onSectionMoveRequested: function(section, delta) { root.moveSectionKey(section, delta) }
                 onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
-                onHovered: function(index) { root.cursorActive = true; root.settingsIndex = index }
+                onHovered: function(index) { if (root.hoverMoved()) { root.cursorActive = true; root.settingsIndex = index } }
               }
 
             }
@@ -6446,7 +6452,7 @@ Panel {
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        onEntered: { root.cursorActive = true; root.focusSection = editBar.section }
+        onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = editBar.section }
         onClicked: root.toggleSectionShown(editBar.section)
       }
 
@@ -6789,7 +6795,7 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
+      onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "photos"; root.photoIndex = tile.place }
       onClicked: root.openPhoto(tile.photo)
     }
     // Save and copy read the file over the network: each turns into the
@@ -6846,7 +6852,7 @@ Panel {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place }
+      onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "received"; root.receivedIndex = rrow.place }
       onClicked: root.openReceived(rrow.entry)
     }
     PanelToolTip {
@@ -7012,7 +7018,7 @@ Panel {
       property real startX: 0
       property real dx: 0
       cursorShape: root.players.length > 1 ? (pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor) : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "media" }
+      onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "media" }
       onPressed: function(mouse) { startX = mapToItem(null, mouse.x, 0).x; dx = 0 }
       onPositionChanged: function(mouse) {
         if (!pressed || root.players.length < 2) return
@@ -7115,7 +7121,7 @@ Panel {
                 : (index === 2 ? card.player.canGoNext : card.player.canTogglePlaying))
               // Enter plays/pauses, so the keyboard cursor sits on that button.
               hasCursor: index === 1 && root.cursorActive && root.focusSection === "media"
-              onHovered: function(on) { if (on) { root.cursorActive = true; root.focusSection = "media" } }
+              onHovered: function(on) { if (on && root.hoverMoved()) { root.cursorActive = true; root.focusSection = "media" } }
               onClicked: {
                 if (index === 1) card.togglePlaying()
                 else if (root.phone) root.phone.mediaAction(root.mediaKey(index), card.player)
@@ -7237,7 +7243,7 @@ Panel {
       hoverEnabled: true
       enabled: tile.action.enabled === true
       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = tile.tileIndex }
+      onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = tile.tileIndex }
       onClicked: root.runAction(tile.action.key)
     }
 
@@ -7466,7 +7472,7 @@ Panel {
       hoverEnabled: true
       acceptedButtons: row.isText || row.opensApp ? Qt.LeftButton : Qt.NoButton
       cursorShape: row.isText || row.opensApp ? Qt.PointingHandCursor : Qt.ArrowCursor
-      onEntered: { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = row.rowIndex }
+      onEntered: if (root.hoverMoved()) { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = row.rowIndex }
       onClicked: {
         if (row.isText) root.openNotificationConversation(row.note)
         else if (row.opensApp) root.openApp(row.app)

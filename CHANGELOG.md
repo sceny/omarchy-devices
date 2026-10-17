@@ -10,6 +10,11 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **The keyboard reaches the last row with the pointer at rest**: on the
+  main page, Settings and All apps, a page that scrolled under a still
+  pointer let the row beneath it take the cursor, so `j` looped among the
+  upper rows and never reached Keys. A hover now moves the cursor only when
+  the pointer moves ([#254](https://github.com/sceny/omarchy-devices/issues/254)).
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call
