@@ -1237,9 +1237,11 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.equal(by("callsHere").state, "on")
   assert.deepEqual([by("clipboard").state, by("clipboard").on, by("clipboard").steps[0].fix], ["off", false, { verb: "device", what: "plugin", arg: "clipboard=on" }],
                    "turned off here: one click turns it on")
-  assert.equal(by("names").state, "setup", "contacts not allowed on the device")
-  assert.deepEqual(by("names").steps[0].fix, { verb: "device", what: "grant", arg: "contacts" })
-  assert.match(by("names").steps[0].orAsk, /KDE Connect › Permissions › contacts/)
+  assert.equal(by("names").state, "on")
+  const noContacts = M.featureRows(M.demoFeatures("ask"), { state: "ready", line: "" }, "Pixel 8").find(r => r.key === "names")
+  assert.equal(noContacts.state, "setup", "contacts not allowed on the device")
+  assert.deepEqual(noContacts.steps[0].fix, { verb: "device", what: "grant", arg: "contacts" })
+  assert.match(noContacts.steps[0].orAsk, /KDE Connect › Permissions › contacts/)
   assert.equal(by("screen").state, "on")
   const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
   // From anywhere is about reaching it away: its own setup, not away.
@@ -1259,7 +1261,7 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
-  assert.equal(M.featuresSummary(rows), "11 on · 1 to set up")
+  assert.equal(M.featuresSummary(rows), "12 on")
 })
 
 test("settings: a device's page lists what it shares, only what it can do", () => {
@@ -1299,6 +1301,18 @@ test("the main page says what a feature needs where it is used", () => {
                "problem", "the demo's stopped state")
   const off = rows.map(r => r.key === "notifications" ? Object.assign({}, r, { on: false }) : r)
   assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
+  // Contacts: the ask is the Contacts page's; Messages never asks for it.
+  const names = M.deviceSetup({ report: M.demoFeatures("ask"), screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const nameAsk = M.sectionNote(names.features, "contacts")
+  assert.deepEqual([nameAsk.kind, nameAsk.key, nameAsk.fix], ["ask", "names", true], "one click allows it over adb, on the Contacts page")
+  assert.equal(M.sectionNote(names.features, "messages"), null, "Messages is whole without names: no ask there")
+  assert.equal(M.permissionGranted(names.items, "contacts"), false)
+  assert.equal(M.permissionGranted(M.deviceSetup({ report: M.demoFeatures(), screen: null, name: "Pixel 8" }).items, "contacts"), true)
+  assert.equal(M.permissionGranted(M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: null }), screen: null, name: "Pixel 8" }).items, "contacts"), false,
+               "not read over adb: not known to be given")
+  // A contacts feature that worked and stopped is a problem on both pages.
+  const stoppedNames = names.features.map(r => r.key === "names" ? Object.assign({}, r, { state: "attention", problem: true, detail: "It stopped working" }) : r)
+  assert.deepEqual(["contacts", "messages"].map(page => M.sectionNote(stoppedNames, page).kind), ["problem", "problem"], "its effect shows where names vanish")
   const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],
                                       [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
   // A problem is the card at the top, whichever section its feature is in.
@@ -1717,7 +1731,11 @@ test("contacts: a nameless card, and what an empty page says", () => {
   const rows = M.contactRows([{ id: "x", phones: [{ label: "Mobile", value: "5145550123" }] }], "")
   assert.deepEqual([rows[0].name, rows[0].initial], ["No name", "#"])
   const phone = { name: "Pixel 8" }
-  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/)
+  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/, "adb unknown: the phone's own app is the way")
+  assert.equal(M.contactsEmpty("empty", "", phone, { noted: true }), "", "the page's note says why")
+  assert.equal(M.contactsEmpty("empty", "", phone, { granted: true }), "No contacts on Pixel 8 yet.", "allowed, and the phone sent none")
+  assert.match(M.contactsEmpty("away", "", phone, { noted: true }), /^Pixel 8 is away/, "away speaks over a note")
+  assert.equal(M.contactsEmpty("ready", "zz", phone, { noted: true }), "No contact matches.")
   assert.match(M.contactsEmpty("away", "", phone), /^Pixel 8 is away/)
   assert.equal(M.contactsEmpty("ready", "zz", phone), "No contact matches.")
 

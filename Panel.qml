@@ -1917,8 +1917,10 @@ Panel {
   readonly property var sectionNotes: {
     var rows = device ? featureRowsFor(device) : []
     return { notifications: Model.sectionNote(rows, "notifications"), apps: Model.sectionNote(rows, "apps"),
-             messages: Model.sectionNote(rows, "messages") }
+             messages: Model.sectionNote(rows, "messages"), contacts: Model.sectionNote(rows, "contacts") }
   }
+  // Whether adb read the viewed device's contacts permission as given.
+  readonly property bool contactsGranted: !!device && !!setupById[String(device.id)] && Model.permissionGranted(setupById[String(device.id)].items, "contacts")
   // The sections drawn under the header, in the chosen order: switched on
   // in Layout and with something in them (or something to say about it),
   // while the device is here.
@@ -6114,6 +6116,9 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 sms: root.sms
                 bar: root.bar
+                contactsAsk: root.sectionNotes.contacts && root.sectionNotes.contacts.kind === "ask" ? root.sectionNotes.contacts : null
+                contactsWorking: !!root.phone && !!root.sectionNotes.contacts && root.phone.isBusy("feature:" + root.sectionNotes.contacts.key)
+                onAllowContacts: { var n = root.sectionNotes.contacts; if (n && n.row) root.featureAction(n.row, root.device) }
                 onThreadOpened: function(tid) { root.rememberThread(tid) }
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
                 onUnreadToggled: root.toggleUnreadOnly()
@@ -6132,7 +6137,9 @@ Panel {
                 fontFamily: root.fontFamily
               }
 
-              // ---- Contacts, in place of everything above but the header ----
+              // ---- Contacts, in place of everything above but the header;
+              //      the ask for them is said here, above them ----
+              SectionNote { note: root.showContacts ? root.sectionNotes.contacts : null; width: parent.width }
               ContactsView {
                 id: contactsView
                 visible: root.showContacts
@@ -6140,6 +6147,8 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 contacts: root.contacts
                 device: root.device
+                noted: !!root.sectionNotes.contacts
+                granted: root.contactsGranted
                 bar: root.bar
                 motion: root.motion
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }

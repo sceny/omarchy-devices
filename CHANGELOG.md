@@ -10,6 +10,14 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Contacts asks for contacts, Messages does not**: the permission to read
+  contacts is asked on the Contacts page, with *Allow* when the plugin can
+  grant it, instead of on the Messages page where texts were the errand.
+  Messages is whole with numbers instead of names; if contacts worked and
+  stopped, both pages still show that problem. Searching a new message by
+  name offers the same *Allow*. A Contacts page with the permission given and
+  no cards says so (*No contacts on Pixel 8 yet*) (#272).
+
 - **Text fields never read the clipboard until you paste**: a field is
   built on a text edit, which asks only which formats the clipboard offers
   and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
