@@ -1606,7 +1606,7 @@ test("the missed-call card offers Calls here while it is not set up (#271); the 
   assert.equal(offer(rows(Object.assign({}, bt, { present: false }), null)), null, "no Bluetooth adapter")
   assert.equal(offer(rows(bt, null).map(r => r.key === "calls" ? Object.assign({}, r, { state: "setup" }) : r)), null, "no phone permission")
   // Bluetooth off here, or the phone not kept yet: the row's click, every step the plugin can do.
-  assert.deepEqual(offer(rows(Object.assign({}, bt, { powered: false }), null)), { kind: "setup", text: "Call back with this computer's audio", action: "setup", label: "Set up", waiting: false })
+  assert.deepEqual(offer(rows(Object.assign({}, bt, { powered: false }), null)), { kind: "setup", text: "Call back from here", action: "setup", label: "Set up", waiting: false })
   assert.equal(offer(rows(bt, null)).action, "setup")
   // Not paired: Set up opens Omarchy's Bluetooth; then it waits and carries on by itself.
   const unpaired = rows(Object.assign({}, bt, { phones: [] }), null)

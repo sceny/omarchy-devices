@@ -845,7 +845,7 @@ function callOffer(call, rows) {
     if (featurePlan(row).length > 0) return { kind: "connect", text: row.detail || "Not connected over Bluetooth", action: "connect", label: "Connect", waiting: false }
     return { kind: "ask", text: steps[0].orAsk || row.detail || "Not connected over Bluetooth", action: "", label: "", waiting: false }
   }
-  return { kind: "setup", text: "Call back with this computer's audio", action: "setup", label: "Set up", waiting: false }
+  return { kind: "setup", text: "Call back from here", action: "setup", label: "Set up", waiting: false }
 }
 
 // The second call's line and its buttons: a call waiting while one goes on
