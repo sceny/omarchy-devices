@@ -45,6 +45,11 @@ GitHub release with these notes.
 - **Hardening**: windows are launched and focused by exact title and address,
   contact and call fields are capped, and the firewall rules open KDE
   Connect's ports to private ranges only.
+- **More hardening**: a mesh peer is remembered by its id, not its name; the
+  screen's stills and the messages folder are private from the start; Omarchy's
+  folder from the environment is used only when root owns it; the CI actions
+  are pinned to commits and kept current. A contact's value you open goes
+  on the opened program's command line, now said in the security page.
 - **A message attachment opens only when you clicked it**: one that
   arrives for a click you did not make is not opened, and a picture opens only
   as the copy decoded in the sandbox, whatever name or type the phone gives it

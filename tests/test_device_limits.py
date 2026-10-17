@@ -90,6 +90,17 @@ class ScreenLog(unittest.TestCase):
         self.assertEqual(bridge.screen_command("S1", "x")[2], "scrcpy", "no log: plain scrcpy, not verbose")
         self.assertNotIn("--verbosity=verbose", bridge.screen_command("S1", "x"))
 
+    def test_a_windows_stills_are_cleared_and_only_its_own(self):
+        title, other = "Pixel 8 · Screen", "Pixel 8 · Gmail"
+        folder = bridge.runtime_dir()
+        mine = bridge.hashlib.sha1(title.encode()).hexdigest()[:8]
+        theirs = bridge.hashlib.sha1(other.encode()).hexdigest()[:8]
+        made = [os.path.join(folder, "turn-%s-%s-1.ppm" % (h, w)) for h in (mine, theirs) for w in ("old", "new")]
+        for path in made:
+            open(path, "wb").write(b"P6")
+        bridge.clear_stills(title)
+        self.assertEqual([os.path.exists(p) for p in made], [False, False, True, True])
+
     def test_old_logs_in_the_cache_are_removed(self):
         os.makedirs(os.path.join(os.environ["XDG_CACHE_HOME"], "sceny.devices"))
         old = os.path.join(os.environ["XDG_CACHE_HOME"], "sceny.devices", "screen-0123456789ab.log")
@@ -97,6 +108,10 @@ class ScreenLog(unittest.TestCase):
         bridge._state_dirs_closed.clear()
         bridge.state_dir()
         self.assertFalse(os.path.exists(old))
+
+
+def mock_missing(path):
+    raise FileNotFoundError(path)
 
 
 class CacheFolder(unittest.TestCase):
@@ -118,6 +133,32 @@ class CacheFolder(unittest.TestCase):
                     del os.environ["XDG_CACHE_HOME"]
                 else:
                     os.environ["XDG_CACHE_HOME"] = saved
+
+    def test_the_messages_folder_never_exists_before_its_parent_is_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            saved = os.environ.get("XDG_CACHE_HOME")
+            os.environ["XDG_CACHE_HOME"] = tmp
+            try:
+                bridge._state_dirs_closed.clear()
+                path = bridge.cache_dir()
+                self.assertEqual(path, os.path.join(tmp, "sceny.devices", "sms"))
+                self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(path)).st_mode), 0o700)
+            finally:
+                if saved is None:
+                    del os.environ["XDG_CACHE_HOME"]
+                else:
+                    os.environ["XDG_CACHE_HOME"] = saved
+
+    def test_omarchys_folder_from_the_environment_needs_root_and_no_other_writer(self):
+        default = "/usr/share/omarchy/bin"
+        stat_of = lambda uid, mode: (lambda path: os.stat_result((mode, 0, 0, 1, uid, 0, 0, 0, 0, 0)))
+        env = {"OMARCHY_PATH": "/opt/omarchy"}
+        self.assertEqual(bridge.omarchy_bin({}), default)
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40755)), "/opt/omarchy/bin")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(1000, 0o40755)), default, "owned by a user")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40775)), default, "writable by a group")
+        self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40757)), default, "writable by all")
+        self.assertEqual(bridge.omarchy_bin(env, mock_missing), default)
 
     def test_a_runtime_folder_of_someone_else_is_not_used(self):
         with tempfile.TemporaryDirectory() as tmp:
