@@ -57,6 +57,14 @@ GitHub release with these notes.
   arrives for a click you did not make is not opened, and a picture opens only
   as the copy decoded in the sandbox, whatever name or type the phone gives it
   (marketplace review omacom/omarchy-plugin-marketplace#10096).
+- **More hardening**: the bridge's text commands (ping, text, url, dial)
+  take their text on standard input only, and refuse it on the command line.
+  A file opened from a device's storage must be a regular file inside that
+  storage and within the cache's size limit, and is copied in bounded steps.
+  The build's checks for these are stricter, and the text field's selection
+  rules are now tested by running the field. Smaller: the conversation list
+  finds a thread without scanning, and an album-art decode that cannot start
+  no longer holds a slot.
 
 ## 0.9.0 — 2026-10-12
 

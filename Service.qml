@@ -1945,16 +1945,36 @@ Item {
       id: artProc
       property string url: ""
       property string player: ""
+      property bool streamed: false
+      property bool exited: false
+      property bool released: false
+      // The player's slot frees once, when the process has ended, whether it
+      // ran or never started.
+      function release() {
+        if (released) return
+        released = true
+        delete root.artRunning[player]
+        root.artActive -= 1
+        root.nextArt()
+      }
+      onExited: {
+        exited = true
+        release()
+        if (streamed) destroy()
+        else lateDestroy.start()
+      }
+      property Timer lateDestroy: Timer {
+        interval: 2000
+        onTriggered: artProc.destroy()
+      }
       stdout: StdioCollector {
         onStreamFinished: {
           var path = String(text || "").trim()
           var next = Object.assign({}, root.safeArt)
           next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
           root.safeArt = next
-          delete root.artRunning[artProc.player]
-          root.artActive -= 1
-          root.nextArt()
-          artProc.destroy()
+          artProc.streamed = true
+          if (artProc.exited) artProc.destroy()
         }
       }
     }

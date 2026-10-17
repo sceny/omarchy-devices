@@ -243,7 +243,10 @@ def assignments(text, name):
     file: more than the real one, never fewer)."""
     found = []
     word = re.escape(name)
-    for m in re.finditer(r"(?<![\w.])(?:(?:var|let|const)\s+)?%s\s*=(?!=)\s*" % word, text):
+    # `X = e`, `X += e` (and the other compound forms), `property T X: e`
+    for m in re.finditer(r"(?<![\w.])(?:(?:var|let|const)\s+)?%s\s*(?:\*\*|\?\?|\|\||&&|[-+*/%%&|^]|<<|>>>?)?=(?!=)\s*" % word, text):
+        found.append((m.start(), "set", expression_at(text, m.end()).strip()))
+    for m in re.finditer(r"\b(?:readonly\s+|required\s+)*property\s+[\w.<>]+\s+%s\s*:\s*" % word, text):
         found.append((m.start(), "set", expression_at(text, m.end()).strip()))
     for m in re.finditer(r"\bfor\s*\(\s*(?:var|let|const)?\s*%s\s+(?:in|of)\s+" % word, text):
         found.append((m.start(), "set", text[m.end():close_of(text, text.index("(", m.start()))].strip()))
@@ -348,7 +351,7 @@ def sinks(path):
 
     for m in re.finditer(r"(?<![\w.])command\s*:\s*|\.command\s*=(?!=)\s*", text):
         add(m.start(), expression_at(text, m.end()))
-    for m in re.finditer(r"\bexecDetached\(|\.exec\(", text):
+    for m in re.finditer(r"\bexecDetached\s*\(|\.exec\s*\(", text):
         inner = text[m.end():close_of(text, m.end() - 1)]
         first = split_top(inner)[0]
         if first.startswith("{"):
@@ -414,6 +417,7 @@ ASSIGNED_ALLOWED = {
     ("Service.qml", "id", "calls"): "the keys of `calls` (devices that show calls), which are device ids (`out[d.id]`)",
     ("Service.qml", "id", "root.calls"): "the keys of `calls` (devices that show calls), which are device ids",
     ("Service.qml", "id", "m"): "the keys of `callMuted`, a copy of device ids marked muted",
+    ("Service.qml", "bridge", '{ var url = Qt.resolvedUrl("bin/kdeconnect-bridge").toString() return url.indexOf("file://") === 0 ? decodeURIComponent(url.substring(7)) : url }'): "the plugin's own bridge script: its folder's path, from the plugin's URL",
     ("Service.qml", "line", "Model.osdLine(text, osd, failed)"): "Model.osdLine: the caller's literal, or the line it wrote without a device-sent value (OsdLines); never the toast's text",
     ("Service.qml", "path", "Model.artPath(u, artDir)"): "Model.artPath: a path under the plugin's art cache, or empty (tests/model.test.js)",
     ("Service.qml", "path", "String(text || \"\").trim()"): "the path the bridge's safe-art wrote in the plugin's art cache",
@@ -701,6 +705,37 @@ class PrivateTextOnArgv(unittest.TestCase):
             found = " ".join(violations(service))
             self.assertIn("`n.title`", found)
             self.assertIn("`n.body`", found)
+
+    def test_a_planted_sink_spelling_compound_assignment_and_property_fail(self):
+        # Each spelling that once escaped the scan, planted in the real files.
+        plants = {
+            "a space before the call's parenthesis": (
+                'Item {\n  function a(n) { Quickshell.execDetached ([bridge, "ring", n.title]) }\n}\n', "`n.title`"),
+            "a space before an exec's parenthesis": (
+                'Item {\n  function a(n) { someProc.exec ([ "x", n.title ]) }\n}\n', "`n.title`"),
+        }
+        with tempfile.TemporaryDirectory() as d:
+            shutil.copy(os.path.join(ROOT, "Service.qml"), d)
+            service = os.path.join(d, "Service.qml")
+            files = [os.path.join(d, "Service.qml")]
+            self.assertEqual(violations(service), [])
+            self.assertEqual(laundered(service, files=files), [])
+            original = open(service).read()
+            for name, (text, expect) in plants.items():
+                with self.subTest(name):
+                    with open(service, "w") as f:
+                        f.write(original + "\n" + text)
+                    self.assertIn(expect, " ".join(violations(service)))
+            laundering = {
+                "a compound assignment": 'Item {\n  function a(n) { var id = ""; id += n.title; Quickshell.execDetached([bridge, "ring", id]) }\n}\n',
+                "a compound assignment to path": 'Item {\n  function a(n) { var path = ""; path += n.title; Quickshell.execDetached([bridge, "open-file", path]) }\n}\n',
+                "a property declaration": 'Item {\n  property string path: n.title\n  function a() { Quickshell.execDetached([bridge, "open-file", path]) }\n}\n',
+            }
+            for name, text in laundering.items():
+                with self.subTest(name):
+                    with open(service, "w") as f:
+                        f.write(original + "\n" + text)
+                    self.assertIn("n.title", " ".join(laundered(service, files=files)))
 
     def test_the_sinks_are_found(self):
         total = sum(len(sinks(f)) for f in qml_files())
