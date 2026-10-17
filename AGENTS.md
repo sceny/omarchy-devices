@@ -791,6 +791,12 @@ run in order; the detail, the checklist and the record templates are in
   review list (`docs/internals/releasing.md`). The `marketplace-check` job
   runs the marketplace's own checks on every pull request into `main`, so a
   finding reaches us before the bots'.
+- **A class is named by its mechanism, before the fix.** When a finding
+  arrives, ours or from outside, its fix starts with the platform call that
+  does the harm and the test that bans that call, checked against the source
+  of the Qt and Quickshell versions Omarchy ships now. A class drawn from the
+  last finding's words catches only that case; one drawn at the call catches
+  the next variant.
 - **Every pull request gets the regular review with a security check**
   (Panel QA, one reviewer): private text (messages, contact names,
   numbers, clipboard) stays off argv and out of logs; nothing from a
