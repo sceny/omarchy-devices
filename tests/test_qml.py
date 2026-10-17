@@ -256,6 +256,69 @@ class HoverNeedsAPointerMove(unittest.TestCase):
             os.remove(f.name)
 
 
+ROW_HOVERED = re.compile(r"\broot\.(?:hovered|activated)\(\s*(?:(\w+)\.)?rowIndex\s*\)")
+ROW_STOP = re.compile(r"CursorStop\s*\{\s*here:\s*root\.cursorIndex\s*===\s*(?:(\w+)\.)?rowIndex\b")
+ROW_OWN_CURSOR = re.compile(r"\bhasCursor\s*:\s*root\.cursorIndex\b")
+
+
+def settings_rows_without_a_cursor_stop(path):
+    """A Settings row the keys reach that is not a CursorStop. The page's
+    CursorGlide draws the cursor on its target and the page follows it
+    (`followCursor`), so a row that draws its own cursor shows none and the
+    page never scrolls to it (#324). Each row the page hovers or activates
+    by its `rowIndex` has a CursorStop on the same index, and none sets
+    `hasCursor` from `cursorIndex`."""
+    text = code_only(open(path).read())
+    name = os.path.basename(path)
+    reached = {m.group(1) or "" for m in ROW_HOVERED.finditer(text)}
+    stopped = set()
+    for m in ROW_STOP.finditer(text):
+        if m.group(1):
+            stopped.add(m.group(1))
+            continue
+        # A bare `rowIndex` is the row's own: the stop sits directly in a
+        # `component` whose root holds it (a child object's scope does not
+        # see its parent's properties), and the component's id names it.
+        start = text.rfind("component ", 0, m.start())
+        if start < 0:
+            continue
+        before = text[start:m.start()]
+        if before.count("{") - before.count("}") != 1:
+            continue
+        own = re.compile(r"\bid:\s*(\w+)").search(text, start, m.start())
+        stopped.add(own.group(1) if own else "")
+    found = ["%s: a row reached by %s.rowIndex has no CursorStop" % (name, who) for who in sorted(reached - stopped - {""})]
+    if "" in reached:
+        found.append("%s: a handler names its row by a bare rowIndex; name it by the row's id so its stop can be matched" % name)
+    for m in ROW_OWN_CURSOR.finditer(text):
+        found.append("%s:%d: a row draws its own cursor (hasCursor from cursorIndex); use a CursorStop"
+                     % (name, text.count("\n", 0, m.start()) + 1))
+    return found
+
+
+class SettingsRowsHaveACursorStop(unittest.TestCase):
+    def test_every_row_the_keys_reach_has_one(self):
+        found = settings_rows_without_a_cursor_stop(os.path.join(ROOT, "SettingsView.qml"))
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_one(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  Button {\n    readonly property int rowIndex: 3\n"
+                    "    hasCursor: root.cursorIndex === rowIndex\n"
+                    "    onClicked: root.activated(rowIndex)\n  }\n"
+                    "  Button {\n    CursorStop { here: root.cursorIndex === rowIndex; glide: g }\n"
+                    "    onHovered: root.hovered(rowIndex)\n  }\n"
+                    "  component Row2: Item {\n    id: row2\n    CursorStop { here: root.cursorIndex === rowIndex; glide: g }\n"
+                    "    onHovered: root.hovered(row2.rowIndex)\n  }\n"
+                    "  Rectangle {\n    onEntered: root.hovered(other.rowIndex)\n  }\n}\n")
+        try:
+            found = settings_rows_without_a_cursor_stop(f.name)
+            self.assertEqual(len(found), 3, found)
+        finally:
+            os.remove(f.name)
+
+
 # Verbs that carry text a person wrote. Any local process can read a command
 # line from /proc, so the text goes over stdin (`run`'s input), and the
 # arguments after the device are ids only.
