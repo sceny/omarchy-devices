@@ -161,7 +161,7 @@ finding blocks the pull request.
   `sh -c` in `bin/`, `lib/`, `dev/` and `tools/` unless the line is on its
   allowlist with a reason. The reviewer reads every new line of any list from
   the diff.
-  Tests: `tests/test_argv.py` (`PrivateTextOnArgv`), `tests/test_shell_argv.py`.
+  Tests: `tests/test_argv.py` (`PrivateTextOnArgv`), `tests/test_shell_argv.py` (`NoShellInScripts`).
 - The shell is never a party to a Wayland data transfer, and nothing reaches
   the clipboard's contents without the user's own paste (Ctrl+V): no
   `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
@@ -256,8 +256,8 @@ finding blocks the pull request.
   the reviewer reads each new handler in the diff.
 - No personal data in code, comments, docs, tests, screenshots or commit
   messages.
-  manual: a script cannot tell a real name or number from a made-up one;
-  the reviewer reads the diff and the screenshots.
+  manual: a script cannot tell a real name from a made-up one; the reviewer
+  reads the diff and the screenshots (#302 scripts the numbers, emails and ids).
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
