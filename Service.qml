@@ -1944,8 +1944,7 @@ Item {
         if (streamed) destroy()
         else lateDestroy.start()
       }
-      Timer {
-        id: lateDestroy
+      property Timer lateDestroy: Timer {
         interval: 2000
         onTriggered: artProc.destroy()
       }
