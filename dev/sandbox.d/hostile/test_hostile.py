@@ -350,6 +350,8 @@ def result_tree_names():
         "sub/.hidden": "x\n",
         "-rf": "x\n",
         "has\x1b]0;HOSTILE-OSC-TITLE\x07escape": "x\n",
+        "x\n": "x\n",
+        "CLAUDE.md\n": "x\n",
         "fine/ok.txt": "an ordinary result\n",
     }
     for name, text in files.items():

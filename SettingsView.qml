@@ -384,7 +384,7 @@ Column {
   }
   Repeater {
     model: root.scopeKind === "keys" ? root.rows : []
-    KeyRow {
+    KeyGroupRow {
       required property var modelData
       required property int index
       width: root.width
@@ -897,72 +897,87 @@ Column {
     onMoved: function(a, b) { var r = root.rowAt("shortcut", a); if (r) root.moveRequested(r.key, b - a) }
   }
 
-  // A key on the Keys page: its group's heading on the group's first key,
-  // then the keys in a column of their own and what they do. Nothing to
-  // press: the cursor stops on it so the page scrolls with the keys.
-  component KeyRow: Column {
-    id: keyRow
+  // A group on the Keys page: its heading, where the cursor stops so the
+  // page scrolls with the keys, then one line per key: the keys as key caps
+  // in a column, what they do beside them (two lines when it wraps).
+  component KeyGroupRow: Column {
+    id: group
     property var row: ({})
     property int rowIndex: -1
-    spacing: Style.space(2)
+    spacing: Style.space(4)
+    // The widest line of keys ("1–9 · Shift+H Shift+L") fits its column.
+    readonly property real capsWidth: Math.round(width * 0.40)
 
-    Item { visible: keyRow.row.group !== "" && keyRow.rowIndex > 0; width: 1; height: Style.space(6) }
-    PanelSectionHeader {
-      visible: keyRow.row.group !== ""
-      text: String(keyRow.row.group || "").toUpperCase()
-      foreground: root.foreground
-      fontFamily: root.fontFamily
-    }
-    // One height for every key, as tall as a list row (a title and its
-    // hint): two lines of keys or of what they do, never more.
-    FontMetrics { id: keyBody; font.family: root.fontFamily; font.pixelSize: Style.font.body }
-    FontMetrics { id: keyCaption; font.family: root.fontFamily; font.pixelSize: Style.font.caption }
-    FontMetrics { id: keySmall; font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall }
+    Item { visible: group.rowIndex > 0; width: 1; height: Style.space(6) }
     CursorSurface {
-      width: keyRow.width
+      width: group.width
       hasCursor: false
       foreground: root.foreground
-      implicitHeight: Math.ceil(Math.max(keyBody.height + keyCaption.height + Style.space(1), keySmall.height * 2, keyBody.height * 2)) + Style.space(12)
-      CursorStop { here: root.cursorIndex === keyRow.rowIndex; glide: root.cursorGlide }
+      implicitHeight: heading.implicitHeight + Style.space(4)
+      CursorStop { here: root.cursorIndex === group.rowIndex; glide: root.cursorGlide }
 
       MouseArea {
         anchors.fill: parent
         hoverEnabled: true
-        onEntered: root.hovered(keyRow.rowIndex)
+        onEntered: root.hovered(group.rowIndex)
       }
-
-      RowLayout {
-        id: keyContent
-        anchors.left: parent.left
-        anchors.right: parent.right
+      PanelSectionHeader {
+        id: heading
         anchors.verticalCenter: parent.verticalCenter
-        anchors.leftMargin: Style.space(10)
-        anchors.rightMargin: Style.space(6)
+        text: String(group.row.group || "").toUpperCase()
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+      }
+    }
+    Repeater {
+      model: group.row.items || []
+      RowLayout {
+        id: keyLine
+        required property var modelData
+        width: group.width
         spacing: Style.space(10)
-        Text {
-          textFormat: Text.PlainText
-          Layout.preferredWidth: Math.round(keyRow.width * 0.38)
-          Layout.alignment: Qt.AlignVCenter
-          text: keyRow.row.keys || ""
-          color: root.foreground
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.body
-          font.bold: true
-          wrapMode: Text.WordWrap
-          maximumLineCount: 2
-          elide: Text.ElideRight
+        Flow {
+          Layout.preferredWidth: group.capsWidth
+          Layout.alignment: Qt.AlignTop
+          Layout.leftMargin: Style.space(10)
+          spacing: Style.space(3)
+          Repeater {
+            model: keyLine.modelData.caps
+            Item {
+              id: token
+              required property string modelData
+              readonly property bool between: modelData === "·"
+              width: between ? betweenText.implicitWidth : cap.width
+              height: cap.height
+              KeyCap {
+                id: cap
+                visible: !token.between
+                label: token.modelData
+                foreground: root.foreground
+                fontFamily: root.fontFamily
+              }
+              Text {
+                id: betweenText
+                visible: token.between
+                anchors.centerIn: parent
+                textFormat: Text.PlainText
+                text: "·"
+                color: root.dim
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+              }
+            }
+          }
         }
         Text {
           textFormat: Text.PlainText
-          Layout.fillWidth: true
-          Layout.alignment: Qt.AlignVCenter
-          text: keyRow.row.label || ""
+          Layout.preferredWidth: group.width - group.capsWidth - Style.space(26)
+          Layout.alignment: Qt.AlignTop
+          text: keyLine.modelData.label
           color: root.dim
           font.family: root.fontFamily
           font.pixelSize: Style.font.bodySmall
           wrapMode: Text.WordWrap
-          maximumLineCount: 2
-          elide: Text.ElideRight
         }
       }
     }
@@ -1589,23 +1604,11 @@ Column {
             }
             Repeater {
               model: modelData.keys || []
-              Rectangle {
+              KeyCap {
                 required property string modelData
-                width: capText.implicitWidth + Style.space(10)
-                height: capText.implicitHeight + Style.space(4)
-                radius: Style.space(3)
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
-                border.width: 1
-                border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.22)
-                Text {
-                  id: capText
-                  anchors.centerIn: parent
-                  textFormat: Text.PlainText
-                  text: modelData
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                }
+                label: modelData
+                foreground: root.foreground
+                fontFamily: root.fontFamily
               }
             }
           }

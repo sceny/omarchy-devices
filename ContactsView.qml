@@ -26,6 +26,10 @@ Item {
   property var contacts: null
   property var device: null
   property var bar: null
+  // The page's note (an ask or a problem, drawn above this view) says why
+  // there is nothing; granted: adb read the permission as given.
+  property bool noted: false
+  property bool granted: false
   property color foreground: Color.foreground
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
@@ -302,7 +306,7 @@ Item {
             glyph: Model.GLYPH.refresh
             waiting: !!view.contacts && view.contacts.reading
             motion: view.motion
-            tooltipText: waiting ? "Reading its contacts" : "Read its contacts again (r)"
+            tooltipText: waiting ? "Reading its contacts" : Model.keyTip("Read its contacts again", "refresh")
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.contacts
@@ -327,10 +331,10 @@ Item {
         // all, so this points at that, never at a fault here.
         Text {
           Layout.fillWidth: true
-          visible: !!view.contacts && view.contacts.ready && !!view.rows && view.rows.count === 0
+          visible: !!view.contacts && view.contacts.ready && !!view.rows && view.rows.count === 0 && text !== ""
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: view.contacts ? Model.contactsEmpty(view.contacts.listState, view.contacts.query, view.device) : ""
+          text: view.contacts ? Model.contactsEmpty(view.contacts.listState, view.contacts.query, view.device, { noted: view.noted, granted: view.granted }) : ""
           color: view.dim
           font.family: view.fontFamily
           font.pixelSize: Style.font.bodySmall

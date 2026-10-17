@@ -4,6 +4,7 @@
   dev/release-prepare X.Y.Z                       release-X.Y.Z from origin/develop
   dev/release-prepare X.Y.Z --from main --note "What the fix does"
                                                   fix-X.Y.Z from origin/main
+  dev/release-prepare --check-freeze              print whether main is frozen; exit 1 when it is
 
 Both set "version" in manifest.json and commit it with CHANGELOG.md, so the
 `release` check on the pull request into develop or main passes at once.
@@ -12,6 +13,13 @@ From develop, `## Unreleased` (which must hold entries) becomes
 `## X.Y.Z — YYYY-MM-DD`. From main there is no Unreleased section: a new
 `## X.Y.Z — YYYY-MM-DD` section is added above the newest version, holding the
 `--note` lines (at least one) under `### Fixes`.
+
+A release from develop (minor or patch) is refused while main is frozen: an open
+`marketplace-review` issue here points to a marketplace issue that is still open.
+The check reads both through `gh`; when it cannot, the release is refused too.
+A fix from main is not refused by it (it needs the owner's go) and prints the
+freeze, or that it could not be read, as a note. `--check-freeze` runs from the
+repository's top, wherever it is started inside it.
 
 It refuses: a version already tagged (here or on origin), a version not above
 the one in manifest.json on the base, a base whose CHANGELOG already has the
@@ -22,16 +30,22 @@ in this format.
 """
 import argparse
 import datetime
+import json
 import os
 import re
 import subprocess
 import sys
 
 BRANCHES = {"develop": "release", "main": "fix"}
+MARKETPLACE = "omacom/omarchy-plugin-marketplace"
 
 
 def fail(message):
     sys.exit(f"release-prepare: {message}")
+
+
+class FreezeUnreadable(Exception):
+    """GitHub could not be asked, or its answer could not be read."""
 
 
 def git(*args, check=True):
@@ -87,9 +101,57 @@ def changelog_for_main(text, version, date, notes):
     return "\n".join(lines[:first] + section + lines[first:])
 
 
+def gh_json(*args):
+    try:
+        done = subprocess.run(["gh", *args], capture_output=True, text=True)
+    except OSError as error:
+        raise FreezeUnreadable(f"the freeze check needs gh: {error}")
+    if done.returncode != 0:
+        raise FreezeUnreadable(f"the freeze check could not read GitHub: gh {' '.join(args[:3])} failed: {done.stderr.strip()}")
+    try:
+        return json.loads(done.stdout)
+    except ValueError:
+        raise FreezeUnreadable(f"the freeze check could not read gh's answer to: gh {' '.join(args[:3])}")
+
+
+def freeze_status():
+    """Each open marketplace-review issue here, the marketplace issue it points to
+    and that issue's state: [(ours, theirs, state)]. theirs is None when the body
+    names none."""
+    found = []
+    for issue in gh_json("issue", "list", "--label", "marketplace-review", "--state", "open", "--limit", "100", "--json", "number,body"):
+        match = re.search(re.escape(MARKETPLACE) + r"#([0-9]+)", issue.get("body") or "")
+        if not match:
+            found.append((issue["number"], None, "UNKNOWN"))
+            continue
+        theirs = int(match.group(1))
+        state = gh_json("issue", "view", str(theirs), "--repo", MARKETPLACE, "--json", "state").get("state", "UNKNOWN")
+        found.append((issue["number"], theirs, state))
+    return found
+
+
+def freeze_lines(found):
+    lines = []
+    for ours, theirs, state in found:
+        if theirs is None:
+            lines.append(f"#{ours}: no {MARKETPLACE} issue named in its body: main is treated as frozen until it names one")
+        elif state == "OPEN":
+            lines.append(f"#{ours} -> {MARKETPLACE}#{theirs} OPEN: a review is in progress and main is frozen")
+        elif state == "CLOSED":
+            lines.append(f"#{ours} -> {MARKETPLACE}#{theirs} CLOSED: out of sync; read the marketplace issue's last report, comment the outcome on #{ours} and close it")
+        else:
+            lines.append(f"#{ours} -> {MARKETPLACE}#{theirs} {state}: main is treated as frozen")
+    return lines
+
+
+def is_frozen(found):
+    return any(state not in ("CLOSED",) for _, _, state in found)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Prepare a release or fix branch with its version and CHANGELOG section.")
-    parser.add_argument("version", help="X.Y.Z")
+    parser.add_argument("version", nargs="?", help="X.Y.Z")
+    parser.add_argument("--check-freeze", action="store_true", help="print whether main is frozen (exit 1) or clear (exit 0), prepare nothing")
     parser.add_argument("--from", dest="base", choices=sorted(BRANCHES), default="develop", help="develop (release-X.Y.Z) or main (fix-X.Y.Z)")
     parser.add_argument("--note", action="append", default=[], help="a CHANGELOG entry, for a fix from main (repeat)")
     parser.add_argument("--date", default=None, help="YYYY-MM-DD, default today")
@@ -97,6 +159,20 @@ def main():
     parser.add_argument("--no-commit", action="store_true", help="leave the edits staged, uncommitted, on the new branch")
     args = parser.parse_args()
 
+    if args.check_freeze:
+        if args.version:
+            fail("--check-freeze takes no version")
+        os.chdir(git("rev-parse", "--show-toplevel").stdout.strip())
+        try:
+            found = freeze_status()
+        except FreezeUnreadable as error:
+            fail(str(error))
+        for line in freeze_lines(found):
+            print(line)
+        print("main is frozen" if is_frozen(found) else "main is not frozen" + (": nothing is under review" if not found else ""))
+        sys.exit(1 if is_frozen(found) else 0)
+    if not args.version:
+        parser.error("a version X.Y.Z is needed (or --check-freeze)")
     new = parse_version(args.version)
     if new is None:
         fail(f"'{args.version}' is not X.Y.Z")
@@ -107,6 +183,19 @@ def main():
         fail("--note is for a fix from main; from develop the entries are the Unreleased section")
 
     os.chdir(git("rev-parse", "--show-toplevel").stdout.strip())
+    try:
+        found = freeze_status()
+    except FreezeUnreadable as error:
+        if args.base == "develop":
+            fail(f"{error}, so a release is not prepared (Releasing, step 0)")
+        print(f"release-prepare: note: {error}; the fix goes on, and main's freeze is not known", file=sys.stderr)
+        found = []
+    if is_frozen(found):
+        detail = "\n  ".join(freeze_lines(found))
+        if args.base == "develop":
+            fail(f"main is frozen, so a release is not prepared (Releasing, step 0):\n  {detail}\n"
+                 "a fix users need now is --from main, after the owner's go")
+        print(f"release-prepare: note: main is frozen:\n  {detail}", file=sys.stderr)
     if git("status", "--porcelain", "--untracked-files=no").stdout.strip():
         fail("the working tree has tracked changes: commit or set them aside first")
 

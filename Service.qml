@@ -357,6 +357,25 @@ Item {
     snapshot = copy
     return true
   }
+  // Demo only: one device of the demo, away (last seen 12 minutes ago on
+  // this network), the others as they are. False when the demo has no such
+  // device.
+  function showDemoAway(id) {
+    if (!demo) return false
+    var copy = JSON.parse(JSON.stringify(snapshot || {}))
+    var list = copy.devices || []
+    var hit = false
+    for (var i = 0; i < list.length; i++) {
+      if (String(list[i].id) !== String(id)) continue
+      list[i].reachable = false
+      list[i].links = []
+      list[i].lastSeen = { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 }
+      if (list[i].handsfree) list[i].handsfree.connected = false
+      hit = true
+    }
+    if (hit) snapshot = copy
+    return hit
+  }
   readonly property int deviceIndex: {
     for (var i = 0; i < ordered.length; i++) if (device && ordered[i].id === device.id) return i
     return -1
@@ -1948,16 +1967,36 @@ Item {
       id: artProc
       property string url: ""
       property string player: ""
+      property bool streamed: false
+      property bool exited: false
+      property bool released: false
+      // The player's slot frees once, when the process has ended, whether it
+      // ran or never started.
+      function release() {
+        if (released) return
+        released = true
+        delete root.artRunning[player]
+        root.artActive -= 1
+        root.nextArt()
+      }
+      onExited: {
+        exited = true
+        release()
+        if (streamed) destroy()
+        else lateDestroy.start()
+      }
+      property Timer lateDestroy: Timer {
+        interval: 2000
+        onTriggered: artProc.destroy()
+      }
       stdout: StdioCollector {
         onStreamFinished: {
           var path = String(text || "").trim()
           var next = Object.assign({}, root.safeArt)
           next[artProc.url] = path !== "" ? "file://" + encodeURI(path) : ""
           root.safeArt = next
-          delete root.artRunning[artProc.player]
-          root.artActive -= 1
-          root.nextArt()
-          artProc.destroy()
+          artProc.streamed = true
+          if (artProc.exited) artProc.destroy()
         }
       }
     }

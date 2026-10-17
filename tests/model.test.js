@@ -547,13 +547,27 @@ test("settings rows: one device's Settings is its page; several: My devices and 
   assert.ok(!M.settingsPageRows(ctx({ scope: "device", single: false })).some(r => r.kind === "keys"), "several: Keys is on Settings' first page")
 })
 
-test("keys page: every key once per group, each group headed once, named in Back to", () => {
+test("keys page: one row per group, its keys as key caps, named in Back to", () => {
   const rows = M.keysRows()
-  assert.ok(rows.length > 0 && rows.every(r => r.kind === "key" && r.keys !== "" && r.label !== ""))
-  assert.deepEqual(rows.filter(r => r.group !== "").map(r => r.group), M.KEYS.map(g => g.group))
-  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a key per row")
-  assert.ok(rows.some(r => r.keys === "?"), "the page names its own key")
+  assert.deepEqual(rows.map(r => r.group), M.KEYS.map(g => g.group), "each group once, in order")
+  assert.ok(rows.every(r => r.kind === "keyGroup" && r.items.length > 0 && r.items.every(i => i.keys !== "" && i.label !== "")))
+  assert.equal(rows.reduce((n, r) => n + r.items.length, 0), M.KEYS.reduce((n, g) => n + g.keys.length, 0), "every key of Model.KEYS")
+  assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a stop per group")
+  assert.ok(rows.some(r => r.items.some(i => i.keys === "?")), "the page names its own key")
   assert.equal(M.navLabel("settings/keys"), "Keys")
+})
+
+test("key caps: one token each, the dot between alternatives", () => {
+  assert.deepEqual(M.keyCaps("j k · ↑ ↓"), ["j", "k", "·", "↑", "↓"])
+  assert.deepEqual(M.keyCaps("1–9 · Shift+H Shift+L"), ["1–9", "·", "Shift+H", "Shift+L"])
+  assert.deepEqual(M.keyCaps("[ ]"), ["[", "]"])
+  assert.deepEqual(M.keyCaps("Esc"), ["Esc"])
+})
+
+test("a tooltip names its key as Label (key); no key, no parentheses", () => {
+  assert.equal(M.keyTip("Reply", "reply"), "Reply (r)")
+  assert.equal(M.keyTip("Home", "home"), "Home (0)")
+  assert.equal(M.keyTip("Nothing", "nope"), "Nothing")
 })
 
 test("a fresh pairing: a mount refused for want of storage access is an ask, never a problem (#177)", () => {
@@ -1237,9 +1251,11 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.equal(by("callsHere").state, "on")
   assert.deepEqual([by("clipboard").state, by("clipboard").on, by("clipboard").steps[0].fix], ["off", false, { verb: "device", what: "plugin", arg: "clipboard=on" }],
                    "turned off here: one click turns it on")
-  assert.equal(by("names").state, "setup", "contacts not allowed on the device")
-  assert.deepEqual(by("names").steps[0].fix, { verb: "device", what: "grant", arg: "contacts" })
-  assert.match(by("names").steps[0].orAsk, /KDE Connect › Permissions › contacts/)
+  assert.equal(by("names").state, "on")
+  const noContacts = M.featureRows(M.demoFeatures("ask"), { state: "ready", line: "" }, "Pixel 8").find(r => r.key === "names")
+  assert.equal(noContacts.state, "setup", "contacts not allowed on the device")
+  assert.deepEqual(noContacts.steps[0].fix, { verb: "device", what: "grant", arg: "contacts" })
+  assert.match(noContacts.steps[0].orAsk, /KDE Connect › Permissions › contacts/)
   assert.equal(by("screen").state, "on")
   const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
   // From anywhere is about reaching it away: its own setup, not away.
@@ -1259,7 +1275,7 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.deepEqual(all.slice(0, 2).map(s => s.fix.what), ["sshfs", "screen"], "this computer's installs first, one card for both")
   assert.equal(new Set(all.map(s => s.fix.what + (s.fix.arg || ""))).size, all.length, "each step once")
   assert.ok(!all.some(s => s.fix.what === "plugin"), "a feature turned off stays off: its own switch turns it on")
-  assert.equal(M.featuresSummary(rows), "11 on · 1 to set up")
+  assert.equal(M.featuresSummary(rows), "12 on")
 })
 
 test("settings: a device's page lists what it shares, only what it can do", () => {
@@ -1299,6 +1315,18 @@ test("the main page says what a feature needs where it is used", () => {
                "problem", "the demo's stopped state")
   const off = rows.map(r => r.key === "notifications" ? Object.assign({}, r, { on: false }) : r)
   assert.equal(M.sectionNote(off, "notifications"), null, "turned off: nothing to say")
+  // Contacts: the ask is the Contacts page's; Messages never asks for it.
+  const names = M.deviceSetup({ report: M.demoFeatures("ask"), screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const nameAsk = M.sectionNote(names.features, "contacts")
+  assert.deepEqual([nameAsk.kind, nameAsk.key, nameAsk.fix], ["ask", "names", true], "one click allows it over adb, on the Contacts page")
+  assert.equal(M.sectionNote(names.features, "messages"), null, "Messages is whole without names: no ask there")
+  assert.equal(M.permissionGranted(names.items, "contacts"), false)
+  assert.equal(M.permissionGranted(M.deviceSetup({ report: M.demoFeatures(), screen: null, name: "Pixel 8" }).items, "contacts"), true)
+  assert.equal(M.permissionGranted(M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: null }), screen: null, name: "Pixel 8" }).items, "contacts"), false,
+               "not read over adb: not known to be given")
+  // A contacts feature that worked and stopped is a problem on both pages.
+  const stoppedNames = names.features.map(r => r.key === "names" ? Object.assign({}, r, { state: "attention", problem: true, detail: "It stopped working" }) : r)
+  assert.deepEqual(["contacts", "messages"].map(page => M.sectionNote(stoppedNames, page).kind), ["problem", "problem"], "its effect shows where names vanish")
   const problems = M.settingsProblems([{ key: "installed", ok: true }, { key: "running", ok: true }, { key: "firewall", ok: false, status: "Closed" }], [],
                                       [{ id: "p1", title: "Pixel 8", setup: quiet, rows }])
   // A problem is the card at the top, whichever section its feature is in.
@@ -1659,7 +1687,8 @@ test("from anywhere (#119): a Network gateway, its items, its feature and its pa
   const pick = rowOf("pick", [M.demoMeshCheck("")])
   assert.equal(pick.steps[0].page, "reach", "not certainly it: picked on its page")
   // Given before and gone: it worked and stopped.
-  const lost = Object.assign(M.demoFeatures(), { network: Object.assign(M.demoNetwork(""), { added: false, givenKept: false }) })
+  const lost = Object.assign(M.demoFeatures(), { network: M.demoNetwork("lost") })
+  assert.deepEqual(M.demoNetwork("lost"), Object.assign(M.demoNetwork(""), { added: false, givenKept: false }), "the demo's lost address: given once, gone since")
   const broken = M.deviceSetup({ report: lost, screen: null, name: "Pixel 8", checks: [M.demoMeshCheck("")] })
   assert.equal(broken.features.find(r => r.key === "reach").state, "attention")
   const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: broken, rows: broken.features }])
@@ -1761,7 +1790,11 @@ test("contacts: a nameless card, and what an empty page says", () => {
   const rows = M.contactRows([{ id: "x", phones: [{ label: "Mobile", value: "5145550123" }] }], "")
   assert.deepEqual([rows[0].name, rows[0].initial], ["No name", "#"])
   const phone = { name: "Pixel 8" }
-  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/)
+  assert.match(M.contactsEmpty("empty", "", phone), /Allow contacts in KDE Connect on Pixel 8/, "adb unknown: the phone's own app is the way")
+  assert.equal(M.contactsEmpty("empty", "", phone, { noted: true }), "", "the page's note says why")
+  assert.equal(M.contactsEmpty("empty", "", phone, { granted: true }), "No contacts on Pixel 8 yet.", "allowed, and the phone sent none")
+  assert.match(M.contactsEmpty("away", "", phone, { noted: true }), /^Pixel 8 is away/, "away speaks over a note")
+  assert.equal(M.contactsEmpty("ready", "zz", phone, { noted: true }), "No contact matches.")
   assert.match(M.contactsEmpty("away", "", phone), /^Pixel 8 is away/)
   assert.equal(M.contactsEmpty("ready", "zz", phone), "No contact matches.")
 
@@ -1811,6 +1844,61 @@ test("threads past the cap are trimmed: the overflow is the count above CAP_THRE
   assert.equal(M.threadOverflow(M.CAP_THREADS), 0)
   assert.equal(M.threadOverflow(M.CAP_THREADS + 1), 1)
   assert.equal(M.threadOverflow(M.CAP_THREADS + 100), 100)
+})
+
+test("the thread row index follows an insert, a move to the top, a trim at the cap and a removal", () => {
+  const rows = M.threadRowsNew()
+  const mirror = []
+  const same = () => {
+    assert.deepEqual(rows.order, mirror)
+    mirror.forEach((tid, i) => assert.equal(M.threadRowOf(rows, tid), i))
+    assert.equal(Object.keys(rows.at).length, mirror.length)
+  }
+  M.threadRowsReset(rows, [10, 20, 30, 40])
+  mirror.push(10, 20, 30, 40)
+  same()
+  assert.equal(M.threadRowOf(rows, 99), -1)
+  M.threadRowsInsert(rows, 0, 50); mirror.splice(0, 0, 50); same()
+  M.threadRowsInsert(rows, 3, 60); mirror.splice(3, 0, 60); same()
+  M.threadRowsMove(rows, 4, 0); mirror.splice(0, 0, mirror.splice(4, 1)[0]); same()
+  M.threadRowsMove(rows, 0, 5); mirror.splice(5, 0, mirror.splice(0, 1)[0]); same()
+  M.threadRowsRemove(rows, 2, 1); mirror.splice(2, 1); same()
+  M.threadRowsRemove(rows, mirror.length - 2, 2); mirror.splice(mirror.length - 2, 2); same()
+  assert.equal(M.threadRowOf(rows, 40), -1)
+  M.threadRowsReset(rows, []); mirror.length = 0; same()
+})
+
+test("the thread row index stays right at the cap: an insert trims the oldest row", () => {
+  const rows = M.threadRowsNew()
+  const all = Array.from({ length: M.CAP_THREADS }, (_, i) => i + 1)
+  M.threadRowsReset(rows, all)
+  M.threadRowsInsert(rows, 0, 9001)
+  const extra = M.threadOverflow(rows.order.length)
+  assert.equal(extra, 1)
+  M.threadRowsRemove(rows, rows.order.length - extra, extra)
+  assert.equal(rows.order.length, M.CAP_THREADS)
+  assert.equal(M.threadRowOf(rows, 9001), 0)
+  assert.equal(M.threadRowOf(rows, 1), 1)
+  assert.equal(M.threadRowOf(rows, M.CAP_THREADS), -1)
+  assert.equal(M.threadRowOf(rows, M.CAP_THREADS - 1), M.CAP_THREADS - 1)
+})
+
+test("the thread row index matches a plain list through random edits", () => {
+  let seed = 7
+  const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n }
+  const rows = M.threadRowsNew()
+  const mirror = []
+  let next = 1
+  for (let step = 0; step < 2000; step++) {
+    const op = rnd(4)
+    if (op === 0 || mirror.length === 0) { const to = rnd(mirror.length + 1); M.threadRowsInsert(rows, to, next); mirror.splice(to, 0, next++) }
+    else if (op === 1) { const f = rnd(mirror.length), t = rnd(mirror.length); M.threadRowsMove(rows, f, t); mirror.splice(t, 0, mirror.splice(f, 1)[0]) }
+    else if (op === 2) { const f = rnd(mirror.length), c = 1 + rnd(Math.min(3, mirror.length - f)); M.threadRowsRemove(rows, f, c); mirror.splice(f, c) }
+    else { const tids = Array.from({ length: rnd(6) }, () => next++); M.threadRowsReset(rows, tids); mirror.length = 0; mirror.push(...tids) }
+    assert.deepEqual(rows.order, mirror)
+    for (let i = 0; i < mirror.length; i++) assert.equal(M.threadRowOf(rows, mirror[i]), i)
+    assert.equal(Object.keys(rows.at).length, mirror.length)
+  }
 })
 
 test("Fix with AI: nothing a device sent reaches the prompt except quoted, capped and as data", () => {

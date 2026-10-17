@@ -220,7 +220,8 @@ dev/rig phone status        # battery N, notify T X, sms 555... X, call 555..., 
 dev/rig restart-shell       # after a change to Panel.qml, Model.js and the like
 dev/loaded-code DIR         # does the running shell run DIR's files? (IPC functions; exit 1: restart it)
 dev/rig check               # every check against the running rig (the phone's battery, a notification,
-                            # a call, the screen link and its window, the host left untouched)
+                            # a call, the demo conversation opening with no binding loop in the log, the screen link
+                            # and its window, the host left untouched; it checks the code the shell has loaded)
 dev/rig ci                  # up, check, down in one command
 dev/rig ps | reap | verify-clean | logs <name> | exec -- <cmd> | selftest
 ```
@@ -316,6 +317,8 @@ dev/sandbox dev rig exec -- bin/kdeconnect-bridge photos-cached <device>   # the
 "${IPC[@]}" live                   # back to the phone
 "${IPC[@]}" page settings          # also main, messages, connection
 "${IPC[@]}" demoSetup ; "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # This computer's checks; the phone away; Reconnect
+"${IPC[@]}" demoAwayOn "Galaxy Tab S9" ; "${IPC[@]}" pressAwayWhy   # demo many: that device away and viewed; the away card's Why?
+"${IPC[@]}" demoReach lost         # demo only: a From anywhere address KDE Connect lost (a problem on the device's page)
 "${IPC[@]}" openThread <id> ; "${IPC[@]}" loadOlder
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" pressDismissAll        # demo only: the Notifications header's dismiss all

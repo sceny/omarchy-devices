@@ -827,11 +827,12 @@ class ReadResult(unittest.TestCase):
             ".envrc": b"x", "CLAUDE.md": b"x", "claude.MD": b"x", "Agents.md": b"x", "GEMINI.md": b"x", ".claude/settings.json": b"{}",
             "mise.toml": b"x", ".tool-versions": b"x", "conftest.py": b"x", "HEAD": b"ref: refs/heads/main\n", "objects/x": b"x",
             "refs/x": b"x", "sub/.hidden": b"x", "-rf": b"x", "_underscore": b"x", "fine/ok.txt": b"ok",
+            "x\n": b"x", "CLAUDE.md\n": b"x", "mise.local.toml\n": b"x", "ok\n/inner": b"x",
         }
         self.read(hostile)
         self.assertEqual(self.on_disk(), ["fine", "fine/ok.txt"])
         for name in (".git/config", ".envrc", "CLAUDE.md", "claude.MD", "Agents.md", "GEMINI.md", ".claude/settings.json", "mise.toml",
-                     ".tool-versions", "conftest.py", "refs/x", "objects/x", "sub/.hidden", "-rf"):
+                     ".tool-versions", "conftest.py", "refs/x", "objects/x", "sub/.hidden", "-rf", "'x\\n'", "'CLAUDE.md\\n'", "'mise.local.toml\\n'"):
             self.assertIn(name, self.skipped)
         env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CEILING_DIRECTORIES": self.tmp.name}
         for d in (self.root, self.dest):

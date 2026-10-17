@@ -87,8 +87,8 @@ class ScreenLog(unittest.TestCase):
         self.assertEqual(bridge.screen_log("Pixel 8 · Screen"), "")
         self.assertEqual(bridge.runtime_dir(), "")
         self.assertEqual(bridge.turn_still({}, "Pixel 8 · Screen", "old"), "")
-        self.assertEqual(bridge.screen_command("S1", "x")[2], "scrcpy", "no log: plain scrcpy, not verbose")
-        self.assertNotIn("--verbosity=verbose", bridge.screen_command("S1", "x"))
+        with self.assertRaises(OSError, msg="no private place for adb: scrcpy is not started on the TCP port"):
+            bridge.screen_command("S1", "x")
 
     def test_old_logs_in_the_cache_are_removed(self):
         os.makedirs(os.path.join(os.environ["XDG_CACHE_HOME"], "sceny.devices"))

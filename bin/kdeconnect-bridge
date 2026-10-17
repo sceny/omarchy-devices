@@ -31,7 +31,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge received-dismiss <device> <path>   forget one received file
   kdeconnect-bridge open-file <path>               in its app (uwsm-app, GIO's default),
                                               else shown in Files
-  kdeconnect-bridge copy-file <path> [--local|--from-device]   the file on the clipboard
+  kdeconnect-bridge copy-file <path> [--local]   the file on the clipboard
                                               (a picture as the sandbox's JPEG, as open-file)
   kdeconnect-bridge doctor                    setup checks, as JSON
   kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|tailscale|search
@@ -114,6 +114,7 @@ out (closed the file chooser), 2 on failure.
 
 import base64
 import concurrent.futures
+import errno
 import glob
 import hashlib
 import html
@@ -1148,23 +1149,78 @@ def open_cache():
     return path
 
 
-def local_copy(path, cache=None, limit=OPEN_CACHE_MAX):
+def storage_root(path):
+    """The mount the file is on: the nearest folder above it that is a mount
+    point, where the device's storage link begins."""
+    folder = os.path.dirname(os.path.abspath(path))
+    while not os.path.ismount(folder) and folder != os.path.dirname(folder):
+        folder = os.path.dirname(folder)
+    return folder
+
+
+def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
     """A copy of the device's file in the cache, under its own name (apps
-    show it): the one already there while the file is unchanged."""
+    show it): the one already there while the file is unchanged. The device
+    decides what is on its storage link, so the source is never a link to a
+    file of this computer, never anything but a regular file, and never
+    larger than the cache holds: it is opened without following a link, its
+    folder must resolve inside the link's mount (`root`) before the open and
+    the open file itself must after it (a folder swapped for a link in
+    between is refused), and the copy is read from that open file, up to
+    `limit` bytes."""
     cache = cache or open_cache()
-    st = os.stat(path)
-    folder = os.path.join(cache, hashlib.sha1(path.encode()).hexdigest()[:16])
-    target = os.path.join(folder, os.path.basename(path))
+    root = os.path.realpath(root or storage_root(path))
+    if os.path.commonpath([os.path.realpath(os.path.dirname(os.path.abspath(path))), root]) != root:
+        raise OSError(errno.EXDEV, "It is outside the device's storage")
     try:
-        t = os.stat(target)
-        if t.st_size == st.st_size and int(t.st_mtime) == int(st.st_mtime):
-            os.utime(folder)
-            return target
-    except OSError:
-        pass
-    os.makedirs(folder, exist_ok=True)
-    tmp = target + ".part"
-    shutil.copyfile(path, tmp)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
+    except OSError as error:
+        if error.errno == errno.ELOOP:
+            raise OSError(errno.ELOOP, "It is a link, not a file") from error
+        raise
+    # O_NOFOLLOW covers the last component only, and the folder check above
+    # is a step apart from the open: where the open file really is settles it.
+    try:
+        opened = os.path.realpath("/proc/self/fd/%d" % fd)
+        if os.path.commonpath([opened, root]) != root:
+            raise OSError(errno.EXDEV, "It is outside the device's storage")
+    except BaseException:
+        os.close(fd)
+        raise
+    with os.fdopen(fd, "rb") as source:
+        st = os.fstat(source.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            raise OSError(errno.EINVAL, "It is not a regular file")
+        if st.st_size > limit:
+            raise OSError(errno.EFBIG, "It is larger than the copies kept here")
+        folder = os.path.join(cache, hashlib.sha1(path.encode()).hexdigest()[:16])
+        target = os.path.join(folder, os.path.basename(path))
+        try:
+            t = os.stat(target)
+            if t.st_size == st.st_size and int(t.st_mtime) == int(st.st_mtime):
+                os.utime(folder)
+                return target
+        except OSError:
+            pass
+        os.makedirs(folder, exist_ok=True)
+        tmp = target + ".part"
+        copied = 0
+        try:
+            with open(tmp, "wb") as out:
+                while True:
+                    chunk = source.read(min(1 << 20, limit + 1 - copied))
+                    if not chunk:
+                        break
+                    copied += len(chunk)
+                    if copied > limit:
+                        raise OSError(errno.EFBIG, "It is larger than the copies kept here")
+                    out.write(chunk)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
     os.utime(tmp, (st.st_atime, st.st_mtime))
     os.replace(tmp, target)
     os.utime(folder)
@@ -1249,15 +1305,14 @@ def open_file(path, launch=None, local=False, from_device=False):
     return EXIT_OK
 
 
-def copy_file(path, local=False, from_device=False, run=None):
+def copy_file(path, local=False, run=None):
     """The file on the clipboard, through the same gate as open_file: a copy
     is made here first (`local`: the file is read over the device's storage),
     what it holds decides, and a picture goes out only as the sandbox's JPEG
     (image data), never as the device's bytes; one that does not decode
     copies nothing. Anything else goes out as a URI list naming the copy
     here, as file managers copy, never a path on the storage link.
-    `from_device`: a file the device sent, already here. `run` replaces
-    subprocess.run in tests."""
+    `run` replaces subprocess.run in tests."""
     run = run or subprocess.run
     if not os.path.isfile(path):
         return say("The file is gone", EXIT_FAILED)
@@ -1491,6 +1546,9 @@ def read_private():
         return ""
 
 
+TEXT_VERBS = ("ping", "text", "url", "dial")
+
+
 def act(argv):
     if len(argv) < 2:
         return say(__doc__.strip(), EXIT_FAILED, osd="")
@@ -1513,6 +1571,9 @@ def act(argv):
                         "unpair": "Unpaired %s" % name}[verb],
                        osd={"pair": "Asked the device to pair; accept on it", "accept": "Paired",
                             "reject": "Pairing cancelled", "unpair": "Unpaired"}[verb])
+
+        if verb in TEXT_VERBS and rest:
+            return say("%s takes its text on stdin, not on the command line" % verb, EXIT_FAILED, osd="")
 
         if verb == "ping":
             # sendPing is overloaded: no argument, or a message to show.
@@ -1841,12 +1902,20 @@ def bluetooth_checks(bt):
 OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
 
 
+def as_root(argv):
+    """The one place a command is made to run as root: through pkexec, whose
+    polkit agent asks for the password. Only `root_plan` builds such a command,
+    and only `run_root` runs it, after the --confirm hash matches
+    (tests/test_lints.py, RootOnlyAsConfirmed)."""
+    return ["pkexec"] + list(argv)
+
+
 def pkg_add(packages):
-    """Omarchy's `omarchy pkg add`, as root through pkexec (the panel has no
-    terminal for sudo). pkexec clears PATH, so Omarchy's bin goes back on it
-    for the helpers the command calls."""
-    return ["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN,
-            os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
+    """Omarchy's `omarchy pkg add`, as root (the panel has no terminal for
+    sudo). pkexec clears PATH, so Omarchy's bin goes back on it for the
+    helpers the command calls."""
+    return as_root(["/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN,
+                    os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages))
 
 
 # ---- Root, only for what was shown ----------------------------------------
@@ -1926,8 +1995,8 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         if what == "bluetooth" and not unit_active(BLUETOOTH_UNIT, run):
             enable = "/usr/bin/systemctl enable --now %s" % BLUETOOTH_UNIT
             actions.append("Start Bluetooth, now and at every start: systemctl enable --now %s" % BLUETOOTH_UNIT)
-            commands = [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN, "/bin/sh", "-c",
-                         " && ".join(([shlex.join(["omarchy-pkg-add"] + packages)] if commands else []) + [enable])]]
+            commands = [as_root(["/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN, "/bin/sh", "-c",
+                                 " && ".join(([shlex.join(["omarchy-pkg-add"] + packages)] if commands else []) + [enable])])]
             if will == []:
                 actions = actions[1:]
     elif what == "firewall":
@@ -1938,7 +2007,7 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
             + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
         actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted] or ["Nothing to change: the firewall already lets them in"]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(wanted)]] if wanted else []
+        commands = [as_root(["/bin/sh", "-c", " && ".join(wanted)])] if wanted else []
     elif what == "tailscale":
         # Omarchy's own installer, as its Install menu runs it: in its
         # terminal, which asks for the password itself.
@@ -1971,7 +2040,7 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         parts += wanted_rules
         if not actions:
             actions = ["Nothing to install: this computer has everything"]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
+        commands = [as_root(["/bin/sh", "-c", " && ".join(parts)])] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
@@ -3700,11 +3769,36 @@ def screen_record(device_id, update=None):
     return data[device_id]
 
 
+ADB_SOCKET_FILE = "adb.sock"
+ADB_NO_PLACE = "adb has no private place to listen: the runtime folder is missing"
+
+
+def adb_server():
+    """The plugin's own adb server, as adb names it: a socket in the runtime
+    folder (0700, this user's), or "" without one. adb's default is a TCP
+    port on 127.0.0.1, which any user of this computer can connect to and
+    speak for every device the server holds."""
+    place = runtime_dir()
+    return "localfilesystem:" + os.path.join(place, ADB_SOCKET_FILE) if place else ""
+
+
+def adb_env():
+    """The environment of every adb and scrcpy this bridge starts (scrcpy
+    runs adb, which reads it), or None without a runtime folder: nothing
+    then falls back to the TCP port."""
+    spec = adb_server()
+    return dict(os.environ, ADB_SERVER_SOCKET=spec) if spec else None
+
+
 def adb(args, timeout=10, stdin=None):
     """One adb call: (exit code, stdout and stderr). `stdin` is text for a
     secret adb prompts for, kept off the argument list."""
+    env = adb_env()
+    if env is None:
+        return 1, ADB_NO_PLACE
+    argv = ["adb", "-L", env["ADB_SERVER_SOCKET"]] if args[:1] == ["start-server"] else ["adb"]
     try:
-        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout, input=stdin)
+        out = subprocess.run(argv + args, capture_output=True, text=True, timeout=timeout, input=stdin, env=env)
         return out.returncode, (out.stdout or "") + (out.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as error:
         return 1, str(error)
@@ -4595,7 +4689,12 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     # Appended, so the watcher can empty the file without leaving a hole.
     run = ["scrcpy"] if not log else ["sh", "-c", 'stdbuf -oL -eL "$0" "$@" 2>&1 | grep --line-buffered -E %s >>%s'
                                       % (shlex.quote(SCREEN_LOG_LINES), shlex.quote(log)), "scrcpy"]
-    cmd = ["uwsm-app", "--"] + run + ["--serial", serial, "--window-title", title]
+    # uwsm-app starts the command from its own daemon, which does not hand on
+    # this process's environment: the private adb socket goes on the line.
+    env = adb_env()
+    if env is None:
+        raise OSError(ADB_NO_PLACE)
+    cmd = ["uwsm-app", "--", "env", "ADB_SERVER_SOCKET=" + env["ADB_SERVER_SOCKET"]] + run + ["--serial", serial, "--window-title", title]
     if log:
         # Verbose: its device side says when the display changes (the watcher).
         cmd += ["--verbosity=verbose"]
@@ -4984,11 +5083,14 @@ def parse_versions(text):
 
 def read_apps(serial, run=subprocess.run):
     """The device's launchable apps: [{package, name, system, version, activity}]."""
-    out = run(["scrcpy", "--serial", serial, "--list-apps"], capture_output=True, text=True, timeout=60)
+    env = adb_env()
+    if env is None:
+        return []
+    out = run(["scrcpy", "--serial", serial, "--list-apps"], capture_output=True, text=True, timeout=60, env=env)
     apps = parse_scrcpy_apps((out.stdout or "") + (out.stderr or ""))
     out = run(["adb", "-s", serial, "shell", "pm list packages --show-versioncode; echo @@; "
                "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"],
-              capture_output=True, text=True, timeout=30)
+              capture_output=True, text=True, timeout=30, env=env)
     versions, _, launchers = (out.stdout or "").partition("@@")
     versions, launchers = parse_versions(versions), parse_launcher_activities(launchers)
     return [dict(a, version=versions.get(a["package"], ""), activity=launchers.get(a["package"], "")) for a in apps]
@@ -5065,7 +5167,10 @@ class PhoneReader:
             'P) pm path "$p" 2>/dev/null | tr "\\n" " "; echo;; esac; done')
 
     def __init__(self, serial, popen=subprocess.Popen):
-        self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE,
+        env = adb_env()
+        if env is None:
+            raise OSError(ADB_NO_PLACE)
+        self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
 
     def ask(self, line):
@@ -6710,7 +6815,7 @@ def main(argv):
         print(safe_art(argv[1] if len(argv) > 1 else "", int(argv[2]) if len(argv) > 2 else ART_BOX))
         return EXIT_OK
     if argv[0] == "copy-file":
-        return copy_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:], from_device="--from-device" in argv[2:])
+        return copy_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:])
     if argv[0] == "doctor":
         print(json.dumps(doctor()))
         return EXIT_OK

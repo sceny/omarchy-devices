@@ -106,11 +106,18 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
   above the newest version with each `--note` under *Fixes* (at least one).
 - It sets `"version"`, commits both files (`--no-commit` leaves them staged, uncommitted)
   and prints the next step. Write the section's remaining groups after it.
+- It runs the freeze check first (`--check-freeze` prints it alone and exits 1
+  while `main` is frozen, for the daily check): a release from `develop` is
+  refused while an open `marketplace-review` issue points to an open
+  marketplace issue, naming both, and also when GitHub cannot be read. A fix
+  from `main` is not refused by it and prints the freeze, or that GitHub could
+  not be read, as a note. `--check-freeze` starts from the repository's top.
 - It refuses a version already tagged (here or on origin), one not above the
   base's version, one the base's CHANGELOG already has, an empty Unreleased
   section, an existing branch and a tree with tracked changes.
-- Tested in `tests/test_release_prepare.py`, which runs `dev/release-notes`,
-  the `release` workflow's own extraction, on what the script wrote.
+- Tested in `tests/test_release_prepare.py` (`gh` replaced by a file-backed
+  fake, a frozen and a clear repository), which runs `dev/release-notes`, the
+  `release` workflow's own extraction, on what the script wrote.
 
 The release pull request into `main` is merged with a merge commit. GitHub has
 no per-pull-request check of the merge method, so the pull request's `release`
@@ -155,8 +162,13 @@ finding blocks the pull request.
   process and fails on any argument that is not a literal or on its reviewed
   allowlist (`ARGV_ALLOWED`, with the reason each is not private text); an
   allowed bare name (`id`) also has every value it is given in its file read
-  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text.
-  The reviewer reads every new line of either list from the diff.
+  (`ASSIGNED_ALLOWED`), so a local variable of the same name cannot carry text;
+  a function whose parameter is such a name has every call read the same way.
+  `tests/test_shell_argv.py` fails on `shell=True`, `os.system`, `bash -c` and
+  `sh -c` in `bin/`, `lib/`, `dev/` and `tools/` unless the line is on its
+  allowlist with a reason. The reviewer reads every new line of any list from
+  the diff.
+  Tests: `tests/test_argv.py` (`PrivateTextOnArgv`), `tests/test_shell_argv.py` (`NoShellInScripts`).
 - The shell is never a party to a Wayland data transfer, and nothing reaches
   the clipboard's contents without the user's own paste (Ctrl+V): no
   `TextInput`, `TextField` or `TextArea`, no Omarchy type built on one
@@ -174,14 +186,28 @@ finding blocks the pull request.
   each; `dev/sandbox dev exec -- dev/clip-check --rig ID` shows it in a session's rig (every
   selection gesture, a reader that never reads, an owner that never
   writes).
+  Tests: `tests/test_argv.py` (`ClipboardOnlyOnPaste`),
+  `tests/test_panelfield.py` (`ShippedQml`, `PanelFieldClipboard`).
 - Private text (messages, contact names, numbers, clipboard) stays out of
-  logs.
+  logs: no `logging`, `print` to stderr, bridge `say` or QML `console.*` /
+  `print` has an argument that names a private field (only a length may be
+  written). `tests/test_lints.py` reads the bridge's syntax tree and every
+  QML file, and fails naming file:line; a name found not private goes in
+  `LOG_ALLOWED` with the reason.
+  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`).
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
   nothing a device sent: a toast with a value passes its own display line
   (`report`'s third argument, the bridge's `say(..., osd=...)`).
   `tests/test_argv.py` (`OsdLines`) fails on a toast that does not.
+  Tests: `tests/test_argv.py` (`OsdLines`).
 - Nothing from a device is decoded outside the sandbox. A QML `Image` never
-  points at a file the device sent.
+  points at a file the device sent: each `source` is on a reviewed list of
+  handles the bridge wrote after a sandboxed decode (`IMAGE_SOURCES`, with
+  where each reads from), and each bridge function that writes one still
+  calls its decoder (`IMAGE_DECODERS`). A new `source` fails the build naming
+  file:line until a reviewer has read what feeds it.
+  Tests: `tests/test_lints.py` (`ImagesOnlyFromSafePaths`),
+  `tests/test_device_limits.py` (`ArtOnlyFromTheArtCache`).
 - A file from the device reaches `open-file` / `gio open` only through one
   gate (`open_file`, `--from-device` or `--local`): what the file holds
   decides whether it is a picture (then only the sandbox's copy opens, and
@@ -190,33 +216,75 @@ finding blocks the pull request.
   that id: the bridge sends no event for another, and the panel matches the
   exact id. `tests/test_bridge.py` (`FetchedAttachments`,
   `OpenPicturesSafely`) fails for an unrequested name and for a picture with
-  no recorded type; `tests/test_qml.py` (`DeviceFilesOpenThroughTheGate`)
-  fails on a QML start of `open-file` without the flag.
+  no recorded type; `tests/test_qml.py` (`DeviceFilesGoThroughTheGate`)
+  fails on a QML start of `open-file` without the flag, and on each caller
+  of `openPath` that leaves its `fromDevice` argument out.
+  Tests: `tests/test_bridge.py` (`FetchedAttachments`, `OpenPicturesSafely`),
+  `tests/test_qml.py` (`DeviceFilesGoThroughTheGate`).
 - Root goes only through `pkexec`, described first (`--describe`) and run
-  only as confirmed (`--confirm <hash>`).
+  only as confirmed (`--confirm <hash>`): `pkexec` is in one bridge function
+  (`as_root`), only `root_plan` builds a command with it, and `run_root`
+  returns before it starts a process unless the hash equals the plan's own.
+  A wrong or missing hash starts nothing.
+  Tests: `tests/test_lints.py` (`RootOnlyAsConfirmed`),
+  `tests/test_features.py` (`RootPlans`).
 - The firewall opens only the private ranges and a mesh's interface: its
   rule sources are a subset of `PRIVATE_LANS`, whatever network this
   computer is on. A test feeds a public network, a `/1` and a `/0`.
+  Tests: `tests/test_network.py` (`Firewall`).
 - No command line is handed to a script that evaluates it
   (`omarchy-launch-or-focus`, `omarchy-launch-or-focus-webapp`). A window is
   found by its exact title and focused by address, else the command runs as an
   argv list. A test fails if the bridge calls those scripts.
-- No new network listener. No command, path or argument built from device
-  data without a fixed verb and a checked value.
+  Tests: `tests/test_bridge.py` (`Screen`).
+- Every `adb` and `scrcpy` the bridge starts runs against the plugin's own
+  adb server, a socket in `$XDG_RUNTIME_DIR/sceny.devices/` (0700), through
+  `ADB_SERVER_SOCKET` in its environment (and on the `uwsm-app` line, whose
+  daemon hands on none); `start-server` always carries `-L`; with no runtime
+  folder nothing starts. A test fails, naming file:line, on any other place
+  that runs either.
+  Tests: `tests/test_adb_socket.py` (`ShippedCode`).
+- No new network listener, and no shell on a script built from anything but
+  literals: the bridge imports no server, calls no `bind`, `listen` or
+  `serve_forever`, uses `socket` only in a reviewed client, and starts
+  `sh -c` / `shell=True` on a built script only in the functions
+  `SHELL_ALLOWED` names (each shows its script, or is bound by the
+  `--confirm` hash). QML starts none.
+  Tests: `tests/test_lints.py` (`ListenersAndShells`).
+- No command, path or argument built from device data without a fixed verb
+  and a checked value.
+  manual: whether a value is checked at its verb is a judgement on the
+  diff; the argv and shell lints above fix only where text may go.
 - No third-party verbose log that records input or the clipboard. A log of
   another program's output keeps only the lines the plugin reads
   (`SCREEN_LOG_LINES`), in `$XDG_RUNTIME_DIR`, mode 0600.
+  Tests: `tests/test_device_limits.py` (`ScreenLog`).
 - Device strings are capped at the bridge (`cap_text`, one limit per kind of
   text), before they reach the shell: contact fields, call names and numbers,
   Bluetooth names included, and a total budget per read. A test sends
   oversized input.
+  Tests: `tests/test_device_limits.py` (`DeviceTextCaps`).
 - No work per foreign event at rest without a rate limit and a check of what
   the event names (a player's art URL, a file the device sent).
+  manual: which events a device can repeat is not a list a script can hold;
+  the reviewer reads each new handler in the diff.
 - No personal data in code, comments, docs, tests, screenshots or commit
-  messages.
+  messages. The repository's secret scanning and push protection are on (with
+  Dependabot security updates): GitHub refuses a push that holds a token
+  before it is public. A refused push is fixed by removing the token from the
+  commit, never by bypassing the protection.
+  manual: a script cannot tell a real name from a made-up one; the reviewer
+  reads the diff and the screenshots (#302 scripts the numbers, emails and ids).
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
+  Tests: `tests/model.test.js`.
+
+Each line ends with the tests that fail the build for it (`Tests:` and the
+files, with the classes in brackets), or with `manual:` and one line on why a
+script cannot check it. `tests/test_review_list.py` fails the build on a line
+with neither, and on a test file or class that does not exist. The reviewer
+reads the `manual:` lines from the diff; the others have already run.
 
 The review comment names each line it checked, including the ones that do not
 apply.

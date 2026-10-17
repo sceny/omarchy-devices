@@ -143,7 +143,7 @@ Item {
   onDeviceIdChanged: {
     if (demo) return
     closeThread()
-    threadModel.clear()
+    clearThreads()
     seen = ({})
     ready = false
     modelRevision++
@@ -165,7 +165,7 @@ Item {
   function showDemo() {
     demo = true
     demoSeen = ({})
-    threadModel.clear()
+    clearThreads()
     ready = false
     modelRevision++
     openThreadId = -1
@@ -179,7 +179,7 @@ Item {
     onTriggered: {
       if (!sms.demo) return
       var threads = Model.demoThreads()
-      for (var i = 0; i < threads.length; i++) threadModel.append(threadRow(threads[i]))
+      setThreads(threads.map(threadRow))
       sms.ready = true
       sms.modelRevision++
     }
@@ -204,7 +204,7 @@ Item {
     demoThreadsTimer.stop()
     demoOpenTimer.stop()
     closeThread()
-    threadModel.clear()
+    clearThreads()
     ready = false
     modelRevision++
     send({ cmd: "refresh" })
@@ -241,9 +241,41 @@ Item {
     }
   }
 
-  function indexOfThread(tid) {
-    for (var i = 0; i < threadModel.count; i++) if (threadModel.get(i).tid === tid) return i
-    return -1
+  // Every change to threadModel goes through these five, which keep `threadRows`
+  // (id -> row) the same as the list.
+  property var threadRows: Model.threadRowsNew()
+
+  function indexOfThread(tid) { return Model.threadRowOf(threadRows, tid) }
+
+  function clearThreads() {
+    threadModel.clear()
+    Model.threadRowsReset(threadRows, [])
+  }
+
+  function setThreads(rows) {
+    threadModel.clear()
+    for (var i = 0; i < rows.length; i++) threadModel.append(rows[i])
+    Model.threadRowsReset(threadRows, rows.map(function(r) { return r.tid }))
+  }
+
+  function insertThread(to, row) {
+    threadModel.insert(to, row)
+    Model.threadRowsInsert(threadRows, to, row.tid)
+    var extra = Model.threadOverflow(threadModel.count)
+    if (extra > 0) {
+      threadModel.remove(threadModel.count - extra, extra)
+      Model.threadRowsRemove(threadRows, threadModel.count, extra)
+    }
+  }
+
+  function moveThread(from, to) {
+    threadModel.move(from, to, 1)
+    Model.threadRowsMove(threadRows, from, to)
+  }
+
+  function removeThreadAt(at) {
+    threadModel.remove(at)
+    Model.threadRowsRemove(threadRows, at, 1)
   }
 
   function upsertThread(t) {
@@ -254,12 +286,10 @@ Item {
     var to = 0
     while (to < threadModel.count && threadModel.get(to).date > row.date && threadModel.get(to).tid !== row.tid) to++
     if (at < 0) {
-      threadModel.insert(to, row)
-      var extra = Model.threadOverflow(threadModel.count)
-      if (extra > 0) threadModel.remove(threadModel.count - extra, extra)
+      insertThread(to, row)
     } else {
       if (to > at) to = at
-      if (at !== to) threadModel.move(at, to, 1)
+      if (at !== to) moveThread(at, to)
       threadModel.set(to, row)
     }
   }
@@ -465,9 +495,10 @@ Item {
   function handle(ev) {
     if (demo) return
     if (ev.ev === "threads") {
-      threadModel.clear()
       var shown = Math.min(ev.threads.length, Model.CAP_THREADS)
-      for (var i = 0; i < shown; i++) threadModel.append(threadRow(ev.threads[i]))
+      var rows = []
+      for (var i = 0; i < shown; i++) rows.push(threadRow(ev.threads[i]))
+      setThreads(rows)
       ready = true
       modelRevision++
     } else if (ev.ev === "thread") {
@@ -484,7 +515,7 @@ Item {
       }
     } else if (ev.ev === "removed") {
       var at = indexOfThread(ev.thread)
-      if (at >= 0) threadModel.remove(at)
+      if (at >= 0) removeThreadAt(at)
       if (ev.thread === openThreadId) closeThread()
       modelRevision++
     } else if (ev.ev === "messages") {

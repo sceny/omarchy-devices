@@ -1574,12 +1574,23 @@ function contactFind(app, contact) {
 }
 
 // What the page says when it has nothing to show: the device decides whether
-// contacts leave it at all, so an empty page points at that, never at a
-// fault here.
-function contactsEmpty(state, query, device) {
+// contacts leave it at all, so an empty page points at that, never at a fault
+// here. `ctx`: { noted: the page's note (an ask or a problem) says why,
+// granted: adb read the permission as given }.
+function contactsEmpty(state, query, device, ctx) {
+  var c = ctx || {}
   if (String(query || "").trim() !== "") return "No contact matches."
   if (state === "away") return deviceLabel(device) + " is away. Its contacts show when it comes back."
+  if (c.noted) return ""
+  if (c.granted) return "No contacts on " + deviceLabel(device) + " yet."
   return "No contacts yet. Allow contacts in KDE Connect on " + deviceLabel(device) + " and they appear here."
+}
+
+// Whether adb read a permission as given for the device: false when it is
+// missing or not read (no adb for it).
+function permissionGranted(items, what) {
+  var it = (items || []).filter(function(x) { return x.key === "permission:" + what })[0]
+  return !!it && it.known === true && it.state === "ok"
 }
 
 // ---- Collapsed sections: the one line shown in place of the content ----
@@ -1760,6 +1771,8 @@ var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", conta
 // its own page (Fix all leaves it to the user unless it broke). shared:
 // false: nothing it shares with this computer, so no row among what the
 // device shares; it is asked on the away card. onDetail: the item whose detail its row shows when on.
+// ask: the page or section that asks for what it needs (an ask shows only
+// there, a problem on every entry); none: on every entry.
 var FEATURES = [
   { key: "notifications", label: "Notifications", glyph: GLYPH.bell, hint: "Its notifications here, with reply",
     needs: ["link", "plugin:notifications", "permission:notifications", "health:notifications"], switch: ["plugin:notifications"],
@@ -1768,7 +1781,7 @@ var FEATURES = [
     needs: ["link", "plugin:sms", "permission:sms"], switch: ["plugin:sms"],
     entries: { sections: [], shortcuts: ["messages"], pages: ["messages"] } },
   { key: "names", label: "Contacts", glyph: GLYPH.contacts, hint: "Its contacts here, and names for numbers",
-    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"],
+    needs: ["link", "plugin:contacts", "permission:contacts"], switch: ["plugin:contacts"], ask: "contacts",
     entries: { sections: [], shortcuts: ["contacts"], pages: ["contacts", "messages"] } },
   { key: "media", label: "Now playing", glyph: GLYPH.music, hint: "What it plays, with controls",
     needs: ["link", "plugin:mprisremote", "permission:notifications"], switch: ["plugin:mprisremote"],
@@ -1872,7 +1885,9 @@ function setupItem(key, ctx) {
     item.gateway = "android"; item.label = PERMISSION_NAMES[what]
     if (!report || !report.reachable) return linked()
     // Read over adb: unknown without it, and nothing to say then.
-    if (!report.permissions || report.permissions[what] !== false) return is("ok")
+    if (!report.permissions) return is("ok")
+    item.known = true
+    if (report.permissions[what] !== false) return is("ok")
     // Granted over adb on a click; else the switch to turn on, on the device.
     item.steps.push({ kind: "auto", label: "Allow " + PERMISSION_NAMES[what] + " for KDE Connect on " + name, fix: { verb: "device", what: "grant", arg: what },
                       orAsk: "On " + name + ": KDE Connect › Permissions › " + PERMISSION_NAMES[what] })
@@ -2195,7 +2210,7 @@ function demoFeatures(kind) {
     plugins[k] = { on: k !== "clipboard", offered: true, loaded: k !== "clipboard" }
   })
   return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
-           permissions: { notifications: kind !== "ask", sms: true, contacts: false, phone: true, storage: true },
+           permissions: { notifications: kind !== "ask", sms: true, contacts: kind !== "ask", phone: true, storage: true },
            files: { sshfs: true, mounted: true, error: "" }, network: demoNetwork(""),
            notifications: kind === "stopped" ? { here: 0, device: 5 } : { here: null, device: null } }
 }
@@ -2542,7 +2557,8 @@ function reachRows(setup) {
 // Made-up networks for the demo phone: nothing in a demo reaches a mesh.
 // "" or "ready": on Tailscale, given to KDE Connect; "setup": Tailscale
 // here, the phone not on it yet; "pick": two phones to choose from; "none":
-// no mesh here; "isolated": away on a Wi-Fi that keeps devices apart.
+// no mesh here; "isolated": away on a Wi-Fi that keeps devices apart; "lost":
+// given to KDE Connect once and gone since (a problem on the device's page).
 function demoNetwork(kind) {
   var tailscale = { mesh: "tailscale", label: "Tailscale", on: kind !== "none", installed: kind !== "none", state: kind === "none" ? "" : "Running" }
   var peer = { name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true }
@@ -2551,6 +2567,7 @@ function demoNetwork(kind) {
   if (kind === "" || kind === "ready") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true })
   if (kind === "pick") return Object.assign(base, { candidates: [{ name: "pixel-8", mesh: "tailscale", label: "Tailscale", address: "100.101.102.103", online: true },
                                                                   { name: "old-phone", mesh: "tailscale", label: "Tailscale", address: "100.101.102.104", online: false }] })
+  if (kind === "lost") return Object.assign(base, { peer: peer, match: "address", given: peer.address })
   if (kind === "isolated") return Object.assign(base, { peer: peer, match: "address", added: true, given: peer.address, givenKept: true, links: [], isolated: true })
   return base
 }
@@ -3092,12 +3109,17 @@ var KEYS = [
     ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
     ["Esc", "Put back what was there (editing)"]] }
 ]
+// One row per group: the cursor stops on the group, and its keys are drawn
+// beneath it as key caps. `caps` is a key line's tokens in order: a cap each,
+// and "·" between alternatives ("j k · ↑ ↓").
+function keyCaps(keys) {
+  return String(keys).split(" ").filter(function(c) { return c !== "" })
+}
 function keysRows() {
-  var rows = []
-  KEYS.forEach(function(g) {
-    g.keys.forEach(function(k, i) { rows.push({ kind: "key", key: g.group + ":" + i, group: i === 0 ? g.group : "", keys: k[0], label: k[1] }) })
+  return KEYS.map(function(g) {
+    return { kind: "keyGroup", key: g.group, group: g.group,
+             items: g.keys.map(function(k) { return { keys: k[0], caps: keyCaps(k[0]), label: k[1] } }) }
   })
-  return rows
 }
 
 // Every row of the settings page, in one list so keyboard and mouse share a
@@ -3348,11 +3370,19 @@ function problemCard(problems, closed, deviceId) {
   return open.length === 0 ? null : { problem: open[0], more: open.length - 1 }
 }
 
+// Whether a feature's ask is said on this section or page (FEATURES `ask`).
+function asksOn(featureKey, section) {
+  var f = FEATURES.filter(function(x) { return x.key === featureKey })[0]
+  return !f || !f.ask || f.ask === section
+}
+
 // What a section (or page) says about its features, or null. `rows`: the
 // device's feature rows (with `problem` and `pending`). A problem: it worked
 // and stopped (a plain line: the card at the top has its Fix). An ask:
 // something it needs that one click here does (a permission over adb), or the
-// step left on the device, waited for.
+// step left on the device, waited for. A problem shows on every entry of its
+// feature; an ask only on the feature's own page (`ask` on the feature), since
+// what an entry merely uses is not the user's errand there.
 function sectionNote(rows, section) {
   var keys = entryFeatures("section", section).concat(entryFeatures("page", section))
   var mine = (rows || []).filter(function(r) { return keys.indexOf(r.key) >= 0 && r.on !== false })
@@ -3363,7 +3393,7 @@ function sectionNote(rows, section) {
   }
   for (var j = 0; j < mine.length; j++) {
     var a = mine[j]
-    if (a.state !== "setup") continue
+    if (a.state !== "setup" || !asksOn(a.key, section)) continue
     if (a.pending && !a.pending.failed) return { kind: "ask", key: a.key, label: a.label, text: a.pending.text, waiting: a.pending.wait === true, fix: false, row: a }
     // Only an ask the plugin knows of (read over adb): never a guess.
     var step = (a.steps || [])[0]
@@ -3745,6 +3775,37 @@ function photosSummary(photos) {
 var CAP_THREADS = 5000
 function threadOverflow(count) { return Math.max(0, count - CAP_THREADS) }
 
+// Where each conversation sits in the thread list, by id, kept beside the
+// ListModel so a thread event finds its row without reading the list. Every
+// change to the list is made here too (SmsService.qml `threadRows`).
+function threadRowsNew() { return { order: [], at: {} } }
+function threadRowOf(rows, tid) {
+  var i = rows.at[tid]
+  return i === undefined ? -1 : i
+}
+function threadRowsRenumber(rows, from, to) {
+  for (var i = from; i <= to && i < rows.order.length; i++) rows.at[rows.order[i]] = i
+}
+function threadRowsReset(rows, tids) {
+  rows.order = tids.slice()
+  rows.at = {}
+  threadRowsRenumber(rows, 0, rows.order.length - 1)
+}
+function threadRowsInsert(rows, to, tid) {
+  rows.order.splice(to, 0, tid)
+  threadRowsRenumber(rows, to, rows.order.length - 1)
+}
+function threadRowsMove(rows, from, to) {
+  if (from === to) return
+  rows.order.splice(to, 0, rows.order.splice(from, 1)[0])
+  threadRowsRenumber(rows, Math.min(from, to), Math.max(from, to))
+}
+function threadRowsRemove(rows, from, count) {
+  var gone = rows.order.splice(from, count)
+  for (var i = 0; i < gone.length; i++) delete rows.at[gone[i]]
+  threadRowsRenumber(rows, from, rows.order.length - 1)
+}
+
 // Where the panel was when it closed, kept for a while: opened again within
 // KEEP_PLACE_MS it goes back there (a glance at a picture, then back to the
 // conversation), else it starts on its main page. Not when it must open
@@ -3766,6 +3827,20 @@ function placeToResume(left, nowMs, ctx) {
 // dir +1 slides the new page in from the right, -1 from the left, 0 is a
 // lateral move (tabs) whose direction the caller knows.
 var HOME_KEY = "0"
+
+// The key a control's tooltip names, as "Label (key)". The keys are spelled
+// once, here; tests/keys.test.js fails the build when one is not on the Keys
+// page, and when a tooltip in a .qml file spells a key itself.
+var TIP_KEYS = {
+  home: HOME_KEY, back: "Esc", edit: "E", settings: "s", messages: "m",
+  reply: "r", dismiss: "x", open: "o", forget: "x",
+  prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
+  pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete"
+}
+function keyTip(label, id) {
+  var k = TIP_KEYS[id]
+  return k ? label + " (" + k + ")" : label
+}
 var HOME_MIN_DEPTH = 2
 
 function navIndex(stack, key) {

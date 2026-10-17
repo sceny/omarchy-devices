@@ -90,8 +90,10 @@ kinds:
 | Root on this computer | the packages, the firewall rule | once, at the first run: one card, one password (`fix ready`) |
 | Only the user's hands on the device | install the app, pair, a permission, Wireless debugging | where the feature is used, once, then gone |
 
-Where each is asked: notification access in Notifications; SMS and
-contacts on the Messages page; the gallery's storage in its section; the
+Where each is asked: notification access in Notifications; SMS on the
+Messages page; contacts on the Contacts page (Messages shows only a contacts
+problem, a feature that worked and stopped, and in its new-message search the
+same *Allow* while the user searches); the gallery's storage in its section; the
 screen on the first **Open** of a notification's app or the Screen
 shortcut, after which what was pressed opens by itself. An ask sits only
 where the user already is: nothing advertises a feature.

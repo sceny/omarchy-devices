@@ -7,8 +7,10 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "..", "bin", "kdeconnect-bridge")
@@ -19,6 +21,13 @@ loader.exec_module(bridge)
 
 
 class Arguments(unittest.TestCase):
+    def setUp(self):
+        run = tempfile.mkdtemp()
+        patch = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": run})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(shutil.rmtree, run, True)
+
     def test_each_place_is_scrcpys_own_flags(self):
         app = lambda sound: bridge.screen_command("S1", "Maps · Pixel 8", "com.example.maps", {"flex": True}, sound=sound)
         self.assertIn("--no-audio", app("phone"), "on the phone: none forwarded")

@@ -1929,8 +1929,10 @@ Panel {
   readonly property var sectionNotes: {
     var rows = device ? featureRowsFor(device) : []
     return { notifications: Model.sectionNote(rows, "notifications"), apps: Model.sectionNote(rows, "apps"),
-             messages: Model.sectionNote(rows, "messages") }
+             messages: Model.sectionNote(rows, "messages"), contacts: Model.sectionNote(rows, "contacts") }
   }
+  // Whether adb read the viewed device's contacts permission as given.
+  readonly property bool contactsGranted: !!device && !!setupById[String(device.id)] && Model.permissionGranted(setupById[String(device.id)].items, "contacts")
   // The sections drawn under the header, in the chosen order: switched on
   // in Layout and with something in them (or something to say about it),
   // while the device is here.
@@ -2863,7 +2865,7 @@ Panel {
     function screenInfo(): string { return root.screenInfo() }
     // From anywhere on the viewed device (#119): its page, as its row would
     // open it; what the page shows. demoReach: a made-up network (ready,
-    // setup, pick, none, isolated; demo only). reachAddress: an address as
+    // setup, pick, none, isolated, lost; demo only). reachAddress: an address as
     // typed and Entered on the page (demo only: nothing reaches KDE Connect).
     function reach(): string { if (root.device) root.openReach(String(root.device.id)); return root.reachInfo() }
     function reachInfo(): string { return root.reachInfo() }
@@ -2934,6 +2936,26 @@ Panel {
       root.phone.setupNetwork = "192.168.1.0/24"
       root.phone.searchedAt = 0
       return "ok"
+    }
+    // Demo only: one device of the demo away, and viewed (demo many: its
+    // second device, by id, nickname or name). The rest stay as they are.
+    function demoAwayOn(key: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var d = root.phone.findDevice(key)
+      if (!d) return "no device " + key
+      if (!root.phone.showDemoAway(d.id)) return "no device " + key
+      root.phone.setupNetwork = "192.168.1.0/24"
+      root.phone.searchedAt = 0
+      if (root.opened) root.switchDevice(d.id); else root.phone.view(d.id)
+      return "ok"
+    }
+    // Demo only: Why? on the away card, as a click would (toggles); what the
+    // card shows.
+    function pressAwayWhy(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (!root.device || root.device.reachable !== false) return "the viewed device is not away"
+      root.awayWhy = !root.awayWhy
+      return JSON.stringify({ why: root.awayWhy, lines: root.awayInfo.lines.concat(root.awayWhy ? root.awayInfo.why : []) })
     }
     // Reconnect on the viewed device, as its button would; what it shows.
     function reconnect(): string {
@@ -3727,7 +3749,7 @@ Panel {
             spacing: Style.space(8)
             PanelActionButton {
               iconText: soundBox.shown && (soundBox.shown.muted || soundBox.shown.level <= 0.001) ? Model.GLYPH.volumeOff : Model.GLYPH.volume
-              tooltipText: soundBox.shown && soundBox.shown.muted ? "Unmute it here (m)" : "Mute it here (m)"
+              tooltipText: Model.keyTip(soundBox.shown && soundBox.shown.muted ? "Unmute it here" : "Mute it here", "mute")
               foreground: root.foreground
               fontFamily: root.fontFamily
               onClicked: root.soundMute()
@@ -4501,7 +4523,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             visible: root.showMain
             iconText: Model.GLYPH.settings
-            tooltipText: root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings"
+            tooltipText: Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
             foreground: root.foreground
             fontFamily: root.fontFamily
             onClicked: root.openSettings()
@@ -4721,7 +4743,7 @@ Panel {
                   enabled: opacity > 0.5
                   Behavior on opacity { NumberAnimation { duration: (heroHover.hovered || root.editing ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: root.editing ? Model.GLYPH.check : Model.GLYPH.edit
-                  tooltipText: root.editing ? "Done: keep the changes (Esc undoes them)" : "Edit this page"
+                  tooltipText: root.editing ? Model.keyTip("Done: keep the changes", "edit") + "; Esc undoes them" : Model.keyTip("Edit this page", "edit")
                   foreground: root.editing ? Color.accent : root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.toggleEditing()
@@ -4735,7 +4757,7 @@ Panel {
                   enabled: root.homeVisible
                   Behavior on opacity { NumberAnimation { duration: (root.homeVisible ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
                   iconText: Model.GLYPH.home
-                  tooltipText: "Home (" + Model.HOME_KEY + ")"
+                  tooltipText: Model.keyTip("Home", "home")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.goHome()
@@ -4743,7 +4765,7 @@ Panel {
                 PanelActionButton {
                   visible: !(root.showMain && root.manyDevices) && root.backVisible
                   iconText: root.showMain ? Model.GLYPH.settings : Model.GLYPH.back
-                  tooltipText: !root.showMain ? root.backTip : (root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings")
+                  tooltipText: !root.showMain ? Model.keyTip(root.backTip, "back") : Model.keyTip(root.settingsIssues > 0 ? "Settings · " + Model.problemsLine(root.allProblems) : "Settings", "settings")
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   onClicked: root.headerButton()
@@ -5079,7 +5101,7 @@ Panel {
                           required property var modelData
                           required property int index
                           iconText: modelData.glyph
-                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : modelData.label
+                          tooltipText: root.actionOn(modelData.key) ? modelData.label + " (open)" : Model.keyTip(modelData.label, modelData.key === "messages" ? "messages" : "")
                           size: Style.space(22)
                           foreground: root.actionOn(modelData.key) ? Color.accent : root.foreground
                           fontFamily: root.fontFamily
@@ -5562,7 +5584,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.left
-                        tooltipText: "Previous player"
+                        tooltipText: Model.keyTip("Previous player", "prevPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5599,7 +5621,7 @@ Panel {
                       PanelActionButton {
                         anchors.verticalCenter: parent.verticalCenter
                         iconText: Model.GLYPH.right
-                        tooltipText: "Next player"
+                        tooltipText: Model.keyTip("Next player", "nextPlayer")
                         size: Style.space(22)
                         fontSize: Style.font.body
                         foreground: root.foreground
@@ -5763,7 +5785,7 @@ Panel {
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
                       motion: root.motion
-                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device) + " (Shift+Delete)"
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all on " + Model.deviceLabel(root.device), "dismissAll")
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
@@ -6200,6 +6222,9 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 sms: root.sms
                 bar: root.bar
+                contactsAsk: root.sectionNotes.contacts && root.sectionNotes.contacts.kind === "ask" ? root.sectionNotes.contacts : null
+                contactsWorking: !!root.phone && !!root.sectionNotes.contacts && root.phone.isBusy("feature:" + root.sectionNotes.contacts.key)
+                onAllowContacts: { var n = root.sectionNotes.contacts; if (n && n.row) root.featureAction(n.row, root.device) }
                 onThreadOpened: function(tid) { root.rememberThread(tid) }
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
                 onUnreadToggled: root.toggleUnreadOnly()
@@ -6218,7 +6243,9 @@ Panel {
                 fontFamily: root.fontFamily
               }
 
-              // ---- Contacts, in place of everything above but the header ----
+              // ---- Contacts, in place of everything above but the header;
+              //      the ask for them is said here, above them ----
+              SectionNote { note: root.showContacts ? root.sectionNotes.contacts : null; width: parent.width }
               ContactsView {
                 id: contactsView
                 visible: root.showContacts
@@ -6226,6 +6253,8 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 contacts: root.contacts
                 device: root.device
+                noted: !!root.sectionNotes.contacts
+                granted: root.contactsGranted
                 bar: root.bar
                 motion: root.motion
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
@@ -6870,7 +6899,7 @@ Panel {
       }
       PanelActionButton {
         iconText: Model.GLYPH.close
-        tooltipText: "Forget it here (the file stays)"
+        tooltipText: Model.keyTip("Forget it here, the file stays", "forget")
         foreground: root.foreground
         fontFamily: root.fontFamily
         onClicked: if (root.phone) root.phone.dismissReceived(rrow.entry)
@@ -7223,7 +7252,7 @@ Panel {
       anchors.margins: Style.space(2)
       size: Style.space(18)
       iconText: ({ phone: Model.GLYPH.phone, both: Model.GLYPH.devices })[root.screenSoundNow] || Model.GLYPH.volume
-      tooltipText: "Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it (v)"
+      tooltipText: Model.keyTip("Its sound plays " + ({ phone: "on the device", both: "here and on the device" }[root.screenSoundNow] || "here") + " · change it", "sound")
       foreground: root.foreground
       fontFamily: root.fontFamily
       onClicked: root.openSoundCard(null)
@@ -7231,7 +7260,7 @@ Panel {
 
     PanelToolTip {
       visible: tileMouse.containsMouse && (tile.action.hint || "") !== ""
-      text: tile.isOn ? "Its screen is open: click to bring it forward" : (tile.action.hint || "")
+      text: tile.isOn ? "Its screen is open: click to bring it forward" : Model.keyTip(tile.action.hint || "", tile.action.key === "messages" ? "messages" : "")
       fontFamily: root.fontFamily
     }
   }
@@ -7697,7 +7726,7 @@ Panel {
         PanelActionButton {
           visible: row.isText
           iconText: Model.GLYPH.messages
-          tooltipText: "Open the conversation (o)"
+          tooltipText: Model.keyTip("Open the conversation", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openNotificationConversation(row.note)
@@ -7709,7 +7738,7 @@ Panel {
           glyph: Model.GLYPH.window
           waiting: root.appWorking(row.app)
           motion: root.motion
-          tooltipText: "Open " + (row.app ? row.app.name : "") + " in a window (o)"
+          tooltipText: Model.keyTip("Open " + (row.app ? row.app.name : "") + " in a window", "open")
           foreground: root.foreground
           fontFamily: root.fontFamily
           onClicked: root.openApp(row.app)
@@ -7721,7 +7750,7 @@ Panel {
           glyph: Model.GLYPH.reply
           waiting: sending
           motion: root.motion
-          tooltipText: sending ? "Sending the reply" : "Reply"
+          tooltipText: sending ? "Sending the reply" : Model.keyTip("Reply", "reply")
           foreground: root.foreground
           fontFamily: root.fontFamily
           enabled: !sending
@@ -7734,7 +7763,7 @@ Panel {
           glyph: Model.GLYPH.close
           waiting: dismissing
           motion: root.motion
-          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss on " + Model.deviceLabel(root.device)
+          tooltipText: dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss on " + Model.deviceLabel(root.device), "dismiss")
           foreground: root.foreground
           hoverColor: root.urgent
           fontFamily: root.fontFamily

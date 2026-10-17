@@ -459,8 +459,13 @@ rig_adb_wifi_start() {
   "${RIG_IN_NS[@]}" socat "TCP-LISTEN:$port,bind=$RIG_NS_ADDR,fork,reuseaddr" "TCP:127.0.0.1:$port" \
     >>"$RIG_LOGS/adb-wifi.log" 2>&1 </dev/null &
   rig_state_set adbwifi_pid "$!"
+  # The plugin's own adb server (a socket in the runtime folder, not the rig's
+  # port) finds the phone only through its own connection.
+  install -d -m 700 "$RIG_RUNTIME_DIR/sceny.devices"
   for i in $(seq 1 30); do
-    rig_adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" && return 0
+    rig_adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" &&
+      "${RIG_IN_NS[@]}" env "ADB_SERVER_SOCKET=localfilesystem:$RIG_RUNTIME_DIR/sceny.devices/adb.sock" \
+        adb connect "$RIG_NS_ADDR:$port" 2>/dev/null | grep -q "connected to" && return 0
     sleep 0.3
   done
   rig_warn "adb over Wi-Fi to the emulator did not connect (the screen link will not find it)"
@@ -568,6 +573,23 @@ rig_bridge_has_notification() {
 
 rig_ipc_status_ok() {
   rig_ipc status | jq -e '.daemon == true and .reachable == true' >/dev/null
+}
+
+# The demo conversation (thread 9001) has a picture message whose preview is
+# absent in a fresh rig, which is what once made its bubble loop on itself.
+rig_demo_conversation_opens() {
+  rig_ipc demo "" >/dev/null || return 1
+  rig_ipc openThread 9001 >/dev/null || return 1
+  local deadline=$((SECONDS + 15))
+  while ((SECONDS < deadline)); do
+    rig_ipc smsStatus | jq -e '.open == 9001 and .loaded > 0' >/dev/null && { sleep 1; return 0; }
+    sleep 0.5
+  done
+  return 1
+}
+
+rig_shell_log_has_no_binding_loop_since() {
+  ! tail -n +"$(($1 + 1))" "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
 }
 
 rig_bridge_ns() { timeout 90 "${RIG_IN_NS[@]}" "$RIG_PLUGIN_SRC_ABS/bin/kdeconnect-bridge" "$@"; }
