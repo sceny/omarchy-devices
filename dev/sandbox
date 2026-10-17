@@ -4,22 +4,30 @@
 # script) in a rootless podman container that cannot reach the owner.
 #
 # Usage:
-#   dev/sandbox build [--ref REV]        build the image from pinned sources and REV's dev/
-#                                        (default origin/develop; never contributor code)
+#   dev/sandbox build [--profile devices|paperclipai|all] [--ref REV] [--paperclip-ref REV]
+#                                        build the common base image (Arch, Hyprland, Quickshell, Omarchy),
+#                                        then the image of a profile (default all) on it, from pinned sources:
+#                                        devices = the emulator and Android SDK, from REV's dev/;
+#                                        paperclipai = Paperclip's server and Postgres, from REV's
+#                                        dev/sandbox.d and sceny/omarchy-paperclipai's dev/ at its branch
+#                                        --paperclip-ref (defaults: origin/develop here, develop there;
+#                                        never contributor code). Each image holds only its own tools.
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name)
-#   dev/sandbox dev start [--ttl SECONDS]   a session for Sceny's own tree: a container kept until `dev stop` or its TTL
+#   dev/sandbox dev start [--repo OWNER/NAME] [--ttl SECONDS]
+#                                        a session for Sceny's own tree (default sceny/omarchy-devices): a container of
+#                                        that repository's profile, kept until `dev stop` or its TTL
 #   dev/sandbox dev [--session ID] [--timeout S] sync | up | rig ARGS | shot NAME | record NAME SECONDS FPS [-- CMD]
 #                  | exec -- CMD | pull [--out DIR] [--keep-frames] | status | stop [--all]
 #                                        sync streams the tracked files in, up/rig drive dev/rig inside, pull brings
 #                                        screenshots and recordings out as data
-#   dev/sandbox pins                     fail when the image's Omarchy, Hyprland or Quickshell is behind this machine's
+#   dev/sandbox pins                     fail when an image's Omarchy, Hyprland or Quickshell is behind this machine's
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
 #   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
 #                                        could not reach (the sandbox's own acceptance test)
-#   dev/sandbox status                   the image, its pins, the limits
-#   dev/sandbox remove-image             delete the image and its storage
+#   dev/sandbox status                   the images (base and profiles), the limits
+#   dev/sandbox remove-image             delete the images and their storage
 #
 # What a run is:
 #
@@ -38,8 +46,9 @@
 #     picks it). Memory, CPU, processes, tmpfs sizes and
 #     time are limited; the root filesystem is read-only; every capability is
 #     dropped.
-#   * Every unit (unit-model, unit-bridge, qml-parse, manifest, rig-ci, script)
-#     runs in a container of its own, from a fresh unpack of the commit and
+#   * Every unit (a repository's tests: for Devices unit-model, unit-bridge,
+#     qml-parse, manifest; for Paperclip pc-tests, pc-selftest, qml-parse,
+#     manifest; then rig-ci, script) runs in a container of its own, from a fresh unpack of the commit and
 #     develop's dev/. The verdict is the container's exit code, taken by this
 #     script on the host; it writes results.tsv and summary.json itself. A
 #     pass says the checks ran and exited 0: it does not make the commit safe
@@ -80,7 +89,7 @@ SB_UID=$(id -u)
 SB_HOME=$(getent passwd "$SB_UID" | cut -d: -f6)
 SB_STATE=${SANDBOX_STATE:-$SB_HOME/.local/share/sceny-sandbox}
 SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
-SB_IMAGE=localhost/sceny-sandbox:current
+SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
 
 SB_MEMORY=${SANDBOX_MEMORY:-10g}
@@ -93,8 +102,30 @@ SB_MAX_RESULT=${SANDBOX_MAX_RESULT:-$((1024 * 1024 * 1024))}
 SB_MAX_MEMBERS=20000
 E_SANDBOX=72   # a unit the host failed itself (output over a limit, no time left)
 
-# Repositories whose pull requests this sandbox runs.
+# Repositories whose pull requests this sandbox runs, and the profile each one
+# runs in: an image of its own that holds only what that repository needs
+# (Devices: the emulator and the Android SDK; Paperclip: its server and
+# Postgres). Neither image has the other's tools.
 SB_REPOS=(sceny/omarchy-devices sceny/omarchy-paperclipai)
+SB_PROFILES=(devices paperclipai)
+
+profile_of() { # <repo>
+  case $1 in
+  sceny/omarchy-devices) echo devices ;;
+  sceny/omarchy-paperclipai) echo paperclipai ;;
+  *) return 1 ;;
+  esac
+}
+
+image_of() { printf '%s-%s:current\n' "$SB_IMAGE_PREFIX" "$1"; } # <profile|base>
+
+# Whether a profile's image begins with every layer of the base image, in order.
+on_base() { # <profile>
+  local base mine
+  base=$(pm image inspect --format '{{range .RootFS.Layers}}{{.}} {{end}}' "$(image_of base)") || return 1
+  mine=$(pm image inspect --format '{{range .RootFS.Layers}}{{.}} {{end}}' "$(image_of "$1")") || return 1
+  [[ -n $base && $mine == "$base"* ]]
+}
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
 step() { printf '\033[36m  ·\033[0m %s\n' "$*" >&2; }
@@ -130,33 +161,76 @@ require_tools() {
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
-  local ref=origin/develop
+  local ref=origin/develop pc_ref=develop profile=all
   while (($#)); do
     case $1 in
     --ref)
       ref=${2:?--ref needs a revision}
       shift
       ;;
+    --paperclip-ref)
+      pc_ref=${2:?--paperclip-ref needs a revision}
+      shift
+      ;;
+    --profile)
+      profile=${2:?--profile needs devices, paperclipai or all}
+      shift
+      ;;
     *) die "build: unknown option $1" ;;
     esac
     shift
   done
+  [[ $profile == all || $profile == devices || $profile == paperclipai ]] || die "build: --profile is devices, paperclipai or all"
   require_tools
-  local sha ctx
+  local sha pc_sha="" pc_git ctx
   sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify "$ref^{commit}" 2>/dev/null) ||
     die "build: $ref is not a revision of this checkout"
   git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
     die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
 
-  ctx=$(mktemp -d "${TMPDIR:-/tmp}/sceny-sandbox-build.XXXXXX")
+  # In the store, not $TMPDIR: a build takes longer than some callers' temporary
+  # directory lives, and its context gone mid-way fails the later images.
+  mkdir -p "$SB_STATE/builds"
+  ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
   trap 'rm -rf "$ctx"' RETURN
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
-  say "building $SB_IMAGE from pinned sources and dev/ of ${sha:0:12} (this downloads about 6 GB the first time)"
-  pm build --label "org.sceny.sandbox.harness=$sha" -t "$SB_IMAGE" -f "$ctx/Containerfile" "$ctx" ||
-    die "the image did not build"
-  ok "image built (harness ${sha:0:12})"
+
+  if [[ $profile == all || $profile == paperclipai ]]; then
+    fetch_mirror sceny/omarchy-paperclipai
+    pc_git=$(mirror_dir sceny/omarchy-paperclipai)
+    # Only a branch of the repository itself: a pull request's head is contributor code.
+    pc_sha=$(git -C "$pc_git" rev-parse --verify "refs/heads/$pc_ref^{commit}" 2>/dev/null) ||
+      die "build: $pc_ref is not a branch of sceny/omarchy-paperclipai"
+    mkdir -p "$ctx/harness-paperclipai"
+    git -C "$pc_git" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai"
+  fi
+
+  # The common base first, as an image of its own: both profiles start from
+  # exactly its layers, so what they share is one thing to check and pin.
+  say "building $(image_of base) from pinned sources (a download of several GB the first time)"
+  pm build --target base --label "org.sceny.sandbox.harness=$sha" \
+    -t "$(image_of base)" -f "$ctx/Containerfile" "$ctx" ||
+    die "the base image did not build"
+  ok "base image built"
+
+  local one labels
+  for one in "${SB_PROFILES[@]}"; do
+    [[ $profile == all || $profile == "$one" ]] || continue
+    labels=(--label "org.sceny.sandbox.harness=$sha")
+    if [[ $one == paperclipai ]]; then
+      labels+=(--label "org.sceny.sandbox.harness.paperclipai=$pc_sha")
+      say "building $(image_of "$one") from pinned sources, dev/sandbox.d of ${sha:0:12} and paperclipai's dev/ of ${pc_sha:0:12}"
+    else
+      say "building $(image_of "$one") from pinned sources and dev/ of ${sha:0:12} (a download of several GB the first time)"
+    fi
+    pm build --target "$one" "${labels[@]}" \
+      -t "$(image_of "$one")" -f "$ctx/Containerfile" "$ctx" ||
+      die "the $one image did not build"
+    on_base "$one" || die "the $one image does not start with the base image's layers"
+    ok "$one image built on the base (harness ${sha:0:12})"
+  done
 }
 
 # -------------------------------------------------------------------- run ----
@@ -167,6 +241,24 @@ valid_repo() {
   return 1
 }
 
+mirror_dir() { printf '%s/mirrors/%s.git\n' "$SB_STATE" "${1//\//__}"; }
+
+# This machine's mirror of a repository: heads and pull requests, fetched
+# without credentials.
+fetch_mirror() {
+  local repo=$1 gitdir
+  gitdir=$(mirror_dir "$repo")
+  [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
+  step "fetching $repo (heads and pull requests, no credentials)"
+  # Public, unauthenticated: the owner's git and gh credentials are not read.
+  env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+    git -C "$gitdir" -c transfer.fsckObjects=true -c protocol.allow=never -c protocol.https.allow=always \
+    fetch -q --no-tags "https://github.com/$repo.git" \
+    '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head' ||
+    die "could not fetch $repo"
+}
+
 # The commit's files as a tar, from this machine's mirror of the repository
 # (or --from, a local repository). Only a full 40-hex sha that names a commit.
 make_archive() {
@@ -174,16 +266,8 @@ make_archive() {
   if [[ -n $from ]]; then
     gitdir=$from
   else
-    gitdir="$SB_STATE/mirrors/${repo//\//__}.git"
-    [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
-    step "fetching $repo (heads and pull requests, no credentials)"
-    # Public, unauthenticated: the owner's git and gh credentials are not read.
-    env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_TERMINAL_PROMPT=0 \
-      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
-      git -C "$gitdir" -c transfer.fsckObjects=true -c protocol.allow=never -c protocol.https.allow=always \
-      fetch -q --no-tags "https://github.com/$repo.git" \
-      '+refs/heads/*:refs/heads/*' '+refs/pull/*/head:refs/pull/*/head' ||
-      die "could not fetch $repo"
+    fetch_mirror "$repo"
+    gitdir=$(mirror_dir "$repo")
   fi
   local type
   type=$(git -C "$gitdir" cat-file -t "$sha" 2>/dev/null) || die "$sha is not an object of ${from:-$repo}"
@@ -210,6 +294,8 @@ read_result() { # <tar> <dest> <out> <unit> [extra args]
 
 SB_RUN_NAME=""
 SB_RUN_DIR=""
+SB_RUN_REPO=""
+SB_RUN_IMAGE=""
 
 run_cleanup() {
   [[ -n $SB_RUN_NAME ]] && pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
@@ -275,9 +361,9 @@ run_unit() {
       --tmpfs "/var/tmp:rw,nosuid,nodev,size=256m,mode=1777" \
       "${mounts[@]}" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
-      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
+      --env "SANDBOX_UNIT=$unit" --env "SANDBOX_REPO=$SB_RUN_REPO" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
       --workdir /work \
-      "$SB_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
     echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
   ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
@@ -355,7 +441,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
       --mount "type=bind,src=$png,dst=/in/png,ro" \
       --mount "type=bind,src=$SB_DIR/sandbox.d/reencode.py,dst=/opt/reencode.py,ro" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
-      "$SB_IMAGE" bash -c 'python3 /opt/reencode.py /in/png /out >&2; status=$?; tar -C /out -cf - .; exit $status' \
+      "$SB_RUN_IMAGE" bash -c 'python3 /opt/reencode.py /in/png /out >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
   )
   pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
@@ -365,10 +451,16 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
   rm -rf -- "$tarfile" "$png"
 }
 
-# The units each step runs, in order.
-units_of_step() {
-  case $1 in
-  tests) echo unit-model unit-bridge qml-parse manifest ;;
+# The units each step runs, in order, for a repository. A repository's tests
+# are its own: what it checks itself with, split so one unit is one container.
+units_of_step() { # <repo> <step>
+  case $2 in
+  tests)
+    case $1 in
+    sceny/omarchy-devices) echo unit-model unit-bridge qml-parse manifest ;;
+    sceny/omarchy-paperclipai) echo pc-tests pc-selftest qml-parse manifest ;;
+    esac
+    ;;
   rig) echo rig-ci ;;
   script) echo script ;;
   esac
@@ -471,20 +563,31 @@ cmd_run() {
     [[ -d $from ]] || die "run: --from $from is not a directory"
   fi
   require_tools
-  pm image exists "$SB_IMAGE" || die "run: no image; run 'dev/sandbox build' first"
+  local profile
+  profile=$(profile_of "$repo")
+  SB_RUN_IMAGE=$(image_of "$profile")
+  pm image exists "$SB_RUN_IMAGE" || die "run: no $profile image; run 'dev/sandbox build --profile $profile' first"
   # Devices only for the steps that run the rig: the tests step gets none.
+  # The emulator needs /dev/kvm; Paperclip's rig has no emulator and gets none.
   local devices=()
   if [[ $steps == *rig* || $steps == *script* ]]; then
-    [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
-      die "run: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+    if [[ $profile == devices ]]; then
+      [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
+        die "run: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+    fi
     local node=${SANDBOX_RENDER_NODE:-}
     if [[ -z $node ]]; then
       for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
     fi
     [[ -c $node && $node == /dev/dri/renderD* ]] ||
       die "run: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
-    devices=(--device /dev/kvm --device "$node")
-    step "devices passed in: /dev/kvm and $node"
+    if [[ $profile == devices ]]; then
+      devices=(--device /dev/kvm --device "$node")
+      step "devices passed in: /dev/kvm and $node"
+    else
+      devices=(--device "$node")
+      step "device passed in: $node"
+    fi
   fi
 
   local id stamp
@@ -498,7 +601,7 @@ cmd_run() {
   [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "run: $out exists and is not empty"
   out_in_git "$out" && die "run: $out is inside a git repository (or is one); results go in a directory git does not manage"
   SB_RUN_DIR="$SB_STATE/runs/$id"
-  SB_HARNESS=$harness SB_SHA=$sha
+  SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
   mkdir -p -m 700 "$SB_RUN_DIR"
@@ -516,7 +619,7 @@ cmd_run() {
   IFS=, read -ra wanted <<<"$steps"
   IFS=$IFS_SAVE
   for step_name in "${wanted[@]}"; do
-    for unit in $(units_of_step "$step_name"); do
+    for unit in $(units_of_step "$repo" "$step_name"); do
       left=$((timeout - (SECONDS - started)))
       if ((left < 5)); then
         UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
@@ -546,32 +649,33 @@ cmd_run() {
 # in the sandbox is only as good as the versions it runs on: an image behind
 # this computer's packages tests a shell the owner no longer has. Fails when
 # any of the three is older in the image; newer is fine.
-pins_check() {
-  local image_rows host name hv iv bad=0 pkg_list="hyprland quickshell"
+pins_check() { # <profile>
+  local profile=$1 image image_rows host name hv iv bad=0 pkg_list="hyprland quickshell"
+  image=$(image_of "$profile")
   command -v pacman >/dev/null 2>&1 && command -v vercmp >/dev/null 2>&1 || {
     warn "pins: this machine has no pacman, nothing to compare with"
     return 0
   }
-  pm image exists "$SB_IMAGE" || die "pins: no image; run 'dev/sandbox build' first"
+  pm image exists "$image" || die "pins: no $profile image; run 'dev/sandbox build --profile $profile' first"
   image_rows=$(
     pm run --rm --pull never --network none --no-hosts --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
       --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
-      "$SB_IMAGE" bash -c 'pacman -Q hyprland quickshell; printf "omarchy %s\n" "$(sed -n "s/^ARG OMARCHY_VERSION=//p" /opt/harness/dev/sandbox.d/Containerfile | head -1)"' 2>/dev/null
+      "$image" bash -c 'pacman -Q hyprland quickshell; printf "omarchy %s\n" "$(sed -n "s/^ARG OMARCHY_VERSION=//p" /opt/harness/dev/sandbox.d/Containerfile | head -1)"' 2>/dev/null
   )
   for name in omarchy $pkg_list; do
     iv=$(awk -v n="$name" '$1 == n { print $2 }' <<<"$image_rows")
     hv=$(pacman -Q "$name" 2>/dev/null | awk '{ print $2 }')
     if [[ -z $iv ]]; then
-      fail "pins: the image does not say its $name"
+      fail "pins: the $profile image does not say its $name"
       bad=1
     elif [[ -z $hv ]]; then
-      step "pins: $name is not installed here (image $iv)"
+      step "pins: $name is not installed here ($profile image $iv)"
     elif (($(vercmp "$iv" "$hv") < 0)); then
-      fail "pins: $name is $iv in the image and $hv on this machine: bump the pin in dev/sandbox.d/Containerfile and build again"
+      fail "pins: $name is $iv in the $profile image and $hv on this machine: bump the pin in dev/sandbox.d/Containerfile and build again"
       bad=1
     else
-      ok "pins: $name $iv in the image, $hv here"
+      ok "pins: $name $iv in the $profile image, $hv here"
     fi
   done
   return $bad
@@ -579,7 +683,14 @@ pins_check() {
 
 cmd_pins() {
   require_tools
-  pins_check
+  local profile found=0 bad=0
+  for profile in "${SB_PROFILES[@]}"; do
+    pm image exists "$(image_of "$profile")" || continue
+    found=1
+    pins_check "$profile" || bad=1
+  done
+  ((found == 1)) || die "pins: no image; run 'dev/sandbox build' first"
+  return $bad
 }
 
 # -------------------------------------------------------------------- dev ----
@@ -591,10 +702,12 @@ cmd_pins() {
 # data, pictures decoded again in a container of their own (pull).
 
 SB_DEV_LABEL=org.sceny.sandbox.dev
+SB_PROFILE_LABEL=org.sceny.sandbox.profile
 SB_DEV_MAX=${SANDBOX_DEV_MAX:-2}
 SB_DEV_TTL_MAX=14400
 SB_DEV_FRAMES_MAX=600
 DEV_NAME=""
+DEV_PROFILE=""
 
 dev_names() { pm ps --filter "label=$SB_DEV_LABEL" --format '{{.Names}}' 2>/dev/null; }
 
@@ -614,6 +727,15 @@ dev_resolve() {
   DEV_NAME=$names
 }
 
+# DEV_PROFILE from the session's own label (one of SB_PROFILES, else refused).
+dev_profile() {
+  local p
+  p=$(pm inspect --format "{{index .Config.Labels \"$SB_PROFILE_LABEL\"}}" "$DEV_NAME" 2>/dev/null)
+  local known
+  for known in "${SB_PROFILES[@]}"; do [[ $p == "$known" ]] && DEV_PROFILE=$p && return 0; done
+  die "dev: $DEV_NAME does not say which profile it is"
+}
+
 # <name> <timeout> <command...>: a command in the session, as the sandbox user,
 # in the synced tree; its output reaches the terminal as filtered text.
 dev_exec() {
@@ -629,11 +751,15 @@ dev_exec() {
 }
 
 dev_start() {
-  local ttl=7200 id
+  local ttl=7200 id repo=sceny/omarchy-devices profile
   while (($#)); do
     case $1 in
     --ttl)
       ttl=${2:?--ttl needs seconds}
+      shift
+      ;;
+    --repo)
+      repo=${2:?--repo needs owner/name}
       shift
       ;;
     *) die "dev start: unknown option $1" ;;
@@ -641,10 +767,17 @@ dev_start() {
     shift
   done
   [[ $ttl =~ ^[0-9]+$ ]] && ((ttl >= 60 && ttl <= SB_DEV_TTL_MAX)) || die "dev start: --ttl is 60 to $SB_DEV_TTL_MAX seconds"
+  valid_repo "$repo" || die "dev start: $repo is not a repository this sandbox runs (${SB_REPOS[*]})"
   require_tools
-  pm image exists "$SB_IMAGE" || die "dev start: no image; run 'dev/sandbox build' first"
-  [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
-    die "dev start: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+  profile=$(profile_of "$repo")
+  pm image exists "$(image_of "$profile")" || die "dev start: no $profile image; run 'dev/sandbox build --profile $profile' first"
+  # The emulator needs /dev/kvm; Paperclip's rig has none.
+  local devices=()
+  if [[ $profile == devices ]]; then
+    [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
+      die "dev start: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+    devices=(--device /dev/kvm)
+  fi
   local node=${SANDBOX_RENDER_NODE:-}
   if [[ -z $node ]]; then
     for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
@@ -652,15 +785,16 @@ dev_start() {
   [[ -c $node && $node == /dev/dri/renderD* ]] ||
     die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
   (($(dev_names | grep -c .) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX sessions are running already (dev/sandbox dev status); stop one"
-  pins_check || die "dev start: the image is behind this machine"
+  pins_check "$profile" || die "dev start: the $profile image is behind this machine"
   id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
-  step "session $id: no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices /dev/kvm and $node"
-  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" \
+  devices+=(--device "$node")
+  step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
+  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
     --pull never --log-driver none \
     --network none --no-hosts \
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
     --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-    --device /dev/kvm --device "$node" \
+    "${devices[@]}" \
     --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
     --ulimit core=0 --ulimit nofile=65536:65536 \
     --init --hostname sandbox --timeout "$ttl" --stop-timeout 5 \
@@ -674,8 +808,8 @@ dev_start() {
     --mount "type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro" \
     --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
     --workdir /work \
-    "$SB_IMAGE" sleep infinity >/dev/null || die "dev start: the container did not start"
-  ok "session $id started; it ends by itself after $((ttl / 60)) minutes"
+    "$(image_of "$profile")" sleep infinity >/dev/null || die "dev start: the container did not start"
+  ok "session $id ($profile) started; it ends by itself after $((ttl / 60)) minutes"
   printf '%s\n' "$id"
 }
 
@@ -700,6 +834,15 @@ dev_sync() {
   top=$(env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
     git -C "$tree" rev-parse --show-toplevel 2>/dev/null)
   [[ -n $top && $top == "$tree" ]] || die "dev sync: $tree is not the top of a git work tree"
+  # A session holds one repository's tools: its tree is that repository's.
+  local want_id id_found
+  case $DEV_PROFILE in
+  devices) want_id=sceny.devices ;;
+  paperclipai) want_id=sceny.paperclipai ;;
+  esac
+  id_found=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1] + "/manifest.json")).get("id", ""))' "$tree" 2>/dev/null)
+  [[ $id_found == "$want_id" ]] ||
+    die "dev sync: this session is the $DEV_PROFILE profile (plugin $want_id) and $tree is ${id_found:-not a plugin}; use --tree with the right checkout, or start the other profile (dev start --repo)"
   local started=$SECONDS
   env -i PATH=/usr/bin:/usr/local/bin HOME=/nonexistent GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
     git -C "$tree" ls-files -z |
@@ -735,6 +878,8 @@ dev_pull() {
   out_in_git "$out" && die "dev pull: $out is inside a git repository (or is one); results go in a directory git does not manage"
   rid=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   SB_RUN_DIR="$SB_STATE/runs/$rid"
+  # The pictures are re-encoded in the session's own image.
+  SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
@@ -815,7 +960,7 @@ dev_assemble() {
       --tmpfs "/out:rw,noexec,nosuid,nodev,size=256m,mode=1777" \
       --mount "type=bind,src=$frames,dst=/in/frames,ro" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb --env "FPS=$fps" \
-      "$SB_IMAGE" bash -c 'ffmpeg -nostdin -loglevel error -framerate "$FPS" -pattern_type glob -i "/in/frames/frame-*.png" \
+      "$(image_of "$DEV_PROFILE")" bash -c 'ffmpeg -nostdin -loglevel error -framerate "$FPS" -pattern_type glob -i "/in/frames/frame-*.png" \
         -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libvpx-vp9 -b:v 0 -crf 34 -deadline realtime -cpu-used 8 -row-mt 1 \
         -pix_fmt yuv420p -an -f webm /out/recording.webm >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
@@ -846,7 +991,8 @@ dev_status() {
     return 0
   fi
   while read -r n; do
-    printf '  %s  started %s, ends %s\n' "${n##*-}" \
+    printf '  %s  %s, started %s, ends %s\n' "${n##*-}" \
+      "$(pm inspect --format "{{index .Config.Labels \"$SB_PROFILE_LABEL\"}}" "$n" 2>/dev/null)" \
       "$(pm inspect --format '{{.State.StartedAt}}' "$n" 2>/dev/null | cut -c1-19)" \
       "$(pm inspect --format '{{.Config.Timeout}}s after it started' "$n" 2>/dev/null)"
   done <<<"$names"
@@ -889,7 +1035,7 @@ cmd_dev() {
   [[ -z $secs || $secs =~ ^[0-9]+$ ]] || die "dev: --timeout is whole seconds"
   verb=${1:-}
   shift || true
-  require_tools
+  [[ $verb == start ]] || require_tools # start checks its options first, then the tools
   case $verb in
   start) dev_start "$@" ;;
   status) dev_status ;;
@@ -901,6 +1047,7 @@ cmd_dev() {
     ;;
   sync | pull | exec | rig | up | shot | record)
     dev_resolve "$session"
+    dev_profile
     case $verb in
     sync) dev_sync "$@" ;;
     pull) dev_pull "$@" ;;
@@ -949,7 +1096,7 @@ cmd_verify_clean() {
     fail "run directories left: $list"
     bad=1
   else ok "no run directory (commit tars, results)"; fi
-  list=$(ls -d "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
+  list=$(ls -d "$SB_STATE"/builds/sceny-sandbox-build.* "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
   if [[ -n $list ]]; then
     fail "build directories left: $list"
     bad=1
@@ -966,9 +1113,13 @@ cmd_verify_clean() {
 $list"
     bad=1
   else ok "no process"; fi
-  if pm image exists "$SB_IMAGE"; then
-    step "image kept on purpose: $SB_IMAGE ($(pm image inspect --format '{{.Size}}' "$SB_IMAGE" | numfmt --to=iec 2>/dev/null))"
-  fi
+  local profile image
+  for profile in base "${SB_PROFILES[@]}"; do
+    image=$(image_of "$profile")
+    if pm image exists "$image"; then
+      step "image kept on purpose: $image ($(pm image inspect --format '{{.Size}}' "$image" | numfmt --to=iec 2>/dev/null))"
+    fi
+  done
   return $bad
 }
 
@@ -978,20 +1129,27 @@ cmd_status() {
   require_tools
   say "sandbox"
   echo "  store:   $SB_STATE"
-  if pm image exists "$SB_IMAGE"; then
-    echo "  image:   $SB_IMAGE, harness $(pm image inspect --format '{{index .Labels "org.sceny.sandbox.harness"}}' "$SB_IMAGE" | cut -c1-12), created $(pm image inspect --format '{{.Created}}' "$SB_IMAGE" | cut -c1-19)"
-  else
-    echo "  image:   none (dev/sandbox build)"
-  fi
+  local profile image based
+  for profile in base "${SB_PROFILES[@]}"; do
+    image=$(image_of "$profile")
+    if pm image exists "$image"; then
+      based=""
+      [[ $profile == base ]] || { on_base "$profile" && based=", on the base" || based=", NOT on the current base (build again)"; }
+      echo "  image:   $image, harness $(pm image inspect --format '{{index .Labels "org.sceny.sandbox.harness"}}' "$image" | cut -c1-12), created $(pm image inspect --format '{{.Created}}' "$image" | cut -c1-19)$based"
+    else
+      echo "  image:   $image none (dev/sandbox build)"
+    fi
+  done
   echo "  limits:  memory $SB_MEMORY, cpus $SB_CPUS, processes $SB_PIDS, tmp $SB_TMP_SIZE, time ${SB_TIMEOUT}s"
   echo "  runs:    $(ls "$SB_STATE/runs" 2>/dev/null | wc -l) in progress or left"
 }
 
 cmd_remove_image() {
   require_tools
-  pm rmi -f "$SB_IMAGE" >/dev/null 2>&1
+  local profile
+  for profile in "${SB_PROFILES[@]}" base; do pm rmi -f "$(image_of "$profile")" >/dev/null 2>&1; done
   pm system prune -f -a >/dev/null 2>&1
-  ok "image removed"
+  ok "images removed"
 }
 
 # -------------------------------------------------------------------- main ----

@@ -38,17 +38,30 @@ only inside it. Two modes:
 | For | contributor code, CI-like checks, the release regression, the cold install | the edit loop, IPC, screenshots and recordings |
 | Out | a results directory, read as data | `dev pull`, read as data |
 
-`dev/sandbox build` makes the image from pinned sources (once, and after
-develop's `dev/` changes); `dev/sandbox pins` fails while the image's Omarchy,
-Hyprland or Quickshell is behind this machine's; `dev/sandbox status` shows the
-image and the limits; `dev/sandbox verify-clean` proves no container, volume or
-run directory is left.
+**One image per repository.** Devices' image holds the emulator, the Android
+SDK, KDE Connect and the build tools `dev/soak` needs, and nothing of
+Paperclip. `sceny/omarchy-paperclipai`'s image holds Paperclip's server (the
+`paperclipai` CLI, from a lockfile), Postgres and npm, and nothing of Android
+or KDE Connect. Both build from one `Containerfile` on a common base image,
+`sceny-sandbox-base` (Arch at a snapshot date, Hyprland, Quickshell,
+Omarchy's shell, the sandbox user), built first and tagged on its own; a
+profile that does not start with exactly the base's layers fails the build.
+`run` and `dev start` pick the image from the repository.
+No container of either has a network, so the Paperclip server in a run is a
+throwaway instance on loopback with no route out.
+
+`dev/sandbox build [--profile devices|paperclipai|all]` makes the base and the images from
+pinned sources (once, and after develop's `dev/` changes); `dev/sandbox pins`
+fails while an image's Omarchy, Hyprland or Quickshell is behind this
+machine's; `dev/sandbox status` shows the images and the limits;
+`dev/sandbox verify-clean` proves no container, volume or run directory is
+left.
 
 **Host prerequisites.** `podman` (rootless, with subordinate uid and gid
-ranges), `git`, `python3`, read-write access to `/dev/kvm` (the emulator) and one
-GPU render node (the rig's display; `SANDBOX_RENDER_NODE` picks it, and no
+ranges), `git`, `python3`, read-write access to `/dev/kvm` (the emulator; Devices
+only) and one GPU render node (the rig's display; `SANDBOX_RENDER_NODE` picks it, and no
 software fallback exists). Everything else (`labwc`, `wtype`, `scrcpy`, the
-Android SDK parts, Omarchy's shell, the KDE Connect APK) is in the image.
+Android SDK parts, Omarchy's shell, the KDE Connect APK) is in the image that needs it.
 Installing a host package is the owner's go.
 
 ### One exact commit: `dev/sandbox run`
@@ -61,7 +74,7 @@ In the tests step no process can make a user namespace of its own (a seccomp
 rule on `clone`, `clone3` and `unshare`). The rig and script steps can: the
 rig's phone side runs in one.
 
-Each unit (the four test units, `rig-ci`, a QA script) runs in its own
+Each unit (the repository's test units, `rig-ci`, a QA script) runs in its own
 container from a fresh unpack of the commit, so nothing one test changes
 reaches the next. `dev/sandbox` takes each unit's result from podman's exit code
 on this machine and writes `results.tsv` and `summary.json` itself; nothing the
@@ -85,9 +98,10 @@ picture that fails is listed; other image formats are refused. The default
 repository is refused.
 
 ```bash
-dev/sandbox build                                  # once, and after develop's dev/ changes
+dev/sandbox build [--profile devices|paperclipai]  # once, and after develop's dev/ changes
 dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ~/.local/share/sceny-sandbox/results/<sha>-<time>
 dev/sandbox run <repo> <sha> --steps tests         # unit tests only, no device passed in
+dev/sandbox run sceny/omarchy-paperclipai <sha>    # Paperclip's plugin: test/run_all.sh, dev/rig selftest, rig-ci
 dev/sandbox run <repo> <sha> --steps script --script qa.sh  # your QA script, with the rig up
 dev/sandbox verify-clean                           # nothing left behind
 ```
@@ -98,6 +112,15 @@ dev/sandbox verify-clean                           # nothing left behind
 - **Sceny's own commit runs the same way** for the release regression and the
   cold install (`dev/sandbox run <repo> <sha> --steps script --script qa.sh`: the
   rig is up and the script drives it, [Releasing](releasing.md)); it needs no go.
+- **The units belong to the repository.** Devices: `unit-model`,
+  `unit-bridge`, `qml-parse`, `manifest`. `sceny/omarchy-paperclipai`:
+  `pc-tests` (`test/run_all.sh`), `pc-selftest` (`dev/rig selftest`),
+  `qml-parse`, `manifest`. Both: `rig-ci`, `script`. Any other repository is
+  refused. Paperclip's image holds its own `dev/` from the branch `develop` of
+  its mirror (`dev/sandbox build --paperclip-ref REV` picks another branch),
+  so a Paperclip run is never judged by Devices' checks. Its rig finds the CLI
+  in the image (`paperclipai`, installed from a lockfile,
+  `dev/sandbox.d/paperclipai-cli/`) and `psql`; no `/dev/kvm` is passed in.
 - **The sha is the PR's head, in full.** A branch, a short sha or another
   repository is refused. The checks come from `develop`'s `dev/`; pass
   `--harness pr` only to test a change to `dev/` itself.
@@ -137,6 +160,12 @@ check; bump the pins in `dev/sandbox.d/Containerfile` and build again).
 
 Contributor code goes through `dev/sandbox run` only; never `dev` from, or with
 `--tree` on, a checkout holding it.
+
+Sceny's `sceny/omarchy-paperclipai` is worked on the same way, in a session of
+its own image: `dev/sandbox dev start --repo sceny/omarchy-paperclipai`, then
+`dev sync --tree <its checkout>` (refused when the tree's `manifest.json` is
+another plugin's), `dev exec -- bash test/run_all.sh`, `dev rig selftest`,
+`dev up`. Its rig has no `record` verb.
 
 ```bash
 dev/sandbox dev start [--ttl 3600]                 # prints the session id; at most two at once
@@ -248,8 +277,8 @@ so no host peer shows in a check.
 
 **The resilience soak.** `dev/soak --rig <id> --out DIR` runs about 30
 minutes against a rig with its phone (`--quick`: a few minutes, to check the
-driver). It builds a media fixture with the Android build-tools, which the
-sandbox's image does not carry, so it does not run in a session yet. It stops
+driver). It builds a media fixture with the Android build-tools and a JDK, which the
+sandbox's image carries (`/opt/android-sdk`), so it runs in a session. It stops
 and kills KDE Connect's daemon and the bridge's `watch`, takes the device away, the phone's and the computer's network down and
 reboots the emulator, opens and closes the panel and uses Back and Home, and
 samples the panel, the processes and the bridge's own stream. `DIR/report.md`
