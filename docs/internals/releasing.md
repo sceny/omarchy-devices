@@ -244,6 +244,21 @@ never holds how or where we ran it: the sandbox, an image, the rig, an
 emulator, a local path, a host name, test-run counts, or a failure that comes
 from our own setup. Those go on the Paperclip task.
 
+`dev/public-text-check` holds these rules in `dev/public-text-rules.json` and
+fails the `public-text` check on a pull request whose body, comment, review or
+review comment: names the setup (`public-text-environment`: the tools, paths,
+test counts, task numbers); says something is left with no issue reference in
+its bullet or paragraph (`open-item-no-owner`); or names another repository's
+issue without its owner (`unlinked-reference`). The failure names the text's
+URL, the check and the matched words; the author or reviewer edits the text and
+the check runs again on the edit. Every run reads all the pull request's text
+through the API, so a plain comment is read on the next run of any event. A pull
+request about a tool may name it (`allowed_when_changed`); a pattern that
+catches a product word gets an exception in the rules file and a case in
+`tests/test_public_text.py`. The same rules check the standing texts
+(`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
+dates and the owner's words as history, in the unit tests.
+
 ## Regression on the emulator
 
 Panel QA runs the whole plugin in the sandbox, on the candidate: the head of

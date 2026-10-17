@@ -1,0 +1,180 @@
+{
+  "environment": {
+    "check": "public-text-environment",
+    "patterns": [
+      {
+        "id": "sandbox-tool",
+        "regex": "\\bdev/(?:sandbox|rig)\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ]
+      },
+      {
+        "id": "sandbox",
+        "regex": "\\bsandbox(?:es)?\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ],
+        "unless_line": "decod|bubblewrap|glycin|thumbnail|picture|image|ffmpeg|pixbuf"
+      },
+      {
+        "id": "rig",
+        "regex": "\\brigs?\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ]
+      },
+      {
+        "id": "emulator",
+        "regex": "\\bemulat(?:or|ors|ed)\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ]
+      },
+      {
+        "id": "podman",
+        "regex": "\\bpodman\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ]
+      },
+      {
+        "id": "container",
+        "regex": "\\bcontainers?\\b",
+        "allowed_when_changed": [
+          "dev/sandbox*",
+          "dev/rig*",
+          "docs/internals/development.md",
+          "tests/test_sandbox.py"
+        ],
+        "unless_line": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
+      },
+      {
+        "id": "paperclip",
+        "regex": "\\bpaperclip\\b"
+      },
+      {
+        "id": "task-id",
+        "regex": "\\bSCE-\\d+\\b"
+      },
+      {
+        "id": "home-path",
+        "regex": "(?<![\\w])/home/[^\\s`)\\]]*",
+        "unless_match": "sceny\\.devices"
+      },
+      {
+        "id": "dot-path",
+        "regex": "(?<![\\w])~/\\.[^\\s`)\\]]*",
+        "unless_match": "sceny\\.devices"
+      },
+      {
+        "id": "tmp-path",
+        "regex": "(?<![\\w.])/tmp/[^\\s`)\\]]*"
+      },
+      {
+        "id": "runtime-dir",
+        "regex": "\\$\\{?XDG_RUNTIME_DIR\\}?[^\\s`)\\]]*",
+        "unless_match": "sceny\\.devices"
+      },
+      {
+        "id": "test-count-passed",
+        "regex": "\\b\\d+\\s+(?:tests?\\s+)?(?:passed|passing)\\b|\\b(?:passed|passing)\\s+\\d+\\b|\\b\\d+\\s*/\\s*\\d+\\s+(?:tests?\\s+)?(?:passed|pass|green)\\b"
+      },
+      {
+        "id": "test-count",
+        "regex": "\\b\\d+\\)?\\s+(?:(?:unit|new|node|python|bridge|model|more|extra)\\s+)?tests?\\b(?!/)|\\b(?:ran|run|runs|running)\\s+\\d+\\s+(?:unit\\s+)?tests?\\b|\\bOK \\(\\d+ tests?\\)"
+      }
+    ],
+    "allowed_everywhere_when_changed": [
+      "dev/public-text-check",
+      "dev/public-text-rules.json",
+      "tests/test_public_text.py"
+    ]
+  },
+  "open_item": {
+    "check": "open-item-no-owner",
+    "markers": [
+      {
+        "id": "not-checked",
+        "regex": "\\bnot\\s+(?:yet\\s+|been\\s+)?(?:checked|tested|covered|verified|driven)\\b",
+        "unless_line": "not\\s+checked\\s+in\\s+a\\s+running\\s+shell"
+      },
+      {
+        "id": "unchecked",
+        "regex": "\\b(?:unchecked|untested|unverified)\\b"
+      },
+      {
+        "id": "for-later",
+        "regex": "\\bfor\\s+later\\b"
+      },
+      {
+        "id": "follow-up",
+        "regex": "\\bfollow-?\\s?ups?\\b"
+      },
+      {
+        "id": "later",
+        "regex": "\\b(?:in|at|until|to|for)\\s+(?:a\\s+|the\\s+)?later\\b|\\blater\\s*(?:[.,;:)!?]|—|-\\s|$)|\\b(?:done|handled|fixed|checked|added|looked?(?:\\s+at)?|decided?|do|dealt|revisit(?:ed)?|come\\s+back)\\s+(?:it\\s+|this\\s+)?later\\b"
+      },
+      {
+        "id": "todo",
+        "regex": "\\b(?:TODO|FIXME)\\b"
+      },
+      {
+        "id": "out-of-scope",
+        "regex": "\\bout\\s+of\\s+scope\\b"
+      }
+    ],
+    "reference": "(?:[\\w.-]+/[\\w.-]+)?#\\d+|https?://github\\.com/[\\w.-]+/[\\w.-]+/(?:issues|pull)/\\d+"
+  },
+  "unlinked_reference": {
+    "check": "unlinked-reference",
+    "patterns": [
+      {
+        "id": "repo-without-owner",
+        "regex": "(?<![\\w./-])[A-Za-z0-9][\\w.-]*#\\d+\\b"
+      },
+      {
+        "id": "named-upstream-bare-number",
+        "regex": "\\b(?:marketplace|upstream|omarchy|kde\\s?connect|kdeconnect|quickshell|hyprland)(?:'s)?\\s+(?:issue\\s+|pr\\s+|pull request\\s+)?#\\d+\\b"
+      }
+    ]
+  },
+  "standing": {
+    "check": "standing-text-history",
+    "files": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".claude/skills/**/*.md",
+      "docs/internals/**/*.md"
+    ],
+    "patterns": [
+      {
+        "id": "task-id",
+        "regex": "\\bSCE-\\d+\\b"
+      },
+      {
+        "id": "date-as-history",
+        "regex": "\\b20\\d\\d-\\d\\d-\\d\\d\\b"
+      },
+      {
+        "id": "owner-said",
+        "regex": "\\bthe owner(?:'s)? (?:said|decided|asked|decision|ask)\\b(?! (?:go|or no)\\b)"
+      }
+    ]
+  }
+}
