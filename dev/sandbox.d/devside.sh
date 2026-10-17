@@ -5,7 +5,7 @@
 #
 #   unpack [src|live] a tar of the tree on stdin becomes /work/src (a git checkout, for dev/rig),
 #                     or /work/live, a second tree (the tag an upgrade starts from)
-#   up [TTL]          seed the rig's phone cache and bring the rig up (no owner, TTL seconds)
+#   up [TTL]          seed the rig's phone cache (Devices' image only) and bring the rig up (no owner, TTL seconds)
 #   rig ARGS...       dev/rig on the session's one rig
 #   shot NAME         a screenshot of the rig into /out/screenshots/NAME.png
 #   record NAME SECONDS FPS [-- COMMAND...]
@@ -65,8 +65,10 @@ unpack)
 up)
   ttl=${1:-7200}
   [[ $ttl =~ ^[0-9]+$ ]] || die "up: TTL is whole seconds"
-  cache=/tmp/omarchy-plugin-rig-$(id -u)/cache
-  mkdir -p "$cache" && cp /opt/sandbox/cache/* "$cache"/ || die "no phone cache in the image"
+  if [[ -d /opt/sandbox/cache ]]; then
+    cache=/tmp/omarchy-plugin-rig-$(id -u)/cache
+    mkdir -p "$cache" && cp /opt/sandbox/cache/* "$cache"/ || die "no phone cache in the image"
+  fi
   cd "$SRC" || die "no tree is synced yet (dev/sandbox dev sync)"
   exec dev/rig up --owner none --ttl "$ttl"
   ;;

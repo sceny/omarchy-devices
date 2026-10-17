@@ -1,20 +1,24 @@
-# The image dev/sandbox runs a contributor's commit in. Built beforehand, with
-# a network, from pinned sources and Sceny's own develop (its dev/ only); no
-# contributor code ever enters a build. A run has no network at all.
+# The images dev/sandbox runs a contributor's commit in: one per repository (a
+# profile, built with `--target`) on one common base, itself built and tagged
+# first (sceny-sandbox-base, `--target base`). Devices' image holds the
+# emulator, the Android SDK and KDE Connect and nothing of Paperclip;
+# Paperclip's holds its server, Postgres and npm and nothing of Android. Built
+# beforehand, with a network, from pinned sources and Sceny's own develop (its
+# dev/ only); no contributor code ever enters a build. A run has no network at
+# all.
 #
 # Pinned: the base image by digest, Arch packages by an Arch Linux Archive
-# snapshot date, Omarchy's two packages and every download by sha256.
-# Bump a pin on purpose, in a pull request.
+# snapshot date, Omarchy's two packages and every download by sha256, the
+# Paperclip CLI by a lockfile. Bump a pin on purpose, in a pull request.
 
 # archlinux:latest of 2026-10-12
-FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722
-
+FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722 AS base
 ARG ARCHIVE_DATE=2026/09/16
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
  && pacman -Syu --noconfirm --needed \
       hyprland quickshell labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
-      glycin iproute2 dbus kdeconnect scrcpy ffmpegthumbnailer sshfs bubblewrap \
+      glycin iproute2 dbus ffmpeg bubblewrap \
       pipewire wireplumber qrencode nodejs procps-ng psmisc util-linux unzip zstd perl gum uwsm \
       mesa vulkan-swrast libva ttf-jetbrains-mono-nerd noto-fonts qt6-declarative qt6-wayland qt6-svg \
       libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
@@ -31,6 +35,12 @@ RUN set -e; cd /tmp; \
     echo "748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100  settings.pkg" | sha256sum -c -; \
     for f in omarchy.pkg settings.pkg; do bsdtar -xf $f -C / --exclude '.PKGINFO' --exclude '.MTREE' --exclude '.BUILDINFO' --exclude '.INSTALL'; done; \
     rm -f /tmp/*.pkg
+
+RUN useradd -m -u 1000 -s /bin/bash sandbox
+
+# ---- Devices: the rig's emulator and what dev/soak builds its fixture with ----
+FROM base AS devices
+RUN pacman -Syu --noconfirm --needed kdeconnect scrcpy ffmpegthumbnailer sshfs jdk17-openjdk zip && pacman -Scc --noconfirm
 
 # The Android SDK parts the rig's emulator uses, and the KDE Connect APK it
 # installs: fetched here so a run needs no network.
@@ -53,8 +63,39 @@ RUN set -e; mkdir -p /etc/ufw; printf 'ENABLED=yes\n' >/etc/ufw/ufw.conf; \
     done; done >/etc/ufw/user.rules; \
     chmod 644 /etc/ufw/ufw.conf /etc/ufw/user.rules
 
-RUN useradd -m -u 1000 -s /bin/bash sandbox
+# What dev/soak's media fixture is built with (the SDK's build-tools and
+# platform). Google's files are checked against the sha256 taken from the sha1
+# Google publishes (repository2-3.xml).
+RUN set -e; mkdir -p /opt/android-sdk/build-tools /opt/android-sdk/platforms; cd /tmp; \
+    get() { curl -fsSLo "$1" "$2"; echo "$3  $1" | sha256sum -c -; }; \
+    get bt.zip https://dl.google.com/android/repository/build-tools_r34-linux.zip e858c4b60069d0431051b225d384413b1643e1289b00a4825aed347f25bd510f; \
+    get plat.zip https://dl.google.com/android/repository/platform-34-ext7_r03.zip 16fdb74c55e59ae3ef52def135aec713508467bd56d7dabcd8c9be31fa8b20f3; \
+    unzip -q bt.zip -d /tmp/bt && mv /tmp/bt/android-14 /opt/android-sdk/build-tools/34.0.0; \
+    unzip -q plat.zip -d /tmp/plat && mv /tmp/plat/android-34 /opt/android-sdk/platforms/android-34; \
+    chmod -R a+rX /opt/android-sdk; \
+    rm -rf /tmp/*.zip /tmp/bt /tmp/plat
+ENV ANDROID_SDK_ROOT=/opt/android-sdk ANDROID_HOME=/opt/android-sdk
 
 # Sceny's own develop, dev/ only: the harness a run uses, never the commit's.
 COPY harness/dev/ /opt/harness/dev/
-LABEL org.sceny.sandbox.harness="unset"
+LABEL org.sceny.sandbox.profile="devices" org.sceny.sandbox.harness="unset"
+
+# ---- Paperclip: its server (the CLI), Postgres and the rig's tools; no Android ----
+FROM base AS paperclipai
+RUN pacman -Syu --noconfirm --needed npm postgresql && pacman -Scc --noconfirm
+
+# Paperclip's CLI, from a lockfile (package-lock.json, integrity per package):
+# the throwaway instance the paperclipai rig starts. Only the embedded
+# Postgres package may run an install script (package.json allowScripts: it
+# makes the library symlinks). Bump it on purpose, in a pull request, by
+# regenerating the lockfile with npm install --package-lock-only
+# --allow-remote=all, then a full install and --package-lock-only again.
+COPY harness/dev/sandbox.d/paperclipai-cli/ /opt/paperclipai-cli/
+RUN set -e; cd /opt/paperclipai-cli; npm ci --omit=dev --no-audit --no-fund --cache /tmp/npm-cache; \
+    ln -s /opt/paperclipai-cli/node_modules/.bin/paperclipai /usr/local/bin/paperclipai; rm -rf /tmp/npm-cache /root/.npm
+
+# Sceny's own develop (dev/sandbox.d only: the units and the verdict) and
+# sceny/omarchy-paperclipai's own develop (its dev/), for its runs.
+COPY harness/dev/sandbox.d/ /opt/harness/dev/sandbox.d/
+COPY harness-paperclipai/dev/ /opt/harness/paperclipai/dev/
+LABEL org.sceny.sandbox.profile="paperclipai" org.sceny.sandbox.harness="unset"

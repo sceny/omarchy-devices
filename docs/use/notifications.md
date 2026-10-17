@@ -22,6 +22,7 @@ buttons, from your keyboard.
 | Key | Action |
 |---|---|
 | `r` · `x` · `e` | Reply · dismiss · show all |
+| `Shift+Delete` | Dismiss all |
 | `o` | Open its app in a window |
 
 Setup: [Your devices](../setup/devices.md) · Limits: [What it cannot do](../setup/limits.md)

@@ -103,7 +103,7 @@ class Isolation(unittest.TestCase):
         with open(SANDBOX) as f:
             text = f.read()
         start = text.index('--runroot "$SB_RUNTIME" run')
-        end = text.index('"$SB_IMAGE" bash -c')
+        end = text.index('"$SB_RUN_IMAGE" bash -c')
         cls.run_cmd = text[start:end]
         cls.script = text
 
@@ -161,8 +161,9 @@ class Isolation(unittest.TestCase):
         self.assertNotIn("--mount", self.run_cmd.replace('"${mounts[@]}"', ""))
 
     def test_devices_are_only_what_the_rig_needs(self):
-        self.assertEqual(self.script.count("--device"), 4)  # a run's two, the dev session's two
+        self.assertEqual(re.findall(r'--device (?:/dev/kvm|"\$node")', self.script).__len__(), 5)  # a run's three, the session's two
         self.assertIn('devices=(--device /dev/kvm --device "$node")', self.script)
+        self.assertIn('devices=(--device "$node")', self.script)
         self.assertIn('[[ $step_name == tests ]] || { unit_devices=("${devices[@]}")', self.script)
         self.assertIn('$node == /dev/dri/renderD*', self.script)
         self.assertNotIn("--device /dev/dri/card", self.script)
@@ -173,7 +174,7 @@ class Isolation(unittest.TestCase):
 
     def test_the_container_is_given_only_its_own_variables(self):
         env = re.findall(r'--env "?([A-Z_]+)=', self.run_cmd)
-        self.assertEqual(sorted(env), ["HOME", "LANG", "SANDBOX_HARNESS", "SANDBOX_SHA", "SANDBOX_UNIT", "TERM"])
+        self.assertEqual(sorted(env), ["HOME", "LANG", "SANDBOX_HARNESS", "SANDBOX_REPO", "SANDBOX_SHA", "SANDBOX_UNIT", "TERM"])
 
     def test_the_commit_enters_as_an_archive(self):
         self.assertIn("archive --format=tar", self.script)
@@ -247,8 +248,9 @@ class DevSession(unittest.TestCase):
         self.assertEqual(mounts, ["type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro"])
 
     def test_the_session_has_the_two_devices_the_rig_needs(self):
-        self.assertEqual(self.start.count("--device"), 2)
-        self.assertIn('--device /dev/kvm --device "$node"', self.start)
+        self.assertEqual(re.findall(r'--device (?:/dev/kvm|"\$node")', self.start), ["--device /dev/kvm", '--device "$node"'])
+        self.assertIn("devices=(--device /dev/kvm)", self.start)
+        self.assertIn("if [[ $profile == devices ]]", self.start)
         self.assertIn("$node == /dev/dri/renderD*", self.start)
         self.assertNotIn("/dev/dri/card", self.start)
 
@@ -262,7 +264,7 @@ class DevSession(unittest.TestCase):
         self.assertIn("ttl >= 60 && ttl <= SB_DEV_TTL_MAX", self.start)
 
     def test_the_image_must_not_be_behind_this_machine(self):
-        self.assertIn("pins_check ||", self.start)
+        self.assertIn("pins_check \"$profile\" ||", self.start)
         body = self.script[self.script.index("pins_check() {") : self.script.index("cmd_pins() {")]
         for name in ("omarchy", "hyprland", "quickshell"):
             self.assertIn(name, body)
@@ -305,6 +307,63 @@ class DevSession(unittest.TestCase):
         r = sandbox("dev", "--timeout", "5m", "status")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("whole seconds", r.stderr)
+
+
+CONTAINERFILE = os.path.join(ROOT, "dev", "sandbox.d", "Containerfile")
+
+
+class Profiles(unittest.TestCase):
+    """One image per repository: each holds only its own tools."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+        with open(CONTAINERFILE) as f:
+            text = f.read()
+        parts = re.split(r"(?m)^FROM .* AS (\w+)$", text)
+        cls.stages = {k: re.sub(r"(?m)^#.*$", "", v) for k, v in zip(parts[1::2], parts[2::2])}
+
+    def test_each_repository_has_its_own_image(self):
+        self.assertIn("SB_PROFILES=(devices paperclipai)", self.script)
+        self.assertIn("sceny/omarchy-devices) echo devices", self.script)
+        self.assertIn("sceny/omarchy-paperclipai) echo paperclipai", self.script)
+        self.assertEqual(set(self.stages), {"base", "devices", "paperclipai"})
+
+    def test_devices_image_has_no_paperclip(self):
+        for word in ("paperclip", "postgresql", "npm"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.stages["base"].lower())
+                self.assertNotIn(word, self.stages["devices"].lower())
+
+    def test_paperclip_image_has_no_android(self):
+        for word in ("android", "kdeconnect", "scrcpy", "sshfs", "/dev/kvm", "jdk"):
+            with self.subTest(word=word):
+                self.assertNotIn(word, self.stages["base"].lower())
+                self.assertNotIn(word, self.stages["paperclipai"].lower())
+
+    def test_the_paperclip_cli_comes_from_the_lockfile_only(self):
+        body = self.stages["paperclipai"]
+        self.assertIn("npm ci --omit=dev", body)
+        self.assertNotIn("npm install", body.replace("npm install --package-lock-only", ""))
+
+    def test_a_session_is_made_for_one_repository_and_kept_to_it(self):
+        start = self.script[self.script.index("dev_start() {") :]
+        self.assertIn('--label "$SB_PROFILE_LABEL=$profile"', start)
+        sync = self.script[self.script.index("dev_sync() {") : self.script.index("# Pictures and recordings out")]
+        self.assertIn("SB_PROFILE_LABEL", self.script[self.script.index("dev_profile() {") :])
+        self.assertIn("manifest", sync)
+
+    def test_a_repository_that_is_not_allowed_has_no_session(self):
+        r = sandbox("dev", "start", "--repo", "someone/else")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not a repository", r.stderr)
+
+    def test_no_profile_runs_the_network(self):
+        for flag in ("--network none",):
+            self.assertGreaterEqual(self.script.count(flag), 3)
+        self.assertNotIn("--network host", self.script)
+        self.assertNotIn("--network=host", self.script)
 
 
 DEVSIDE = os.path.join(ROOT, "dev", "sandbox.d", "devside.sh")

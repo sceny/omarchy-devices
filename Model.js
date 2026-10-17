@@ -3028,6 +3028,7 @@ var KEYS = [
   { group: "Notifications", keys: [
     ["r", "Reply"],
     ["x", "Dismiss (a notification or a received file)"],
+    ["Shift+Delete", "Dismiss all notifications"],
     ["e", "Show all of it"],
     ["o", "Open its app or conversation"]] },
   { group: "Now playing", keys: [
