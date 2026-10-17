@@ -145,7 +145,12 @@ GITHUB_TOKEN=$(gh auth token) MARKETPLACE_DIR=/tmp/mp node dev/marketplace-check
 One reviewer, Panel QA. This list is the record of faults already met: each
 class the security specialist finds is added here, with a test that fails the
 build where one can; a finding from outside the team (the marketplace's
-maintainer, a security report) is fixed as its class, with that test. Besides
+maintainer, a security report) is fixed as its class, with that test. The class
+is named by its mechanism before the fix: the fix starts with the platform call
+that does the harm and the test that bans that call, checked against the source
+of the Qt and Quickshell versions Omarchy ships now. A class drawn from the last
+finding's words catches only that case; one drawn at the call catches the next
+variant. Besides
 the change itself, the reviewer answers each line below from the diff. A
 finding blocks the pull request.
 
@@ -308,6 +313,9 @@ The record is a document on the release task:
   demo mode only.
 - A fail is a GitHub issue, fixed on `develop`, and the row is checked again
   on the new head. A release does not go with a fail.
+- An earlier regression's pass carries forward for unchanged code only when the
+  trees are byte-identical (`git rev-parse <sha>^{tree}`) and the scripted suite
+  passed on the candidate; otherwise that row is run again.
 
 ### Needs a real device
 
@@ -377,7 +385,13 @@ The review also lists the capabilities the marketplace bot will report, for the
 maintainer's review.
 
 - A finding is reproduced where possible.
-- Every finding gets a search for the same class across the plugin.
+- Every finding gets a search for the same class across the plugin, and its
+  class is named by the platform call that does the harm (*Every pull request*),
+  not by the finding's words.
+- An earlier verdict carries forward for unchanged code only when the trees are
+  byte-identical (`git rev-parse <sha>^{tree}` of the reviewed commit and of the
+  candidate give the same hash) and the scripted suite passed on the candidate.
+  Otherwise that code is read again.
 - An unfixed vulnerability stays off public GitHub (issues, commits, pull
   request text) until its fix is released.
 
