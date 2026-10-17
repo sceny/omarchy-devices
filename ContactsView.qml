@@ -177,17 +177,16 @@ Item {
   NumberAnimation { id: rowGlide; target: rowList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
   NumberAnimation { id: detailGlide; target: detailList; property: "contentY"; duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic }
 
-  // Where the pointer last was on screen, so a row sliding under a still
-  // pointer (the keys scrolled the list) is told apart from the pointer
-  // moving onto it.
-  property point lastPointer: Qt.point(-1, -1)
+  // Whether the pointer moved to where this area hears it (the panel's
+  // PointerGate): a row that slides under a still pointer (the keys scrolled
+  // the list, suggestions appeared) does not take the cursor, whatever the
+  // pointer touched last.
+  property var hoverMovedTo: function(p) { return true }
+  function pointerMoved(area) { return hoverMovedTo(area.mapToItem(null, area.mouseX, area.mouseY)) }
   // The cursor last moved by the pointer: the highlight lands at once.
   property bool cursorByPointer: false
   function pointerAt(area, index) {
-    var g = area.mapToGlobal(area.mouseX, area.mouseY)
-    var moved = Math.abs(g.x - lastPointer.x) > 0.5 || Math.abs(g.y - lastPointer.y) > 0.5
-    lastPointer = Qt.point(g.x, g.y)
-    if (!moved) return
+    if (!pointerMoved(area)) return
     cursorByPointer = true
     cursorActive = true
     rowCursor = index

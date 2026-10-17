@@ -19,4 +19,11 @@ QtObject {
   }
   // A key moved the cursor: a move made before it is spent.
   function settle() { seen = at }
+
+  // The same question for a hover that knows where the pointer is (`p`, in
+  // the window's coordinates). A row hears the pointer before the HoverHandler
+  // does, so `at` is where the pointer stood before this event: a real move
+  // differs from it, content settling under a pointer at rest does not,
+  // whatever the pointer touched last.
+  function movedTo(p) { return Math.abs(p.x - at.x) > 0.5 || Math.abs(p.y - at.y) > 0.5 }
 }

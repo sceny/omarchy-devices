@@ -521,6 +521,7 @@ Panel {
   property Item cursorGlide: null
   // A hover moves the cursor only when the pointer moved (PointerGate).
   function hoverMoved() { return pointerGate.moved() }
+  function hoverMovedTo(p) { return pointerGate.movedTo(p) }
 
   // Size animations (folds, the carousel, the cover) run for the user's own
   // changes only. A hidden page has no height, so while a page appears (or
@@ -6240,6 +6241,7 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 sms: root.sms
                 bar: root.bar
+                hoverMovedTo: root.hoverMovedTo
                 contactsAsk: root.sectionNotes.contacts && root.sectionNotes.contacts.kind === "ask" ? root.sectionNotes.contacts : null
                 contactsWorking: !!root.phone && !!root.sectionNotes.contacts && root.phone.isBusy("feature:" + root.sectionNotes.contacts.key)
                 onAllowContacts: { var n = root.sectionNotes.contacts; if (n && n.row) root.featureAction(n.row, root.device) }
@@ -6271,6 +6273,7 @@ Panel {
                 height: visible ? Style.space(600) : 0
                 contacts: root.contacts
                 device: root.device
+                hoverMovedTo: root.hoverMovedTo
                 noted: !!root.sectionNotes.contacts
                 granted: root.contactsGranted
                 bar: root.bar

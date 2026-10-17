@@ -383,8 +383,11 @@ one only with the owner.
   under a pointer at rest sends the row beneath an enter, and that would
   pull the cursor back from the keys (#254; `tests/test_qml.py`,
   `HoverNeedsAPointerMove`, reads every QML file, each handler whole, and
-  fails on a hover that moves a cursor without asking; Messages' lists ask
-  `pointerMoved`/`pointerAt`, the suggestions list included).
+  fails on a hover that moves a cursor without asking; Messages' and
+  Contacts' lists ask `pointerMoved`/`pointerAt`, which compare where the
+  area hears the pointer with where the panel's gate saw it rest
+  (`PointerGate.movedTo`), never a position of the view's own, so a pointer
+  that last moved anywhere else and rests does not take the cursor, #327).
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step
