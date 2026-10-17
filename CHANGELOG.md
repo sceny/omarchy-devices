@@ -10,6 +10,10 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **The keyboard cursor reaches Unpair, Reset shortcuts and a pairing
+  request**: in a device's Settings and in *For all devices*, `j` on the last
+  row now shows the cursor there and scrolls the page to it
+  ([#324](https://github.com/sceny/omarchy-devices/issues/324)).
 - **The keyboard reaches the last row with the pointer at rest**: on the
   main page, Settings and All apps, a page that scrolled under a still
   pointer let the row beneath it take the cursor, so `j` looped among the
