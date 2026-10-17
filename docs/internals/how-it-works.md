@@ -92,7 +92,8 @@ KDE Connect finds a device by broadcast, which stays on one network. The
 - **A network change** (`ip monitor address`, in `watch`): KDE Connect
   announces itself again (`forceOnNetworkChange`). It asks Qt about the
   network, which needs NetworkManager; Omarchy's network has none.
-- **adb**: USB first, then Wi-Fi, then the mesh. Away from the Wi-Fi, mDNS
+- **adb**: the plugin's own server, on a socket in its runtime folder (`adb_env`), never the
+  default port; one a person runs themselves stays apart. USB first, then Wi-Fi, then the mesh. Away from the Wi-Fi, mDNS
   does not reach the device: its mesh address at the port Wireless
   debugging had last (kept in `screen.json`). Wireless debugging listens on
   every interface, but Android turns it off off Wi-Fi.

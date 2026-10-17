@@ -3761,11 +3761,36 @@ def screen_record(device_id, update=None):
     return data[device_id]
 
 
+ADB_SOCKET_FILE = "adb.sock"
+ADB_NO_PLACE = "adb has no private place to listen: the runtime folder is missing"
+
+
+def adb_server():
+    """The plugin's own adb server, as adb names it: a socket in the runtime
+    folder (0700, this user's), or "" without one. adb's default is a TCP
+    port on 127.0.0.1, which any user of this computer can connect to and
+    speak for every device the server holds."""
+    place = runtime_dir()
+    return "localfilesystem:" + os.path.join(place, ADB_SOCKET_FILE) if place else ""
+
+
+def adb_env():
+    """The environment of every adb and scrcpy this bridge starts (scrcpy
+    runs adb, which reads it), or None without a runtime folder: nothing
+    then falls back to the TCP port."""
+    spec = adb_server()
+    return dict(os.environ, ADB_SERVER_SOCKET=spec) if spec else None
+
+
 def adb(args, timeout=10, stdin=None):
     """One adb call: (exit code, stdout and stderr). `stdin` is text for a
     secret adb prompts for, kept off the argument list."""
+    env = adb_env()
+    if env is None:
+        return 1, ADB_NO_PLACE
+    argv = ["adb", "-L", env["ADB_SERVER_SOCKET"]] if args[:1] == ["start-server"] else ["adb"]
     try:
-        out = subprocess.run(["adb"] + args, capture_output=True, text=True, timeout=timeout, input=stdin)
+        out = subprocess.run(argv + args, capture_output=True, text=True, timeout=timeout, input=stdin, env=env)
         return out.returncode, (out.stdout or "") + (out.stderr or "")
     except (OSError, subprocess.TimeoutExpired) as error:
         return 1, str(error)
@@ -4656,7 +4681,12 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
     # Appended, so the watcher can empty the file without leaving a hole.
     run = ["scrcpy"] if not log else ["sh", "-c", 'stdbuf -oL -eL "$0" "$@" 2>&1 | grep --line-buffered -E %s >>%s'
                                       % (shlex.quote(SCREEN_LOG_LINES), shlex.quote(log)), "scrcpy"]
-    cmd = ["uwsm-app", "--"] + run + ["--serial", serial, "--window-title", title]
+    # uwsm-app starts the command from its own daemon, which does not hand on
+    # this process's environment: the private adb socket goes on the line.
+    env = adb_env()
+    if env is None:
+        raise OSError(ADB_NO_PLACE)
+    cmd = ["uwsm-app", "--", "env", "ADB_SERVER_SOCKET=" + env["ADB_SERVER_SOCKET"]] + run + ["--serial", serial, "--window-title", title]
     if log:
         # Verbose: its device side says when the display changes (the watcher).
         cmd += ["--verbosity=verbose"]
@@ -5045,11 +5075,14 @@ def parse_versions(text):
 
 def read_apps(serial, run=subprocess.run):
     """The device's launchable apps: [{package, name, system, version, activity}]."""
-    out = run(["scrcpy", "--serial", serial, "--list-apps"], capture_output=True, text=True, timeout=60)
+    env = adb_env()
+    if env is None:
+        return []
+    out = run(["scrcpy", "--serial", serial, "--list-apps"], capture_output=True, text=True, timeout=60, env=env)
     apps = parse_scrcpy_apps((out.stdout or "") + (out.stderr or ""))
     out = run(["adb", "-s", serial, "shell", "pm list packages --show-versioncode; echo @@; "
                "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER"],
-              capture_output=True, text=True, timeout=30)
+              capture_output=True, text=True, timeout=30, env=env)
     versions, _, launchers = (out.stdout or "").partition("@@")
     versions, launchers = parse_versions(versions), parse_launcher_activities(launchers)
     return [dict(a, version=versions.get(a["package"], ""), activity=launchers.get(a["package"], "")) for a in apps]
@@ -5126,7 +5159,10 @@ class PhoneReader:
             'P) pm path "$p" 2>/dev/null | tr "\\n" " "; echo;; esac; done')
 
     def __init__(self, serial, popen=subprocess.Popen):
-        self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE,
+        env = adb_env()
+        if env is None:
+            raise OSError(ADB_NO_PLACE)
+        self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
 
     def ask(self, line):

@@ -17,6 +17,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BRIDGE = os.path.join(HERE, "..", "bin", "kdeconnect-bridge")
@@ -1675,6 +1676,13 @@ class Screen(unittest.TestCase):
 
     PHONE = {"id": "p1", "name": "Pixel 8", "addresses": ["192.168.1.20"]}
 
+    def setUp(self):
+        run = tempfile.mkdtemp()
+        patch = mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": run})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(shutil.rmtree, run, True)
+
     def test_scrcpy_version(self):
         self.assertEqual(bridge.scrcpy_version("scrcpy 4.1 <https://github.com/Genymobile/scrcpy>"), (4, 1))
         self.assertEqual(bridge.scrcpy_version(""), ())
@@ -1966,11 +1974,11 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.parse_texture("INFO: Texture: 2316x1080"), (2316, 1080))
         self.assertIsNone(bridge.parse_texture("INFO: Renderer: opengl"))
         cmd = bridge.screen_command("S1", "Pixel 8 · Screen", log="/tmp/x y.log")
-        self.assertEqual(cmd[:4], ["uwsm-app", "--", "sh", "-c"])
-        self.assertTrue(cmd[4].startswith('stdbuf -oL -eL "$0" "$@" 2>&1 | grep --line-buffered -E '), cmd[4])
-        self.assertTrue(cmd[4].endswith(">>'/tmp/x y.log'"), "the log path is quoted")
-        self.assertNotIn("exec", cmd[4])
-        self.assertEqual(cmd[5:8], ["scrcpy", "--serial", "S1"])
+        self.assertEqual(cmd[:2] + cmd[4:6], ["uwsm-app", "--", "sh", "-c"])
+        self.assertTrue(cmd[6].startswith('stdbuf -oL -eL "$0" "$@" 2>&1 | grep --line-buffered -E '), cmd[4])
+        self.assertTrue(cmd[6].endswith(">>'/tmp/x y.log'"), "the log path is quoted")
+        self.assertNotIn("exec", cmd[6])
+        self.assertEqual(cmd[7:10], ["scrcpy", "--serial", "S1"])
 
     def test_turn_or_morph(self):
         self.assertEqual(bridge.turn_of((1080, 2316), (2316, 1080), 0, 1), ("turn", -90),
@@ -1991,7 +1999,8 @@ class Screen(unittest.TestCase):
 
     def test_the_screen_and_an_app(self):
         self.assertEqual(bridge.screen_command("S1", "Pixel 8 · Screen"),
-                         ["uwsm-app", "--", "scrcpy", "--serial", "S1", "--window-title", "Pixel 8 · Screen"])
+                         ["uwsm-app", "--", "env", "ADB_SERVER_SOCKET=" + bridge.adb_server(),
+                          "scrcpy", "--serial", "S1", "--window-title", "Pixel 8 · Screen"])
         self.assertEqual(bridge.screen_title("Pixel 8"), "Pixel 8 · Screen")
         self.assertEqual(bridge.screen_title("Pixel 8", "Messages"), "Messages · Pixel 8")
         app = bridge.screen_command("S1", "Messages · Pixel 8", "com.example.app", {"flex": True})

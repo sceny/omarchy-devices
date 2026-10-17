@@ -211,6 +211,12 @@ finding blocks the pull request.
   (`omarchy-launch-or-focus`, `omarchy-launch-or-focus-webapp`). A window is
   found by its exact title and focused by address, else the command runs as an
   argv list. A test fails if the bridge calls those scripts.
+- Every `adb` and `scrcpy` the bridge starts runs against the plugin's own
+  adb server, a socket in `$XDG_RUNTIME_DIR/sceny.devices/` (0700), through
+  `ADB_SERVER_SOCKET` in its environment (and on the `uwsm-app` line, whose
+  daemon hands on none); `start-server` always carries `-L`; with no runtime
+  folder nothing starts. `tests/test_adb_socket.py` (`ShippedCode`) fails,
+  naming file:line, on any other place that runs either.
 - No new network listener. No command, path or argument built from device
   data without a fixed verb and a checked value.
 - No third-party verbose log that records input or the clipboard. A log of
