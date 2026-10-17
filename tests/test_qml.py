@@ -286,6 +286,49 @@ class DeviceFilesGoThroughTheGate(unittest.TestCase):
         finally:
             os.remove(f.name)
 
+    def callers(self, name, fn):
+        raw = open(os.path.join(ROOT, name)).read()
+        text = code_only(raw)
+        return [m for m in re.finditer(r"\b%s\s*\(" % fn, text) if not text[:m.start()].rstrip().endswith("function")]
+
+    def test_each_real_caller_is_one_the_check_reads(self):
+        found = {fn: sum(len(self.callers(os.path.basename(p), fn)) for p in glob.glob(os.path.join(ROOT, "*.qml")))
+                 for fn in ("openPath", "openFromDevice", "copyFile")}
+        self.assertTrue(all(found.values()), "a caller the check should read is gone or renamed: %r" % found)
+
+    def test_every_exempt_caller_still_exists(self):
+        for (name, fn) in self.OWN_PATHS:
+            text = code_only(open(os.path.join(ROOT, name)).read())
+            self.assertIn("function %s(" % fn, text, "%s: %s is exempt and gone" % (name, fn))
+
+    def test_the_real_caller_that_names_the_gate_fails_without_it(self):
+        import tempfile
+        with open(os.path.join(ROOT, "Panel.qml")) as f:
+            src = f.read()
+        planted = src.replace("phone.openPath(entry.path, true)", "phone.openPath(entry.path)", 1)
+        self.assertNotEqual(planted, src, "openReceived no longer calls openPath(entry.path, true)")
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "Panel.qml")
+            with open(path, "w") as f:
+                f.write(planted)
+            found = self.gaps([path])
+        self.assertEqual(len(found), 1, found)
+        self.assertRegex(found[0], r"Panel\.qml:\d+ openPath\(entry\.path\) without true")
+
+    def test_a_definition_that_loses_its_flag_fails(self):
+        import tempfile
+        with open(os.path.join(ROOT, "Service.qml")) as f:
+            src = f.read()
+        for flag in ("--from-device", "--local"):
+            planted = src.replace('"%s"' % flag, '"--other"')
+            self.assertNotEqual(planted, src)
+            with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+                f.write(planted)
+            try:
+                self.assertTrue(self.gaps([f.name]), flag)
+            finally:
+                os.remove(f.name)
+
 
 if __name__ == "__main__":
     unittest.main()

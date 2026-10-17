@@ -1841,12 +1841,20 @@ def bluetooth_checks(bt):
 OMARCHY_BIN = os.path.join(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"), "bin")
 
 
+def as_root(argv):
+    """The one place a command is made to run as root: through pkexec, whose
+    polkit agent asks for the password. Only `root_plan` builds such a command,
+    and only `run_root` runs it, after the --confirm hash matches
+    (tests/test_lints.py, RootOnlyAsConfirmed)."""
+    return ["pkexec"] + list(argv)
+
+
 def pkg_add(packages):
-    """Omarchy's `omarchy pkg add`, as root through pkexec (the panel has no
-    terminal for sudo). pkexec clears PATH, so Omarchy's bin goes back on it
-    for the helpers the command calls."""
-    return ["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN,
-            os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages)
+    """Omarchy's `omarchy pkg add`, as root (the panel has no terminal for
+    sudo). pkexec clears PATH, so Omarchy's bin goes back on it for the
+    helpers the command calls."""
+    return as_root(["/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN,
+                    os.path.join(OMARCHY_BIN, "omarchy-pkg-add")] + list(packages))
 
 
 # ---- Root, only for what was shown ----------------------------------------
@@ -1926,8 +1934,8 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         if what == "bluetooth" and not unit_active(BLUETOOTH_UNIT, run):
             enable = "/usr/bin/systemctl enable --now %s" % BLUETOOTH_UNIT
             actions.append("Start Bluetooth, now and at every start: systemctl enable --now %s" % BLUETOOTH_UNIT)
-            commands = [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN, "/bin/sh", "-c",
-                         " && ".join(([shlex.join(["omarchy-pkg-add"] + packages)] if commands else []) + [enable])]]
+            commands = [as_root(["/usr/bin/env", "PATH=%s:/usr/bin:/bin" % OMARCHY_BIN, "/bin/sh", "-c",
+                                 " && ".join(([shlex.join(["omarchy-pkg-add"] + packages)] if commands else []) + [enable])])]
             if will == []:
                 actions = actions[1:]
     elif what == "firewall":
@@ -1938,7 +1946,7 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         reason = "To let your devices reach KDE Connect through the firewall: from private networks (home, office)" \
             + (" and from " + " and ".join(meshes) if meshes else "") + ", never from everyone"
         actions = ["Add the firewall rule: " + r.replace("/usr/bin/", "") for r in wanted] or ["Nothing to change: the firewall already lets them in"]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(wanted)]] if wanted else []
+        commands = [as_root(["/bin/sh", "-c", " && ".join(wanted)])] if wanted else []
     elif what == "tailscale":
         # Omarchy's own installer, as its Install menu runs it: in its
         # terminal, which asks for the password itself.
@@ -1971,7 +1979,7 @@ def root_plan(what, run=None, rules=None, ifaces=None, fw=None):
         parts += wanted_rules
         if not actions:
             actions = ["Nothing to install: this computer has everything"]
-        commands = [["pkexec", "/bin/sh", "-c", " && ".join(parts)]] if parts else []
+        commands = [as_root(["/bin/sh", "-c", " && ".join(parts)])] if parts else []
     else:
         return None
     plan = {"what": what, "why": reason, "actions": actions, "commands": commands}
