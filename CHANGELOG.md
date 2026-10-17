@@ -28,6 +28,12 @@ GitHub release with these notes.
   whatever it touched last: the lists now read the panel's one pointer
   position instead of keeping their own
   ([#327](https://github.com/sceny/omarchy-devices/issues/327)).
+- **A resting pointer never takes the cursor on the main page or in
+  Settings either**: a pointer move over a header or a gap was kept until
+  the next row asked, so a fold that moved content under a still pointer
+  let that row take the cursor. A hover now runs only when the very event
+  that brought it is a move
+  ([#330](https://github.com/sceny/omarchy-devices/issues/330)).
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call

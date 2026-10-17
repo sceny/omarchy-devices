@@ -219,7 +219,7 @@ def verbs_started(path):
 # alone shows the cursor where it already is: it is not a place.
 CURSOR_WORDS = re.compile(r"\bfocusSection\s*=(?!=)|\b\w*(?:[iI]ndex|[cC]ursor)\s*=(?!=)")
 HOVER_HANDLER = re.compile(r"\bon(?:Entered|Hovered)\s*:")
-HOVER_ASKS = re.compile(r"\b(?:hoverMoved|pointerMoved|pointerAt)\(")
+HOVER_ASKS = re.compile(r"\b(?:hoverTake|pointerMoved|pointerAt)\(")
 
 
 def handler_body(text, start):
@@ -248,8 +248,10 @@ def hover_that_takes_the_cursor_unasked(path):
     """A hover handler that moves a keyboard cursor without asking whether
     the pointer moved. Content that scrolls or folds under a resting pointer
     sends the row now beneath it an enter, and that took the cursor back from
-    the keys (#254). The handler asks `hoverMoved()` / `pointerMoved()`
-    (PointerGate) or calls `pointerAt`; a
+    the keys (#254). The handler hands its action to `hoverTake()` or asks
+    `pointerMoved()` (PointerGate), or calls `pointerAt`; a flag spent when
+    asked (`hoverMoved()`) is not an ask, since a move that nothing asked
+    about stays unspent and the next row to ask takes the cursor (#330). A
     handler that only passes the row on (`root.hovered(i)`) moves nothing.
     The handler is read whole, on one line or across several. A cursor moved
     through a function the handler calls is not seen: ask in the handler."""
@@ -287,21 +289,23 @@ class HoverNeedsAPointerMove(unittest.TestCase):
     def test_the_check_finds_one(self):
         self.assertEqual(len(self.found_in(
             "Item {\n  onEntered: { root.cursorActive = true; root.rowIndex = 1 }\n"
-            "  onHovered: if (root.hoverMoved()) { root.cursorActive = true }\n"
+            "  onHovered: root.hoverTake(function() { root.cursorActive = true; root.rowIndex = 2 })\n"
             "  onHovered: function(i) { view.cursor = i }\n  onEntered: root.hovered(idx)\n"
-            "  onEntered: view.pointerAt(row.index)\n}\n")), 2)
+            "  onEntered: view.pointerAt(row.index)\n"
+            "  onHovered: if (root.hoverMoved()) { root.cursorActive = true; root.rowIndex = 2 }\n}\n")), 3)
 
     def test_the_check_reads_a_handler_across_lines(self):
         unasked = [
             "Item {\n  MouseArea {\n    onEntered: {\n      view.suggestionCursor = idx\n    }\n  }\n}\n",
             "Item {\n  onHovered: function(on) {\n    if (on) {\n      root.focusSection = \"a\"\n    }\n  }\n}\n",
             "Item {\n  onEntered: if (ready)\n    root.settingsIndex = 2\n}\n",
+            "Item {\n  onEntered: if (root.hoverMoved()) {\n    root.settingsIndex = 2\n  }\n}\n",
             "Item {\n  onEntered:\n  {\n    root.photoIndex = 2\n  }\n}\n",
         ]
         for source in unasked:
             self.assertEqual(len(self.found_in(source)), 1, source)
         asked = [
-            "Item {\n  onEntered: {\n    if (!view.hoverMoved()) return\n    view.suggestionCursor = idx\n  }\n}\n",
+            "Item {\n  onEntered: {\n    view.hoverTake(function() { view.suggestionCursor = idx })\n  }\n}\n",
             "Item {\n  onEntered: {\n    root.cursorActive = true\n    root.hovered(idx)\n  }\n}\n",
             "Item {\n  onEntered: {\n    view.pointerAt(row.index)\n  }\n  property int n: index\n  x: cursor == 1 ? 1 : 2\n}\n",
         ]
@@ -334,9 +338,27 @@ class OnePointerForThePanel(unittest.TestCase):
             self.assertRegex(text, r"property var hoverMovedTo:", view)
             self.assertRegex(text, r"function pointerMoved\(area\)\s*\{\s*return hoverMovedTo\(area\.mapToItem\(null, area\.mouseX, area\.mouseY\)\)", view)
 
+    def test_no_flag_carries_a_move_from_one_hover_to_the_next(self):
+        gate = self.read("PointerGate.qml")
+        for word in ("seen", "settle"):
+            self.assertNotRegex(gate, r"\b%s\b" % word)
+        self.assertNotRegex(gate, r"function moved\(\)")
+        for name in sorted(glob.glob(os.path.join(ROOT, "*.qml"))):
+            self.assertNotRegex(self.read(os.path.basename(name)), r"\bhoverMoved\(\)|\bpointerGate\.(?:moved|settle)\(", os.path.basename(name))
+
+    def test_a_hover_is_answered_by_the_event_that_brought_it(self):
+        gate = self.read("PointerGate.qml")
+        self.assertRegex(gate, r"function take\(action\)")
+        self.assertRegex(gate, r"Qt\.callLater\(drop\)")
+        panel = self.read("Panel.qml")
+        self.assertRegex(panel, r"HoverHandler\s*\{\s*onPointChanged:\s*pointerGate\.heard\(point\.scenePosition\)")
+        self.assertRegex(panel, r"\bhoverTake:\s*root\.hoverTake\b")
+        self.assertRegex(self.read("AppsView.qml"), r"property var hoverTake:")
+
     def test_the_gate_judges_a_hover_by_where_the_pointer_rests(self):
         gate = self.read("PointerGate.qml")
-        self.assertRegex(gate, r"function movedTo\(p\)\s*\{\s*return Math\.abs\(p\.x - at\.x\) > 0\.5 \|\| Math\.abs\(p\.y - at\.y\) > 0\.5")
+        self.assertRegex(gate, r"function movedTo\(p\)\s*\{\s*return moved\(p\)\s*\}")
+        self.assertRegex(gate, r"function moved\(p\)\s*\{\s*return Math\.abs\(p\.x - at\.x\) > 0\.5 \|\| Math\.abs\(p\.y - at\.y\) > 0\.5")
 
 
 ROW_HOVERED = re.compile(r"\broot\.(?:hovered|activated)\(\s*(?:(\w+)\.)?rowIndex\s*\)")
