@@ -3740,7 +3740,7 @@ var TIP_KEYS = {
   home: HOME_KEY, back: "Esc", edit: "E", settings: "s", messages: "m",
   reply: "r", dismiss: "x", open: "o", forget: "x",
   prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
-  pin: "p", unread: "u", newMessage: "n", refresh: "r"
+  pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete"
 }
 function keyTip(label, id) {
   var k = TIP_KEYS[id]

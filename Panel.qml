@@ -5677,7 +5677,7 @@ Panel {
                       glyph: Model.GLYPH.clearAll
                       waiting: root.dismissingAll
                       motion: root.motion
-                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : "Dismiss all on " + Model.deviceLabel(root.device) + " (Shift+Delete)"
+                      tooltipText: root.dismissingAll ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all on " + Model.deviceLabel(root.device), "dismissAll")
                       foreground: root.foreground
                       hoverColor: root.urgent
                       fontFamily: root.fontFamily
