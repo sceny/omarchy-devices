@@ -20,6 +20,10 @@ GitHub release with these notes.
   no longer takes the cursor from the keys. The check that guards every
   hover now reads every QML file and handlers of any layout
   ([#325](https://github.com/sceny/omarchy-devices/issues/325)).
+- **A resting pointer never takes the cursor in Messages or Contacts**,
+  whatever it touched last: the lists now read the panel's one pointer
+  position instead of keeping their own
+  ([#327](https://github.com/sceny/omarchy-devices/issues/327)).
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call

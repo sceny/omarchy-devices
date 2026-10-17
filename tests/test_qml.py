@@ -249,7 +249,7 @@ def hover_that_takes_the_cursor_unasked(path):
     the pointer moved. Content that scrolls or folds under a resting pointer
     sends the row now beneath it an enter, and that took the cursor back from
     the keys (#254). The handler asks `hoverMoved()` / `pointerMoved()`
-    (PointerGate, or a list's own pointer position) or calls `pointerAt`; a
+    (PointerGate) or calls `pointerAt`; a
     handler that only passes the row on (`root.hovered(i)`) moves nothing.
     The handler is read whole, on one line or across several. A cursor moved
     through a function the handler calls is not seen: ask in the handler."""
@@ -289,7 +289,7 @@ class HoverNeedsAPointerMove(unittest.TestCase):
             "Item {\n  onEntered: { root.cursorActive = true; root.rowIndex = 1 }\n"
             "  onHovered: if (root.hoverMoved()) { root.cursorActive = true }\n"
             "  onHovered: function(i) { view.cursor = i }\n  onEntered: root.hovered(idx)\n"
-            "  onEntered: view.pointerAt(this, row.index)\n}\n")), 2)
+            "  onEntered: view.pointerAt(row.index)\n}\n")), 2)
 
     def test_the_check_reads_a_handler_across_lines(self):
         unasked = [
@@ -301,12 +301,42 @@ class HoverNeedsAPointerMove(unittest.TestCase):
         for source in unasked:
             self.assertEqual(len(self.found_in(source)), 1, source)
         asked = [
-            "Item {\n  onEntered: {\n    if (!view.pointerMoved(this)) return\n    view.suggestionCursor = idx\n  }\n}\n",
+            "Item {\n  onEntered: {\n    if (!view.hoverMoved()) return\n    view.suggestionCursor = idx\n  }\n}\n",
             "Item {\n  onEntered: {\n    root.cursorActive = true\n    root.hovered(idx)\n  }\n}\n",
-            "Item {\n  onEntered: {\n    view.pointerAt(this, row.index)\n  }\n  property int n: index\n  x: cursor == 1 ? 1 : 2\n}\n",
+            "Item {\n  onEntered: {\n    view.pointerAt(row.index)\n  }\n  property int n: index\n  x: cursor == 1 ? 1 : 2\n}\n",
         ]
         for source in asked:
             self.assertEqual(self.found_in(source), [], source)
+
+
+class OnePointerForThePanel(unittest.TestCase):
+    """Whether a hover is the pointer's move comes from the panel's one
+    PointerGate (#327). A view that kept the pointer's last position from its
+    own areas counted a pointer that last moved elsewhere, then rested, as
+    moved on the first enter beneath it."""
+
+    def read(self, name):
+        return code_only(open(os.path.join(ROOT, name)).read())
+
+    def test_no_view_keeps_a_pointer_position_of_its_own(self):
+        for name in ("MessagesView.qml", "ContactsView.qml", "AppsView.qml", "SettingsView.qml"):
+            text = self.read(name)
+            self.assertNotIn("lastPointer", text, name)
+            self.assertNotIn("mapToGlobal", text, name)
+
+    def test_the_panel_gives_each_list_view_the_gate(self):
+        panel = self.read("Panel.qml")
+        for view in ("MessagesView", "ContactsView"):
+            body = panel[panel.index(view + " {"):]
+            body = body[:body.index("\n              }\n")]
+            self.assertRegex(body, r"\bhoverMovedTo:\s*root\.hoverMovedTo\b", view)
+            text = self.read(view + ".qml")
+            self.assertRegex(text, r"property var hoverMovedTo:", view)
+            self.assertRegex(text, r"function pointerMoved\(area\)\s*\{\s*return hoverMovedTo\(area\.mapToItem\(null, area\.mouseX, area\.mouseY\)\)", view)
+
+    def test_the_gate_judges_a_hover_by_where_the_pointer_rests(self):
+        gate = self.read("PointerGate.qml")
+        self.assertRegex(gate, r"function movedTo\(p\)\s*\{\s*return Math\.abs\(p\.x - at\.x\) > 0\.5 \|\| Math\.abs\(p\.y - at\.y\) > 0\.5")
 
 
 # Verbs that carry text a person wrote. Any local process can read a command
