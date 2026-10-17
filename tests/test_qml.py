@@ -80,6 +80,12 @@ class Qml(unittest.TestCase):
         found = [p for f in files for p in problems(f)]
         self.assertEqual(found, [], "\n".join(found))
 
+    def test_a_demo_never_writes_the_settings(self):
+        text = code_only(open(os.path.join(ROOT, "Panel.qml")).read())
+        body = text[text.index("function persistSettings("):]
+        body = body[:body.index("\n  }\n")]
+        self.assertIn("phone.demo", body[:body.index("updateEntryInline")], "persistSettings writes in a demo")
+
     def test_the_check_finds_them(self):
         import tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
