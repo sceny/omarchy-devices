@@ -15,6 +15,11 @@ GitHub release with these notes.
   pointer let the row beneath it take the cursor, so `j` looped among the
   upper rows and never reached Keys. A hover now moves the cursor only when
   the pointer moves ([#254](https://github.com/sceny/omarchy-devices/issues/254)).
+- **New message suggestions follow the pointer, not the list**: typing a
+  name changes the suggestions under a still pointer, and the row beneath it
+  no longer takes the cursor from the keys. The check that guards every
+  hover now reads every QML file and handlers of any layout
+  ([#325](https://github.com/sceny/omarchy-devices/issues/325)).
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call
