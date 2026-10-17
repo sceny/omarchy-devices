@@ -34,9 +34,9 @@ Item {
   signal soundRequested(var app)       // an open app's badge (#129)
   signal refreshRequested()
   signal hovered()
-  // True once per real move of the pointer (PointerGate.moved): a hover under
-  // content that moved does not take the cursor.
-  property var pointerMoved: function() { return true }
+  // Runs a hover's action only when the pointer moved (PointerGate.take): a
+  // hover under content that moved does not take the cursor.
+  property var hoverTake: function(action) { action() }
 
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property bool searchFocused: searchField.activeFocus
@@ -185,7 +185,7 @@ Item {
       foreground: view.foreground
       fontFamily: view.fontFamily
       onActivated: function(app, pop) { view.openRequested(app, pop) }
-      onHovered: function(i) { if (!view.pointerMoved()) return; view.cursor = i; view.hovered() }
+      onHovered: function(i) { view.hoverTake(function() { view.cursor = i; view.hovered() }) }
       onReordered: function(a, b) { view.pinMoved(a, b) }
       onPinRequested: function(app, at) { view.pinAtRequested(app, at) }
       onUnpinRequested: function(app) { view.pinRequested(app, false) }
@@ -243,7 +243,7 @@ Item {
           onPinToggled: view.pinRequested(modelData, !pinned)
           canForget: true
           onForgetRequested: view.forgetRequested(modelData)
-          onHovered: if (view.pointerMoved()) { view.cursor = view.recentBase + index; view.hovered() }
+          onHovered: view.hoverTake(function() { view.cursor = view.recentBase + index; view.hovered() })
         }
       }
     }
@@ -289,7 +289,7 @@ Item {
           onActivated: function(pop) { view.openRequested(modelData, pop) }
           onSoundRequested: view.soundRequested(modelData)
           onPinToggled: view.pinRequested(modelData, !pinned)
-          onHovered: if (view.pointerMoved()) { view.cursor = view.allBase + index; view.hovered() }
+          onHovered: view.hoverTake(function() { view.cursor = view.allBase + index; view.hovered() })
         }
       }
     }

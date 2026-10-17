@@ -379,15 +379,20 @@ one only with the owner.
   `hasCursor` (a Settings row without one shows no cursor and the page never
   scrolls to it, #324; `SettingsRowsHaveACursorStop` fails on one, naming the
   row). A hover takes the cursor only when the pointer moved
-  (`PointerGate`, asked as `hoverMoved()`): a page that scrolls or folds
-  under a pointer at rest sends the row beneath an enter, and that would
-  pull the cursor back from the keys (#254; `tests/test_qml.py`,
+  (`PointerGate`): a page that scrolls or folds under a pointer at rest
+  sends the row beneath an enter, and that would pull the cursor back from
+  the keys (#254). A hover hands its action to `hoverTake`, which runs it
+  only when the same event reaches the panel's `HoverHandler` at a new
+  position; no flag is spent when asked and carried to a later hover, so a
+  move over a header or a gap never lets the next content to shift under a
+  resting pointer take the cursor (#330). `tests/test_qml.py`,
   `HoverNeedsAPointerMove`, reads every QML file, each handler whole, and
-  fails on a hover that moves a cursor without asking; Messages' and
+  fails on a hover that moves a cursor without asking (`hoverMoved()` is
+  not an ask). Messages' and
   Contacts' lists ask `pointerMoved`/`pointerAt`, which compare where the
   area hears the pointer with where the panel's gate saw it rest
   (`PointerGate.movedTo`), never a position of the view's own, so a pointer
-  that last moved anywhere else and rests does not take the cursor, #327).
+  that last moved anywhere else and rests does not take the cursor (#327).
 - **Every text field is a `PanelField`**, so Esc steps back the same way
   everywhere, one thing at a time: what floats over the field
   (suggestions) closes and the text stays; then the field's own step
