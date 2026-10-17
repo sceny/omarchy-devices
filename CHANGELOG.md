@@ -10,75 +10,6 @@ GitHub release with these notes.
 
 ### Highlights
 
-- **Contacts asks for contacts, Messages does not**: the permission to read
-  contacts is asked on the Contacts page, with *Allow* when the plugin can
-  grant it, instead of on the Messages page where texts were the errand.
-  Messages is whole with numbers instead of names; if contacts worked and
-  stopped, both pages still show that problem. Searching a new message by
-  name offers the same *Allow*. A Contacts page with the permission given and
-  no cards says so (*No contacts on Pixel 8 yet*) (#272).
-- **A missed call offers Calls here**: while it is not set up, the missed-call
-  card says *Call back from here* with **Set up**, which
-  carries the steps on by itself (a password card first when root is needed,
-  Omarchy's Bluetooth to pair the phone, *Connect* when it dropped). *No
-  thanks* turns Calls here off. The ringing card is unchanged.
-- **Text fields never read the clipboard until you paste**: a field is
-  built on a text edit, which asks only which formats the clipboard offers
-  and reads its text when you paste (Ctrl+V, Shift+Insert). Focusing a
-  field, or another program copying while one has the keyboard, makes the
-  shell read nothing. Typing, accented characters, Esc's steps, drafts and
-  suggestions work as before; Enter stops at the field. A field holds at most
-  32767 characters, as before, and a paste is cut to that before it is
-  inserted, so a huge paste or a line-broken one is instant instead of
-  stopping the shell. Middle-click paste and dropping text onto a field no
-  longer insert anything.
-- **A paste never makes the shell wait on the clipboard**: the text is read
-  when you paste, outside the shell, with a size limit (128 KiB) and a
-  deadline (a few seconds), and the shell goes on meanwhile. A clipboard that
-  is slow, empty or not text inserts nothing, and the text is cut to the
-  field's length as before
-  ([marketplace review](https://github.com/omacom/omarchy-plugin-marketplace/issues/10096)).
-- **The shell never takes part in a clipboard transfer**: copy, cut, paste and
-  selecting text go through one door that runs the system's clipboard tools
-  outside the shell, with a size limit and a deadline, so a program that
-  never reads what you copied (or never finishes what it pastes) cannot
-  freeze the bar. In a field, Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+A and Shift with
-  the arrow keys work as before, and the mouse still places the cursor and
-  selects (a drag, Shift+click, a word on a double click, all on a triple).
-  A message in a conversation is copied by a double click; it can no longer
-  be selected by dragging. A gallery photo is
-  no longer dragged out of the panel: use its copy button, then paste it
-  where you want it.
-- **The on-screen display names nothing a device sent**: with no panel
-  open, a result shows in Omarchy's display, whose line any local user can
-  read. It now says "Saved to Pictures", "The app is open" or "Ringing the
-  device", never a received file's name, an app's label or the device's
-  name; the panel's toast keeps the full text.
-- **Hardening**: windows are launched and focused by exact title and address,
-  contact and call fields are capped, and the firewall rules open KDE
-  Connect's ports to private ranges only.
-- **More hardening**: a mesh peer is remembered by its id, not its name; the
-  screen's stills and the messages folder are private from the start; Omarchy's
-  folder from the environment is used only when root owns it; the CI actions
-  are pinned to commits and kept current. A contact's value you open goes
-  on the opened program's command line, now said in the security page.
-- **A message attachment opens only when you clicked it**: one that
-  arrives for a click you did not make is not opened, and a picture opens only
-  as the copy decoded in the sandbox, whatever name or type the phone gives it
-  (marketplace review omacom/omarchy-plugin-marketplace#10096).
-- **More hardening**: the bridge's text commands (ping, text, url, dial)
-  take their text on standard input only, and refuse it on the command line.
-  A file opened from a device's storage must be a regular file inside that
-  storage and within the cache's size limit, and is copied in bounded steps.
-  The build's checks for these are stricter, and the text field's selection
-  rules are now tested by running the field. Smaller: the conversation list
-  finds a thread without scanning, and an album-art decode that cannot start
-  no longer holds a slot.
-
-## 0.9.0 — 2026-10-12
-
-### Highlights
-
 - **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
   answer and make calls with the audio on this computer, over Bluetooth. The
   card follows a call to its end: microphone, keypad, volume, a second call
@@ -116,6 +47,38 @@ GitHub release with these notes.
   emulator paired to a private KDE Connect, so changes are tried without
   touching the desktop or a real phone
   ([development](docs/internals/development.md#the-test-rig)).
+- **Contacts asks for contacts, Messages does not**: the permission to read
+  contacts is asked on the Contacts page, with *Allow* when the plugin can
+  grant it, instead of on the Messages page where texts were the errand.
+  Messages is whole with numbers instead of names; if contacts worked and
+  stopped, both pages still show that problem. Searching a new message by
+  name offers the same *Allow*. A Contacts page with the permission given and
+  no cards says so (*No contacts on Pixel 8 yet*) (#272).
+- **The on-screen display names nothing a device sent**: with no panel
+  open, a result shows in Omarchy's display, whose line any local user can
+  read. It now says "Saved to Pictures", "The app is open" or "Ringing the
+  device", never a received file's name, an app's label or the device's
+  name; the panel's toast keeps the full text.
+- **Hardening**: contact fields are capped, and the firewall rules open KDE
+  Connect's ports to private ranges only.
+- **A missed call offers Calls here**: while it is not set up, the missed-call
+  card says *Call back from here* with **Set up**, which
+  carries the steps on by itself (a password card first when root is needed,
+  Omarchy's Bluetooth to pair the phone, *Connect* when it dropped). *No
+  thanks* turns Calls here off. The ringing card is unchanged.
+- **More hardening**: the bridge's text commands (ping, text, url, dial)
+  take their text on standard input only, and refuse it on the command line.
+  A file opened from a device's storage must be a regular file inside that
+  storage and within the cache's size limit, and is copied in bounded steps.
+  The build's checks for these are stricter, and the text field's selection
+  rules are now tested by running the field. Smaller: the conversation list
+  finds a thread without scanning, and an album-art decode that cannot start
+  no longer holds a slot.
+- **Hardening, mesh and files**: a mesh peer is remembered by its id, not its
+  name; the screen's stills and the messages folder are private from the start;
+  Omarchy's folder from the environment is used only when root owns it; the CI
+  actions are pinned to commits and kept current. A contact's value you open
+  goes on the opened program's command line, now said in the security page.
 
 ### Issues
 
