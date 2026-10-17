@@ -599,7 +599,10 @@ class RootOnlyAsConfirmed(unittest.TestCase):
             returncode, stdout, stderr = 0, "", ""
 
         real = bridge.subprocess.run
+        real_state, real_meshes = bridge.firewall_state, bridge.mesh_interfaces
         bridge.subprocess.run = lambda cmd, *a, **k: started.append(cmd) or Done() if cmd[0] == "pkexec" else real(cmd, *a, **k)
+        bridge.firewall_state = lambda *a, **k: {"rules": []}
+        bridge.mesh_interfaces = lambda *a, **k: []
         try:
             plan = bridge.root_plan("firewall")
             for confirm in ("", None, "0" * len(plan["hash"]), plan["hash"][:-1]):
@@ -608,6 +611,7 @@ class RootOnlyAsConfirmed(unittest.TestCase):
             bridge.run_root("firewall", plan["hash"])
         finally:
             bridge.subprocess.run = real
+            bridge.firewall_state, bridge.mesh_interfaces = real_state, real_meshes
         self.assertTrue(started and all(cmd[0] == "pkexec" for cmd in started), started)
 
     def test_the_check_finds_a_second_pkexec(self):
