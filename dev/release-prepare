@@ -18,7 +18,8 @@ A release from develop (minor or patch) is refused while main is frozen: an open
 `marketplace-review` issue here points to a marketplace issue that is still open.
 The check reads both through `gh`; when it cannot, the release is refused too.
 A fix from main is not refused by it (it needs the owner's go) and prints the
-freeze as a note.
+freeze, or that it could not be read, as a note. `--check-freeze` runs from the
+repository's top, wherever it is started inside it.
 
 It refuses: a version already tagged (here or on origin), a version not above
 the one in manifest.json on the base, a base whose CHANGELOG already has the
@@ -41,6 +42,10 @@ MARKETPLACE = "omacom/omarchy-plugin-marketplace"
 
 def fail(message):
     sys.exit(f"release-prepare: {message}")
+
+
+class FreezeUnreadable(Exception):
+    """GitHub could not be asked, or its answer could not be read."""
 
 
 def git(*args, check=True):
@@ -100,13 +105,13 @@ def gh_json(*args):
     try:
         done = subprocess.run(["gh", *args], capture_output=True, text=True)
     except OSError as error:
-        fail(f"the freeze check needs gh: {error}")
+        raise FreezeUnreadable(f"the freeze check needs gh: {error}")
     if done.returncode != 0:
-        fail(f"the freeze check could not read GitHub: gh {' '.join(args[:3])} failed: {done.stderr.strip()}")
+        raise FreezeUnreadable(f"the freeze check could not read GitHub: gh {' '.join(args[:3])} failed: {done.stderr.strip()}")
     try:
         return json.loads(done.stdout)
     except ValueError:
-        fail(f"the freeze check could not read gh's answer to: gh {' '.join(args[:3])}")
+        raise FreezeUnreadable(f"the freeze check could not read gh's answer to: gh {' '.join(args[:3])}")
 
 
 def freeze_status():
@@ -157,7 +162,11 @@ def main():
     if args.check_freeze:
         if args.version:
             fail("--check-freeze takes no version")
-        found = freeze_status()
+        os.chdir(git("rev-parse", "--show-toplevel").stdout.strip())
+        try:
+            found = freeze_status()
+        except FreezeUnreadable as error:
+            fail(str(error))
         for line in freeze_lines(found):
             print(line)
         print("main is frozen" if is_frozen(found) else "main is not frozen" + (": nothing is under review" if not found else ""))
@@ -174,7 +183,13 @@ def main():
         fail("--note is for a fix from main; from develop the entries are the Unreleased section")
 
     os.chdir(git("rev-parse", "--show-toplevel").stdout.strip())
-    found = freeze_status()
+    try:
+        found = freeze_status()
+    except FreezeUnreadable as error:
+        if args.base == "develop":
+            fail(f"{error}, so a release is not prepared (Releasing, step 0)")
+        print(f"release-prepare: note: {error}; the fix goes on, and main's freeze is not known", file=sys.stderr)
+        found = []
     if is_frozen(found):
         detail = "\n  ".join(freeze_lines(found))
         if args.base == "develop":

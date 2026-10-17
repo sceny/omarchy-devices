@@ -28,6 +28,8 @@ state = json.load(open(os.environ["FAKE_GH_STATE"]))
 if "error" in state:
     sys.exit(state["error"])
 args = sys.argv[1:]
+if os.environ.get("FAKE_GH_CWD"):
+    open(os.environ["FAKE_GH_CWD"], "w").write(os.getcwd())
 if args[:2] == ["issue", "list"]:
     print(json.dumps(state["ours"]))
 elif args[:2] == ["issue", "view"]:
@@ -94,9 +96,9 @@ class ReleasePrepare(unittest.TestCase):
         git(self.work, "add", ".")
         git(self.work, "commit", "-q", "-m", name)
 
-    def run_script(self, *args):
-        env = dict(ENV, PATH=self.bin + os.pathsep + ENV["PATH"], FAKE_GH_STATE=self.gh_state)
-        return subprocess.run(["python3", SCRIPT, *args], cwd=self.work, env=env, capture_output=True, text=True)
+    def run_script(self, *args, cwd=None, **env):
+        env = dict(ENV, PATH=self.bin + os.pathsep + ENV["PATH"], FAKE_GH_STATE=self.gh_state, **env)
+        return subprocess.run(["python3", SCRIPT, *args], cwd=cwd or self.work, env=env, capture_output=True, text=True)
 
     def read(self, file):
         with open(os.path.join(self.work, file)) as handle:
@@ -218,6 +220,37 @@ class ReleasePrepare(unittest.TestCase):
         done = self.run_script("0.9.0")
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("treated as frozen", done.stderr)
+
+    def test_unreadable_github_does_not_refuse_an_urgent_fix(self):
+        self.freeze(error="gh: HTTP 502")
+        done = self.run_script("0.8.3", "--from", "main", "--note", "x")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("could not read GitHub", done.stderr)
+        self.assertIn("freeze is not known", done.stderr)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "fix-0.8.3")
+        self.assertIn("## 0.8.3", self.read("CHANGELOG.md"))
+
+    def test_check_freeze_reports_unreadable_github_and_fails(self):
+        self.freeze(error="gh: HTTP 502")
+        done = self.run_script("--check-freeze")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("could not read GitHub", done.stderr)
+
+    def test_check_freeze_starts_from_the_repository_top(self):
+        sub = os.path.join(self.work, "sub")
+        os.mkdir(sub)
+        seen = os.path.join(self.tmp.name, "gh-cwd")
+        done = self.run_script("--check-freeze", cwd=sub, FAKE_GH_CWD=seen)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with open(seen) as handle:
+            self.assertEqual(os.path.realpath(handle.read()), os.path.realpath(self.work))
+
+    def test_check_freeze_outside_a_repository_says_so_not_that_github_failed(self):
+        with tempfile.TemporaryDirectory() as outside:
+            done = self.run_script("--check-freeze", cwd=outside)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("not a git repository", done.stderr)
+        self.assertNotIn("could not read GitHub", done.stderr)
 
     def test_check_freeze_prints_frozen_and_clear(self):
         done = self.run_script("--check-freeze")
