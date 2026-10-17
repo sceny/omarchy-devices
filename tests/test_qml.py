@@ -127,28 +127,109 @@ class RepeaterDelegates(unittest.TestCase):
             os.remove(f.name)
 
 
-# Verbs that carry text a person wrote. Any local process can read a command
-# line from /proc, so the text goes over stdin (`run`'s input), and the
-# arguments after the device are ids only.
-PRIVATE_VERBS = ("ping", "text", "url", "dial", "reply")
-ALLOWED_ARGS = {"reply": ["n.replyId"]}
+# Every bridge verb QML starts is classified here, so a new verb is covered
+# by default: until someone lists it, the build fails. Any local process can
+# read a command line from /proc, so text a person wrote goes over stdin
+# (`run`'s input) and the arguments after the device are ids only.
+#   ID_ONLY_VERBS: argv holds the device's id (and literal flags), nothing else.
+#   TEXT_VERBS: the verb carries text a person wrote; the text goes over stdin.
+#   REVIEWED_VERBS: argv holds more than ids (a package, a path, a fix name);
+#     each such element is read one by one in tests/test_argv.py's ARGV_ALLOWED.
+ID_ONLY_VERBS = {
+    "ring", "share", "clipboard", "pair", "accept", "reject", "unpair", "watch", "doctor",
+    "screen", "screen-close", "screen-focus", "screen-pair", "photos", "photos-cached",
+    "app-icons", "apps", "features", "sms", "contacts", "call-audio", "dismiss",
+}
+TEXT_VERBS = {"ping", "text", "url", "dial", "reply"}
+REVIEWED_VERBS = {
+    "fix", "device-fix", "call", "action", "screen-open", "screen-dock", "screen-sound",
+    "screen-volume", "screen-watch", "app-forget", "open-file", "copy-file", "save-file",
+    "safe-art", "received-dismiss", "contact-open", "contacts-app",
+}
+ID_EXPRESSIONS = {
+    "id", "String(id)", "device.id", "String(device.id)", "deviceId", "sms.deviceId",
+    "root.callAudioDevice", "c.device", "n.id",
+}
+ALLOWED_ARGS = {"reply": ["n.replyId"], "dial": ["c.device"]}
+
+
+def top_args(raw, clean, open_at):
+    """The top-level elements, as written, of the brackets opening at open_at."""
+    depth, parts, start = 0, [], open_at + 1
+    for i in range(open_at, len(clean)):
+        c = clean[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                parts.append(raw[start:i].strip())
+                return [a for a in parts if a != ""]
+        elif c == "," and depth == 1:
+            parts.append(raw[start:i].strip())
+            start = i + 1
+    return [a for a in parts if a != ""]
+
+
+def verbs_started(path):
+    """(line, verb, arguments after the verb, how) for every bridge verb the
+    file starts: `run("verb", [...])`, `runOn(id, "verb")`, `[bridge, "verb", ...]`
+    and `launch(["verb", ...])`."""
+    raw = open(path).read()
+    clean = code_only(raw)
+    line = lambda i: raw.count("\n", 0, i) + 1
+    literal = lambda e: e[1:-1] if re.fullmatch(r'"[^"]*"', e) else None
+    found = []
+    for m in re.finditer(r"(?<!\w)run\(", clean):
+        if clean[:m.start()].rstrip().endswith("function"):
+            continue
+        args = top_args(raw, clean, m.end() - 1)
+        if args and literal(args[0]):
+            argv = args[1] if len(args) > 1 else "[]"
+            if argv.startswith("["):
+                found.append((line(m.start()), literal(args[0]), top_args(argv, code_only(argv), 0), "run"))
+            else:
+                found.append((line(m.start()), literal(args[0]), None, "run"))
+    for m in re.finditer(r"(?<!\w)runOn\(", clean):
+        if clean[:m.start()].rstrip().endswith("function"):
+            continue
+        args = top_args(raw, clean, m.end() - 1)
+        if len(args) > 1 and literal(args[1]):
+            found.append((line(m.start()), literal(args[1]), [], "runOn"))
+    for m in re.finditer(r"\[\s*(?:root\.|sms\.)?bridge\s*,", clean):
+        args = top_args(raw, clean, m.start())
+        if len(args) > 1 and literal(args[1]):
+            found.append((line(m.start()), literal(args[1]), args[2:], "bridge"))
+    for m in re.finditer(r"(?<![\w.])launch\(\s*\[", clean):
+        if clean[:m.start()].rstrip().endswith("function"):
+            continue
+        args = top_args(raw, clean, clean.index("[", m.start()))
+        if args and literal(args[0]):
+            found.append((line(m.start()), literal(args[0]), args[1:], "launch"))
+    return found
 
 
 def private_text_in_argv(path):
-    """Lines where a private verb's argument list holds anything but its ids."""
+    """Lines where a verb is not classified, or carries more in its argument
+    list than its class allows."""
     text = open(path).read()
     found = []
-    for verb in PRIVATE_VERBS:
-        for m in re.finditer(r'\brun\(\s*"%s"\s*,\s*\[([^\]]*)\]' % verb, text):
-            args = [a.strip() for a in m.group(1).split(",") if a.strip()]
-            if args != ALLOWED_ARGS.get(verb, []):
-                found.append("%s:%d: run(\"%s\") argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
-        for m in re.finditer(r'\brun\(\s*"%s"\s*,\s*(?![\s\[])' % verb, text):
-            found.append("%s:%d: run(\"%s\") argv is not a literal list" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb))
-        for m in re.finditer(r'\[\s*(?:root\.)?bridge\s*,\s*"%s"\s*([^\]]*)\]' % verb, text):
-            args = [a.strip() for a in m.group(1).split(",") if a.strip()]
-            if len(args) > 1:
-                found.append("%s:%d: [bridge, \"%s\"] argv %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, verb, args))
+    here = os.path.basename(path)
+    for number, verb, args, how in verbs_started(path):
+        where = "%s:%d: " % (here, number)
+        if verb not in ID_ONLY_VERBS | TEXT_VERBS | REVIEWED_VERBS:
+            found.append(where + "\"%s\" is not in ID_ONLY_VERBS, TEXT_VERBS or REVIEWED_VERBS" % verb)
+        elif verb in ID_ONLY_VERBS and args is not None:
+            for a in args:
+                if not re.fullmatch(r'"[^"]*"', a) and a not in ID_EXPRESSIONS:
+                    found.append(where + "\"%s\" carries %s, which is not a device id" % (verb, a))
+        elif verb in TEXT_VERBS:
+            if args is None:
+                found.append(where + "run(\"%s\") argv is not a literal list" % verb)
+            elif how == "run" and args != ALLOWED_ARGS.get(verb, []):
+                found.append(where + "run(\"%s\") argv %s" % (verb, args))
+            elif how == "bridge" and len(args) > 1:
+                found.append(where + "[bridge, \"%s\"] argv %s" % (verb, args))
     name = os.path.basename(path)
     line = lambda m: text.count("\n", 0, m.start()) + 1
     # `call dial|tones <device>` and `contact-open <kind>` carry a number,
@@ -187,6 +268,24 @@ class PrivateText(unittest.TestCase):
             self.assertEqual(len(private_text_in_argv(f.name)), 8, private_text_in_argv(f.name))
         finally:
             os.remove(f.name)
+
+    def test_a_verb_nobody_listed_fails(self):
+        import tempfile
+        planted = ['run("memo", [], "memo", null, t)', 'x = [bridge, "memo", id, text]', 'runOn(id, "memo")',
+                   'launch(["memo", kind], value)', 'x = [root.bridge, "ring", id, note]', 'x = [bridge, "ring", id, "--flag"]']
+        for source, expected in zip(planted, (1, 1, 1, 1, 1, 0)):
+            with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+                f.write(source + "\n")
+            try:
+                self.assertEqual(len(private_text_in_argv(f.name)), expected, source)
+            finally:
+                os.remove(f.name)
+
+    def test_every_listed_verb_is_still_started_and_listed_once(self):
+        started = {v for f in glob.glob(os.path.join(ROOT, "*.qml")) for _, v, _, _ in verbs_started(f)}
+        listed = ID_ONLY_VERBS | TEXT_VERBS | REVIEWED_VERBS
+        self.assertEqual(sorted(listed - started), [])
+        self.assertEqual(len(ID_ONLY_VERBS) + len(TEXT_VERBS) + len(REVIEWED_VERBS), len(listed))
 
 
 class FetchedAttachmentsOpenOnlyWhenAsked(unittest.TestCase):

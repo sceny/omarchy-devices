@@ -37,7 +37,7 @@ import struct
 import tarfile
 import zlib
 
-PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+=,-]{0,119}$")
+PART = re.compile(r"[A-Za-z0-9][A-Za-z0-9._@+=,-]{0,119}")
 LOADED_BY_TOOLS = {
     "claude.md", "claude.local.md", "agents.md", "agents.override.md", "gemini.md", "mise", "copilot-instructions.md",
     "mise.toml", "mise.local.toml", "conftest.py", "sitecustomize.py", "usercustomize.py",
@@ -101,9 +101,9 @@ def refusal(parts):
     if len(parts) > MAX_DEPTH:
         return "name: too deep"
     for p in parts:
-        if not PART.match(p):
+        if not PART.fullmatch(p):
             return "name"
-        if p.lower() in LOADED_BY_TOOLS or re.match(r"^mise\.[a-z0-9._-]+\.toml$", p.lower()):
+        if p.lower() in LOADED_BY_TOOLS or re.fullmatch(r"mise\.[a-z0-9._-]+\.toml", p.lower()):
             return "name: a file that tools load as instructions or settings"
     return None
 
