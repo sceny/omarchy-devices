@@ -1568,6 +1568,18 @@ Panel {
   readonly property bool callReady: !!call && !!phone && phone.callsReady(call.device)
   readonly property bool callMuted: !!call && !!phone && phone.isCallMuted(call.device)
   readonly property var callButtons: Model.callActions(call, callReady, callDevice ? callDevice.can : null, callMuted)
+  // A missed call offers Calls here while it is not set up (#271): the
+  // Calls here row's own click, or No thanks (its switch off).
+  readonly property var callOffer: callDevice ? Model.callOffer(call, featureRowsFor(callDevice)) : null
+  function callOfferPress(key) {
+    var d = callDevice
+    if (!d || !phone) return
+    var id = String(d.id)
+    if (key === "none") { setCallsHere(id, false); return }
+    if (key === "open") { openSettings(); openScope(id); return }
+    var row = featureRowsFor(d).filter(function(r) { return r.key === "callsHere" })[0]
+    if (row) featureAction(row, d)
+  }
   // The keypad, open on the user's click, closed when the call is over.
   property bool callKeypad: false
   // The call's volume here as the user left it (-1: the device's level).
@@ -2818,6 +2830,16 @@ Panel {
       root.phone.readFeatures(String(root.device.id), true)
       return JSON.stringify({ notifications: root.sectionNotes.notifications, card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
+    // Demo: this computer's Bluetooth and the viewed device's match in a
+    // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
+    // row and the missed-call card. Kept until `live`.
+    function demoBluetooth(kind: string): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped"].indexOf(kind) < 0) return "no state " + kind
+      root.phone.showDemoBluetooth(kind)
+      var row = root.device ? root.featureRowsFor(root.device).filter(function(r) { return r.key === "callsHere" })[0] : null
+      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], offer: root.callOffer })
+    }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).
     function demoSetup(): string {
@@ -3008,7 +3030,7 @@ Panel {
     function pressCall(key: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       root.callPress(key)
-      return JSON.stringify({ call: root.call, buttons: root.callButtons.map(function(b) { return b.key }), keypad: root.callKeypad })
+      return JSON.stringify({ call: root.call, buttons: root.callButtons.map(function(b) { return b.key }), keypad: root.callKeypad, offer: root.callOffer })
     }
     function closeCall(): string { if (root.phone) root.phone.closeCall(); return JSON.stringify(root.call) }
     // Demo only: Text back, without focusing the composer (scripted).
@@ -4316,6 +4338,63 @@ Panel {
                         : modelData.kind === "on" ? Color.accent : root.foreground
                       fontFamily: root.fontFamily
                       onClicked: root.callPress(modelData.key)
+                    }
+                  }
+                }
+
+                // A missed call while Calls here is not set up (#271): one
+                // line and its button under the buttons, which do not move.
+                // Its height is the button's, whatever it shows, and it
+                // folds away once Calls here is on or declined.
+                FoldBody {
+                  open: !!root.callOffer && callCard.showing
+                  motion: root.motion
+                  animate: root.settled
+                  RowLayout {
+                    id: offerRow
+                    width: parent.width
+                    spacing: Style.space(8)
+                    readonly property var offer: root.callOffer
+                    property var shown: null
+                    onOfferChanged: if (offer) shown = offer
+                    Component.onCompleted: if (offer) shown = offer
+                    readonly property bool working: !!root.phone && root.phone.isBusy("feature:callsHere")
+                    WaitRing {
+                      visible: !!offerRow.shown && offerRow.shown.waiting
+                      running: visible
+                      color: root.dim
+                      size: Math.round(Style.font.caption * 0.9)
+                      Layout.alignment: Qt.AlignVCenter
+                    }
+                    Text {
+                      Layout.fillWidth: true
+                      Layout.alignment: Qt.AlignVCenter
+                      textFormat: Text.PlainText
+                      elide: Text.ElideRight
+                      text: offerRow.shown ? offerRow.shown.text : ""
+                      color: offerRow.shown && offerRow.shown.kind === "failed" ? root.urgent : root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+                    Button {
+                      readonly property bool active: !!offerRow.shown && offerRow.shown.action !== ""
+                      Layout.maximumWidth: active ? implicitWidth : 0
+                      opacity: active ? 1 : 0
+                      enabled: active && !offerRow.working
+                      text: offerRow.working ? "Working…" : (offerRow.shown ? offerRow.shown.label : "")
+                      bordered: true
+                      foreground: root.foreground
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      onClicked: root.callOfferPress(offerRow.shown.action)
+                    }
+                    Button {
+                      text: "No thanks"
+                      tooltipText: "Turns Calls here off for " + Model.deviceLabel(root.callDevice)
+                      foreground: root.dim
+                      fontFamily: root.fontFamily
+                      fontSize: Style.font.caption
+                      onClicked: root.callOfferPress("none")
                     }
                   }
                 }

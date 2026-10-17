@@ -17,6 +17,10 @@ one left to you:
 3. The phone paired under its own name is used for calls and connected.
    With two phones and neither by that name, rename one on the phone.
 
+The offer also shows on a missed call's card, where you want to call
+back: **Set up** there runs the same steps, and *Open Calls here* opens
+this page's row if a step failed. *No thanks* turns the switch off.
+
 Until you answer or call here, the audio stays on the phone: a call you
 answer on the phone is not taken over by the computer.
 

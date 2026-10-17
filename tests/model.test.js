@@ -1589,6 +1589,50 @@ test("calls here as a feature: Bluetooth here, then the device paired, confirmed
   assert.equal(M.bluetoothCandidate("Pixel 8", two, ["A"]).address, "B")
 })
 
+test("the missed-call card offers Calls here while it is not set up (#271); the ringing card never does", () => {
+  const report = M.demoFeatures()
+  const rows = (bluetooth, handsfree, more = {}) => M.featureRows(report, null, "Pixel 8", [], more.own || {},
+    Object.assign({ bluetooth, handsfree, reachable: true, deviceName: "Pixel 8" }, more))
+  const bt = M.demoBluetooth("Pixel 8")
+  const missed = M.callState({ id: "d1", reachable: true, call: M.demoCall("missed", 1_000_000) }, 1_000_000, 0, true)
+  const ringing = M.callState({ id: "d1", reachable: true, call: M.demoCall("ringing", 1_000_000) }, 1_000_000, 0, true)
+  const offer = (list, call = missed) => M.callOffer(call, list)
+  const pending = (list, p) => list.map(r => r.key === "callsHere" ? Object.assign({}, r, { pending: p }) : r)
+  // Set up and working: nothing to offer; the card calls back here.
+  assert.equal(offer(rows(bt, M.demoHandsfree("Pixel 8"))), null)
+  // Turned off: the user said no. Away, or not offered on the device: nothing can be set up now.
+  assert.equal(offer(rows(bt, null, { own: { callsHere: false } })), null)
+  assert.equal(offer(rows(bt, M.demoHandsfree("Pixel 8"), { reachable: false })), null)
+  assert.equal(offer(rows(Object.assign({}, bt, { present: false }), null)), null, "no Bluetooth adapter")
+  assert.equal(offer(rows(bt, null).map(r => r.key === "calls" ? Object.assign({}, r, { state: "setup" }) : r)), null, "no phone permission")
+  // Bluetooth off here, or the phone not kept yet: the row's click, every step the plugin can do.
+  assert.deepEqual(offer(rows(Object.assign({}, bt, { powered: false }), null)), { kind: "setup", text: "Call back with this computer's audio", action: "setup", label: "Set up", waiting: false })
+  assert.equal(offer(rows(bt, null)).action, "setup")
+  // Not paired: Set up opens Omarchy's Bluetooth; then it waits and carries on by itself.
+  const unpaired = rows(Object.assign({}, bt, { phones: [] }), null)
+  assert.equal(offer(unpaired).action, "setup")
+  const waiting = offer(pending(unpaired, { wait: true, waitFor: "bt:pair", text: "On the phone…", failed: false }))
+  assert.deepEqual([waiting.kind, waiting.text, waiting.action, waiting.waiting], ["waiting", "Waiting for the phone to pair…", "", true])
+  // Paired, not connected: Connect; with nothing the plugin can do, the plain ask.
+  const dropped = rows(bt, Object.assign({}, M.demoHandsfree("Pixel 8"), { connected: false }))
+  assert.deepEqual([offer(dropped).text, offer(dropped).action, offer(dropped).label], ["Not connected over Bluetooth", "connect", "Connect"])
+  const noPlan = dropped.map(r => r.key === "callsHere" ? Object.assign({}, r, { steps: r.steps.map(s => Object.assign({}, s, { kind: "ask" })) }) : r)
+  assert.deepEqual([offer(noPlan).kind, offer(noPlan).action, offer(noPlan).text], ["ask", "", "Turn Bluetooth on, on Pixel 8"])
+  // A step failed: one plain line, and the row's page.
+  const failed = offer(pending(dropped, { wait: false, failed: true, text: "Did not install" }))
+  assert.deepEqual([failed.kind, failed.text, failed.action, failed.label], ["failed", "Did not install", "open", "Open Calls here"])
+  // The demo's Bluetooth states (demoBluetooth) give exactly these rows.
+  const demoOffer = kind => { const st = M.demoBluetoothState(kind, "Pixel 8"); return offer(rows(st.bluetooth, st.handsfree)) }
+  assert.equal(demoOffer("ready"), null)
+  assert.equal(demoOffer("adapter"), null)
+  assert.deepEqual(["off", "unpaired", "unkept"].map(k => demoOffer(k).action), ["setup", "setup", "setup"])
+  assert.equal(demoOffer("dropped").action, "connect")
+  // The ringing card, and a call placed or answered here, never offer it.
+  assert.equal(offer(rows(bt, null), ringing), null)
+  assert.equal(offer(rows(bt, null), Object.assign({}, missed, { here: true })), null)
+  assert.equal(M.callOffer(null, rows(bt, null)), null)
+})
+
 test("This computer lists Bluetooth and the calls audio, optional: they never light the dot", () => {
   const rows = M.connectionRows([{ key: "bluetooth", ok: false, optional: true, status: "Off", fix: "bluetooth-on", fixLabel: "Turn on" }, { key: "handsfree", ok: true, optional: true, status: "Ready" }], [])
   assert.deepEqual(rows.map(r => [r.label, r.optional]), [["Bluetooth", true], ["Calls in this computer's audio", true]])

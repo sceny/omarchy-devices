@@ -823,6 +823,31 @@ function callActions(call, ready, can, muted) {
   return out
 }
 
+// The missed-call card's offer of Calls here (#271), from the device's
+// feature rows (`rows`): null while there is nothing to set up or nothing
+// can be (the ringing card never offers it; it has no time for setup).
+// { kind: "setup" | "connect" | "waiting" | "failed" | "ask", text, action:
+// "setup" | "connect" | "open" | "" (the button), label, waiting }. The
+// Calls here row's plan is the click's: every step the plugin can do.
+function callOffer(call, rows) {
+  if (!call || call.state !== "missed" || call.here) return null
+  var by = {}
+  ;(rows || []).forEach(function(r) { by[r.key] = r })
+  var row = by.callsHere, calls = by.calls
+  if (!row || (calls && calls.state !== "on")) return null
+  if (row.state !== "setup" && row.state !== "attention") return null
+  var p = row.pending || null
+  if (p && p.failed) return { kind: "failed", text: p.text || "That did not work", action: "open", label: "Open Calls here", waiting: false }
+  if (p && p.wait) return { kind: "waiting", text: p.waitFor === "bt:pair" ? "Waiting for the phone to pair…" : "Waiting for it…", action: "", label: "", waiting: true }
+  var steps = row.steps || []
+  if (steps.length === 0) return null
+  if (row.state === "attention") {
+    if (featurePlan(row).length > 0) return { kind: "connect", text: row.detail || "Not connected over Bluetooth", action: "connect", label: "Connect", waiting: false }
+    return { kind: "ask", text: steps[0].orAsk || row.detail || "Not connected over Bluetooth", action: "", label: "", waiting: false }
+  }
+  return { kind: "setup", text: "Call back with this computer's audio", action: "setup", label: "Set up", waiting: false }
+}
+
 // The second call's line and its buttons: a call waiting while one goes on
 // (answer it and hold this one, end this one and answer, decline), or one
 // on hold (swap, join them).
@@ -2181,6 +2206,20 @@ var DEMO_BT_ADDRESS = "00:11:22:33:44:55"
 function demoBluetooth(deviceName) {
   return { bluez: true, present: true, powered: true, handsfree: true, service: true,
            phones: [{ address: DEMO_BT_ADDRESS, name: deviceName || "Pixel 8", paired: true, connected: true, gateway: true }] }
+}
+// Demo: this computer's Bluetooth and the device's match in a state to
+// look at: "" or "ready"; "off" (Bluetooth off here); "adapter" (none here);
+// "unpaired" (the phone not paired); "unkept" (paired, not kept for calls
+// yet); "dropped" (kept, not connected now).
+function demoBluetoothState(kind, deviceName) {
+  var bt = demoBluetooth(deviceName)
+  var hf = demoHandsfree(deviceName)
+  if (kind === "off") bt.powered = false
+  else if (kind === "adapter") { bt.present = false; bt.powered = false }
+  else if (kind === "unpaired") { bt.phones = []; hf = null }
+  else if (kind === "unkept") hf = null
+  else if (kind === "dropped") hf.connected = false
+  return { bluetooth: bt, handsfree: hf }
 }
 function demoHandsfree(deviceName, calls, ended, audio) {
   return { address: DEMO_BT_ADDRESS, name: deviceName || "Pixel 8", paired: true, connected: true, audio: audio || "idle",
