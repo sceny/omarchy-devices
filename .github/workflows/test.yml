@@ -16,7 +16,7 @@ jobs:
         with:
           node-version: 22
       - name: PyGObject for the bridge, qmlformat for the QML
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi gir1.2-gdkpixbuf-2.0 qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qttest qml6-module-qtquick-window
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq python3-gi gir1.2-gdkpixbuf-2.0 qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qttest qml6-module-qtquick-window qml6-module-qtqml-workerscript
       - name: QML parses (a syntax error takes the whole widget off the bar)
         run: |
           fmt=$(ls /usr/lib/qt6/bin/qmlformat /usr/lib/x86_64-linux-gnu/qt6/bin/qmlformat 2>/dev/null | head -1)
