@@ -220,7 +220,8 @@ dev/rig phone status        # battery N, notify T X, sms 555... X, call 555..., 
 dev/rig restart-shell       # after a change to Panel.qml, Model.js and the like
 dev/loaded-code DIR         # does the running shell run DIR's files? (IPC functions; exit 1: restart it)
 dev/rig check               # every check against the running rig (the phone's battery, a notification,
-                            # a call, the screen link and its window, the host left untouched)
+                            # a call, the demo conversation opening with no binding loop in the log, the screen link
+                            # and its window, the host left untouched; it checks the code the shell has loaded)
 dev/rig ci                  # up, check, down in one command
 dev/rig ps | reap | verify-clean | logs <name> | exec -- <cmd> | selftest
 ```

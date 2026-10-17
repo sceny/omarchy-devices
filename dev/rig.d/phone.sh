@@ -570,6 +570,23 @@ rig_ipc_status_ok() {
   rig_ipc status | jq -e '.daemon == true and .reachable == true' >/dev/null
 }
 
+# The demo conversation (thread 9001) has a picture message whose preview is
+# absent in a fresh rig, which is what once made its bubble loop on itself.
+rig_demo_conversation_opens() {
+  rig_ipc demo "" >/dev/null || return 1
+  rig_ipc openThread 9001 >/dev/null || return 1
+  local deadline=$((SECONDS + 15))
+  while ((SECONDS < deadline)); do
+    rig_ipc smsStatus | jq -e '.open == 9001 and .loaded > 0' >/dev/null && { sleep 1; return 0; }
+    sleep 0.5
+  done
+  return 1
+}
+
+rig_shell_log_has_no_binding_loop_since() {
+  ! tail -n +"$(($1 + 1))" "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
+}
+
 rig_bridge_ns() { timeout 90 "${RIG_IN_NS[@]}" "$RIG_PLUGIN_SRC_ABS/bin/kdeconnect-bridge" "$@"; }
 
 rig_phone_id() { rig_bridge_snapshot | jq -r '.devices[0].id'; }

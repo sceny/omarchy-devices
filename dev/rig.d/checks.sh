@@ -321,6 +321,13 @@ rig_check_devices() {
   rig_phone_call_end 5550123
   rig_assert_eventually devices-call-ended 30 "the call is still shown after it ended" \
     rig_ipc_call_is_not ringing
+  local log_mark
+  log_mark=$(wc -l <"$RIG_LOGS/shell.log")
+  rig_assert devices-conversation-opens "the demo conversation does not open" \
+    rig_demo_conversation_opens
+  rig_assert devices-conversation-no-binding-loop "opening a conversation logs a binding loop" \
+    rig_shell_log_has_no_binding_loop_since "$log_mark"
+  rig_ipc demo live >/dev/null 2>&1
   rig_assert_eventually devices-screen-ready 30 "the screen link does not find the emulator" \
     rig_screen_ready
   rig_assert devices-screen-opens "scrcpy does not open the emulator's screen in the hidden session" \
