@@ -10,6 +10,11 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Passwords never leave with your own auto-share**: when you turned
+  automatic sharing on for a device in KDE Connect, the copies a password
+  manager marks still went to it. The plugin now also writes
+  `sendPassword=false` when you set none, and keeps a `sendPassword=true`
+  you wrote ([#286](https://github.com/sceny/omarchy-devices/issues/286)).
 - **The Contacts and Messages pages keep their key hints in view**: with
   the ask or a problem line above the page, it now takes the card's
   remaining height instead of a fixed 600 px, so the hints show on a 720 px
