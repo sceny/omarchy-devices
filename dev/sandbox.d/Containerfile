@@ -16,7 +16,7 @@ FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2
 ARG ARCHIVE_DATE=2026/10/18
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
- && printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n' >>/etc/pacman.conf \
+ && sed -i '1i [omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n' /etc/pacman.conf \
  && pacman -Syu --noconfirm --needed \
       hyprland quickshell labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
       glycin iproute2 dbus ffmpeg bubblewrap \
