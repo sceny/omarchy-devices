@@ -1993,6 +1993,20 @@ test("Fix with AI: a quote or control character in a value cannot leave its quot
   assert.equal(M.aiQuote(undefined), '""')
 })
 
+test("a page of messages is matched with what was asked, not with what is loaded now", () => {
+  const ev = { thread: 4, start: 0, messages: [{ uid: 9 }, { uid: 8 }, { uid: 7 }] }
+  const none = () => false
+  assert.deepEqual(M.messagePage(ev, 4, 0, 0, none), { add: ev.messages, loadedCount: 3 })
+  // A live message came in while it was on its way: the page still lands, and the count moves by what was added.
+  const live = uid => uid === 9
+  const landed = M.messagePage(ev, 4, 0, 1, live)
+  assert.deepEqual(landed.add.map(m => m.uid), [8, 7])
+  assert.equal(landed.loadedCount, 3)
+  assert.equal(M.messagePage(ev, 5, 0, 0, none), null, "another conversation")
+  assert.equal(M.messagePage(ev, 4, 30, 0, none), null, "another request")
+  assert.equal(M.messagePage(ev, 4, -1, 0, none), null, "none asked")
+})
+
 test("a text-message notification never opens another conversation", () => {
   const row = (tid, title, keys, snippet, date, extra) => Object.assign({ tid, title, addressKeys: keys, snippet, date, sentLast: false }, extra)
   // A short number is matched whole, not as a piece of a longer one.

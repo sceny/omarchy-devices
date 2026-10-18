@@ -16,6 +16,11 @@ GitHub release with these notes.
   unfolded, descriptions are a few words, and each group's **Open** (or
   `Shift+O`) goes to its page or section and marks it for a moment
   ([#352](https://github.com/sceny/omarchy-devices/issues/352)).
+- **A conversation loads whole when a message arrives as it opens**: a live
+  message for the open conversation moved the loaded count on before the
+  history page came, and the page was then taken for another request and
+  dropped, leaving only the newest message until the conversation was left
+  and opened again. The page is now matched with what was asked.
 - **Dismiss all says one thing when some stay**: when the phone ignored
   several notifications, each row raised its own "did not dismiss it" line;
   the press now says once how many stayed, and a single row's X keeps its

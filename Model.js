@@ -3889,6 +3889,19 @@ function photosSummary(photos) {
 var CAP_THREADS = 5000
 function threadOverflow(count) { return Math.max(0, count - CAP_THREADS) }
 
+// A page of the open conversation, answering a request for `askedStart`: the
+// messages to add and the new count loaded, or null when it answers another
+// conversation or another request. A live message that arrived while the page
+// was on its way moved the count on, so the page is matched with what was
+// asked, not with what is loaded now, and what it holds twice is added once.
+function messagePage(ev, openThreadId, askedStart, loadedCount, haveUid) {
+  if (!ev || ev.thread !== openThreadId || ev.start !== askedStart) return null
+  var add = []
+  for (var i = 0; i < ev.messages.length; i++)
+    if (!haveUid(ev.messages[i].uid)) add.push(ev.messages[i])
+  return { add: add, loadedCount: loadedCount + add.length }
+}
+
 // Where each conversation sits in the thread list, by id, kept beside the
 // ListModel so a thread event finds its row without reading the list. Every
 // change to the list is made here too (SmsService.qml `threadRows`).
