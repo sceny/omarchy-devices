@@ -201,6 +201,10 @@ test("media: player app from identity, phone players only, track line, times", (
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.org.example.kdeconnect_helper", "Podcasts - Pixel 8", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnectfake", "Podcasts - Pixel 8", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.example.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), false)
+  // with no device name, as the call pause asks: any phone player, not a look-alike
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "", ""), true)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.org.example.kdeconnect_helper", "", ""), false)
+  assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnectfake", "", ""), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.", "Podcasts - Pixel 8", "Pixel 8"), false)
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts", ""), true)
   assert.equal(M.trackLine("Ep 1", "Ep 1"), "Ep 1")
