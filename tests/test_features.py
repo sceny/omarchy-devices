@@ -79,6 +79,39 @@ class Permissions(unittest.TestCase):
         self.assertFalse(bridge.grant_permission("SERIAL", "unknown", phone))
 
 
+class LateListener(FakePhone):
+    """The listener grant shows in the settings only from the `late`-th read."""
+    def __init__(self, late):
+        super().__init__(listener=False)
+        self.late, self.reads = late, 0
+
+    def __call__(self, args, timeout=10):
+        if args[:1] == ["settings"]:
+            self.ran.append(args)
+            self.reads += 1
+            return 0, ("other/x.Listener:" + bridge.LISTENER) if self.reads >= self.late else "other/x.Listener"
+        return super().__call__(args, timeout)
+
+
+class ListenerGrantLands(unittest.TestCase):
+    def test_a_grant_that_shows_a_moment_later_counts(self):
+        phone, waited = LateListener(late=3), []
+        self.assertTrue(bridge.grant_permission("SERIAL", "notifications", phone, sleep=waited.append))
+        self.assertEqual(phone.reads, 3)
+        self.assertEqual(waited, [bridge.LISTENER_READ_GAP_SEC] * 2)
+
+    def test_a_grant_that_never_shows_is_not_allowed_after_a_few_reads(self):
+        phone, waited = LateListener(late=99), []
+        self.assertFalse(bridge.grant_permission("SERIAL", "notifications", phone, sleep=waited.append))
+        self.assertEqual(phone.reads, bridge.LISTENER_READS)
+        self.assertLessEqual(sum(waited), 3, "the user is not kept waiting")
+
+    def test_the_other_permissions_are_read_once(self):
+        phone, waited = FakePhone(files=False), []
+        self.assertTrue(bridge.grant_permission("SERIAL", "storage", phone, sleep=waited.append))
+        self.assertEqual(waited, [])
+
+
 class FakePacman:
     """pacman answers: installed packages, and what -Sp would install."""
     def __init__(self, installed, deps):
