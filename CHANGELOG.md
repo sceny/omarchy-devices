@@ -15,6 +15,9 @@ GitHub release with these notes.
   history page came, and the page was then taken for another request and
   dropped, leaving only the newest message until the conversation was left
   and opened again. The page is now matched with what was asked.
+- **The call button in a conversation shows only for a number you can
+  dial**: a service's short code or a sender's name no longer gets one
+  ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes
