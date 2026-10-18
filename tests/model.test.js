@@ -1949,7 +1949,7 @@ test("Fix with AI: a quote or control character in a value cannot leave its quot
   assert.equal(M.aiQuote(undefined), '""')
 })
 
-test("a text-message notification never opens another conversation (#669)", () => {
+test("a text-message notification never opens another conversation", () => {
   const row = (tid, title, keys, snippet, date, extra) => Object.assign({ tid, title, addressKeys: keys, snippet, date, sentLast: false }, extra)
   // A short number is matched whole, not as a piece of a longer one.
   const longer = [row(1, "Alex", "5145551234", "Hi", 5), row(2, "55512", "55512", "Code 1", 4)]
