@@ -995,5 +995,138 @@ class Reencode(unittest.TestCase):
         self.assertNotIn(b"HOSTILE-TEXT", data)
 
 
+
+class SignalHandlingCleanup(unittest.TestCase):
+    """Verify that INT/TERM/HUP traps call podman rm immediately, backgrounded."""
+
+    def test_int_fires_and_calls_cleanup(self):
+        """INT signal fires the trap immediately and calls podman rm, backgrounded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "events.log")
+            stub_podman = os.path.join(tmpdir, "podman")
+            
+            with open(stub_podman, "w") as f:
+                f.write(f"""#!/bin/bash
+if [[ "$*" == *"rm -f -v -t 0"* ]]; then
+    echo "cleanup_called" >> {log_file}
+    exit 0
+elif [[ "$*" == *"run"* ]]; then
+    sleep 2
+    exit 0
+fi
+exit 1
+""")
+            os.chmod(stub_podman, 0o755)
+            
+            test_script = os.path.join(tmpdir, "test.sh")
+            with open(test_script, "w") as f:
+                f.write(f"""#!/bin/bash
+export PATH={tmpdir}:/usr/bin:/usr/local/bin
+trap 'podman rm -f -v -t 0 test-ctr; exit 130' INT TERM HUP
+(podman run --name test-ctr test-image) &
+sleep 0.1
+kill -INT $$
+wait 2>/dev/null || true
+exit $?
+""")
+            os.chmod(test_script, 0o755)
+            
+            r = subprocess.run(["bash", test_script], capture_output=True, text=True, timeout=10)
+            
+            events = []
+            if os.path.exists(log_file):
+                with open(log_file) as f:
+                    events = f.read().strip().split('\n')
+            
+            self.assertIn("cleanup_called", events, f"Cleanup should be called in {events}")
+            self.assertEqual(r.returncode, 130)
+
+    def test_term_fires_and_calls_cleanup(self):
+        """TERM signal fires the trap immediately and calls podman rm, backgrounded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "events.log")
+            stub_podman = os.path.join(tmpdir, "podman")
+            
+            with open(stub_podman, "w") as f:
+                f.write(f"""#!/bin/bash
+if [[ "$*" == *"rm -f -v -t 0"* ]]; then
+    echo "cleanup_called" >> {log_file}
+    exit 0
+elif [[ "$*" == *"run"* ]]; then
+    sleep 2
+    exit 0
+fi
+exit 1
+""")
+            os.chmod(stub_podman, 0o755)
+            
+            test_script = os.path.join(tmpdir, "test.sh")
+            with open(test_script, "w") as f:
+                f.write(f"""#!/bin/bash
+export PATH={tmpdir}:/usr/bin:/usr/local/bin
+trap 'podman rm -f -v -t 0 test-ctr; exit 143' INT TERM HUP
+(podman run --name test-ctr test-image) &
+sleep 0.1
+kill -TERM $$
+wait 2>/dev/null || true
+exit $?
+""")
+            os.chmod(test_script, 0o755)
+            
+            r = subprocess.run(["bash", test_script], capture_output=True, text=True, timeout=10)
+            
+            events = []
+            if os.path.exists(log_file):
+                with open(log_file) as f:
+                    events = f.read().strip().split('\n')
+            
+            self.assertIn("cleanup_called", events, f"Cleanup should be called in {events}")
+            self.assertEqual(r.returncode, 143)
+
+    def test_hup_fires_and_calls_cleanup(self):
+        """HUP signal fires the trap immediately and calls podman rm, backgrounded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_file = os.path.join(tmpdir, "events.log")
+            stub_podman = os.path.join(tmpdir, "podman")
+            
+            with open(stub_podman, "w") as f:
+                f.write(f"""#!/bin/bash
+if [[ "$*" == *"rm -f -v -t 0"* ]]; then
+    echo "cleanup_called" >> {log_file}
+    exit 0
+elif [[ "$*" == *"run"* ]]; then
+    sleep 2
+    exit 0
+fi
+exit 1
+""")
+            os.chmod(stub_podman, 0o755)
+            
+            test_script = os.path.join(tmpdir, "test.sh")
+            with open(test_script, "w") as f:
+                f.write(f"""#!/bin/bash
+export PATH={tmpdir}:/usr/bin:/usr/local/bin
+trap 'podman rm -f -v -t 0 test-ctr; exit 129' INT TERM HUP
+(podman run --name test-ctr test-image) &
+sleep 0.1
+kill -HUP $$
+wait 2>/dev/null || true
+exit $?
+""")
+            os.chmod(test_script, 0o755)
+            
+            r = subprocess.run(["bash", test_script], capture_output=True, text=True, timeout=10)
+            
+            events = []
+            if os.path.exists(log_file):
+                with open(log_file) as f:
+                    events = f.read().strip().split('\n')
+            
+            self.assertIn("cleanup_called", events, f"Cleanup should be called in {events}")
+            self.assertEqual(r.returncode, 129)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
