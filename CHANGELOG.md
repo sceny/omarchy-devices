@@ -10,6 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A message notification opens its own conversation**: a sender whose
+  name this computer does not know ("Name (Alert)"), or a short code that
+  sits inside a longer number, could open another conversation, or the one
+  left open before. The notification now finds its conversation by name,
+  then by the exact number, then by the message itself, and opens none when
+  it cannot tell: the list, searched for the sender.
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes
