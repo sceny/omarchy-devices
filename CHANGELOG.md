@@ -14,6 +14,10 @@ GitHub release with these notes.
   several notifications, each row raised its own "did not dismiss it" line;
   the press now says once how many stayed, and a single row's X keeps its
   own line ([#287](https://github.com/sceny/omarchy-devices/issues/287)).
+
+- **The call button in a conversation shows only for a number you can
+  dial**: a service's short code or a sender's name no longer gets one
+  ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes

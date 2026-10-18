@@ -222,6 +222,19 @@ test("messages: numbers, titles, avatars", () => {
   assert.equal(M.avatarInitial("+1 514"), "#")
 })
 
+test("isDialable: phone numbers only, never a short code or a sender name", () => {
+  assert.equal(M.isDialable("+15145550123"), true)
+  assert.equal(M.isDialable("514-555-0123"), true)
+  assert.equal(M.isDialable("(514) 555 0123"), true)
+  assert.equal(M.isDialable("555-0199"), true)
+  assert.equal(M.isDialable("55555"), false)
+  assert.equal(M.isDialable("555123"), false)
+  assert.equal(M.isDialable("Dr. Moreau"), false)
+  assert.equal(M.isDialable("BANK-ALERT"), false)
+  assert.equal(M.isDialable(""), false)
+  assert.equal(M.isDialable(undefined), false)
+})
+
 test("messages: thread times and day headers", () => {
   const now = new Date(2026, 8, 26, 10, 0).getTime()
   const at = (y, m, d, h = 9) => new Date(y, m, d, h).getTime()
