@@ -4708,6 +4708,23 @@ def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
 
+def screen_close(device_id):
+    """Closes the device's screen window. The watcher removes the window's
+    log when it ends; with none running, nobody would, so it goes here too."""
+    title = screen_title((screen_device(device_id) or {}).get("name") or "Device")
+    win = find_window(title)
+    if win:
+        subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"])],
+                       capture_output=True, timeout=5)
+    log = screen_log(title)
+    try:
+        if log:
+            os.remove(log)
+    except OSError:
+        pass
+    return EXIT_OK
+
+
 def screen_log(title):
     """The two kinds of line from scrcpy the watcher reads, kept for a window
     (see SCREEN_LOG_LINES): "Texture: WxH" is the moment the device's frame
@@ -6907,12 +6924,7 @@ def main(argv):
         # windows: scrcpy ends, the window fades out.
         if len(argv) < 2:
             return say("screen-close needs a device id", EXIT_FAILED)
-        device = screen_device(argv[1]) or {}
-        win = find_window(screen_title(device.get("name") or "Device"))
-        if win:
-            subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"])],
-                           capture_output=True, timeout=5)
-        return EXIT_OK
+        return screen_close(argv[1])
     if argv[0] == "screen-focus":
         if len(argv) < 2:
             return say("screen-focus needs a device id", EXIT_FAILED)

@@ -1683,6 +1683,23 @@ class Screen(unittest.TestCase):
         self.addCleanup(patch.stop)
         self.addCleanup(shutil.rmtree, run, True)
 
+    def test_a_close_with_no_watcher_removes_the_log(self):
+        title = bridge.screen_title("Pixel 8")
+        log = bridge.screen_log(title)
+        for window in ({"address": "0xabc"}, None):
+            with open(log, "w") as f:
+                f.write("[server] INFO: DisplayMonitor: 1080x2400 [rotation=0] -> 2400x1080 [rotation=1]\n")
+            ran = []
+            with mock.patch.object(bridge, "screen_device", return_value=self.PHONE), \
+                 mock.patch.object(bridge, "find_window", return_value=window), \
+                 mock.patch.object(bridge.subprocess, "run", side_effect=lambda args, **kw: ran.append(args)):
+                self.assertEqual(bridge.screen_close("p1"), bridge.EXIT_OK)
+            self.assertFalse(os.path.exists(log), "the log goes with the window: %s" % window)
+            self.assertEqual(len(ran), 1 if window else 0, "the window is closed only when there is one")
+        with mock.patch.object(bridge, "screen_device", return_value=self.PHONE), \
+             mock.patch.object(bridge, "find_window", return_value=None):
+            self.assertEqual(bridge.screen_close("p1"), bridge.EXIT_OK, "no log, no window: still fine")
+
     def test_scrcpy_version(self):
         self.assertEqual(bridge.scrcpy_version("scrcpy 4.1 <https://github.com/Genymobile/scrcpy>"), (4, 1))
         self.assertEqual(bridge.scrcpy_version(""), ())
