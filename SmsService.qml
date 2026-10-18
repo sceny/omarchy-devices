@@ -37,6 +37,7 @@ Item {
   property bool loading: false
   property bool hasMore: false
   property int loadedCount: 0
+  property int askedStart: -1
   readonly property int pageSize: 30
 
   // What was read here: thread id -> date of the newest message seen on this
@@ -367,7 +368,10 @@ Item {
 
   function loadMore() {
     if (openThreadId < 0 || loading || !hasMore) return
-    if (send({ cmd: "load", thread: openThreadId, start: loadedCount, count: pageSize })) loading = true
+    if (send({ cmd: "load", thread: openThreadId, start: loadedCount, count: pageSize })) {
+      askedStart = loadedCount
+      loading = true
+    }
   }
 
   function indexOfMessage(uid) {
@@ -519,12 +523,10 @@ Item {
       if (ev.thread === openThreadId) closeThread()
       modelRevision++
     } else if (ev.ev === "messages") {
-      if (ev.thread !== openThreadId || ev.start !== loadedCount) return
-      for (var j = 0; j < ev.messages.length; j++) {
-        var m = ev.messages[j]
-        if (indexOfMessage(m.uid) < 0) messageModel.append(messageRow(m))
-      }
-      loadedCount += ev.messages.length
+      var page = Model.messagePage(ev, openThreadId, askedStart, loadedCount, function(uid) { return indexOfMessage(uid) >= 0 })
+      if (!page) return
+      for (var j = 0; j < page.add.length; j++) messageModel.append(messageRow(page.add[j]))
+      loadedCount = page.loadedCount
       hasMore = ev.hasMore === true && ev.messages.length > 0
       loading = false
       refreshDays()

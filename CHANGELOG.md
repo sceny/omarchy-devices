@@ -10,6 +10,11 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A conversation loads whole when a message arrives as it opens**: a live
+  message for the open conversation moved the loaded count on before the
+  history page came, and the page was then taken for another request and
+  dropped, leaving only the newest message until the conversation was left
+  and opened again. The page is now matched with what was asked.
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes
