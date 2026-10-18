@@ -18,6 +18,7 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
  && (printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n\n'; cat /etc/pacman.conf) >/tmp/pacman.conf.new \
  && mv /tmp/pacman.conf.new /etc/pacman.conf \
+ && pacman-key --init && pacman-key --populate archlinux && pacman-key --recv-keys F0134EE680CAC571 && pacman-key --lsign-key F0134EE680CAC571 \
  && pacman -Syu --noconfirm --needed \
       hyprland quickshell labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
       glycin iproute2 dbus ffmpeg bubblewrap \
