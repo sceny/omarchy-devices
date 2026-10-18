@@ -10,6 +10,11 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A media session is not a notification**: when KDE Connect does not
+  export an app's player, its playback notification (Previous, Play, Next,
+  not dismissable) showed in Notifications with no Now playing beside it.
+  It is hidden by its shape, as the phone keeps it in its media area
+  ([#350](https://github.com/sceny/omarchy-devices/issues/350)).
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes

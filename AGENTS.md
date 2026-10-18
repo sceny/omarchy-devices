@@ -466,8 +466,10 @@ one only with the owner.
   window the user goes on in, so the panel closes; a gallery tile or a
   received file opens and the panel stays, to open the next one.
 - **Playback notifications are not notifications here**: from an app with a
-  media player now, naming its track or not dismissable. The media card
-  already shows them; the phone keeps them out of its list too.
+  media player now, naming its track or not dismissable; or, with no player
+  exported, one that cannot be dismissed and whose buttons are transport
+  controls (`Model.isMediaSession`). The media card already shows the first;
+  the phone keeps them all out of its list too.
 - **What the phone hides is hidden here** (KDE Connect forwards it): One
   UI's own "1 more notification" (`isHiddenSummary`), and a player paused
   as long as Android takes to hide it (`PLAYER_HIDE_MS`, 10 minutes; the
