@@ -10,6 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A message notification opens its own conversation**: a sender whose
+  name this computer does not know ("Name (Alert)"), or a short code that
+  sits inside a longer number, could open another conversation, or the one
+  left open before. The notification now finds its conversation by name,
+  then by the exact number, then by the message itself, and opens none when
+  it cannot tell: the list, searched for the sender.
 - **The call button in a conversation shows only for a number you can
   dial**: a service's short code or a sender's name no longer gets one
   ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
