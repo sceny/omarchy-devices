@@ -495,6 +495,8 @@ Panel {
       // runs (another monitor's panel may still show it).
       if (phone && phone.rootAsk && phone.openPanels <= 1) phone.cancelRoot()
       if (screenOpening) openingGone.restart()
+      // A field that held the keyboard at close must not hold it at the next open.
+      keyCatcher.forceActiveFocus()
     }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
@@ -3312,6 +3314,8 @@ Panel {
     }
     function moveBar(key: string, delta: int): string { root.moveBarIndicator(key, delta); return JSON.stringify(root.barIndicators) }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
+    // Who holds the keyboard: the key catcher, not a text field.
+    function focusInfo(): string { return JSON.stringify({ keyCatcher: keyCatcher.activeFocus, blocked: keyCatcher.blocked }) }
     // What the panel is showing, so a check can assert on the picture.
     function status(): string {
       return JSON.stringify({
