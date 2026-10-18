@@ -10,6 +10,10 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Dismiss all says one thing when some stay**: when the phone ignored
+  several notifications, each row raised its own "did not dismiss it" line;
+  the press now says once how many stayed, and a single row's X keeps its
+  own line ([#287](https://github.com/sceny/omarchy-devices/issues/287)).
 - **A message notification opens its own conversation**: a sender whose
   name this computer does not know ("Name (Alert)"), or a short code that
   sits inside a longer number, could open another conversation, or the one
