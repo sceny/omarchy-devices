@@ -2203,14 +2203,15 @@ function featuresSummary(rows) {
 
 // Demo: a made-up device's report, with one feature to set up and one off;
 // `kind` "ask" leaves notification access to allow, "stopped" its
-// notifications stopped arriving.
+// notifications stopped arriving, "broke" the contacts permission is gone
+// again (the panel adds the failed Allow).
 function demoFeatures(kind) {
   var plugins = {}
   ;["notifications", "sms", "contacts", "mprisremote", "telephony", "sftp", "share", "clipboard", "findmyphone", "battery", "ping"].forEach(function(k) {
     plugins[k] = { on: k !== "clipboard", offered: true, loaded: k !== "clipboard" }
   })
   return { reachable: true, paired: true, links: ["LAN"], plugins: plugins,
-           permissions: { notifications: kind !== "ask", sms: true, contacts: kind !== "ask", phone: true, storage: true },
+           permissions: { notifications: kind !== "ask", sms: true, contacts: kind !== "ask" && kind !== "broke", phone: true, storage: true },
            files: { sshfs: true, mounted: true, error: "" }, network: demoNetwork(""),
            notifications: kind === "stopped" ? { here: 0, device: 5 } : { here: null, device: null } }
 }

@@ -720,5 +720,27 @@ class DeviceFilesGoThroughTheGate(unittest.TestCase):
                 os.remove(f.name)
 
 
+class ContactsPageFitsTheCard(unittest.TestCase):
+    """The Contacts page is never taller than the card can be (#332): a fixed
+    600 px under the header and the ask pushed its key hints below the fold on
+    a 720 px screen."""
+
+    def height_line(self, text):
+        body = text[text.index("ContactsView {"):]
+        body = body[:body.index("\n              }\n")]
+        return body[body.index("height:"):body.index("onReported")]
+
+    def test_its_height_is_bounded_by_what_the_card_has_left(self):
+        found = self.height_line(code_only(open(os.path.join(ROOT, "Panel.qml")).read()))
+        for word in ("availableCardHeight", "verticalContentInset", "contactsView.y"):
+            self.assertIn(word, found)
+
+    def test_the_check_finds_a_fixed_height(self):
+        planted = "ContactsView {\n  height: visible ? Style.space(600) : 0\n  onReported: x\n              }\n"
+        with self.assertRaises(AssertionError):
+            found = self.height_line(planted)
+            self.assertIn("availableCardHeight", found)
+
+
 if __name__ == "__main__":
     unittest.main()

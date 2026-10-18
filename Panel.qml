@@ -2831,12 +2831,16 @@ Panel {
     function unreadOnly(): string { root.toggleUnreadOnly(); return JSON.stringify({ on: root.unreadOnly, shown: root.sms ? root.sms.shownThreads.count : 0 }) }
     function forgetLastThread(): string { root.persistSettings({ lastThread: {} }); return "ok" }
     // Demo: the demo device's features in a state, to look at what a section
-    // says ("ask", "stopped"; "" as set up). Kept until `live`.
+    // says ("ask", "stopped", "broke"; "" as set up). Kept until `live`.
     function demoFeature(kind: string): string {
       if (!root.phone || !root.phone.demo || !root.device) return "demo only"
       root.phone.demoFeature = kind
-      root.phone.readFeatures(String(root.device.id), true)
-      return JSON.stringify({ notifications: root.sectionNotes.notifications, card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
+      // "broke": contacts worked and stopped, and allowing them again did not work.
+      var did = String(root.device.id)
+      var label = "Allow contacts for KDE Connect on " + Model.deviceLabel(root.device)
+      root.phone.setPending(did, "names", kind === "broke" ? { text: "Did not work: " + label, wait: false, failed: true, at: Date.now(), tried: "it did not work at: " + label } : null)
+      root.phone.readFeatures(did, true)
+      return JSON.stringify({ notifications: root.sectionNotes.notifications, contacts: root.sectionNotes.contacts ? root.sectionNotes.contacts.kind : "", card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
     // Demo: this computer's Bluetooth and the viewed device's match in a
     // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
@@ -6269,7 +6273,11 @@ Panel {
                 id: contactsView
                 visible: root.showContacts
                 width: parent.width
-                height: visible ? Style.space(600) : 0
+                // The page's own height, less what sits above it (the header,
+                // a note) when the card cannot grow past the screen: the key
+                // hints under the list stay in view and the page never scrolls.
+                height: visible ? Math.max(Style.space(240), Math.min(Style.space(600),
+                          panel.availableCardHeight - panel.verticalContentInset - pageHost.y - contactsView.y)) : 0
                 contacts: root.contacts
                 device: root.device
                 hoverMovedTo: root.hoverMovedTo

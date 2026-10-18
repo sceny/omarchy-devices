@@ -63,6 +63,7 @@ Item {
     demoChecks = false
     demoNetworkKind = ""
     demoFeature = ""
+    Object.keys(featurePending).forEach(function(k) { if (k.indexOf("demo") === 0 && k.slice(-6) === ":names") setPending(k.split(":")[0], "names", null) })
     if (demoBtKind !== "") Object.keys(featurePending).forEach(function(k) { if (k.indexOf("demo") === 0 && k.slice(-10) === ":callsHere") setPending(k.split(":")[0], "callsHere", null) })
     demoBtKind = ""
     runDoctor()
@@ -936,7 +937,8 @@ Item {
   property var rootAsk: null               // { what, why, actions, hash }
   // Demo: the made-up device's features in a state to look at ("ask":
   // notification access missing; "stopped": its notifications stopped
-  // arriving), else as set up (Model.demoFeatures).
+  // arriving; "broke": contacts allowed before and gone), else as set up
+  // (Model.demoFeatures).
   property string demoFeature: ""
   property var rootThen: null
   readonly property var rootFixes: ["install", "sshfs", "screen", "firewall", "ready", "tailscale", "bluetooth"]
