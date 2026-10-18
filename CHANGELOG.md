@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Saving a nickname with Enter keeps the keys working**: the field is left before the row is rebuilt by the new name, so the page no longer logs an error and stops answering its keys ([#214](https://github.com/sceny/omarchy-devices/issues/214)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and
