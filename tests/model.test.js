@@ -1955,3 +1955,18 @@ test("dismissAllFailure: one line for a press, a single failure keeps the row's"
   assert.equal(M.dismissAllFailure(2, 2, "", "", "").osd, "The device did not dismiss them")
   assert.equal(M.dismissAllFailure(2, 2, "", "", "").text, "The device did not dismiss 2 notifications")
 })
+
+test("dismissAllResult: a late success never replaces the failure line", () => {
+  const r = M.dismissAllResult(2, 4, "Pixel 8", "x", "y", "Dismissed", "Dismissed")
+  assert.equal(r.failed, true)
+  assert.equal(r.text, "Pixel 8 did not dismiss 2 of 4 notifications")
+  assert.equal(r.osd, "The device did not dismiss them")
+  const one = M.dismissAllResult(1, 4, "Pixel 8", "Pixel 8 did not dismiss it", "The device did not dismiss it", "Dismissed", "Dismissed")
+  assert.deepEqual(one, { text: "Pixel 8 did not dismiss it", osd: "The device did not dismiss it", failed: true })
+})
+
+test("dismissAllResult: a press with no failure confirms once", () => {
+  assert.deepEqual(M.dismissAllResult(0, 4, "Pixel 8", "", "", "Dismissed", "Dismissed"),
+    { text: "Dismissed", osd: "Dismissed", failed: false })
+  assert.equal(M.dismissAllResult(0, 4, "Pixel 8", "", "", "", "").text, "")
+})

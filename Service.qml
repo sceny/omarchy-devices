@@ -644,8 +644,8 @@ Item {
         : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
       if (done) {
         changed = true
-        if (w.group) settleBatch(w.group, key, false, "", "")
-        if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
+        if (w.group) settleBatch(w.group, key, false, w.said || "", w.saidOsd || "")
+        else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
         continue
       }
       if (now > w.until) {
@@ -1755,27 +1755,28 @@ Item {
       dismiss(list[i], group)
       if (busy[key] === true) keys.push(key)
     }
-    if (!demo && keys.length > 0) batches[group] = { pending: keys, total: keys.length, failed: 0, text: "", osd: "" }
+    if (!demo && keys.length > 0) batches[group] = { pending: keys, total: keys.length, failed: 0, text: "", osd: "", said: "", saidOsd: "" }
   }
 
-  // group -> { pending, total, failed, text, osd }: the clicks of one press
-  // (dismiss all) that have not answered yet, and the first failure's line.
+  // group -> { pending, total, failed, text, osd, said, saidOsd }: the clicks of
+  // one press (dismiss all) that have not answered yet, the first failure's
+  // line and the last success's. A row of a press never reports on its own.
   property var batches: ({})
   function settleBatch(group, key, failed, text, osd) {
     var g = batches[group]
     if (!g) {
-      if (failed) report(text, true, osd)
+      if (text !== "") report(text, failed, osd)
       return
     }
     var at = g.pending.indexOf(key)
     if (at < 0) return
     g.pending.splice(at, 1)
     if (failed && g.failed++ === 0) { g.text = text; g.osd = osd }
+    else if (!failed && text !== "") { g.said = text; g.saidOsd = osd }
     if (g.pending.length > 0) return
     delete batches[group]
-    if (g.failed === 0) return
-    var r = Model.dismissAllFailure(g.failed, g.total, device ? device.name : "", g.text, g.osd)
-    report(r.text, true, r.osd)
+    var r = Model.dismissAllResult(g.failed, g.total, device ? device.name : "", g.text, g.osd, g.said, g.saidOsd)
+    if (r.text !== "") report(r.text, r.failed, r.osd)
   }
   // A reply or an app action usually makes the phone update or drop the
   // notification; the clicked control waits for that, briefly.
