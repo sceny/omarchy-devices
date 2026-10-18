@@ -16,6 +16,7 @@ GitHub release with these notes.
 - **A closed screen leaves no log behind**: closing a screen with no watcher running left its filtered scrcpy log in the runtime folder; the close now removes it ([#292](https://github.com/sceny/omarchy-devices/issues/292)).
 - **Notifications asks for access on a new pairing**: the permissions are read once the screen state is known, and a fresh pairing had none until the Screen page was opened; the panel now reads it when it opens ([#200](https://github.com/sceny/omarchy-devices/issues/200)).
 - **A closed panel gives the keyboard back to its keys**: a text field that held the keyboard when the panel closed still held it when the panel opened again, so the keys did nothing until a click ([#285](https://github.com/sceny/omarchy-devices/issues/285)).
+- **Turning Gallery on gets storage access too**: the switch turned on from off set up the plugin's own step only; it now runs the package and the permission as well, and says what is left for you ([#189](https://github.com/sceny/omarchy-devices/issues/189)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and
