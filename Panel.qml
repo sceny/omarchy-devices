@@ -2438,12 +2438,14 @@ Panel {
   }
 
   // A text-message notification opens its conversation; with no thread to
-  // match, the messages view opens searched for who sent it.
+  // match, the messages view opens on the list, searched for who sent it,
+  // with no conversation open (never the one left open before).
   function openNotificationConversation(n) {
     if (!n) return
     var tid = threadForNotification(n)
     if (tid >= 0) { openMessagesView(tid, true); return }
-    openMessagesView(-1)
+    if (sms) sms.closeThread()
+    openMessagesView(-1, false, true)
     Qt.callLater(function() { if (messagesView) messagesView.setSearch(Model.notificationTitle(n)) })
   }
 

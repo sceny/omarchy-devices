@@ -249,6 +249,8 @@ test("a text-message notification finds its thread by name or number", () => {
   assert.equal(M.threadForNotification({ app: "Messages", title: "Alex" }, threads), 1)
   assert.equal(M.threadForNotification({ app: "Messages", title: "+1 514-555-0123" }, threads), 1)
   assert.equal(M.threadForNotification({ app: "Chat", title: "Alex" }, threads), -1)
+  assert.equal(M.threadForNotification({ app: "Messages", title: "alex" }, threads), 1, "case does not matter")
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Alex (Alert)" }, threads), 1, "a trailing bracket is set aside")
   for (const app of ["Messages", "Samsung Messages", "Google Messages", "QKSMS", "Signal", "SMS"]) assert.equal(M.isMessagingApp(app), true, app)
   for (const app of ["WhatsApp", "Gmail", "YouTube"]) assert.equal(M.isMessagingApp(app), false, app)
 })
@@ -1972,4 +1974,26 @@ test("a page of messages is matched with what was asked, not with what is loaded
   assert.equal(M.messagePage(ev, 5, 0, 0, none), null, "another conversation")
   assert.equal(M.messagePage(ev, 4, 30, 0, none), null, "another request")
   assert.equal(M.messagePage(ev, 4, -1, 0, none), null, "none asked")
+})
+
+test("a text-message notification never opens another conversation", () => {
+  const row = (tid, title, keys, snippet, date, extra) => Object.assign({ tid, title, addressKeys: keys, snippet, date, sentLast: false }, extra)
+  // A short number is matched whole, not as a piece of a longer one.
+  const longer = [row(1, "Alex", "5145551234", "Hi", 5), row(2, "55512", "55512", "Code 1", 4)]
+  assert.equal(M.threadForNotification({ app: "Messages", title: "55512" }, longer), 2)
+  assert.equal(M.threadForNotification({ app: "Messages", title: "55513" }, longer), -1)
+  // Two conversations with one name: the one that ends on the message, else the newest.
+  const twins = [row(1, "Sam", "5145550142", "See you later", 9), row(2, "Sam", "5145550199", "Lunch at noon? Bring the folding chairs", 3)]
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Sam", text: "Lunch at noon? Bring the folding chairs" }, twins), 2)
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Sam", text: "Other" }, twins), 1)
+  // A name this computer does not know: the message finds its conversation, if only one ends on it.
+  const unnamed = [row(1, "+1 514-555-0123", "5145550123", "We need a new certificate for the site by Friday", 9), row(2, "Jo", "5145550188", "Thanks!", 8)]
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Acme (Alert)", text: "We need a new certificate for the site by Friday" }, unnamed), 1)
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Acme (Alert)", text: "We need a new certificate…" }, unnamed), 1, "a cut message")
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Acme", text: "Thanks!" }, unnamed.concat([row(3, "Kim", "5145550166", "Thanks!", 7)])), -1, "two end on it: no guess")
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Acme", text: "Thanks!" }, [row(2, "Jo", "5145550188", "Thanks!", 8, { sentLast: true })]), -1, "a message sent from here is not the one that arrived")
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Acme", text: "" }, unnamed), -1)
+  // A group's snippet leads with the sender.
+  const group = [row(7, "Book club, Priya, Sam", "5145550140 5145550141", "Priya: Chapter 7 was wild, no spoilers please", 9)]
+  assert.equal(M.threadForNotification({ app: "Messages", title: "Book club", text: "Priya: Chapter 7 was wild, no spoilers please" }, group), 7)
 })
