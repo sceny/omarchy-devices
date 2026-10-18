@@ -1324,6 +1324,12 @@ test("the main page says what a feature needs where it is used", () => {
   assert.equal(M.permissionGranted(M.deviceSetup({ report: M.demoFeatures(), screen: null, name: "Pixel 8" }).items, "contacts"), true)
   assert.equal(M.permissionGranted(M.deviceSetup({ report: Object.assign(M.demoFeatures(), { permissions: null }), screen: null, name: "Pixel 8" }).items, "contacts"), false,
                "not read over adb: not known to be given")
+  // The demo's "broke" state: contacts gone again, which the panel pairs with a failed Allow.
+  const gone = M.deviceSetup({ report: M.demoFeatures("broke"), screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  assert.equal(M.permissionGranted(gone.items, "contacts"), false)
+  assert.equal(M.demoFeatures("broke").permissions.notifications, true, "only contacts is gone")
+  const failedAllow = gone.features.map(r => r.key === "names" ? Object.assign({}, r, { pending: { text: "Did not work: Allow contacts", failed: true }, problem: true }) : r)
+  assert.deepEqual(["contacts", "messages"].map(page => M.sectionNote(failedAllow, page).kind), ["problem", "problem"], "no Allow ask on either page")
   // A contacts feature that worked and stopped is a problem on both pages.
   const stoppedNames = names.features.map(r => r.key === "names" ? Object.assign({}, r, { state: "attention", problem: true, detail: "It stopped working" }) : r)
   assert.deepEqual(["contacts", "messages"].map(page => M.sectionNote(stoppedNames, page).kind), ["problem", "problem"], "its effect shows where names vanish")

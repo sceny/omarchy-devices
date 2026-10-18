@@ -106,7 +106,7 @@ function names.
 "${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)
 "${IPC[@]}" demoSetup ; "${IPC[@]}" ignoreCheck firewall true   # this computer: a failing firewall (a problem: the status, the card under the header, the gear's dot, a failing screen-tools check adds the Screen shortcut's dot after `editShortcut screen`); Ignore / Undo
-"${IPC[@]}" demoFeature ask         # demo only: notification access to allow, said in Notifications; stopped: it stopped arriving; "" as set up
+"${IPC[@]}" demoFeature ask         # demo only: notification access and contacts to allow (the Contacts page asks, Notifications says its own); stopped: notifications stopped arriving; broke: contacts worked and stopped (a problem line on Contacts and Messages, no ask); "" as set up
 "${IPC[@]}" demoAway ; "${IPC[@]}" reconnect   # the phone away (last seen 12 min ago); Reconnect as its button (never a real search in demo)
 "${IPC[@]}" reach ; "${IPC[@]}" reachInfo   # the viewed device's From anywhere page, as its row opens it (#119)
 "${IPC[@]}" demoReach <ready|setup|pick|none|isolated|lost>   # demo only: a made-up network and This computer's mesh row; lost: the address KDE Connect had and lost (the Network problem in Settings' status, the main page's line and Fix all); then `page main` after `demo away` shows the away card's lines
