@@ -85,7 +85,7 @@ Item {
     recipients = []
     toField.text = ""
     refreshSuggestions()
-    if (typeHere !== false) Qt.callLater(function() { toField.forceActiveFocus() })
+    if (typeHere === true) Qt.callLater(function() { toField.forceActiveFocus() })
   }
 
   function setToText(t) { toField.text = t; refreshSuggestions() }
@@ -477,7 +477,7 @@ Item {
             foreground: view.foreground
             fontFamily: view.fontFamily
             enabled: !!view.sms && view.sms.reachable
-            onClicked: view.startNew()
+            onClicked: view.startNew(true)
           }
         }
 

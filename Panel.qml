@@ -1100,15 +1100,16 @@ Panel {
     openScope("reach:" + id)
     if (phone) { phone.readFeatures(id, true); phone.runDoctor() }
   }
-  // The From anywhere page's rows (Model.reachSetup's actions).
-  function reachAction(key, address) {
+  // The From anywhere page's rows (Model.reachSetup's actions). Only the
+  // user's own click or Enter passes typeHere, which focuses the address field.
+  function reachAction(key, address, typeHere) {
     if (!phone || reachId === "") return
     var id = reachId
     var row = (featureRowsById[id] || []).filter(function(r) { return r.key === "reach" })[0]
     if (key === "setup" && row) featureAction(row, phone.findDevice(id), true)
     else if (key.indexOf("pick:") === 0 && address)
       phone.runSteps(id, [{ kind: "auto", label: "Use " + address, fix: { verb: "device", what: "reach", arg: address } }], "feature:reach")
-    else if (key === "address") { if (settingsView) settingsView.editReachAddress() }
+    else if (key === "address") { if (settingsView && typeHere === true) settingsView.editReachAddress() }
     else if (key === "forget") phone.runSteps(id, [{ kind: "auto", label: "Forget its mesh address", fix: { verb: "device", what: "unreach", arg: "address" } }], "feature:reach")
     else if (key === "forgetTyped") phone.runSteps(id, [{ kind: "auto", label: "Forget the address", fix: { verb: "device", what: "unreach", arg: "typed" } }], "feature:reach")
     else if (key === "check") { phone.readFeatures(id, true); phone.runDoctor() }
@@ -1602,11 +1603,12 @@ Panel {
     callVolume = Math.round(v)
     if (phone && call) phone.callAction("volume", call, callVolume)
   }
-  function callPress(key) {
+  // Only the user's click passes typeHere, which focuses the text back composer.
+  function callPress(key, typeHere) {
     var c = call
     if (!c || !phone) return
     if (key === "close") { phone.closeCall(); return }
-    if (key === "text") { textBack(c, true); return }
+    if (key === "text") { textBack(c, typeHere === true); return }
     if (key === "callBack") { callBack(c); return }
     if (key === "keypad") { callKeypad = !callKeypad; return }
     phone.callAction(key, c)
@@ -2248,16 +2250,17 @@ Panel {
   }
 
   // A shortcut, asking to fix first what stopped behind it.
-  function runAction(key) {
+  // Only the user's click or Enter passes typeHere, which focuses the Send text field.
+  function runAction(key, typeHere) {
     if (!phone) return
-    guarded("shortcut", key, function() { runActionNow(key) })
+    guarded("shortcut", key, function() { runActionNow(key, typeHere) })
   }
-  function runActionNow(key) {
+  function runActionNow(key, typeHere) {
     if (!phone) return
     if (key === "ring") phone.ring()
     else if (key === "share") phone.sendFiles()
     else if (key === "clipboard") phone.sendClipboard()
-    else if (key === "text") toggleComposer()
+    else if (key === "text") toggleComposer(typeHere === true)
     else if (key === "ping") phone.ping()
     else if (key === "playPause") phone.mediaAction("PlayPause")
     else if (key === "messages") root.openMessagesView(-1)
@@ -2352,7 +2355,8 @@ Panel {
     return from
   }
 
-  function activateSetting(index) {
+  // Only the user's click or Enter passes typeHere, which focuses a text field on the row.
+  function activateSetting(index, typeHere) {
     var row = settingsRows[index]
     if (!row) return
     settingsIndex = index
@@ -2365,7 +2369,7 @@ Panel {
     else if (row.kind === "defaults") openScope("defaults")
     else if (row.kind === "request" && phone) phone.acceptPairing(row.id)
     else if (row.kind === "available" && phone && !row.waiting) pairWithHere(row.id)
-    else if (row.kind === "nickname") { if (settingsView) settingsView.editNickname() }
+    else if (row.kind === "nickname") { if (settingsView && typeHere === true) settingsView.editNickname() }
     else if (row.kind === "icon") iconPicking = !iconPicking
     else if (row.kind === "barPlace") cycleBarPlace()
     else if (row.kind === "showInPanel") setIdentity({ showInPanel: !scopeProfile.showInPanel })
@@ -2375,7 +2379,7 @@ Panel {
     else if (row.kind === "connection" || row.kind === "addDevice" || row.kind === "keys") openScope(row.kind)
     else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
-    else if (row.kind === "reachAction") reachAction(row.key, row.address)
+    else if (row.kind === "reachAction") reachAction(row.key, row.address, typeHere)
     // What it shares: Enter flips its switch, as a click on it would.
     else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.on === false)
     else if (row.kind === "ready") getReady()
@@ -2559,11 +2563,12 @@ Panel {
     replyingTo = n.id
   }
 
-  // Only the user's click or Enter on the Send text tile opens it focused.
-  function toggleComposer() {
+  // Only the user's click or Enter on the Send text tile opens it focused;
+  // scripted, it opens unfocused.
+  function toggleComposer(typeHere) {
     if (composing) { closeComposer(); return }
     composing = true
-    Qt.callLater(function() { if (composing) composerField.forceActiveFocus() })
+    if (typeHere === true) Qt.callLater(function() { if (composing) composerField.forceActiveFocus() })
   }
 
   function closeComposer() {
@@ -2664,7 +2669,7 @@ Panel {
     }
     if (focusSection === "actions") {
       var a = actions[actionIndex]
-      if (a && a.enabled) runAction(a.key)
+      if (a && a.enabled) runAction(a.key, true)
     } else if (focusSection === "media") {
       var shownCard = cardRepeater.itemAt(shownPlayer)
       if (shownCard) shownCard.togglePlaying()
@@ -3427,7 +3432,7 @@ Panel {
         if (root.contactsOpen) { contactsView.activateCursor(); return }
         if (!root.cursorActive) return
         if (root.appsOpen) { appsView.activate(); return }
-        if (root.settingsOpen) root.activateSetting(root.settingsIndex)
+        if (root.settingsOpen) root.activateSetting(root.settingsIndex, true)
         else root.activateCursor()
       }
       onDeleteRequested: {
@@ -4388,7 +4393,7 @@ Panel {
                       foreground: modelData.kind === "answer" ? Color.accent : modelData.kind === "end" ? root.urgent
                         : modelData.kind === "on" ? Color.accent : root.foreground
                       fontFamily: root.fontFamily
-                      onClicked: root.callPress(modelData.key)
+                      onClicked: root.callPress(modelData.key, true)
                     }
                   }
                 }
@@ -4472,7 +4477,7 @@ Panel {
                       tooltipText: modelData.label
                       foreground: modelData.kind === "answer" ? Color.accent : modelData.kind === "end" ? root.urgent : root.foreground
                       fontFamily: root.fontFamily
-                      onClicked: root.callPress(modelData.key)
+                      onClicked: root.callPress(modelData.key, true)
                     }
                   }
                 }
@@ -5130,7 +5135,7 @@ Panel {
                           enabled: modelData.enabled === true
                           hasCursor: root.cursorActive && root.focusSection === "actions" && root.actionIndex === index
                           onHovered: function(on) { if (on) root.hoverTake(function() { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = index }) }
-                          onClicked: root.runAction(modelData.key)
+                          onClicked: root.runAction(modelData.key, true)
                           GearDot { visible: root.marks.shortcuts[modelData.key] === true }
                         }
                       }
@@ -6409,7 +6414,7 @@ Panel {
                 onPreviewRequested: root.startPreview()
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-                onActivated: function(index) { root.activateSetting(index) }
+                onActivated: function(index) { root.activateSetting(index, true) }
                 onMoveRequested: function(key, delta) { root.moveShortcutKey(key, delta) }
                 onSectionMoveRequested: function(section, delta) { root.moveSectionKey(section, delta) }
                 onBarMoveRequested: function(key, delta) { root.moveBarIndicator(key, delta) }
@@ -7258,7 +7263,7 @@ Panel {
       enabled: tile.action.enabled === true
       cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
       onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "actions"; root.actionIndex = tile.tileIndex })
-      onClicked: root.runAction(tile.action.key)
+      onClicked: root.runAction(tile.action.key, true)
     }
 
     // What it needs has stopped: a dot, and a click asks to fix it.
