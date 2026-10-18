@@ -95,14 +95,40 @@ class KeepHereTests(unittest.TestCase):
         self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "here")
         self.assertFalse([m for m, _ in self.fake.calls if m == "setPluginEnabled"])
 
-    def test_the_users_own_auto_share_stays(self):
+    def shared(self, text):
         os.makedirs(os.path.dirname(self.path))
         with open(self.path, "w") as f:
-            f.write("[General]\nautoShare=true\n")
+            f.write(text)
         self.fake.auto_share_off = False
+
+    def starts(self):
+        return [a for m, a in self.fake.calls if m == "setPluginEnabled"]
+
+    def test_the_users_own_auto_share_stays_and_passwords_do_not_go(self):
+        self.shared("[General]\nautoShare=true\n")
         self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "shared")
-        self.assertEqual(self.read(), "[General]\nautoShare=true\n")
-        self.assertFalse([m for m, _ in self.fake.calls if m == "setPluginEnabled"])
+        self.assertEqual(self.read(), "[General]\nautoShare=true\nsendPassword=false\n")
+        self.assertEqual(self.starts(), [(bridge.CLIPBOARD_PLUGIN, False), (bridge.CLIPBOARD_PLUGIN, True)])
+
+    def test_the_users_own_send_password_stays(self):
+        self.shared("[General]\nautoShare=true\nsendPassword=true\n")
+        self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "shared")
+        self.assertEqual(self.read(), "[General]\nautoShare=true\nsendPassword=true\n")
+        self.assertFalse(self.starts())
+
+    def test_a_shared_device_is_set_once(self):
+        self.shared("[General]\nautoShare=true\n")
+        bridge.keep_clipboard_here("dev1", object())
+        self.fake.calls.clear()
+        self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "shared")
+        self.assertEqual(self.read(), "[General]\nautoShare=true\nsendPassword=false\n")
+        self.assertFalse(self.starts())
+
+    def test_a_shared_device_whose_plugin_is_off_is_not_started(self):
+        self.shared("[General]\nautoShare=true\n")
+        self.fake.auto_share_off = None
+        bridge.keep_clipboard_here("dev1", object())
+        self.assertFalse(self.starts())
 
     def test_turning_the_plugin_on_sets_it_first(self):
         seen = []
@@ -134,6 +160,17 @@ class KeepForTests(unittest.TestCase):
         bridge.keep_clipboard_for(devices, done, object())
         bridge.keep_clipboard_for(devices, done, object())
         self.assertEqual(calls, ["good", "bad", "bad"])
+
+    def test_a_device_is_done_only_after_it_was_set(self):
+        real = bridge.keep_clipboard_here
+
+        def fake(device_id, conn):
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")
+        bridge.keep_clipboard_here = fake
+        self.addCleanup(lambda: setattr(bridge, "keep_clipboard_here", real))
+        done = set()
+        bridge.keep_clipboard_for([{"id": "bad", "paired": True}], done, object())
+        self.assertEqual(done, set())
 
 
 if __name__ == "__main__":
