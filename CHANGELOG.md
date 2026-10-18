@@ -10,6 +10,19 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Dismiss all says one thing when some stay**: when the phone ignored
+  several notifications, each row raised its own "did not dismiss it" line;
+  the press now says once how many stayed, and a single row's X keeps its
+  own line ([#287](https://github.com/sceny/omarchy-devices/issues/287)).
+- **A message notification opens its own conversation**: a sender whose
+  name this computer does not know ("Name (Alert)"), or a short code that
+  sits inside a longer number, could open another conversation, or the one
+  left open before. The notification now finds its conversation by name,
+  then by the exact number, then by the message itself, and opens none when
+  it cannot tell: the list, searched for the sender.
+- **The call button in a conversation shows only for a number you can
+  dial**: a service's short code or a sender's name no longer gets one
+  ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
 - **A media session is not a notification**: when KDE Connect does not
   export an app's player, its playback notification (Previous, Play, Next,
   not dismissable) showed in Notifications with no Now playing beside it.

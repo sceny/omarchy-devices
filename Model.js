@@ -423,6 +423,26 @@ function waitLimit(kind, deviceName) {
   return { ms: 15000, fail: name + " did not answer", failOsd: "The device did not answer" }
 }
 
+// One result for a dismiss all in which `failed` of `total` notifications
+// stayed: a single one keeps the row's own line (`firstText`, `firstOsd`).
+function dismissAllFailure(failed, total, deviceName, firstText, firstOsd) {
+  if (failed <= 1) return { text: firstText, osd: firstOsd }
+  var name = String(deviceName || "The device")
+  var count = failed >= total ? String(failed) : failed + " of " + total
+  return { text: name + " did not dismiss " + count + " notifications", osd: "The device did not dismiss them" }
+}
+
+// The press's one line when its last notification has answered: the failure
+// if any stayed, else the last success's own line (`doneText`, `doneOsd`),
+// whichever row settled last.
+function dismissAllResult(failed, total, deviceName, firstText, firstOsd, doneText, doneOsd) {
+  if (failed > 0) {
+    var r = dismissAllFailure(failed, total, deviceName, firstText, firstOsd)
+    return { text: r.text, osd: r.osd, failed: true }
+  }
+  return { text: String(doneText || ""), osd: String(doneOsd || ""), failed: false }
+}
+
 // The bridge's lines, when asked (DEVICES_OSD_LINE), end with OSD_MARK and the
 // line Omarchy's on-screen display may show: its command line is readable by
 // every local user, so that line names nothing a device sent (a name, a file,
@@ -1362,6 +1382,15 @@ function formatNumber(address) {
   return a
 }
 
+// Whether an address can be dialled: a phone number (digits, an optional
+// leading +, spaces and punctuation), not a service's 5- or 6-digit short
+// code or a sender's name.
+function isDialable(address) {
+  var a = String(address || "").trim()
+  if (!/^\+?[\d\s().-]+$/.test(a)) return false
+  return a.replace(/\D/g, "").length >= 7
+}
+
 // A thread's title: contact names where known, else formatted numbers; a
 // group lists up to three and counts the rest.
 function threadTitle(names, addresses) {
@@ -1427,20 +1456,62 @@ function isMessagingApp(app) {
   return /^(messages|message|sms|mms|google messages|samsung messages|messaging|message\+|textra|pulse sms|chomp sms|qksms|fossify sms messenger|simple sms messenger|signal)$/i.test(String(app || "").trim())
 }
 
-// The thread a message notification belongs to: its title is the sender's
-// name or number. Returns the thread id, or -1.
+// A name as notifications and threads spell it, to compare: case, spacing
+// and a trailing bracket (an app's "(Alert)") set aside.
+function sameName(name) {
+  return String(name || "").replace(/\s*[(\[][^()\[\]]*[)\]]\s*$/, "").replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+// A message's words as a thread's snippet and a notification spell them.
+function messageWords(text) {
+  return String(text || "").replace(/\s+/g, " ").replace(/[\u2026.]+$/, "").trim().toLowerCase()
+}
+
+// Whether a thread's last message is the one a notification shows: equal,
+// or one begins the other (an app cuts a long message; a group's snippet
+// leads with the sender). A short message must be equal.
+function snippetHolds(snippet, text) {
+  var a = messageWords(snippet), b = messageWords(text)
+  if (a === "" || b === "") return false
+  if (a === b) return true
+  var lo = a.length < b.length ? a : b
+  var hi = a.length < b.length ? b : a
+  return lo.length >= 12 && hi.indexOf(lo) === 0
+}
+
+// The thread a message notification belongs to, or -1. The sender's name or
+// number (the title) finds it; a name the phone knows and this computer does
+// not (a thread titled by its number) is found by the message itself, when
+// exactly one conversation ends on it. Never a guess: no match opens none.
 function threadForNotification(n, threads) {
   if (!n || !isMessagingApp(n.app)) return -1
   var title = String(n.title || "").trim()
   if (!title) return -1
+  var texts = []
+  var body = String(n.text || "").trim()
+  if (body !== "") { texts.push(body); texts.push(body.split("\n").pop()) }
   var digits = title.replace(/\D/g, "")
   var key = digits.length >= 10 ? digits.slice(-10) : digits
+  var name = sameName(title)
+  var found = []
+  var byMessage = []
   for (var i = 0; i < threads.length; i++) {
     var t = threads[i]
-    if (t.title === title) return t.tid
-    if (key.length >= 5 && String(t.addressKeys || "").indexOf(key) >= 0) return t.tid
+    var said = texts.some(function(x) { return snippetHolds(t.snippet, x) })
+    var named = String(t.title || "").trim() === title || (name !== "" && sameName(t.title) === name)
+    var numbered = key.length >= 5 && /^[\d\s()+.-]+$/.test(title) && String(t.addressKeys || "").split(" ").indexOf(key) >= 0
+    if (named || numbered) found.push({ t: t, said: said })
+    else if (said && t.sentLast !== true) byMessage.push(t)
   }
-  return -1
+  if (found.length > 0) {
+    var best = found[0]
+    for (var k = 1; k < found.length; k++) {
+      var c = found[k]
+      if ((c.said && !best.said) || (c.said === best.said && Number(c.t.date || 0) > Number(best.t.date || 0))) best = c
+    }
+    return best.t.tid
+  }
+  return byMessage.length === 1 ? byMessage[0].tid : -1
 }
 
 
