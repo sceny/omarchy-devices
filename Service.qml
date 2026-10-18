@@ -278,7 +278,7 @@ Item {
     if (up && pausedForCall.length === 0) {
       var paused = []
       all.forEach(function(p) {
-        if (!p || !p.isPlaying || !p.canPause || String(p.dbusName).indexOf("kdeconnect") >= 0) return
+        if (!p || !p.isPlaying || !p.canPause || Model.isPhonePlayer(p.dbusName, "", "")) return
         p.pause()
         paused.push(String(p.dbusName))
       })
