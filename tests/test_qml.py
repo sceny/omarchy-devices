@@ -746,5 +746,53 @@ class PagesFitTheCard(unittest.TestCase):
             self.assertIn("availableCardHeight", found)
 
 
+class QmldirListsEveryComponent(unittest.TestCase):
+    """With Qt 6.12 a folder that has a `qmldir` shows a file only the types
+    that file lists, so a component used by name and not listed is "not a
+    type" and the widget leaves the bar (#365). The entry points are loaded
+    by path, never by name."""
+
+    BY_PATH = {"BarWidget", "Panel", "Service"}
+
+    def listed(self, text):
+        return {m.group(1) for m in re.finditer(r"^(?:singleton\s+)?(\w+)\s+\d+\.\d+\s+\1\.qml\s*$", text, re.M)}
+
+    def used_by_name(self, sources, listed):
+        """(file, component) for each component another file instantiates
+        or reaches as a singleton by its name and the qmldir does not list."""
+        files = {os.path.basename(p)[:-4]: code_only(t) for p, t in sources.items()}
+        return sorted(
+            (user, name) for user, code in files.items() for name in files
+            if name != user and name not in self.BY_PATH and name not in listed
+            and re.search(r"(?<![\w.])" + name + r"\s*[{.]", code))
+
+    def shipped(self):
+        out = {}
+        for path in glob.glob(os.path.join(ROOT, "*.qml")):
+            with open(path) as f:
+                out[path] = f.read()
+        return out
+
+    def test_every_component_used_by_name_is_listed(self):
+        with open(os.path.join(ROOT, "qmldir")) as f:
+            listed = self.listed(f.read())
+        self.assertEqual(self.used_by_name(self.shipped(), listed), [])
+
+    def test_every_listed_name_is_a_file_here(self):
+        with open(os.path.join(ROOT, "qmldir")) as f:
+            listed = self.listed(f.read())
+        names = {os.path.basename(p)[:-4] for p in self.shipped()}
+        self.assertEqual(sorted(listed - names), [])
+        self.assertEqual(sorted(names - listed - self.BY_PATH), [])
+
+    def test_the_check_finds_a_component_missing_from_qmldir(self):
+        sources = {"/x/Uses.qml": "Item { Gone { } }", "/x/Gone.qml": "Item { }",
+                   "/x/Single.qml": "Item { onX: Gone2.go() }", "/x/Gone2.qml": "pragma Singleton\nItem { }",
+                   "/x/Quiet.qml": "Item { // Gone { }\n }"}
+        listed = self.listed("singleton Clipboard 1.0 Clipboard.qml\nUses 1.0 Uses.qml\n")
+        self.assertEqual(listed, {"Clipboard", "Uses"})
+        self.assertEqual(self.used_by_name(sources, listed), [("Single", "Gone2"), ("Uses", "Gone")])
+
+
 if __name__ == "__main__":
     unittest.main()
