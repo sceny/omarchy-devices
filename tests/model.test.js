@@ -586,7 +586,25 @@ test("keys page: one row per group, its keys as key caps, named in Back to", () 
   assert.equal(rows.reduce((n, r) => n + r.items.length, 0), M.KEYS.reduce((n, g) => n + g.keys.length, 0), "every key of Model.KEYS")
   assert.equal(new Set(rows.map(r => r.key)).size, rows.length, "a stop per group")
   assert.ok(rows.some(r => r.items.some(i => i.keys === "?")), "the page names its own key")
-  assert.equal(M.navLabel("settings/keys"), "Keys")
+})
+
+test("keys overlay: each group names the place it opens, and the overlay opens where the user is", () => {
+  const rows = M.keysRows()
+  const sections = ["notifications", "media", "apps"]
+  for (const r of rows) {
+    if (r.place === null) { assert.ok(["Everywhere", "Keys"].includes(r.group), `${r.group} names no place`); continue }
+    assert.ok(["main", "messages", "contacts", "settings"].includes(r.place.page), `${r.group}: a known page`)
+    assert.ok(r.place.section === undefined || r.place.section === "" || (r.place.page === "main" && sections.includes(r.place.section)), `${r.group}: a section of the main page`)
+    assert.equal(M.keysOpenLabel(r.group), "Open " + r.group)
+  }
+  const at = ctx => rows[M.keysGroupIndex(ctx)].group
+  assert.equal(at({ page: "main", editing: false, section: "" }), "Main page")
+  assert.equal(at({ page: "main", editing: false, section: "notifications" }), "Notifications")
+  assert.equal(at({ page: "main", editing: false, section: "media" }), "Now playing")
+  assert.equal(at({ page: "messages", editing: false, section: "" }), "Messages")
+  assert.equal(at({ page: "contacts", editing: false, section: "" }), "Contacts")
+  assert.equal(at({ page: "main", editing: true, section: "" }), "Editing and Settings")
+  assert.equal(at({ page: "settings", editing: false, section: "" }), "Editing and Settings")
 })
 
 test("key caps: one token each, the dot between alternatives", () => {

@@ -10,6 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Keys is a list over the page you are on**: `?` opens every key as an
+  overlay instead of a page, so a key can be tried with the list in view.
+  Each group folds with a one-line summary, the one for where you are is
+  unfolded, descriptions are a few words, and each group's **Open** (or
+  `Shift+O`) goes to its page or section and marks it for a moment
+  ([#352](https://github.com/sceny/omarchy-devices/issues/352)).
 - **Dismiss all says one thing when some stay**: when the phone ignored
   several notifications, each row raised its own "did not dismiss it" line;
   the press now says once how many stayed, and a single row's X keeps its
