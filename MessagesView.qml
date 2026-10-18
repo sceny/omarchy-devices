@@ -870,7 +870,7 @@ Item {
             PanelActionButton {
               id: headerCall
               visible: view.canCall && !view.headerLoading && !!view.shownRow && !view.shownRow.group && String(view.shownRow.addresses || "") !== ""
-                && String(view.shownRow.addresses).indexOf(",") < 0
+                && String(view.shownRow.addresses).indexOf(",") < 0 && Model.isDialable(view.shownRow.addresses)
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               iconText: Model.GLYPH.callBack

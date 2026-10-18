@@ -1346,6 +1346,15 @@ function formatNumber(address) {
   return a
 }
 
+// Whether an address can be dialled: a phone number (digits, an optional
+// leading +, spaces and punctuation), not a service's 5- or 6-digit short
+// code or a sender's name.
+function isDialable(address) {
+  var a = String(address || "").trim()
+  if (!/^\+?[\d\s().-]+$/.test(a)) return false
+  return a.replace(/\D/g, "").length >= 7
+}
+
 // A thread's title: contact names where known, else formatted numbers; a
 // group lists up to three and counts the rest.
 function threadTitle(names, addresses) {
