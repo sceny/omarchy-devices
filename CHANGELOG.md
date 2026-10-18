@@ -10,6 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Nothing scripted focuses a text field**: the scripted press of the Send
+  text shortcut, the Nickname and From anywhere address rows, and a call
+  card's Text back each put the cursor in a field; now only your own click
+  or Enter does. A new check follows every IPC function through what it
+  calls and fails on a focus without that gate
+  ([#308](https://github.com/sceny/omarchy-devices/issues/308)).
 - **The Contacts page keeps its key hints in view**: with the ask or a
   problem line above the list, the page now takes the card's remaining
   height instead of a fixed 600 px, so the hints under the list show on a
