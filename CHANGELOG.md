@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Notification access reads as allowed right after the grant**: Android lists the listener a moment after it is enabled, so the grant is read back a few times before it is called not allowed ([#188](https://github.com/sceny/omarchy-devices/issues/188)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and

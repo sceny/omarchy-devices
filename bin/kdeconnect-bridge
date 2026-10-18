@@ -2475,7 +2475,13 @@ def keep_clipboard_for(devices, done, conn):
             done.add(d["id"])
 
 
-def grant_permission(serial, key, run=None):
+# Android applies a notification listener grant a moment after the command
+# returns; a read at once misses it. The other permissions apply at once.
+LISTENER_READS = 5
+LISTENER_READ_GAP_SEC = 0.5
+
+
+def grant_permission(serial, key, run=None, sleep=time.sleep):
     """Grants KDE Connect a permission on the device over adb (a click's):
     True when it is granted after."""
     run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
@@ -2491,8 +2497,14 @@ def grant_permission(serial, key, run=None):
     else:
         for perm in need["runtime"]:
             run(["pm", "grant", "--user", user, KDECONNECT_ANDROID, perm])
-    granted = device_permissions(serial, run)
-    return bool(granted and granted.get(key))
+    reads = LISTENER_READS if need.get("listener") else 1
+    for i in range(reads):
+        if i:
+            sleep(LISTENER_READ_GAP_SEC)
+        granted = device_permissions(serial, run)
+        if granted and granted.get(key):
+            return True
+    return False
 
 
 def remount(device_id, conn=None):
