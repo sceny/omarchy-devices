@@ -1978,7 +1978,7 @@ Panel {
   readonly property var appList: phone && device ? phone.appsOf(String(device.id)) : null
   // Each with its window when it is open here (`open`, and where its sound
   // plays: the tile's badge, #129).
-  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id)
+  readonly property var allApps: phone && appList && appList.apps && device && screenOnFor(device.id)
     ? Model.withWindows(appList.apps, phone.appWindowsOf(String(device.id)),
                         Object.assign({}, appList.sounds || {}, phone.windowSounds[String(device.id)] || {}), appSoundFor(device.id))
     : []
