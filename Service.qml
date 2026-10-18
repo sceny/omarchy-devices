@@ -644,12 +644,14 @@ Item {
         : Model.answered(w.kind, snapshot, w.device, w.note, w.before)
       if (done) {
         changed = true
+        if (w.group) settleBatch(w.group, key, false, "", "")
         if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
         continue
       }
       if (now > w.until) {
         changed = true
-        if (w.fail !== "") report(w.fail, true, w.failOsd)
+        if (w.group) settleBatch(w.group, key, true, w.fail, w.failOsd)
+        else if (w.fail !== "") report(w.fail, true, w.failOsd)
         else if (w.said && !Model.shownInPlace(w.kind)) report(w.said, false, w.saidOsd || "")
         continue
       }
@@ -1740,12 +1742,40 @@ Item {
   function setVolume(v) {
     if (volumePlayer) volumePlayer.volume = Math.max(0, Math.min(1, v))
   }
-  function dismiss(n) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id) }) }
-  // Every notification that can be dismissed, each as its own X would (#194).
+  function dismiss(n, group) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id), group: group || "" }) }
+  // Every notification that can be dismissed, each as its own X would (#194);
+  // the ones that stay are said once, when the last has answered (#287).
   function dismissAll() {
     var list = notifications
-    for (var i = 0; i < list.length; i++)
-      if (list[i].dismissable === true && !isBusy("dismiss:" + list[i].id)) dismiss(list[i])
+    var group = "dismissAll:" + Date.now()
+    var keys = []
+    for (var i = 0; i < list.length; i++) {
+      var key = "dismiss:" + list[i].id
+      if (list[i].dismissable !== true || isBusy(key)) continue
+      dismiss(list[i], group)
+      if (busy[key] === true) keys.push(key)
+    }
+    if (!demo && keys.length > 0) batches[group] = { pending: keys, total: keys.length, failed: 0, text: "", osd: "" }
+  }
+
+  // group -> { pending, total, failed, text, osd }: the clicks of one press
+  // (dismiss all) that have not answered yet, and the first failure's line.
+  property var batches: ({})
+  function settleBatch(group, key, failed, text, osd) {
+    var g = batches[group]
+    if (!g) {
+      if (failed) report(text, true, osd)
+      return
+    }
+    var at = g.pending.indexOf(key)
+    if (at < 0) return
+    g.pending.splice(at, 1)
+    if (failed && g.failed++ === 0) { g.text = text; g.osd = osd }
+    if (g.pending.length > 0) return
+    delete batches[group]
+    if (g.failed === 0) return
+    var r = Model.dismissAllFailure(g.failed, g.total, device ? device.name : "", g.text, g.osd)
+    report(r.text, true, r.osd)
   }
   // A reply or an app action usually makes the phone update or drop the
   // notification; the clicked control waits for that, briefly.
@@ -2067,6 +2097,11 @@ Item {
           return
         }
         root.setBusy(proc.key, false)
+        if (proc.wait && proc.wait.group) {
+          root.settleBatch(proc.wait.group, proc.key, true, err || out || "That did not work", err ? e.osd : out ? o.osd : "That did not work")
+          proc.destroy()
+          return
+        }
         if (proc.exitCode === 0) { if (!proc.quietSuccess) root.report(out, false, o.osd) }
         else if (proc.exitCode === 1) root.report(err || out || "Cancelled", false, err ? e.osd : out ? o.osd : "Cancelled")
         else root.report(err || out || "That did not work", true, err ? e.osd : out ? o.osd : "That did not work")

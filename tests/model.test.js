@@ -1946,3 +1946,12 @@ test("Fix with AI: a quote or control character in a value cannot leave its quot
   assert.ok(JSON.parse(M.aiQuote("y".repeat(1000))).length <= 200)
   assert.equal(M.aiQuote(undefined), '""')
 })
+
+test("dismissAllFailure: one line for a press, a single failure keeps the row's", () => {
+  assert.deepEqual(M.dismissAllFailure(1, 4, "Pixel 8", "Pixel 8 did not dismiss it", "The device did not dismiss it"),
+    { text: "Pixel 8 did not dismiss it", osd: "The device did not dismiss it" })
+  assert.equal(M.dismissAllFailure(2, 5, "Pixel 8", "", "").text, "Pixel 8 did not dismiss 2 of 5 notifications")
+  assert.equal(M.dismissAllFailure(3, 3, "Pixel 8", "", "").text, "Pixel 8 did not dismiss 3 notifications")
+  assert.equal(M.dismissAllFailure(2, 2, "", "", "").osd, "The device did not dismiss them")
+  assert.equal(M.dismissAllFailure(2, 2, "", "", "").text, "The device did not dismiss 2 notifications")
+})

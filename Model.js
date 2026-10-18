@@ -423,6 +423,15 @@ function waitLimit(kind, deviceName) {
   return { ms: 15000, fail: name + " did not answer", failOsd: "The device did not answer" }
 }
 
+// One result for a dismiss all in which `failed` of `total` notifications
+// stayed: a single one keeps the row's own line (`firstText`, `firstOsd`).
+function dismissAllFailure(failed, total, deviceName, firstText, firstOsd) {
+  if (failed <= 1) return { text: firstText, osd: firstOsd }
+  var name = String(deviceName || "The device")
+  var count = failed >= total ? String(failed) : failed + " of " + total
+  return { text: name + " did not dismiss " + count + " notifications", osd: "The device did not dismiss them" }
+}
+
 // The bridge's lines, when asked (DEVICES_OSD_LINE), end with OSD_MARK and the
 // line Omarchy's on-screen display may show: its command line is readable by
 // every local user, so that line names nothing a device sent (a name, a file,
