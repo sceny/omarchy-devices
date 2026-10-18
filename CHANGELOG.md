@@ -10,6 +10,16 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Passwords never leave with your own auto-share**: when you turned
+  automatic sharing on for a device in KDE Connect, the copies a password
+  manager marks still went to it. The plugin now also writes
+  `sendPassword=false` when you set none, and keeps a `sendPassword=true`
+  you wrote ([#286](https://github.com/sceny/omarchy-devices/issues/286)).
+- **A call pauses every local player but the phone's**: the skip matched
+  `kdeconnect` anywhere in a player's name, so a local app whose name merely
+  contained it kept playing during a call. It now matches the phone players'
+  exported prefix only
+  ([#267](https://github.com/sceny/omarchy-devices/issues/267)).
 - **Nothing scripted focuses a text field**: the scripted press of the Send
   text shortcut, the Nickname and From anywhere address rows, and a call
   card's Text back each put the cursor in a field; now only your own click

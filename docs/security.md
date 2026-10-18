@@ -16,7 +16,8 @@
   turns off KDE Connect's automatic sharing of every copy, and of passwords
   a password manager marks, for each device. What you copy on the phone
   still arrives here. Turn automatic sharing back on in KDE Connect's own
-  settings and the plugin leaves it on.
+  settings and the plugin leaves it on, but passwords still never go unless
+  you also turn on sending passwords there.
 - A contact's website, address or email that you open goes on the command
   line of the browser or app that opens it, and stays there while that
   program runs, where another program on this computer can read it.
