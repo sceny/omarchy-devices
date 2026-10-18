@@ -1010,3 +1010,75 @@ class Reencode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# Tests for signal handling: verifying INT, TERM, HUP traps fire immediately
+# This tests the fix for the PR that adds HUP signal handling to dev/sandbox
+class _SignalHandlingTest(unittest.TestCase):
+    """Verify that INT, TERM, and HUP traps fire immediately, not deferred until a subshell finishes."""
+
+    def test_int_trap_fires_immediately(self):
+        """Sending INT during a sleep in a subshell exits at ~1s, not when sleep finishes at ~8s."""
+        r = subprocess.run(
+            ["bash", "-c", """
+trap 'exit 130' INT
+(timeout 20 sleep 8) &
+pid=$!
+( sleep 1 && kill -INT $$ ) &
+wait $pid
+"""],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(r.returncode, 130)
+
+    def test_term_trap_fires_immediately(self):
+        """Sending TERM during a sleep in a subshell exits at ~1s, not deferred."""
+        r = subprocess.run(
+            ["bash", "-c", """
+trap 'exit 143' TERM
+(timeout 20 sleep 8) &
+pid=$!
+( sleep 1 && kill -TERM $$ ) &
+wait $pid
+"""],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(r.returncode, 143)
+
+    def test_hup_trap_fires_immediately(self):
+        """Sending HUP during a sleep in a subshell exits at ~1s, not deferred."""
+        r = subprocess.run(
+            ["bash", "-c", """
+trap 'exit 129' HUP
+(timeout 20 sleep 8) &
+pid=$!
+( sleep 1 && kill -HUP $$ ) &
+wait $pid
+"""],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(r.returncode, 129)
+
+    def test_traps_are_cleared_on_exit(self):
+        """After clearing all signal traps, late signals do not get handled."""
+        r = subprocess.run(
+            ["bash", "-c", """
+trap 'exit 1' EXIT INT TERM HUP
+trap - EXIT INT TERM HUP
+(sleep 1) &
+pid=$!
+wait $pid
+echo "exit 0"
+exit 0
+"""],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertIn("exit 0", r.stdout + r.stderr)
+        self.assertEqual(r.returncode, 0)

@@ -362,6 +362,7 @@ run_unit() {
   step "unit $unit (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
   # The container's stdout is the result tar, cut at the cap by head; its
   # stderr is filtered text. Both pass through the host, so neither is trusted.
+  # Background the subshell so INT/TERM/HUP traps fire immediately, not deferred until the container finishes.
   (
     timeout --signal=KILL $((timeout + 90)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
@@ -389,7 +390,9 @@ run_unit() {
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
     echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
-  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+  local unit_pid=$!
+  wait $unit_pid || true
   rc=$(cat "$SB_RUN_DIR/rc" 2>/dev/null)
   [[ $rc =~ ^[0-9]+$ ]] || rc=125
 
@@ -662,8 +665,8 @@ cmd_run() {
   write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
   local verdict=$?
   run_cleanup
-  trap - EXIT INT TERM
-  say "results in $out"
+  trap - EXIT INT TERM HUP
+  say \"results in $out\"
   return "$verdict"
 }
 
@@ -916,7 +919,9 @@ dev_pull() {
   local tarfile="$SB_RUN_DIR/out.tar" size
   env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
     timeout --signal=KILL 120 podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
-    --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+    --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+  local pull_pid=$!
+  wait $pull_pid || true
   size=$(stat -c %s "$tarfile")
   ((size > 0 && size <= SB_MAX_RESULT)) || die "dev pull: nothing came out, or more than $SB_MAX_RESULT bytes"
   read_result "$tarfile" "$out" "$out" dev --png-dir "$SB_RUN_DIR/png" >/dev/null ||
@@ -949,7 +954,7 @@ dev_pull() {
   fi
   dev_exec "$DEV_NAME" 60 /opt/devside.sh clear >/dev/null
   run_cleanup
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   ok "pulled into $out (the session's /out is empty again)"
   printf '%s\n' "$out"
 }
