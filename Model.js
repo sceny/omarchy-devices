@@ -1440,20 +1440,62 @@ function isMessagingApp(app) {
   return /^(messages|message|sms|mms|google messages|samsung messages|messaging|message\+|textra|pulse sms|chomp sms|qksms|fossify sms messenger|simple sms messenger|signal)$/i.test(String(app || "").trim())
 }
 
-// The thread a message notification belongs to: its title is the sender's
-// name or number. Returns the thread id, or -1.
+// A name as notifications and threads spell it, to compare: case, spacing
+// and a trailing bracket (an app's "(Alert)") set aside.
+function sameName(name) {
+  return String(name || "").replace(/\s*[(\[][^()\[\]]*[)\]]\s*$/, "").replace(/\s+/g, " ").trim().toLowerCase()
+}
+
+// A message's words as a thread's snippet and a notification spell them.
+function messageWords(text) {
+  return String(text || "").replace(/\s+/g, " ").replace(/[\u2026.]+$/, "").trim().toLowerCase()
+}
+
+// Whether a thread's last message is the one a notification shows: equal,
+// or one begins the other (an app cuts a long message; a group's snippet
+// leads with the sender). A short message must be equal.
+function snippetHolds(snippet, text) {
+  var a = messageWords(snippet), b = messageWords(text)
+  if (a === "" || b === "") return false
+  if (a === b) return true
+  var lo = a.length < b.length ? a : b
+  var hi = a.length < b.length ? b : a
+  return lo.length >= 12 && hi.indexOf(lo) === 0
+}
+
+// The thread a message notification belongs to, or -1. The sender's name or
+// number (the title) finds it; a name the phone knows and this computer does
+// not (a thread titled by its number) is found by the message itself, when
+// exactly one conversation ends on it. Never a guess: no match opens none.
 function threadForNotification(n, threads) {
   if (!n || !isMessagingApp(n.app)) return -1
   var title = String(n.title || "").trim()
   if (!title) return -1
+  var texts = []
+  var body = String(n.text || "").trim()
+  if (body !== "") { texts.push(body); texts.push(body.split("\n").pop()) }
   var digits = title.replace(/\D/g, "")
   var key = digits.length >= 10 ? digits.slice(-10) : digits
+  var name = sameName(title)
+  var found = []
+  var byMessage = []
   for (var i = 0; i < threads.length; i++) {
     var t = threads[i]
-    if (t.title === title) return t.tid
-    if (key.length >= 5 && String(t.addressKeys || "").indexOf(key) >= 0) return t.tid
+    var said = texts.some(function(x) { return snippetHolds(t.snippet, x) })
+    var named = String(t.title || "").trim() === title || (name !== "" && sameName(t.title) === name)
+    var numbered = key.length >= 5 && /^[\d\s()+.-]+$/.test(title) && String(t.addressKeys || "").split(" ").indexOf(key) >= 0
+    if (named || numbered) found.push({ t: t, said: said })
+    else if (said && t.sentLast !== true) byMessage.push(t)
   }
-  return -1
+  if (found.length > 0) {
+    var best = found[0]
+    for (var k = 1; k < found.length; k++) {
+      var c = found[k]
+      if ((c.said && !best.said) || (c.said === best.said && Number(c.t.date || 0) > Number(best.t.date || 0))) best = c
+    }
+    return best.t.tid
+  }
+  return byMessage.length === 1 ? byMessage[0].tid : -1
 }
 
 
