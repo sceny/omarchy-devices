@@ -13,7 +13,7 @@
 
 # archlinux:latest of 2026-10-12
 FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722 AS base
-ARG ARCHIVE_DATE=2026/09/16
+ARG ARCHIVE_DATE=2026/10/18
 RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
  && pacman -Syu --noconfirm --needed \
@@ -27,12 +27,12 @@ RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$
 # Omarchy's shell and commands: the two packages' files, not their desktop
 # dependencies (display manager, bootloader, snapshots).
 ARG OMARCHY_REPO=https://pkgs.omarchy.org/stable/x86_64
-ARG OMARCHY_VERSION=4.0.4-1
+ARG OMARCHY_VERSION=4.0.5-1
 RUN set -e; cd /tmp; \
     curl -fsSLo omarchy.pkg "$OMARCHY_REPO/omarchy-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
     curl -fsSLo settings.pkg "$OMARCHY_REPO/omarchy-settings-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
-    echo "78fa778d48180aaf776b44f89ae86780f78e7b47440aa20faeb4a1be9240339c  omarchy.pkg" | sha256sum -c -; \
-    echo "748c2ee7edc3c67f8c09bdfa9f0930837684297c7107b8a3a87540f8dfe1d100  settings.pkg" | sha256sum -c -; \
+    echo "be7bc4d96ded4c1a01483f945cf6261523cc5edffe5894d5863da83aa6c2fa2f  omarchy.pkg" | sha256sum -c -; \
+    echo "9a1fa06ba400412a7c5f3d828151b7c82e8855a82a0d69b54c6d72620adc0ebb  settings.pkg" | sha256sum -c -; \
     for f in omarchy.pkg settings.pkg; do bsdtar -xf $f -C / --exclude '.PKGINFO' --exclude '.MTREE' --exclude '.BUILDINFO' --exclude '.INSTALL'; done; \
     rm -f /tmp/*.pkg
 
