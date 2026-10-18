@@ -76,7 +76,8 @@ class Soak:
         if len(m) != 1:
             sys.exit("soak: --rig %r matches %d rigs (dev/rig ps)" % (self.a.rig, len(m)))
         self.rid = m[0]["id"]
-        self.session = os.path.join("/tmp/omarchy-plugin-rig-%d" % os.getuid(), self.rid)
+        rig_tmp_root = os.environ.get("RIG_TMP_ROOT") or "/tmp/omarchy-plugin-rig-%d" % os.getuid()
+        self.session = os.path.join(rig_tmp_root, self.rid)
         self.state = dict(l.rstrip("\n").split("=", 1) for l in open(os.path.join(self.session, "rig.state")) if "=" in l)
         if not self.state.get("phone_device_id"):
             sys.exit("soak: the rig has no phone")
