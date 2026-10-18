@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Unpairing closes the device's pages**: the From anywhere and the Screen and apps page of a device that was just unpaired stayed open on nothing; the panel now goes back to where the device's page was ([#260](https://github.com/sceny/omarchy-devices/issues/260)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and
