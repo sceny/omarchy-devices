@@ -16,6 +16,9 @@ GitHub release with these notes.
   left open before. The notification now finds its conversation by name,
   then by the exact number, then by the message itself, and opens none when
   it cannot tell: the list, searched for the sender.
+- **The call button in a conversation shows only for a number you can
+  dial**: a service's short code or a sender's name no longer gets one
+  ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes
