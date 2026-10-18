@@ -158,6 +158,23 @@ require_tools() {
   chmod 700 "$SB_STATE"
 }
 
+# Lock/unlock the store to serialize operations that create or check containers.
+SB_LOCK_FD=""
+store_lock_acquire() {
+  local lockfile="$SB_STATE/.lock"
+  exec 200>>"$lockfile"
+  SB_LOCK_FD=200
+  if ! flock -n -x "$SB_LOCK_FD"; then
+    warn "waiting for the store lock to be released by another command"
+    flock -x "$SB_LOCK_FD" || die "store_lock_acquire: could not acquire lock"
+    ok "store lock acquired"
+  fi
+}
+store_lock_release() {
+  [[ -n $SB_LOCK_FD ]] && exec {SB_LOCK_FD}>&- || true
+  SB_LOCK_FD=""
+}
+
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
@@ -187,6 +204,9 @@ cmd_build() {
     die "build: $ref is not a revision of this checkout"
   git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
     die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
+
+  store_lock_acquire
+  trap 'store_lock_release' RETURN
 
   # In the store, not $TMPDIR: a build takes longer than some callers' temporary
   # directory lives, and its context gone mid-way fails the later images.
@@ -303,6 +323,7 @@ run_cleanup() {
     rm -rf -- "$SB_RUN_DIR"
   fi
   SB_RUN_NAME="" SB_RUN_DIR=""
+  store_lock_release
 }
 
 # Podman's default seccomp profile without new user namespaces, made for the run.
@@ -604,6 +625,7 @@ cmd_run() {
   SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
+  store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
 
@@ -882,6 +904,7 @@ dev_pull() {
   SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM
+  store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
 
@@ -1070,6 +1093,8 @@ cmd_dev() {
 
 cmd_verify_clean() {
   require_tools
+  store_lock_acquire
+  trap 'store_lock_release' RETURN
   local bad=0 list
   list=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
   if [[ -n $list ]]; then
