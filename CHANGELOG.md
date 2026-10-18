@@ -10,11 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
-- **The Contacts page keeps its key hints in view**: with the ask or a
-  problem line above the list, the page now takes the card's remaining
-  height instead of a fixed 600 px, so the hints under the list show on a
-  720 px screen without scrolling
-  ([#332](https://github.com/sceny/omarchy-devices/issues/332)).
+- **The Contacts and Messages pages keep their key hints in view**: with
+  the ask or a problem line above the page, it now takes the card's
+  remaining height instead of a fixed 600 px, so the hints show on a 720 px
+  screen without scrolling
+  ([#332](https://github.com/sceny/omarchy-devices/issues/332),
+  [#339](https://github.com/sceny/omarchy-devices/issues/339)).
 - **The keyboard cursor reaches Unpair, Reset shortcuts and a pairing
   request**: in a device's Settings and in *For all devices*, `j` on the last
   row now shows the cursor there and scrolls the page to it

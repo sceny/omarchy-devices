@@ -720,25 +720,29 @@ class DeviceFilesGoThroughTheGate(unittest.TestCase):
                 os.remove(f.name)
 
 
-class ContactsPageFitsTheCard(unittest.TestCase):
-    """The Contacts page is never taller than the card can be (#332): a fixed
-    600 px under the header and the ask pushed its key hints below the fold on
-    a 720 px screen."""
+class PagesFitTheCard(unittest.TestCase):
+    """Messages and Contacts are never taller than the card can be (#332,
+    #339): a fixed 600 px under the header and a note pushed the key hints
+    below the fold on a 720 px screen."""
 
-    def height_line(self, text):
-        body = text[text.index("ContactsView {"):]
+    PAGES = (("MessagesView", "messagesView", "sms:"), ("ContactsView", "contactsView", "contacts:"))
+
+    def height_line(self, text, view, after):
+        body = text[text.index(view + " {"):]
         body = body[:body.index("\n              }\n")]
-        return body[body.index("height:"):body.index("onReported")]
+        return body[body.index("height:"):body.index(after)]
 
-    def test_its_height_is_bounded_by_what_the_card_has_left(self):
-        found = self.height_line(code_only(open(os.path.join(ROOT, "Panel.qml")).read()))
-        for word in ("availableCardHeight", "verticalContentInset", "contactsView.y"):
-            self.assertIn(word, found)
+    def test_each_height_is_bounded_by_what_the_card_has_left(self):
+        text = code_only(open(os.path.join(ROOT, "Panel.qml")).read())
+        for view, ident, after in self.PAGES:
+            found = self.height_line(text, view, after)
+            for word in ("availableCardHeight", "verticalContentInset", ident + ".y"):
+                self.assertIn(word, found, view)
 
     def test_the_check_finds_a_fixed_height(self):
-        planted = "ContactsView {\n  height: visible ? Style.space(600) : 0\n  onReported: x\n              }\n"
+        planted = "MessagesView {\n  height: visible ? Style.space(600) : 0\n  sms: x\n              }\n"
         with self.assertRaises(AssertionError):
-            found = self.height_line(planted)
+            found = self.height_line(planted, "MessagesView", "sms:")
             self.assertIn("availableCardHeight", found)
 
 

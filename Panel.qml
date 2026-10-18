@@ -6241,7 +6241,11 @@ Panel {
                 Binding { target: root.sms; property: "viewing"; value: root.opened && root.messagesOpen; when: !!root.sms }
                 visible: root.showMessages
                 width: parent.width
-                height: visible ? Style.space(600) : 0
+                // The page's own height, less what sits above it (the header,
+                // a note) when the card cannot grow past the screen: the key
+                // hints under the list stay in view.
+                height: visible ? Math.max(Style.space(240), Math.min(Style.space(600),
+                          panel.availableCardHeight - panel.verticalContentInset - pageHost.y - messagesView.y)) : 0
                 sms: root.sms
                 bar: root.bar
                 hoverMovedTo: root.hoverMovedTo
