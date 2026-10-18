@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **The widget loads with Qt 6.12**: Qt 6.12 shows a file only the types its folder's `qmldir` lists, and ours listed only the clipboard, so the bar widget and its panel did not load; every component is listed, and a test fails when one used by name is not ([#365](https://github.com/sceny/omarchy-devices/issues/365)).
 - **Saving a nickname with Enter keeps the keys working**: the field is left before the row is rebuilt by the new name, so the page no longer logs an error and stops answering its keys ([#214](https://github.com/sceny/omarchy-devices/issues/214)).
 - **Notification access reads as allowed right after the grant**: Android lists the listener a moment after it is enabled, so the grant is read back a few times before it is called not allowed ([#188](https://github.com/sceny/omarchy-devices/issues/188)).
 - **A closed screen leaves no log behind**: closing a screen with no watcher running left its filtered scrcpy log in the runtime folder; the close now removes it ([#292](https://github.com/sceny/omarchy-devices/issues/292)).
