@@ -23,6 +23,11 @@ GitHub release with these notes.
 - **The call button in a conversation shows only for a number you can
   dial**: a service's short code or a sender's name no longer gets one
   ([#335](https://github.com/sceny/omarchy-devices/issues/335)).
+- **A media session is not a notification**: when KDE Connect does not
+  export an app's player, its playback notification (Previous, Play, Next,
+  not dismissable) showed in Notifications with no Now playing beside it.
+  It is hidden by its shape, as the phone keeps it in its media area
+  ([#350](https://github.com/sceny/omarchy-devices/issues/350)).
 - **Passwords never leave with your own auto-share**: when you turned
   automatic sharing on for a device in KDE Connect, the copies a password
   manager marks still went to it. The plugin now also writes

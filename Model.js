@@ -1341,7 +1341,23 @@ function isHiddenSummary(n) {
 // notification still named the previous episode after the player moved on.
 // An ordinary notification from the same app ("new upload") is dismissable,
 // so it still shows.
+//
+// KDE Connect does not always export the player of a media session (an app
+// the phone shows in its media area), so the notification is the only trace
+// of it. It is recognised by its shape: it cannot be dismissed and its
+// buttons are transport controls (two or more of Previous, Next, Play,
+// Pause). Android keeps it out of the notification list; so does the panel.
+function isMediaSession(n) {
+  if (n.dismissable !== false) return false
+  var transport = 0
+  var actions = n.actions || []
+  for (var i = 0; i < actions.length; i++)
+    if (/^(previous|next|play|pause)$/i.test(String(actions[i]).trim())) transport++
+  return transport >= 2
+}
+
 function isMediaNotification(n, players) {
+  if (isMediaSession(n)) return true
   var app = String(n.app || "").trim().toLowerCase()
   if (!app) return false
   var title = String(n.title || "").trim()

@@ -192,6 +192,19 @@ test("a playback notification is hidden even when it names an older track", () =
   assert.deepEqual(M.visibleNotifications(d, players).map(n => n.title), ["New episode out", "Alex"])
 })
 
+test("a media session with no exported player is not a notification (#670)", () => {
+  const session = { app: "Pocket FM", title: "Ep 22", text: "", dismissable: false, actions: ["Previous", "Play", "Next"] }
+  const d = device({ notifications: [
+    session,
+    { app: "Pocket FM", title: "New episode", text: "Ep 23", dismissable: true, actions: ["Play"] },
+    { app: "Clock", title: "Alarm", text: "7:00", dismissable: false, actions: ["Snooze", "Dismiss"] },
+    { app: "Clock", title: "Timer", text: "1:00", dismissable: false, actions: ["Pause"] },
+    { app: "Chat", title: "Alex", text: "hi", dismissable: true, actions: ["Mark as read", "Reply"] }
+  ] })
+  assert.deepEqual(M.visibleNotifications(d, []).map(n => n.title), ["New episode", "Alarm", "Timer", "Alex"])
+  assert.equal(M.isMediaSession(Object.assign({}, session, { actions: ["pause", "NEXT"] })), true)
+})
+
 test("media: player app from identity, phone players only, track line, times", () => {
   assert.equal(M.playerApp("Podcasts - Pixel 8", "Pixel 8"), "Podcasts")
   assert.equal(M.isPhonePlayer("org.mpris.MediaPlayer2.kdeconnect.mpris_1", "Podcasts - Pixel 8", "Pixel 8"), true)
