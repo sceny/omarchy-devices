@@ -1052,8 +1052,11 @@ Panel {
     if (!phone) return
     pairedDevices.forEach(function(d) { if (d.reachable === true || screenReaches(d.id)) phone.readFeatures(String(d.id)) })
     // KDE Connect away too: the screen link may still reach it.
-    if (device && appsSetUp(String(device.id))) phone.readScreen(String(device.id))
+    if (device && (appsSetUp(String(device.id)) || screenUnread(String(device.id)))) phone.readScreen(String(device.id))
   }
+  // A fresh pairing has no screen state, and the features read asks adb for
+  // the permissions only once it is ready: read it so Notifications can ask.
+  function screenUnread(id) { return !!phone && !phone.demo && phone.screenOf(id) === null && screenOnFor(id) }
   function featureDevice() { return editingDevice && scopeDevice ? scopeDevice : device }
   // A feature's one action: every step the plugin can do, then the one only
   // the user can do (said in the row, or as the result).
@@ -1418,7 +1421,7 @@ Panel {
   function settingsHome(scope) { return scope === "root" && pairedDevices.length === 1 ? String(pairedDevices[0].id) : scope }
   // A device's page: what it can do and where its screen stands, read now.
   function readScopeDevice(scope) {
-    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if (screenInstalled && screenOnFor(scope)) phone.readScreen(scope) }
+    if (phone && phone.findDevice(scope)) { phone.readFeatures(scope); if ((screenInstalled || screenUnread(scope)) && screenOnFor(scope)) phone.readScreen(scope) }
   }
   function openScope(scope) {
     scope = settingsHome(scope)

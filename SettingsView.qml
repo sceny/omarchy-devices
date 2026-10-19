@@ -1959,7 +1959,8 @@ Column {
           font.pixelSize: Style.font.bodySmall
           Component.onCompleted: if (idRow.row.kind === "nickname") root.nicknameField = nick
           onActiveFocusChanged: root.nicknameFocus(activeFocus)
-          onAccepted: { root.nicknameSet(text); root.nicknameFocus(false) }
+          // Saving rebuilds this row: leave the field first, `root` is gone after.
+          onAccepted: { var saved = text; root.nicknameFocus(false); root.nicknameSet(saved) }
           // Esc puts the saved nickname back and leaves.
           escapeStep: "revert"
           savedText: idRow.row.value || ""

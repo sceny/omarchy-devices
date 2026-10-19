@@ -88,6 +88,7 @@ clipboard settings in KDE Connect's config (*Rules*).
 | `PanelField.qml` | every text field: Esc steps back the same way everywhere |
 | `KeyCap.qml` | one key drawn as a key cap: the Keys page and the Screen and apps page |
 | `Clipboard.qml`, `qmldir` | the one clipboard door (a singleton): copy and bounded read through `wl-copy` / `wl-paste` out of the shell |
+| `qmldir` | every component another file uses by name (all but `BarWidget`, `Panel`, `Service`, which load by path); Qt 6.12 hides an unlisted one (`tests/test_qml.py`, `QmldirListsEveryComponent`) |
 | `CursorGlide.qml`, `CursorStop.qml` | the keyboard cursor, drawn once per page and sliding; where it stops |
 | `FoldToggle.qml`, `FoldBody.qml` | the folding section header and body, shared by the main page and settings |
 | `Reorder.qml`, `ReorderShift.qml`, `ReorderGrip.qml` | moving an item in an order (drag, arrows, keyboard): the order being moved, an item's place, a row's grip; used by every order in settings and by the tabs |
@@ -801,6 +802,12 @@ run in order; the detail, the checklist and the record templates are in
   review list (`docs/internals/releasing.md`). The `marketplace-check` job
   runs the marketplace's own checks on every pull request into `main`, so a
   finding reaches us before the bots'.
+- **A class is named by its mechanism, before the fix.** When a finding
+  arrives, ours or from outside, its fix starts with the platform call that
+  does the harm and the test that bans that call, checked against the source
+  of the Qt and Quickshell versions Omarchy ships now. A class drawn from the
+  last finding's words catches only that case; one drawn at the call catches
+  the next variant.
 - **Every pull request gets the regular review with a security check**
   (Panel QA, one reviewer): private text (messages, contact names,
   numbers, clipboard) stays off argv and out of logs; nothing from a

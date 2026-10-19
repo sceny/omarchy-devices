@@ -2475,7 +2475,13 @@ def keep_clipboard_for(devices, done, conn):
             done.add(d["id"])
 
 
-def grant_permission(serial, key, run=None):
+# Android applies a notification listener grant a moment after the command
+# returns; a read at once misses it. The other permissions apply at once.
+LISTENER_READS = 5
+LISTENER_READ_GAP_SEC = 0.5
+
+
+def grant_permission(serial, key, run=None, sleep=time.sleep):
     """Grants KDE Connect a permission on the device over adb (a click's):
     True when it is granted after."""
     run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
@@ -2491,8 +2497,14 @@ def grant_permission(serial, key, run=None):
     else:
         for perm in need["runtime"]:
             run(["pm", "grant", "--user", user, KDECONNECT_ANDROID, perm])
-    granted = device_permissions(serial, run)
-    return bool(granted and granted.get(key))
+    reads = LISTENER_READS if need.get("listener") else 1
+    for i in range(reads):
+        if i:
+            sleep(LISTENER_READ_GAP_SEC)
+        granted = device_permissions(serial, run)
+        if granted and granted.get(key):
+            return True
+    return False
 
 
 def remount(device_id, conn=None):
@@ -4708,6 +4720,23 @@ def screen_title(name, label=""):
     return "%s · %s" % (label, name) if label else "%s · Screen" % name
 
 
+def screen_close(device_id):
+    """Closes the device's screen window. The watcher removes the window's
+    log when it ends; with none running, nobody would, so it goes here too."""
+    title = screen_title((screen_device(device_id) or {}).get("name") or "Device")
+    win = find_window(title)
+    if win:
+        subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"])],
+                       capture_output=True, timeout=5)
+    log = screen_log(title)
+    try:
+        if log:
+            os.remove(log)
+    except OSError:
+        pass
+    return EXIT_OK
+
+
 def screen_log(title):
     """The two kinds of line from scrcpy the watcher reads, kept for a window
     (see SCREEN_LOG_LINES): "Texture: WxH" is the moment the device's frame
@@ -6907,12 +6936,7 @@ def main(argv):
         # windows: scrcpy ends, the window fades out.
         if len(argv) < 2:
             return say("screen-close needs a device id", EXIT_FAILED)
-        device = screen_device(argv[1]) or {}
-        win = find_window(screen_title(device.get("name") or "Device"))
-        if win:
-            subprocess.run(["hyprctl", "dispatch", "hl.dsp.window.close({ window = %s })" % lua_string("address:" + win["address"])],
-                           capture_output=True, timeout=5)
-        return EXIT_OK
+        return screen_close(argv[1])
     if argv[0] == "screen-focus":
         if len(argv) < 2:
             return say("screen-focus needs a device id", EXIT_FAILED)
