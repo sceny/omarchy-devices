@@ -1289,8 +1289,8 @@ Panel {
     // page this was is gone (unpaired): the list, or Add a device when none
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
-    else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0 && settingsScope.indexOf("reach:") !== 0
-             && ["root", "defaults", "connection", "addDevice", "ready", "keys"].indexOf(settingsScope) < 0)
+    else if (settingsOpen && (screenId !== "" || reachId !== "" ? !isPaired(screenId !== "" ? screenId : reachId)
+                              : !scopeDevice && ["root", "defaults", "connection", "addDevice", "ready", "keys"].indexOf(settingsScope) < 0))
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {

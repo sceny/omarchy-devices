@@ -15,6 +15,7 @@ GitHub release with these notes.
 - **Notification access reads as allowed right after the grant**: Android lists the listener a moment after it is enabled, so the grant is read back a few times before it is called not allowed ([#188](https://github.com/sceny/omarchy-devices/issues/188)).
 - **A closed screen leaves no log behind**: closing a screen with no watcher running left its filtered scrcpy log in the runtime folder; the close now removes it ([#292](https://github.com/sceny/omarchy-devices/issues/292)).
 - **Notifications asks for access on a new pairing**: the permissions are read once the screen state is known, and a fresh pairing had none until the Screen page was opened; the panel now reads it when it opens ([#200](https://github.com/sceny/omarchy-devices/issues/200)).
+- **Unpairing closes the device's pages**: the From anywhere and the Screen and apps page of a device that was just unpaired stayed open on nothing; the panel now goes back to where the device's page was ([#260](https://github.com/sceny/omarchy-devices/issues/260)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and
