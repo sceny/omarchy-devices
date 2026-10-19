@@ -18,11 +18,12 @@ RUN printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n\n' >>/et
  && printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
  && pacman -Syu --noconfirm --needed \
-      hyprland quickshell labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
+      hyprland labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
       glycin iproute2 dbus ffmpeg bubblewrap \
       pipewire wireplumber qrencode nodejs procps-ng psmisc util-linux unzip zstd perl gum uwsm \
       mesa vulkan-swrast libva ttf-jetbrains-mono-nerd noto-fonts qt6-declarative qt6-wayland qt6-svg \
       libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
+ && pacman -S --noconfirm omarchy/quickshell \
  && pacman -Scc --noconfirm
 
 # Omarchy's shell and commands: the two packages' files, not their desktop
