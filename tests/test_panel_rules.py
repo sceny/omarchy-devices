@@ -142,3 +142,17 @@ class NothingScriptedFocusesAField(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClosingHandsTheKeyboardBack(unittest.TestCase):
+    def test_the_close_branch_focuses_the_key_catcher(self):
+        with open(os.path.join(ROOT, "Panel.qml")) as f:
+            text = code_only(f.read())
+        m = re.search(r"\bonOpenedChanged\s*:\s*\{", text)
+        self.assertTrue(m, "Panel.qml has no onOpenedChanged")
+        body = text[m.end() - 1:match_close(text, m.end() - 1) + 1]
+        close = re.search(r"\belse\s*\{", body)
+        self.assertTrue(close, "onOpenedChanged has no close branch")
+        branch = body[close.end() - 1:match_close(body, close.end() - 1) + 1]
+        self.assertIn("keyCatcher.forceActiveFocus()", branch,
+                      "a field that held the keyboard at close keeps it at the next open")
