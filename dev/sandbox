@@ -389,7 +389,7 @@ run_unit() {
       --workdir /work \
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
-    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
+    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc" 2>/dev/null
   ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
   local unit_pid=$!
   wait $unit_pid || true
@@ -629,8 +629,7 @@ cmd_run() {
   SB_RUN_DIR="$SB_STATE/runs/$id"
   SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
-  trap 'run_cleanup; exit 130' INT TERM
-  store_lock_acquire
+  trap 'run_cleanup; exit 130' INT TERM HUP
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
 
@@ -666,7 +665,7 @@ cmd_run() {
   local verdict=$?
   run_cleanup
   trap - EXIT INT TERM HUP
-  say \"results in $out\"
+  say "results in $out"
   return "$verdict"
 }
 
@@ -911,8 +910,7 @@ dev_pull() {
   # The pictures are re-encoded in the session's own image.
   SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
-  trap 'run_cleanup; exit 130' INT TERM
-  store_lock_acquire
+  trap 'run_cleanup; exit 130' INT TERM HUP
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
 
