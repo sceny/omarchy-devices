@@ -15,8 +15,7 @@
 # archlinux:latest of 2026-10-12
 FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722 AS base
 ARG ARCHIVE_DATE=2026/10/19
-RUN printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n\n' >>/etc/pacman.conf \
- && printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
+RUN printf 'Server = https://archive.archlinux.org/repos/%s/$repo/os/$arch\n' "$ARCHIVE_DATE" >/etc/pacman.d/mirrorlist \
  && sed -i 's/^#\?ParallelDownloads.*/ParallelDownloads = 5/; s/^DownloadUser/#DownloadUser/' /etc/pacman.conf \
  && pacman -Syu --noconfirm --needed \
       hyprland labwc wtype socat grim jq curl git openssh python python-gobject gdk-pixbuf2 \
@@ -42,8 +41,7 @@ RUN set -e; cd /tmp; \
     echo "b314f137fc0af8c0e7293b7e716f655964e888b8277ec253dc96d13a7c2538a9  omarchy.pkg" | sha256sum -c -; \
     echo "19ad3ff0cfad10b8dd11fb2d0cb08c55987634ff3e57f3af4e5a9b43f78e9cca  settings.pkg" | sha256sum -c -; \
     for f in omarchy.pkg settings.pkg; do bsdtar -xf $f -C / --exclude '.PKGINFO' --exclude '.MTREE' --exclude '.BUILDINFO' --exclude '.INSTALL'; done; \
-    rm -f /tmp/*.pkg; \
-    pacman -Sy --noconfirm
+    rm -f /tmp/*.pkg
 
 RUN useradd -m -u 1000 -s /bin/bash sandbox
 
