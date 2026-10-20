@@ -328,7 +328,10 @@ the check runs again on the edit. Every run reads all the pull request's text
 through the API, so a plain comment is read on the next run of any event. A pull
 request about a tool may name it (`allowed_when_changed`); a pattern that
 catches a product word gets an exception in the rules file and a case in
-`tests/test_public_text.py`. The same rules check the standing texts
+`tests/test_public_text.py`. An exception by words (`unless_near`) looks at
+four words either side of the match, inside its sentence; a leak that sits
+within four words of an exempting word still passes, which a word list cannot
+tell apart, and the review reads for it. The same rules check the standing texts
 (`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
 dates and the owner's words as history, in the unit tests.
 

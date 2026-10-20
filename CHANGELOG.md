@@ -11,6 +11,7 @@ GitHub release with these notes.
 ### Highlights
 
 - **A feature's switch works while KDE Connect is away**: an away device's rows no longer show every feature as away with the switch gone. A feature you turned off shows as off, the switch of one that is on turns it off, and a missing permission is allowed over the screen link when it reaches the device ([#373](https://github.com/sceny/omarchy-devices/issues/373)).
+- **Dismissing the last notification no longer makes the section vanish**: the rows fade, the section folds closed, and only then is it gone, at the panel's own pace, as the Gallery does.
 - **The widget loads with Qt 6.12**: Qt 6.12 shows a file only the types its folder's `qmldir` lists, and ours listed only the clipboard, so the bar widget and its panel did not load; every component is listed, and a test fails when one used by name is not ([#365](https://github.com/sceny/omarchy-devices/issues/365)).
 - **Saving a nickname with Enter keeps the keys working**: the field is left before the row is rebuilt by the new name, so the page no longer logs an error and stops answering its keys ([#214](https://github.com/sceny/omarchy-devices/issues/214)).
 - **Notification access reads as allowed right after the grant**: Android lists the listener a moment after it is enabled, so the grant is read back a few times before it is called not allowed ([#188](https://github.com/sceny/omarchy-devices/issues/188)).
@@ -19,6 +20,7 @@ GitHub release with these notes.
 - **Unpairing closes the device's pages**: the From anywhere and the Screen and apps page of a device that was just unpaired stayed open on nothing; the panel now goes back to where the device's page was ([#260](https://github.com/sceny/omarchy-devices/issues/260)).
 - **A closed panel gives the keyboard back to its keys**: a text field that held the keyboard when the panel closed still held it when the panel opened again, so the keys did nothing until a click ([#285](https://github.com/sceny/omarchy-devices/issues/285)).
 - **Turning Gallery on gets storage access too**: the switch turned on from off set up the plugin's own step only; it now runs the package and the permission as well, and says what is left for you ([#189](https://github.com/sceny/omarchy-devices/issues/189)).
+- **No error in the log at startup**: the panel read a device's app windows before its app list existed; it now waits for the list ([#199](https://github.com/sceny/omarchy-devices/issues/199)).
 - **A conversation loads whole when a message arrives as it opens**: a live
   message for the open conversation moved the loaded count on before the
   history page came, and the page was then taken for another request and

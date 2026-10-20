@@ -114,6 +114,8 @@ class Environment(unittest.TestCase):
             ("container", "Ran the checks in a container; the QML item is fine."),
             ("container", "The row is fine - ran it in a container."),
             ("container", "Started a container and opened the panel."),
+            ("sandbox", "The thumbnails are decoded, the picture looks right and the panel was checked in the sandbox."),
+            ("container", "The layout of the panel was fine and we checked all of it in a container."),
         ]:
             with self.subTest(text=text):
                 self.assertIn((ENV, rule), problems(text))
@@ -122,6 +124,8 @@ class Environment(unittest.TestCase):
             "A file with no recorded type is sent around the sandbox.",
             "A picture is not opened with no sandbox.",
             "The QML item is placed in a container row.",
+            "Thumbnails are decoded in the sandbox before the shell loads them.",
+            "Every layout runs inside a container item.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -301,7 +305,7 @@ class Rules(unittest.TestCase):
                     RULES["unlinked_reference"]["patterns"] + RULES["standing"]["patterns"])
         for pat in patterns:
             re.compile(pat["regex"])
-            for key in ("unless_sentence", "unless_before", "unless_match"):
+            for key in ("unless_near", "unless_before", "unless_match"):
                 if key in pat:
                     re.compile(pat[key])
         re.compile(RULES["open_item"]["reference"])

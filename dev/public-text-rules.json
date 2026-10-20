@@ -23,7 +23,7 @@
           "tests/test_sandbox.py"
         ],
         "quoted": true,
-        "unless_sentence": "decod|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
+        "unless_near": "decod|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
       },
       {
         "id": "rig",
@@ -68,7 +68,7 @@
           "tests/test_sandbox.py"
         ],
         "quoted": true,
-        "unless_sentence": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
+        "unless_near": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
       },
       {
         "id": "paperclip",

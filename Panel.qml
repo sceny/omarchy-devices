@@ -33,6 +33,47 @@ Panel {
   readonly property var players: phone ? phone.players : []
   readonly property var volumePlayer: phone ? phone.volumePlayer : null
   readonly property var notifications: phone ? phone.notifications : []
+  // The notifications drawn: the device's, except when the last one goes.
+  // Then the rows fade, the section folds closed, and only then is it gone
+  // (as the Gallery's tiles do): no vanishing. Another device's list is
+  // never held.
+  property var heldNotes: []
+  property string heldNotesDevice: ""
+  property bool notesFading: false
+  property bool notesClosing: false
+  readonly property var shownNotes: notifications.length > 0 || heldNotes.length === 0 ? notifications : heldNotes
+  onNotificationsChanged: {
+    ensureCursor()
+    var id = device ? String(device.id) : ""
+    if (notifications.length > 0) {
+      notesLeave.stop(); notesClose.stop()
+      notesFading = false; notesClosing = false
+      heldNotes = notifications; heldNotesDevice = id
+    } else if (heldNotes.length > 0 && !notesFading) {
+      if (opened && id === heldNotesDevice) { notesFading = true; notesLeave.restart() }
+      else heldNotes = []
+    }
+  }
+  onDeviceChanged: {
+    if (notifications.length === 0 && (device ? String(device.id) : "") !== heldNotesDevice) {
+      notesLeave.stop(); notesClose.stop()
+      heldNotes = []; notesFading = false; notesClosing = false
+    }
+  }
+  Timer {
+    id: notesLeave
+    interval: Model.MOTION.outMs * root.motion
+    onTriggered: {
+      // Nothing else in the section: it folds closed before it goes.
+      if (!root.sectionNotes.notifications) { root.notesClosing = true; notesClose.restart() }
+      else { root.heldNotes = []; root.notesFading = false }
+    }
+  }
+  Timer {
+    id: notesClose
+    interval: Model.MOTION.inMs * root.motion
+    onTriggered: { root.heldNotes = []; root.notesFading = false; root.notesClosing = false }
+  }
   // Dismiss all (#194): offered while any can be dismissed, waiting while
   // any dismiss is still on its way to the device.
   readonly property var dismissableNotes: notifications.filter(function(n) { return n.dismissable === true })
@@ -1960,7 +2001,7 @@ Panel {
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "apps" && showApps && screenOn && (allApps.length > 0 || !!sectionNotes.apps)) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
-      else if (key === "notifications" && showNotifications && (notifications.length > 0 || !!sectionNotes.notifications)) s.push(key)
+      else if (key === "notifications" && showNotifications && (shownNotes.length > 0 || !!sectionNotes.notifications)) s.push(key)
       else if (key === "photos" && showPhotos && hasPhotos) s.push(key)
       else if (key === "received" && showReceived && received.length > 0) s.push(key)
     }
@@ -1978,7 +2019,7 @@ Panel {
   readonly property var appList: phone && device ? phone.appsOf(String(device.id)) : null
   // Each with its window when it is open here (`open`, and where its sound
   // plays: the tile's badge, #129).
-  readonly property var allApps: appList && appList.apps && device && screenOnFor(device.id)
+  readonly property var allApps: phone && appList && appList.apps && device && screenOnFor(device.id)
     ? Model.withWindows(appList.apps, phone.appWindowsOf(String(device.id)),
                         Object.assign({}, appList.sounds || {}, phone.windowSounds[String(device.id)] || {}), appSoundFor(device.id))
     : []
@@ -2796,8 +2837,6 @@ Panel {
       return bar.switchPanelFrom(root.barIdentity, direction)
     return false
   }
-
-  onNotificationsChanged: ensureCursor()
 
 
 
@@ -5771,6 +5810,10 @@ Panel {
                 Column {
                   id: notificationsColumn
                   y: sectionsBox.topOf("notifications")
+                  // Folding closed when its last notification went (see shownNotes).
+                  height: root.notesClosing ? 0 : implicitHeight
+                  clip: root.notesClosing
+                  Behavior on height { enabled: root.notesClosing; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
                   transform: ReorderShift { order: sectionMove; index: root.editing ? root.drawnSections.indexOf("notifications") : -1 }
                   z: sectionMove.from >= 0 && sectionMove.from === root.drawnSections.indexOf("notifications") ? 10 : 0
                   visible: root.showMain && root.drawnSections.indexOf("notifications") >= 0
@@ -5796,11 +5839,11 @@ Panel {
 
                       animate: root.settled
                       Layout.fillWidth: true
-                      title: root.notifications.length > 0 ? "NOTIFICATIONS · " + root.notifications.length : "NOTIFICATIONS"
+                      title: root.shownNotes.length > 0 ? "NOTIFICATIONS · " + root.shownNotes.length : "NOTIFICATIONS"
                       folded: root.isCollapsed("notifications")
                       marked: root.marks.sections["notifications"] === true
                       urgent: root.urgent
-                      summary: Model.notificationsSummary(root.notifications)
+                      summary: Model.notificationsSummary(root.shownNotes)
                       onToggled: root.toggleCollapsed("notifications")
                     }
 
@@ -5844,9 +5887,11 @@ Panel {
                       id: notifColumn
                       width: parent.width
                       spacing: Style.space(4)
+                      opacity: root.notesFading ? 0 : 1
+                      Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
 
                       Repeater {
-                        model: root.notifications
+                        model: root.shownNotes
                         NotificationRow {
                           required property var modelData
                           required property int index
@@ -6461,7 +6506,7 @@ Panel {
       : section === "media" ? (root.shownPlayerObject ? Model.mediaSummary(root.shownPlayerObject.trackTitle, root.shownPlayerObject.trackArtist, "") : "")
       : section === "photos" ? (root.photos.length > 0 ? Model.photosSummary(root.photos) : "")
       : section === "received" ? (root.received.length > 0 ? Model.receivedSummary(root.received) : "")
-      : (root.notifications.length > 0 ? Model.notificationsSummary(root.notifications) : "")
+      : (root.shownNotes.length > 0 ? Model.notificationsSummary(root.shownNotes) : "")
     open: root.editing
     motion: root.motion
     animate: root.settled

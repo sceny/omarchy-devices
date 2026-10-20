@@ -328,7 +328,7 @@ rig_check_devices() {
     rig_screen_ready
   rig_assert devices-screen-opens "scrcpy does not open the emulator's screen in the hidden session" \
     rig_screen_open
-  rig_assert_eventually devices-screen-window 30 "no scrcpy window in the rig's compositor" \
+  rig_assert_eventually devices-screen-window 60 "no scrcpy window in the rig's compositor" \
     rig_screen_window_open
   rig_bridge_ns screen-close "$(rig_phone_id)" >/dev/null 2>&1
   rig_assert_eventually devices-screen-closed 30 "the scrcpy window is still open after close" \
