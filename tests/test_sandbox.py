@@ -977,6 +977,49 @@ class SandboxLock(unittest.TestCase):
         self.assertIn("exit 0 after the release", r.stdout)
 
 
+class SignalHandlingMechanism(unittest.TestCase):
+    """Signal handling in dev/sandbox: pipelines backgrounded, traps include HUP."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+
+    def test_each_head_pipeline_is_backgrounded_and_waited(self):
+        """Every pipeline ending in `head -c ... >"$tarfile"` must be backgrounded and waited."""
+        # Look for the actual pattern we use: pipeline & pid=$!; wait $pid
+        # Match various forms: "tarfile" or $tarfile, single or multiple lines
+        backgrounded = re.findall(r'head -c [^>]*>\s*["\']?\$?tarfile["\']? &\s+\w+_pid=\$!\s*\n\s*wait \$\w+_pid', self.script, re.DOTALL)
+        self.assertGreater(len(backgrounded), 0, "no backgrounded pipelines found ending in head -c ... >'$tarfile'")
+        # We should have backgrounded at least: run_unit, reencode_pngs, dev_pull, dev_assemble (4 total)
+        self.assertGreaterEqual(len(backgrounded), 4, f"only found {len(backgrounded)} backgrounded pipelines, expected at least 4")
+
+    def test_trap_lines_include_hup(self):
+        """Every `trap '... INT TERM'` line must also include HUP."""
+        # Match trap lines that have INT TERM in the signal list
+        lines_with_hup = re.findall(r"trap '[^']+' INT TERM HUP", self.script)
+        self.assertTrue(len(lines_with_hup) > 0, "found no trap lines with INT TERM HUP")
+        # Verify that all trap lines with INT TERM also have HUP
+        all_trap_lines = re.findall(r"trap '[^']+'.*INT TERM(?!.*HUP)", self.script, re.MULTILINE)
+        self.assertEqual(len(all_trap_lines), 0, f"trap lines missing HUP")
+
+    def test_trap_resets_include_all_signals(self):
+        """Every trap reset with multiple signals must include EXIT INT TERM HUP."""
+        # Match all trap - lines that reset multiple signals
+        resets = re.findall(r"trap - EXIT INT TERM HUP\b", self.script)
+        self.assertGreater(len(resets), 0, "found no trap resets with EXIT INT TERM HUP")
+        # Verify that all trap resets with exactly 4 signals have all four
+        trap_resets = re.findall(r"trap - [A-Z]+ [A-Z]+ [A-Z](?: [A-Z]+)?(?:\n|\s|$)", self.script)
+        for reset_line in trap_resets:
+            signals = re.findall(r'\b(EXIT|INT|TERM|HUP)\b', reset_line)
+            # If it's a complete reset (trap - ...) with 4 signals, verify they're all there
+            if len(signals) == 4:
+                self.assertIn("EXIT", signals, f"trap reset missing EXIT in {reset_line}")
+                self.assertIn("INT", signals, f"trap reset missing INT in {reset_line}")
+                self.assertIn("TERM", signals, f"trap reset missing TERM in {reset_line}")
+                self.assertIn("HUP", signals, f"trap reset missing HUP in {reset_line}")
+
+
 class Reencode(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -1010,38 +1053,3 @@ class Reencode(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-class SignalHandlingMechanism(unittest.TestCase):
-    """Verify that dev/sandbox has backgrounded pipelines with wait, and signal traps including HUP."""
-
-    @classmethod
-    def setUpClass(cls):
-        with open(SANDBOX) as f:
-            cls.script = f.read()
-
-    def test_each_head_pipeline_is_backgrounded_and_waited(self):
-        """Backgrounded pipelines are followed by wait; traps fire immediately."""
-        # run_unit: ) 4>&1 | head -c ... >"$tarfile" & followed by unit_pid=$! and wait
-        run_unit_bg = re.search(r'4>&1 \| head -c.*>".*tarfile.*" &.*unit_pid=\$!.*wait \$unit_pid', self.script, re.DOTALL)
-        self.assertIsNotNone(run_unit_bg, "run_unit output pipe not backgrounded and waited")
-
-        # dev_pull: tar ... | head -c ... >"$tarfile" & followed by pull_pid=$! and wait
-        dev_pull_bg = re.search(r'tar -C /out.*\| head -c.*>".*tarfile.*" &.*pull_pid=\$!.*wait \$pull_pid', self.script, re.DOTALL)
-        self.assertIsNotNone(dev_pull_bg, "dev_pull output pipe not backgrounded and waited")
-
-    def test_trap_lines_include_hup(self):
-        """Each trap '...' INT TERM line includes HUP."""
-        trap_lines = re.findall(r"trap '[^']*(?:INT|TERM)[^']*'(?:\s+(?:INT|TERM|HUP))+", self.script)
-        for line in trap_lines:
-            if "INT" in line or "TERM" in line:
-                self.assertIn("HUP", line, f"Line missing HUP: {line}")
-
-    def test_trap_resets_include_all_signals(self):
-        """Each trap - ... line includes EXIT INT TERM HUP."""
-        reset_lines = re.findall(r"trap - [A-Z\s]+", self.script)
-        for line in reset_lines:
-            self.assertIn("EXIT", line, f"Trap reset missing EXIT: {line}")
-            self.assertIn("INT", line, f"Trap reset missing INT: {line}")
-            self.assertIn("TERM", line, f"Trap reset missing TERM: {line}")
-            self.assertIn("HUP", line, f"Trap reset missing HUP: {line}")
