@@ -1687,7 +1687,7 @@ Column {
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
-    readonly property bool switchable: row.switchable === true && row.state !== "away"
+    readonly property bool switchable: row.switchable === true
     hasCursor: false
     CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
     foreground: root.foreground

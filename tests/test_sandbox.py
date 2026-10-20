@@ -25,6 +25,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zlib
@@ -962,6 +963,106 @@ class OutputPlace(unittest.TestCase):
             self.assertTrue(inside(os.path.join(work, ".git")))
             self.assertTrue(inside(os.path.join(bare, "sub", "run")))
             self.assertFalse(inside(os.path.join(plain, "results", "run")))
+
+
+class SandboxLock(unittest.TestCase):
+    def test_verify_clean_waits_for_the_store_lock(self):
+        r = subprocess.run(
+            ["bash", os.path.join(ROOT, "dev", "sandbox-lock-test.sh")],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("verify-clean waits for the lock and says so", r.stdout)
+        self.assertIn("exit 0 after the release", r.stdout)
+
+    def test_process_check_finds_this_stores_processes_and_no_others(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        func = "store_processes_left() {" + text.split("store_processes_left() {")[1].split("\n}\n")[0] + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            store = os.path.join(tmp, "store")
+            other = os.path.join(tmp, "other")
+
+            def start(argv0):
+                proc = subprocess.Popen(["bash", "-c", 'exec -a "$0" sleep 60', argv0])
+                self.addCleanup(lambda: (proc.kill(), proc.wait()))
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    with open(f"/proc/{proc.pid}/cmdline", "rb") as f:
+                        if argv0.encode() in f.read():
+                            return
+                    time.sleep(0.02)
+                self.fail(f"stand-in process did not start: {argv0}")
+
+            def left(names, state):
+                script = f"SB_UID=$(id -u)\nSB_STATE=\"$STATE\"\npm() {{ printf '%s\\n' \"$PM_NAMES\"; }}\n{func}store_processes_left\n"
+                env = {**os.environ, "STATE": state, "PM_NAMES": "\n".join(names)}
+                r = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=20, env=env)
+                return r.stdout
+
+            self.assertEqual(left([], store), "")
+            start("conmon --name sceny-sandbox-deadbeef")
+            self.assertIn("sceny-sandbox-deadbeef", left(["sceny-sandbox-deadbeef"], store))
+            start("conmon --name sceny-sandbox-cafe0001")
+            self.assertIn("sceny-sandbox-cafe0001", left(["sceny-sandbox-deadbeef", "sceny-sandbox-cafe0001"], store))
+            start(f"podman --root {store}/storage run leaked")
+            self.assertIn(f"{store}/storage run leaked", left([], store))
+            start(f"podman --root {other}/storage run --name sceny-sandbox-0badf00d")
+            self.assertNotIn("0badf00d", left(["sceny-sandbox-deadbeef"], store))
+            self.assertNotIn(f"{other}/storage", left([], store))
+            start(f"podman --root {store}-other/storage run sibling-leak")
+            self.assertNotIn("sibling-leak", left([], store))
+            start(f"holder {store}")
+            self.assertIn(f"holder {store}", left([], store))
+            for i, odd in enumerate(("c++ (x) {1} y?", "pipe|store")):
+                root = os.path.join(tmp, odd)
+                start(f"podman --root {root}/storage run odd-leak-{i}")
+                self.assertIn(f"odd-leak-{i}", left([], root))
+
+
+class SignalHandlingMechanism(unittest.TestCase):
+    """Signal handling in dev/sandbox: pipelines backgrounded, traps include HUP."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+
+    def test_each_head_pipeline_is_backgrounded_and_waited(self):
+        """Every `| head -c ... >"$tarfile"` pipeline is backgrounded and waited for, except the git-archive read outside any container."""
+        lines = self.script.splitlines()
+        pipes = [i for i, line in enumerate(lines) if re.search(r'\| head -c .*>\s*"?\$tarfile"?', line)]
+        self.assertGreaterEqual(len(pipes), 5, f"found {len(pipes)} tarfile pipelines, expected at least 5")
+        foreground = [lines[i] for i in pipes if not lines[i].rstrip().endswith("&")]
+        self.assertEqual(len(foreground), 1, f"foreground tarfile pipelines: {foreground}")
+        self.assertIn("archive", foreground[0])
+        for i in pipes:
+            if lines[i].rstrip().endswith("&"):
+                self.assertTrue(any(l.strip().startswith("wait ") for l in lines[i + 1:i + 4]), f"no wait after line {i + 1}: {lines[i]}")
+
+    def test_trap_lines_include_hup(self):
+        """Every `trap '... INT TERM'` line must also include HUP."""
+        # Match trap lines that have INT TERM in the signal list
+        lines_with_hup = re.findall(r"trap '[^']+' INT TERM HUP", self.script)
+        self.assertGreaterEqual(len(lines_with_hup), 2, f"found {len(lines_with_hup)} trap lines with INT TERM HUP, expected at least 2")
+        # Verify that all trap lines with INT TERM also have HUP
+        all_trap_lines = re.findall(r"trap '[^']+'.*INT TERM(?!.*HUP)", self.script, re.MULTILINE)
+        self.assertEqual(len(all_trap_lines), 0, f"trap lines missing HUP")
+
+    def test_trap_resets_include_all_signals(self):
+        """Every trap reset with multiple signals must include EXIT INT TERM HUP."""
+        # Match all trap - lines that reset multiple signals
+        resets = re.findall(r"^\s*trap - (.+)$", self.script, re.MULTILINE)
+        self.assertGreaterEqual(len(resets), 2, f"found {len(resets)} trap resets, expected at least 2")
+        for names in resets:
+            self.assertEqual(set(names.split()), {"EXIT", "INT", "TERM", "HUP"}, f"trap reset is not EXIT INT TERM HUP: {names}")
+
+    def test_dev_pull_takes_the_store_lock(self):
+        body = re.search(r"^dev_pull\(\) \{\n(.*?)^\}", self.script, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(body)
+        self.assertIn("store_lock_acquire", body.group(1))
 
 
 class Reencode(unittest.TestCase):

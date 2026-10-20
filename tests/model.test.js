@@ -1324,7 +1324,11 @@ test("features: each state from the report, the steps one click runs, Fix all", 
   assert.equal(by("screen").state, "on")
   const away = M.featureRows(Object.assign({}, report, { reachable: false }), null, "Pixel 8")
   // From anywhere is about reaching it away: its own setup, not away.
-  assert.ok(away.filter(r => r.key !== "screen" && r.key !== "reach").every(r => r.state === "away"))
+  // A feature the user turned off stays turned off, and its switch works.
+  assert.ok(away.filter(r => r.key !== "screen" && r.key !== "reach" && r.key !== "clipboard").every(r => r.state === "away"))
+  const awayClipboard = away.find(r => r.key === "clipboard")
+  assert.deepEqual([awayClipboard.state, awayClipboard.on, awayClipboard.switchable, awayClipboard.steps[0].fix],
+                   ["off", false, true, { verb: "device", what: "plugin", arg: "clipboard=on" }], "off while away: one click turns it on for when it connects")
   const noSim = Object.assign({}, report, { plugins: Object.assign({}, report.plugins, { sms: { on: true, offered: false } }) })
   assert.equal(M.featureRows(noSim, null, "Tab").find(r => r.key === "messages").state, "unavailable")
   const dead = Object.assign({}, report, { files: { sshfs: true, mounted: false, error: "sshfs finished with exit code 1" } })
@@ -1521,6 +1525,24 @@ test("KDE Connect away while the screen link reaches the device: one problem, fi
   // Nothing reaches it: away, as before, and no problem.
   const gone = M.deviceSetup({ report, screen: { state: "away", line: "" }, name: "Pixel 8" })
   assert.equal(gone.features.find(r => r.key === "notifications").state, "away")
+})
+
+test("KDE Connect away: its switches stay the user's, and adb's permissions are read", () => {
+  const away = Object.assign(M.demoFeatures(), { reachable: false })
+  const by = (rows, k) => rows.find(r => r.key === k)
+  const rows = M.featureRows(away, null, "Pixel 8")
+  assert.deepEqual([by(rows, "ring").state, by(rows, "ring").on, by(rows, "ring").switchable], ["away", true, true], "on, away: the switch turns it off")
+  assert.deepEqual([by(rows, "screen").switchable, by(rows, "reach").switchable], [true, false], "the screen's own switch; From anywhere has none")
+  // A plugin the report does not know while away: nothing to switch.
+  const unknown = M.featureRows(Object.assign({}, away, { plugins: {} }), null, "Pixel 8")
+  assert.deepEqual([by(unknown, "ring").state, by(unknown, "ring").switchable], ["away", false])
+  // adb reaches it: a permission missing on the device is the Allow it always was.
+  const noContacts = Object.assign(M.demoFeatures("ask"), { reachable: false })
+  const viaAdb = M.deviceSetup({ report: noContacts, screen: { state: "ready", line: "" }, name: "Pixel 8" })
+  const perm = viaAdb.items.find(it => it.key === "permission:notifications")
+  assert.deepEqual([perm.state, perm.steps[0].fix], ["missing", { verb: "device", what: "grant", arg: "notifications" }])
+  const gone = M.deviceSetup({ report: noContacts, screen: { state: "away", line: "" }, name: "Pixel 8" })
+  assert.equal(gone.items.find(it => it.key === "permission:notifications").state, "away", "nothing reaches it: away")
 })
 
 test("an app's sound: here unless something else plays on the device; the playing app keeps it", () => {

@@ -1959,8 +1959,17 @@ function setupItem(key, ctx) {
   }
   if (kind === "plugin") {
     item.gateway = "kdeconnect"; item.label = "KDE Connect's " + what + " part"
-    if (!report || !report.reachable) return linked()
+    if (!report) return linked()
     var p = (report.plugins || {})[what]
+    // KDE Connect keeps a paired device's plugin choices while it is away,
+    // and sets them without it: the switch is the user's, reached or not.
+    if (!report.reachable) {
+      if (!p || p.offered === false) return linked()
+      item.known = true
+      if (p.on !== false) return linked()
+      item.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: what + "=on" } })
+      return is("off", "")
+    }
     if (!p || p.offered === false) return is("unavailable", name + " does not offer it")
     if (p.on === false) {
       item.steps.push({ kind: "auto", label: "Turn it on for " + name, fix: { verb: "device", what: "plugin", arg: what + "=on" } })
@@ -1970,7 +1979,9 @@ function setupItem(key, ctx) {
   }
   if (kind === "permission") {
     item.gateway = "android"; item.label = PERMISSION_NAMES[what]
-    if (!report || !report.reachable) return linked()
+    // Android's permissions are adb's to read and grant: with the screen
+    // link reaching the device, KDE Connect away does not hide them.
+    if (!report || (!report.reachable && !(adbHere && report.permissions))) return linked()
     // Read over adb: unknown without it, and nothing to say then.
     if (!report.permissions) return is("ok")
     item.known = true
@@ -2179,8 +2190,8 @@ function setupItems(ctx) {
 
 // A feature's row, from its items: { key, label, glyph, hint, state,
 // stateLabel, detail, steps, switchable, on, gateways, needs }. Worked
-// out the same way for every feature: away > being read > not on this
-// device > turned off > needs attention > to set up > on.
+// out the same way for every feature: turned off > away > being read > not
+// on this device > needs attention > to set up > on.
 function featureState(f, items, ctx) {
   var by = {}
   items.forEach(function(it) { by[it.key] = it })
@@ -2191,7 +2202,15 @@ function featureState(f, items, ctx) {
   function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
   function first(state) { return mine.filter(function(it) { return it.state === state }) }
   var away = first("away")
-  if (away.length > 0) return done("away", away[0].detail)
+  var switchOff = mine.filter(function(it) { return it.state === "off" && f.switch.indexOf(it.key) >= 0 })
+  // Turned off is the user's choice, whether or not the device is reached
+  // now: the switch shows it, and turns it on for when it connects.
+  if (away.length > 0 && switchOff.length === 0) {
+    // The plugin's switch is KDE Connect's, set without the device: it
+    // stays the user's while it is away, when its state was read.
+    row.switchable = f.switch.length > 0 && f.switch.every(function(k) { return !!by[k] && (by[k].known === true || by[k].state !== "away") })
+    return done("away", away[0].detail)
+  }
   // Being read: the link (or the screen's) only; an item not read yet
   // elsewhere says nothing.
   var reading = first("unknown").filter(function(it) { return it.key === "link" || it.key === "screen" || it.key === "bt:phone" || it.gateway === "network" })
