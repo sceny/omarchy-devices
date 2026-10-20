@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A feature's switch works while KDE Connect is away**: an away device's rows no longer show every feature as away with the switch gone. A feature you turned off shows as off, the switch of one that is on turns it off, and a missing permission is allowed over the screen link when it reaches the device ([#373](https://github.com/sceny/omarchy-devices/issues/373)).
 - **Dismissing the last notification no longer makes the section vanish**: the rows fade, the section folds closed, and only then is it gone, at the panel's own pace, as the Gallery does.
 - **The widget loads with Qt 6.12**: Qt 6.12 shows a file only the types its folder's `qmldir` lists, and ours listed only the clipboard, so the bar widget and its panel did not load; every component is listed, and a test fails when one used by name is not ([#365](https://github.com/sceny/omarchy-devices/issues/365)).
 - **Saving a nickname with Enter keeps the keys working**: the field is left before the row is rebuilt by the new name, so the page no longer logs an error and stops answering its keys ([#214](https://github.com/sceny/omarchy-devices/issues/214)).
