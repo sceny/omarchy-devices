@@ -1292,6 +1292,21 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   assert.ok(demo.some(a => a.system) && demo.some(a => a.opened > 0))
 })
 
+test("features: a switch turned on from off runs the permission and the package too (#189)", () => {
+  const report = M.demoFeatures()
+  report.plugins.sftp.on = false
+  report.permissions.storage = false
+  const gallery = () => M.featureRows(report, { state: "ready", line: "" }, "Pixel 8").find(r => r.key === "gallery")
+  assert.deepEqual([gallery().state, gallery().on], ["off", false])
+  assert.deepEqual(M.featurePlan(gallery()).map(s => [s.fix.what, s.fix.arg]), [["plugin", "sftp=on"], ["grant", "storage"]],
+                   "one click: the plugin on, then the storage allowed")
+  report.files.sshfs = false
+  assert.deepEqual(M.featurePlan(gallery()).map(s => s.fix.what), ["plugin", "sshfs", "grant"],
+                   "this computer's package before the device's permission")
+  const clipboard = M.featureRows(M.demoFeatures(), { state: "ready", line: "" }, "Pixel 8").find(r => r.key === "clipboard")
+  assert.deepEqual(clipboard.steps.map(s => s.fix.what), ["plugin"], "nothing else to do: just the plugin")
+})
+
 test("features: each state from the report, the steps one click runs, Fix all", () => {
   const report = M.demoFeatures()
   const rows = M.featureRows(report, { state: "ready", line: "Ready over Wi-Fi" }, "Pixel 8", [M.demoMeshCheck("")], {},

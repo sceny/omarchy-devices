@@ -496,6 +496,8 @@ Panel {
       // runs (another monitor's panel may still show it).
       if (phone && phone.rootAsk && phone.openPanels <= 1) phone.cancelRoot()
       if (screenOpening) openingGone.restart()
+      // A field that held the keyboard at close must not hold it at the next open.
+      keyCatcher.forceActiveFocus()
     }
     if (phone) phone.openPanels = Math.max(0, phone.openPanels + (opened ? 1 : -1))
     settled = false
@@ -1362,8 +1364,8 @@ Panel {
     // page this was is gone (unpaired): the list, or Add a device when none
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
-    else if (settingsOpen && !scopeDevice && settingsScope.indexOf("screen:") !== 0 && settingsScope.indexOf("reach:") !== 0
-             && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0)
+    else if (settingsOpen && (screenId !== "" || reachId !== "" ? !isPaired(screenId !== "" ? screenId : reachId)
+                              : !scopeDevice && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0))
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
@@ -3391,6 +3393,8 @@ Panel {
     }
     function moveBar(key: string, delta: int): string { root.moveBarIndicator(key, delta); return JSON.stringify(root.barIndicators) }
     function resetShortcuts(): string { root.resetShortcuts(); return "ok" }
+    // Who holds the keyboard: the key catcher, not a text field.
+    function focusInfo(): string { return JSON.stringify({ keyCatcher: keyCatcher.activeFocus, blocked: keyCatcher.blocked }) }
     // What the panel is showing, so a check can assert on the picture.
     function status(): string {
       return JSON.stringify({

@@ -2199,6 +2199,11 @@ function featureState(f, items, ctx) {
   if (off.length > 0) {
     row.on = false
     off.forEach(function(it) { row.steps = row.steps.concat(it.steps) })
+    // The switch turned on runs every step the plugin can (a permission, a
+    // package, a mount), this computer's first, after the one that turns it on.
+    mine.filter(function(it) { return off.indexOf(it) < 0 && (it.state === "missing" || it.state === "broken") })
+      .sort(function(a, b) { return (a.scope === "computer" ? 0 : 1) - (b.scope === "computer" ? 0 : 1) })
+      .forEach(function(it) { row.steps = row.steps.concat(it.steps) })
     return done("off", "")
   }
   if (reading.length > 0) return done("setup", "Looking…")
