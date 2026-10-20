@@ -139,22 +139,6 @@ die() {
 
 usage() { awk 'NR > 1 { if (/^#/) print; else exit }' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
-# Lock/unlock the store to serialize operations that create or check containers.
-SB_LOCK_FD=""
-store_lock_acquire() {
-  local lockfile="$SB_STATE/.lock"
-  mkdir -p "$SB_STATE"
-  exec 200>>"$lockfile"
-  if ! flock -x -n 200 2>/dev/null; then
-    step "waiting for the store lock to be released by another command"
-    flock -x 200 || die "store_lock_acquire: could not acquire lock"
-  fi
-}
-store_lock_release() {
-  flock -u 200 2>/dev/null || true
-  exec 200>&-
-}
-
 # Podman, in a clean environment and its own storage: the owner's own images
 # and settings are never touched, and nothing of this shell's environment
 # (tokens included) reaches podman.
@@ -404,7 +388,7 @@ run_unit() {
       --workdir /work \
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
-    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
+    { echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"; } 2>/dev/null
   ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
   unit_pid=$!
   wait $unit_pid
@@ -647,7 +631,6 @@ cmd_run() {
   SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
-  # Acquire the lock before mkdir to protect the entire run lifecycle.
   store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
@@ -683,9 +666,6 @@ cmd_run() {
   write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
   local verdict=$?
   run_cleanup
-  # Release the lock after cleanup completes, so verify-clean never sees the run
-  # directory or live containers.
-  store_lock_release
   trap - EXIT INT TERM HUP
   say "results in $out"
   return "$verdict"
@@ -840,7 +820,6 @@ dev_start() {
   id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
-  store_lock_acquire
   pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
     --pull never --log-driver none \
     --network none --no-hosts \
@@ -861,7 +840,6 @@ dev_start() {
     --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
     --workdir /work \
     "$(image_of "$profile")" sleep infinity >/dev/null || die "dev start: the container did not start"
-  store_lock_release
   ok "session $id ($profile) started; it ends by itself after $((ttl / 60)) minutes"
   printf '%s\n' "$id"
 }
@@ -935,6 +913,7 @@ dev_pull() {
   SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
+  store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
 
@@ -1067,12 +1046,10 @@ dev_stop() {
     echo "  no session"
     return 0
   }
-  store_lock_acquire
   while read -r n; do
     pm rm -f -v -t 0 "$n" >/dev/null 2>&1
     ok "session ${n##*-} stopped and removed"
   done <<<"$names"
-  store_lock_release
 }
 
 cmd_dev() {
@@ -1140,7 +1117,6 @@ cmd_verify_clean() {
   store_lock_acquire
   trap 'store_lock_release' RETURN
   local bad=0 list
-  store_lock_acquire
   list=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
   if [[ -n $list ]]; then
     fail "containers left: $(echo "$list" | tr '\n' ' ')"
@@ -1194,9 +1170,6 @@ $list"
       step "image kept on purpose: $image ($(pm image inspect --format '{{.Size}}' "$image" | numfmt --to=iec 2>/dev/null))"
     fi
   done
-  # Release the lock after all checks complete, ensuring no race between
-  # verify-clean and a run that is cleaning up.
-  store_lock_release
   return $bad
 }
 

@@ -1051,6 +1051,11 @@ class SignalHandlingMechanism(unittest.TestCase):
         for names in resets:
             self.assertEqual(set(names.split()), {"EXIT", "INT", "TERM", "HUP"}, f"trap reset is not EXIT INT TERM HUP: {names}")
 
+    def test_dev_pull_takes_the_store_lock(self):
+        body = re.search(r"^dev_pull\(\) \{\n(.*?)^\}", self.script, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(body)
+        self.assertIn("store_lock_acquire", body.group(1))
+
 
 class Reencode(unittest.TestCase):
     @classmethod
