@@ -123,6 +123,8 @@ BorderSurface {
               Button {
                 visible: !!group.modelData.place
                 Layout.alignment: Qt.AlignVCenter
+                Layout.preferredHeight: foldHead.headerHeight
+                verticalPadding: 0
                 text: "Open"
                 tooltipText: Model.keyTip(Model.keysOpenLabel(group.modelData.group), "keysOpen")
                 foreground: card.foreground
