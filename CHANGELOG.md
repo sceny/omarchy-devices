@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an
   overlay instead of a page, so a key can be tried with the list in view.
   Each group folds with a one-line summary, the one for where you are is

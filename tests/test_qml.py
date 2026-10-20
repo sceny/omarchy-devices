@@ -424,6 +424,38 @@ class SettingsRowsHaveACursorStop(unittest.TestCase):
             os.remove(f.name)
 
 
+def settings_repeaters_over_every_row(path):
+    """Lines of a Repeater over every row of the page whose delegate hides
+    itself by the row's kind: each such Repeater builds a delegate for every
+    row it does not draw, and opening Settings froze for about a second."""
+    import re
+    text = open(path).read()
+    found = []
+    for m in re.finditer(r"Repeater \{\s*model: (?:[^\n?]*\? )?root\.rows\b[^\n]*\n(.*?)\n\s*\}\n", text, re.S):
+        if re.search(r"visible: [^\n]*modelData\.kind", m.group(1)):
+            found.append("%s:%d: a Repeater over root.rows hides rows by kind; use root.rowsWhere"
+                         % (os.path.basename(path), text.count("\n", 0, m.start()) + 1))
+    return found
+
+
+class SettingsRepeatersDrawOnlyTheirRows(unittest.TestCase):
+    def test_no_repeater_builds_a_delegate_for_every_row(self):
+        found = settings_repeaters_over_every_row(os.path.join(ROOT, "SettingsView.qml"))
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_one(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  Repeater {\n    model: root.rows\n    ListRow {\n"
+                    "      required property var modelData\n      visible: modelData.kind === \"keys\"\n    }\n  }\n"
+                    "  Repeater {\n    model: root.rowsWhere(function(r) { return r.kind === \"keys\" })\n"
+                    "    ListRow { required property var modelData }\n  }\n}\n")
+        try:
+            self.assertEqual(len(settings_repeaters_over_every_row(f.name)), 1)
+        finally:
+            os.remove(f.name)
+
+
 # Verbs that carry text a person wrote. Any local process can read a command
 # line from /proc, so the text goes over stdin (`run`'s input), and the
 # arguments after the device are ids only.
