@@ -1096,6 +1096,14 @@ cmd_dev() {
 
 # ------------------------------------------------------------ verify-clean ----
 
+store_processes_left() {
+  local names pattern
+  names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | paste -sd '|')
+  pattern=$(printf '%s' "$SB_STATE" | sed 's/[[\.*^$/]/\\&/g')
+  [[ -n $names ]] && pattern="$names|$pattern"
+  pgrep -u "$SB_UID" -af "$pattern" 2>/dev/null | grep -v 'pgrep\|verify-clean' | head -5
+}
+
 cmd_verify_clean() {
   require_tools
   store_lock_acquire
@@ -1141,25 +1149,7 @@ cmd_verify_clean() {
     fail "mounts of the sandbox store are still held ($list)"
     bad=1
   else ok "no mount held"; fi
-  # Processes from this store are in two categories: those with container names and leaked ones.
-  # First, get container names from this store's containers (all podman containers for this root).
-  local container_names regex store_pattern
-  container_names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | sort -u)
-
-  # Build a regex to match processes with those container names.
-  if [[ -n $container_names ]]; then
-    regex=$(echo "$container_names" | paste -sd '|')
-    list=$(pgrep -u "$SB_UID" -af "$regex" 2>/dev/null | grep -v 'pgrep\|verify-clean' | head -5)
-  else
-    list=""
-  fi
-
-  # Also check for processes whose command line contains this store's path (e.g., leaked containers).
-  # This catches both podman processes and helper processes (conmon, crun).
-  if [[ -z $list ]]; then
-    store_pattern=$(printf '%s' "$SB_STATE" | sed 's/[[\.*^$/]/\\&/g')
-    list=$(pgrep -u "$SB_UID" -af "$store_pattern" 2>/dev/null | grep -v 'pgrep\|verify-clean' | head -5)
-  fi
+  list=$(store_processes_left)
   if [[ -n $list ]]; then
     fail "processes left:
 $list"

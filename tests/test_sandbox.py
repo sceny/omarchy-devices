@@ -25,6 +25,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zlib
@@ -976,89 +977,41 @@ class SandboxLock(unittest.TestCase):
         self.assertIn("verify-clean waits for the lock and says so", r.stdout)
         self.assertIn("exit 0 after the release", r.stdout)
 
-    def test_verify_clean_process_check_finds_leaked_processes(self):
-        """Process check finds leaked processes by store path, with or without run directories."""
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        store1 = os.path.join(tmp.name, "store1")
-        store2 = os.path.join(tmp.name, "store2")
-        os.makedirs(store1)
-        os.makedirs(store2)
+    def test_process_check_finds_this_stores_processes_and_no_others(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        func = "store_processes_left() {" + text.split("store_processes_left() {")[1].split("\n}\n")[0] + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            store = os.path.join(tmp, "store")
+            other = os.path.join(tmp, "other")
 
-        # Create script to check process detection for store1
-        script = f"""
-        SB_STATE="{store1}"
-        SB_UID=$UID
+            def start(argv0):
+                proc = subprocess.Popen(["bash", "-c", 'exec -a "$0" sleep 60', argv0])
+                self.addCleanup(lambda: (proc.kill(), proc.wait()))
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    with open(f"/proc/{proc.pid}/cmdline", "rb") as f:
+                        if argv0.encode() in f.read():
+                            return
+                    time.sleep(0.02)
+                self.fail(f"stand-in process did not start: {argv0}")
 
-        # Simulate process detection logic (simplified from dev/sandbox)
-        container_names=$(echo "sceny-sandbox-deadbeef")
-        regex=$(echo "$container_names" | paste -sd '|')
-        list=$(pgrep -u "$SB_UID" -af "$regex" 2>/dev/null | grep -v 'pgrep\\|verify-clean' | head -5)
+            def left(names, state):
+                script = f"SB_UID=$(id -u)\nSB_STATE=\"$STATE\"\npm() {{ printf '%s\\n' \"$PM_NAMES\"; }}\n{func}store_processes_left\n"
+                env = {**os.environ, "STATE": state, "PM_NAMES": "\n".join(names)}
+                r = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=20, env=env)
+                return r.stdout
 
-        if [[ -z $list ]]; then
-            list=$(pgrep -u "$SB_UID" -af "$(printf '%s' "$SB_STATE" | sed 's/[[\\.\\*^\\$]/\\\\&/g')" 2>/dev/null | grep -E "podman|crun|conmon|sleep" | grep -v 'pgrep\\|verify-clean' | head -5)
-        fi
-
-        if [[ -n $list ]]; then
-            echo "FOUND: $list"
-        else
-            echo "NOT_FOUND"
-        fi
-        """
-
-        # Start a stand-in process with store path in argv
-        proc = subprocess.Popen(
-            ["sleep", "60"],
-            env={**os.environ, "PATH": f"{store1}/bin:{os.environ.get('PATH', '')}"},
-        )
-        self.addCleanup(proc.terminate)
-
-        # Test 1: Process found by store path even without run directories
-        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        # Note: This simplified test shows the concept; actual detection depends on process argv
-        # The real test is in SandboxLock.test_verify_clean_waits_for_the_store_lock above
-
-    def test_verify_clean_process_check_does_not_find_other_stores(self):
-        """Process check ignores processes from other sandbox stores."""
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        store1 = os.path.join(tmp.name, "store1")
-        store2 = os.path.join(tmp.name, "store2")
-        os.makedirs(store1)
-        os.makedirs(store2)
-
-        # Create script to check that store2's processes are not found by store1's check
-        script = f"""
-        SB_STATE="{store1}"
-        SB_UID=$UID
-
-        # This would be a process with store2 in its path, should not match store1 check
-        container_names=$(echo "sceny-sandbox-deadbeef")
-        regex=$(echo "$container_names" | paste -sd '|')
-        list=$(pgrep -u "$SB_UID" -af "$regex" 2>/dev/null | grep -v 'pgrep\\|verify-clean' | head -5)
-
-        if [[ -z $list ]]; then
-            list=$(pgrep -u "$SB_UID" -af "$(printf '%s' "$SB_STATE" | sed 's/[[\\.\\*^\\$]/\\\\&/g')" 2>/dev/null | grep -E "podman|crun|conmon" | grep -v 'pgrep\\|verify-clean' | head -5)
-        fi
-
-        if [[ -n $list ]]; then
-            echo "FOUND: $list"
-        else
-            echo "NOT_FOUND"
-        fi
-        """
-
-        # Start process with store2 path
-        proc = subprocess.Popen(
-            ["sh", "-c", f"exec -a 'podman --root {store2}/storage run sceny' sleep 60"],
-        )
-        self.addCleanup(proc.terminate)
-
-        # store1's check should NOT find processes from store2
-        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=5)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("NOT_FOUND", r.stdout)
+            self.assertEqual(left([], store), "")
+            start("conmon --name sceny-sandbox-deadbeef")
+            self.assertIn("sceny-sandbox-deadbeef", left(["sceny-sandbox-deadbeef"], store))
+            start("conmon --name sceny-sandbox-cafe0001")
+            self.assertIn("sceny-sandbox-cafe0001", left(["sceny-sandbox-deadbeef", "sceny-sandbox-cafe0001"], store))
+            start(f"podman --root {store}/storage run leaked")
+            self.assertIn(f"{store}/storage run leaked", left([], store))
+            start(f"podman --root {other}/storage run --name sceny-sandbox-0badf00d")
+            self.assertNotIn("0badf00d", left(["sceny-sandbox-deadbeef"], store))
+            self.assertNotIn(f"{other}/storage", left([], store))
 
 
 class Reencode(unittest.TestCase):
