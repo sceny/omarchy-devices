@@ -35,12 +35,12 @@ RUN set -e; cd /tmp; \
 # Omarchy's shell and commands: the two packages' files, not their desktop
 # dependencies (display manager, bootloader, snapshots).
 ARG OMARCHY_REPO=https://pkgs.omarchy.org/stable/x86_64
-ARG OMARCHY_VERSION=4.0.5-1
+ARG OMARCHY_VERSION=4.0.6-1
 RUN set -e; cd /tmp; \
     curl -fsSLo omarchy.pkg "$OMARCHY_REPO/omarchy-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
     curl -fsSLo settings.pkg "$OMARCHY_REPO/omarchy-settings-$OMARCHY_VERSION-x86_64.pkg.tar.zst"; \
-    echo "be7bc4d96ded4c1a01483f945cf6261523cc5edffe5894d5863da83aa6c2fa2f  omarchy.pkg" | sha256sum -c -; \
-    echo "9a1fa06ba400412a7c5f3d828151b7c82e8855a82a0d69b54c6d72620adc0ebb  settings.pkg" | sha256sum -c -; \
+    echo "b314f137fc0af8c0e7293b7e716f655964e888b8277ec253dc96d13a7c2538a9  omarchy.pkg" | sha256sum -c -; \
+    echo "19ad3ff0cfad10b8dd11fb2d0cb08c55987634ff3e57f3af4e5a9b43f78e9cca  settings.pkg" | sha256sum -c -; \
     for f in omarchy.pkg settings.pkg; do bsdtar -xf $f -C / --exclude '.PKGINFO' --exclude '.MTREE' --exclude '.BUILDINFO' --exclude '.INSTALL'; done; \
     rm -f /tmp/*.pkg; \
     pacman -Sy --noconfirm
