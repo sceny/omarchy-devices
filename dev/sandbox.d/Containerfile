@@ -8,8 +8,9 @@
 # all.
 #
 # Pinned: the base image by digest, Arch packages by an Arch Linux Archive
-# snapshot date, Omarchy's two packages and every download by sha256, the
-# Paperclip CLI by a lockfile. Bump a pin on purpose, in a pull request.
+# snapshot date, Omarchy's two packages, Quickshell, and every download by
+# sha256, the Paperclip CLI by a lockfile. Bump a pin on purpose, in a pull
+# request.
 
 # archlinux:latest of 2026-10-12
 FROM docker.io/library/archlinux@sha256:363129b67b2bc6c5a634f8fb4961a7e2eba213a2ec075d159127b1260290a722 AS base
@@ -25,13 +26,11 @@ RUN printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n\n' >>/et
       libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
  && pacman -Scc --noconfirm
 
-# Build quickshell from AUR source to match the machine's development build
-RUN pacman -Syu --noconfirm --needed base-devel cmake && \
-    mkdir -p /tmp/quickshell && cd /tmp/quickshell && \
-    git clone https://aur.archlinux.org/quickshell.git . && \
-    makepkg -si --noconfirm && \
-    cd / && rm -rf /tmp/quickshell && \
-    pacman -Scc --noconfirm
+# Install quickshell from Omarchy repository with sha256 verification
+RUN set -e; cd /tmp; \
+    curl -fsSLo qs.pkg https://pkgs.omarchy.org/stable/x86_64/quickshell-0.3.2.r7.g2b4501a-1-x86_64.pkg.tar.zst; \
+    echo "f9f813213597d1ee25e16860ed326e810857810460c09ee87d06bc3b655c2da1  qs.pkg" | sha256sum -c -; \
+    pacman -U --noconfirm qs.pkg; rm -f qs.pkg; pacman -Scc --noconfirm
 
 # Omarchy's shell and commands: the two packages' files, not their desktop
 # dependencies (display manager, bootloader, snapshots).
