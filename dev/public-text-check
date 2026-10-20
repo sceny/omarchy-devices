@@ -73,9 +73,12 @@ def changes_any(changed_files, globs):
 SENTENCE_BREAK = re.compile(r"(?<=[.!?;:])\s+|\s[\u2014\u2013-]\s")
 
 
-def sentence_of(line, start, end):
-    """The sentence of the line that holds the span: between the breaks (a full
-    stop, ; : ! ? or a dash) before and after it."""
+NEAR_WORDS = 4
+
+
+def near_of(line, start, end):
+    """The span with the words around it: up to NEAR_WORDS words before and after,
+    never past the breaks (a full stop, ; : ! ? or a dash) of its sentence."""
     lo, hi = 0, len(line)
     for m in SENTENCE_BREAK.finditer(line):
         if m.end() <= start:
@@ -83,13 +86,15 @@ def sentence_of(line, start, end):
         elif m.start() >= end:
             hi = m.start()
             break
-    return line[lo:hi]
+    before = line[lo:start].split()[-NEAR_WORDS:]
+    after = line[end:hi].split()[:NEAR_WORDS]
+    return " ".join(before + [line[start:end]] + after)
 
 
 def find_all(patterns, text, changed_files=(), quoting_files=()):
     """(rule id, matched text) for every pattern match in the text's lines, after
-    the exceptions of the pattern: words in the sentence of the match
-    (unless_sentence), the words just before it (unless_before), its own matched
+    the exceptions of the pattern: words near the match, a few words either
+    side inside its sentence (unless_near), the words just before it (unless_before), its own matched
     text (unless_match) and the files the pull request changes
     (allowed_when_changed: a pull request about a tool may name it; a pattern
     marked `quoted` is also allowed by `quoting_files`, the files that hold the
@@ -102,14 +107,14 @@ def find_all(patterns, text, changed_files=(), quoting_files=()):
         if pat.get("quoted") and changes_any(changed_files, quoting_files):
             continue
         regex = re.compile(pat["regex"], re.I)
-        exceptions = {key: re.compile(pat[key], re.I) for key in ("unless_sentence", "unless_before", "unless_match") if key in pat}
+        exceptions = {key: re.compile(pat[key], re.I) for key in ("unless_near", "unless_before", "unless_match") if key in pat}
         for line in lines:
             for m in regex.finditer(line):
                 if "unless_match" in exceptions and exceptions["unless_match"].search(m.group(0)):
                     continue
                 if "unless_before" in exceptions and exceptions["unless_before"].search(line[: m.start()]):
                     continue
-                if "unless_sentence" in exceptions and exceptions["unless_sentence"].search(sentence_of(line, m.start(), m.end())):
+                if "unless_near" in exceptions and exceptions["unless_near"].search(near_of(line, m.start(), m.end())):
                     continue
                 found.append((pat["id"], m.group(0)))
     return found
