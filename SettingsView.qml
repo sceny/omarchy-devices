@@ -105,6 +105,14 @@ Column {
     for (var i = 0; i < rows.length; i++) if (rows[i].kind === kind) return i
     return -1
   }
+  // The rows a Repeater draws: only those it is for, each with its place
+  // in the page's order (the cursor's index). A Repeater over every row
+  // builds a hidden delegate for each row it does not draw.
+  function rowsWhere(test) {
+    var out = []
+    for (var i = 0; i < rows.length; i++) if (test(rows[i])) out.push({ row: rows[i], at: i })
+    return out
+  }
   function hasKind(kinds) {
     for (var i = 0; i < rows.length; i++) if (kinds.indexOf(rows[i].kind) >= 0) return true
     return false
@@ -196,14 +204,12 @@ Column {
         }
       }
       Repeater {
-        model: root.rows
+        model: root.rowsWhere(function(r) { return r.kind === "problem" })
         ProblemRow {
           required property var modelData
-          required property int index
-          visible: modelData.kind === "problem"
           width: statusColumn.width
-          row: modelData
-          rowIndex: index
+          row: modelData.row
+          rowIndex: modelData.at
         }
       }
     }
@@ -244,14 +250,12 @@ Column {
       }
 
       Repeater {
-        model: root.rows
+        model: root.rowsWhere(function(r) { return r.kind === "device" || r.kind === "request" || r.kind === "addDevice" })
         ListRow {
           required property var modelData
-          required property int index
-          visible: modelData.kind === "device" || modelData.kind === "request" || modelData.kind === "addDevice"
           width: root.width
-          row: modelData
-          rowIndex: index
+          row: modelData.row
+          rowIndex: modelData.at
         }
       }
   }
@@ -260,14 +264,12 @@ Column {
   Item { visible: root.firstIndex("defaults") >= 0; width: 1; height: Style.space(6) }
   PanelSeparator { visible: root.firstIndex("defaults") >= 0; foreground: root.foreground }
   Repeater {
-    model: root.rows
+    model: root.rowsWhere(function(r) { return r.kind === "defaults" })
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "defaults"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
 
@@ -293,14 +295,12 @@ Column {
     spacing: Style.space(4)
 
       Repeater {
-        model: root.rows
+        model: root.rowsWhere(function(r) { return ["nickname", "icon", "barPlace", "showInPanel"].indexOf(r.kind) >= 0 })
         IdentityRow {
           required property var modelData
-          required property int index
-          visible: ["nickname", "icon", "barPlace", "showInPanel"].indexOf(modelData.kind) >= 0
           width: root.width
-          row: modelData
-          rowIndex: index
+          row: modelData.row
+          rowIndex: modelData.at
         }
       }
   }
@@ -327,14 +327,12 @@ Column {
     motion: root.motion
     animate: root.animate
     Repeater {
-      model: root.rows
+      model: root.rowsWhere(function(r) { return r.kind === "feature" })
       FeatureRow {
         required property var modelData
-        required property int index
-        visible: modelData.kind === "feature"
         width: root.width
-        row: modelData
-        rowIndex: index
+        row: modelData.row
+        rowIndex: modelData.at
       }
     }
   }
@@ -344,27 +342,23 @@ Column {
   Item { visible: root.firstIndex("editPage") >= 0; width: 1; height: Style.space(6) }
   PanelSeparator { visible: root.firstIndex("editPage") >= 0; foreground: root.foreground }
   Repeater {
-    model: root.rows
+    model: root.rowsWhere(function(r) { return r.kind === "editPage" || r.kind === "resetGroup" })
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "editPage" || modelData.kind === "resetGroup"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
 
   // One device: Add a device is on its page (Settings' first page).
   Repeater {
-    model: root.scopeKind === "device" ? root.rows : []
+    model: root.scopeKind === "device" ? root.rowsWhere(function(r) { return r.kind === "addDevice" }) : []
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "addDevice"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
 
@@ -372,14 +366,12 @@ Column {
   Item { visible: root.firstIndex("keys") >= 0; width: 1; height: Style.space(6) }
   PanelSeparator { visible: root.firstIndex("keys") >= 0; foreground: root.foreground }
   Repeater {
-    model: root.rows
+    model: root.rowsWhere(function(r) { return r.kind === "keys" })
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "keys"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   Repeater {
@@ -429,14 +421,12 @@ Column {
         }
 
         Repeater {
-          model: root.rows
+          model: root.rowsWhere(function(r) { return r.kind === "layout" })
           LayoutRow {
             required property var modelData
-            required property int index
-            visible: modelData.kind === "layout"
             width: root.width
-            row: modelData
-            rowIndex: index
+            row: modelData.row
+            rowIndex: modelData.at
           }
         }
 
@@ -475,26 +465,22 @@ Column {
         }
 
         Repeater {
-          model: root.rows
+          model: root.rowsWhere(function(r) { return r.kind === "bar" })
           ShortcutRow {
             required property var modelData
-            required property int index
-            visible: modelData.kind === "bar"
             width: root.width
-            row: modelData
-            rowIndex: index
+            row: modelData.row
+            rowIndex: modelData.at
           }
         }
 
         Repeater {
-          model: root.rows
+          model: root.rowsWhere(function(r) { return r.kind === "barFlag" })
           LayoutRow {
             required property var modelData
-            required property int index
-            visible: modelData.kind === "barFlag"
             width: root.width
-            row: modelData
-            rowIndex: index
+            row: modelData.row
+            rowIndex: modelData.at
           }
         }
     }
@@ -534,14 +520,12 @@ Column {
         }
 
         Repeater {
-          model: root.rows
+          model: root.rowsWhere(function(r) { return r.kind === "shortcut" })
           ShortcutRow {
             required property var modelData
-            required property int index
-            visible: modelData.kind === "shortcut"
             width: root.width
-            row: modelData
-            rowIndex: index
+            row: modelData.row
+            rowIndex: modelData.at
           }
         }
 
@@ -560,14 +544,12 @@ Column {
     font.pixelSize: Style.font.bodySmall
   }
   Repeater {
-    model: root.rows
+    model: root.rowsWhere(function(r) { return r.kind === "check" })
     CheckRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "check"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   // Every fix there is, this computer's and the device's, in one go: a
@@ -638,14 +620,12 @@ Column {
     fontFamily: root.fontFamily
   }
   Repeater {
-    model: root.scopeKind === "addDevice" ? root.rows : []
+    model: root.scopeKind === "addDevice" ? root.rowsWhere(function(r) { return r.kind === "request" }) : []
     PairingCardRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "request"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "request" }
@@ -678,26 +658,22 @@ Column {
     font.pixelSize: Style.font.caption
   }
   Repeater {
-    model: root.scopeKind === "addDevice" ? root.rows : []
+    model: root.scopeKind === "addDevice" ? root.rowsWhere(function(r) { return r.kind === "available" && !r.pairKey }) : []
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "available" && !modelData.pairKey
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   // A pairing this computer asked for, waiting on the device: a card.
   Repeater {
-    model: root.scopeKind === "addDevice" ? root.rows : []
+    model: root.scopeKind === "addDevice" ? root.rowsWhere(function(r) { return r.kind === "available" && !!r.pairKey }) : []
     PairingCardRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "available" && !!modelData.pairKey
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   PairedCard { visible: root.scopeKind === "addDevice" && !!root.justPaired && root.justPaired.kind === "available" }
@@ -746,44 +722,36 @@ Column {
   // Each control drawn as what it is: the screen (a tile, as its shortcut),
   // where it opens (one of two), a switch, and the setup's own actions.
   Repeater {
-    model: root.scopeKind === "screen" ? root.rows : []
+    model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "open" }) : []
     ScreenTileRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "screenAction" && modelData.key === "open"
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   Repeater {
-    model: root.scopeKind === "screen" ? root.rows : []
+    model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "place" }) : []
     ScreenPlaceRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "screenAction" && modelData.key === "place"
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   Repeater {
-    model: root.scopeKind === "screen" ? root.rows : []
+    model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "appSound" }) : []
     ScreenSoundRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "screenAction" && modelData.key === "appSound"
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
   Repeater {
-    model: root.scopeKind === "screen" ? root.rows : []
+    model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key !== "open" && r.key !== "place" && r.key !== "appSound" }) : []
     ListRow {
       required property var modelData
-      required property int index
-      visible: modelData.kind === "screenAction" && modelData.key !== "open" && modelData.key !== "place" && modelData.key !== "appSound"
       width: root.width
-      row: modelData
-      rowIndex: index
+      row: modelData.row
+      rowIndex: modelData.at
     }
   }
 
