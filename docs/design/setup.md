@@ -73,8 +73,11 @@ Three layers, read from the bridge's reports (`doctor`, `features`,
 | Bluetooth | Bluetooth on here, PipeWire's hands-free service (this computer); paired for calls, kept and connected (device); Calls here on (the plugin's switch) | Calls here (#59) |
 
 A feature's state comes from its items the same way for every feature:
-away > being read > turned off > not on this device > needs attention >
-to set up > on. Everything reads it: the device page's rows, Settings'
+turned off > away > being read > not on this device > needs attention >
+to set up > on. A switch is the user's whether or not KDE Connect reaches
+the device now (it keeps the plugin choices of a paired device and sets
+them without it), and a permission is adb's to read while the screen link
+reaches it. Everything reads it: the device page's rows, Settings'
 status, the gear dot, the main page's line, *Fix all*, *Fix with AI*.
 
 ## 5. Just works, then out of the way
