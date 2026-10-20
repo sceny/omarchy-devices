@@ -26,7 +26,7 @@ hostile_cleanup() {
   local f
   for f in "${HOSTILE_CANARIES[@]}"; do rm -f -- "$f"; done
   HOSTILE_CANARIES=()
-  if [[ -n $HOSTILE_WORK && $HOSTILE_WORK == "${TMPDIR:-/tmp}"/sceny-hostile.* ]]; then rm -rf -- "$HOSTILE_WORK"; fi
+  if [[ -n $HOSTILE_WORK && $HOSTILE_WORK == "$SB_STATE"/hostile/* ]]; then rm -rf -- "$HOSTILE_WORK"; fi
   HOSTILE_WORK=""
 }
 
@@ -354,7 +354,8 @@ cmd_hostile_test() {
   if want dev-paperclipai && ((quick == 0)); then
     pm image exists "$(image_of paperclipai)" || die "hostile-test: no paperclipai image; run 'dev/sandbox build --profile paperclipai' first"
   fi
-  HOSTILE_WORK=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile.XXXXXX")
+  mkdir -p "$SB_STATE/hostile"
+  HOSTILE_WORK=$(mktemp -d "$SB_STATE/hostile/sceny-hostile.XXXXXX")
   trap 'hostile_cleanup' EXIT INT TERM
   local rand
   rand=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
@@ -503,6 +504,14 @@ PY
   fi
 
   unset "$secret_name"
+  # The work directory is in the store, which verify-clean reads: it goes
+  # before the check, or is moved out for the reader when --keep asked for it.
+  local kept=""
+  if ((keep)); then
+    kept=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile-kept.XXXXXX") && mv -- "$HOSTILE_WORK"/* "$kept"/ 2>/dev/null
+  fi
+  [[ $HOSTILE_WORK == "$SB_STATE"/hostile/* ]] && rm -rf -- "$HOSTILE_WORK"
+  HOSTILE_WORK=""
   say "16. nothing is left"
   local clean=0
   cmd_verify_clean || clean=1
@@ -525,10 +534,7 @@ PY
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
   fi
   say "hostile test: $HOSTILE_PASS passed, $HOSTILE_FAIL failed"
-  if ((keep)); then
-    step "kept for reading: $HOSTILE_WORK"
-    HOSTILE_WORK=""
-  fi
+  [[ -z $kept ]] || step "kept for reading: $kept"
   hostile_cleanup
   ((HOSTILE_FAIL == 0))
 }

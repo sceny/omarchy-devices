@@ -964,6 +964,19 @@ class OutputPlace(unittest.TestCase):
             self.assertFalse(inside(os.path.join(plain, "results", "run")))
 
 
+class SandboxLock(unittest.TestCase):
+    def test_verify_clean_waits_for_the_store_lock(self):
+        r = subprocess.run(
+            ["bash", os.path.join(ROOT, "dev", "sandbox-lock-test.sh")],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("verify-clean waits for the lock and says so", r.stdout)
+        self.assertIn("exit 0 after the release", r.stdout)
+
+
 class Reencode(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
