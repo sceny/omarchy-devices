@@ -1014,6 +1014,49 @@ class SandboxLock(unittest.TestCase):
             self.assertNotIn(f"{other}/storage", left([], store))
 
 
+class SignalHandlingMechanism(unittest.TestCase):
+    """Signal handling in dev/sandbox: pipelines backgrounded, traps include HUP."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+
+    def test_each_head_pipeline_is_backgrounded_and_waited(self):
+        """Every `| head -c ... >"$tarfile"` pipeline is backgrounded and waited for, except the git-archive read outside any container."""
+        lines = self.script.splitlines()
+        pipes = [i for i, line in enumerate(lines) if re.search(r'\| head -c .*>\s*"?\$tarfile"?', line)]
+        self.assertGreaterEqual(len(pipes), 5, f"found {len(pipes)} tarfile pipelines, expected at least 5")
+        foreground = [lines[i] for i in pipes if not lines[i].rstrip().endswith("&")]
+        self.assertEqual(len(foreground), 1, f"foreground tarfile pipelines: {foreground}")
+        self.assertIn("archive", foreground[0])
+        for i in pipes:
+            if lines[i].rstrip().endswith("&"):
+                self.assertTrue(any(l.strip().startswith("wait ") for l in lines[i + 1:i + 4]), f"no wait after line {i + 1}: {lines[i]}")
+
+    def test_trap_lines_include_hup(self):
+        """Every `trap '... INT TERM'` line must also include HUP."""
+        # Match trap lines that have INT TERM in the signal list
+        lines_with_hup = re.findall(r"trap '[^']+' INT TERM HUP", self.script)
+        self.assertGreaterEqual(len(lines_with_hup), 2, f"found {len(lines_with_hup)} trap lines with INT TERM HUP, expected at least 2")
+        # Verify that all trap lines with INT TERM also have HUP
+        all_trap_lines = re.findall(r"trap '[^']+'.*INT TERM(?!.*HUP)", self.script, re.MULTILINE)
+        self.assertEqual(len(all_trap_lines), 0, f"trap lines missing HUP")
+
+    def test_trap_resets_include_all_signals(self):
+        """Every trap reset with multiple signals must include EXIT INT TERM HUP."""
+        # Match all trap - lines that reset multiple signals
+        resets = re.findall(r"^\s*trap - (.+)$", self.script, re.MULTILINE)
+        self.assertGreaterEqual(len(resets), 2, f"found {len(resets)} trap resets, expected at least 2")
+        for names in resets:
+            self.assertEqual(set(names.split()), {"EXIT", "INT", "TERM", "HUP"}, f"trap reset is not EXIT INT TERM HUP: {names}")
+
+    def test_dev_pull_takes_the_store_lock(self):
+        body = re.search(r"^dev_pull\(\) \{\n(.*?)^\}", self.script, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(body)
+        self.assertIn("store_lock_acquire", body.group(1))
+
+
 class Reencode(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

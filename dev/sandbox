@@ -388,8 +388,10 @@ run_unit() {
       --workdir /work \
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
-    echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"
-  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+    { echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"; } 2>/dev/null
+  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+  unit_pid=$!
+  wait $unit_pid
   rc=$(cat "$SB_RUN_DIR/rc" 2>/dev/null)
   [[ $rc =~ ^[0-9]+$ ]] || rc=125
 
@@ -465,7 +467,9 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
       --mount "type=bind,src=$SB_DIR/sandbox.d/reencode.py,dst=/opt/reencode.py,ro" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
       "$SB_RUN_IMAGE" bash -c 'python3 /opt/reencode.py /in/png /out >&2; status=$?; tar -C /out -cf - .; exit $status' \
-      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+    reencode_pid=$!
+    wait $reencode_pid
   )
   pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
   SB_RUN_NAME=""
@@ -626,7 +630,7 @@ cmd_run() {
   SB_RUN_DIR="$SB_STATE/runs/$id"
   SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
-  trap 'run_cleanup; exit 130' INT TERM
+  trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
@@ -662,7 +666,7 @@ cmd_run() {
   write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
   local verdict=$?
   run_cleanup
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   say "results in $out"
   return "$verdict"
 }
@@ -908,7 +912,7 @@ dev_pull() {
   # The pictures are re-encoded in the session's own image.
   SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
   trap 'run_cleanup' EXIT
-  trap 'run_cleanup; exit 130' INT TERM
+  trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
@@ -916,7 +920,9 @@ dev_pull() {
   local tarfile="$SB_RUN_DIR/out.tar" size
   env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
     timeout --signal=KILL 120 podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
-    --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+    --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+  pull_pid=$!
+  wait $pull_pid
   size=$(stat -c %s "$tarfile")
   ((size > 0 && size <= SB_MAX_RESULT)) || die "dev pull: nothing came out, or more than $SB_MAX_RESULT bytes"
   read_result "$tarfile" "$out" "$out" dev --png-dir "$SB_RUN_DIR/png" >/dev/null ||
@@ -949,7 +955,7 @@ dev_pull() {
   fi
   dev_exec "$DEV_NAME" 60 /opt/devside.sh clear >/dev/null
   run_cleanup
-  trap - EXIT INT TERM
+  trap - EXIT INT TERM HUP
   ok "pulled into $out (the session's /out is empty again)"
   printf '%s\n' "$out"
 }
@@ -991,7 +997,9 @@ dev_assemble() {
       "$(image_of "$DEV_PROFILE")" bash -c 'ffmpeg -nostdin -loglevel error -framerate "$FPS" -pattern_type glob -i "/in/frames/frame-*.png" \
         -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:v libvpx-vp9 -b:v 0 -crf 34 -deadline realtime -cpu-used 8 -row-mt 1 \
         -pix_fmt yuv420p -an -f webm /out/recording.webm >&2; status=$?; tar -C /out -cf - .; exit $status' \
-      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile"
+      2> >(python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2) | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+    assemble_pid=$!
+    wait $assemble_pid
   )
   pm rm -f -v -t 0 "$SB_RUN_NAME" >/dev/null 2>&1
   SB_RUN_NAME=""
