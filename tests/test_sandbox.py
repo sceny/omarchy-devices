@@ -1012,6 +1012,11 @@ class SandboxLock(unittest.TestCase):
             start(f"podman --root {other}/storage run --name sceny-sandbox-0badf00d")
             self.assertNotIn("0badf00d", left(["sceny-sandbox-deadbeef"], store))
             self.assertNotIn(f"{other}/storage", left([], store))
+            regex = os.path.join(tmp, "c++ (x) [y]{2}|?")
+            start(f"podman --root {regex}/storage run leaked")
+            self.assertIn(f"{regex}/storage run leaked", left([], regex))
+            start(f"podman --root {store}-other/storage run leaked")
+            self.assertNotIn(f"{store}-other/storage", left([], store))
 
 
 class Reencode(unittest.TestCase):
