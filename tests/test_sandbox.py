@@ -1012,6 +1012,14 @@ class SandboxLock(unittest.TestCase):
             start(f"podman --root {other}/storage run --name sceny-sandbox-0badf00d")
             self.assertNotIn("0badf00d", left(["sceny-sandbox-deadbeef"], store))
             self.assertNotIn(f"{other}/storage", left([], store))
+            start(f"podman --root {store}-other/storage run sibling-leak")
+            self.assertNotIn("sibling-leak", left([], store))
+            start(f"holder {store}")
+            self.assertIn(f"holder {store}", left([], store))
+            for i, odd in enumerate(("c++ (x) {1} y?", "pipe|store")):
+                root = os.path.join(tmp, odd)
+                start(f"podman --root {root}/storage run odd-leak-{i}")
+                self.assertIn(f"odd-leak-{i}", left([], root))
 
 
 class SignalHandlingMechanism(unittest.TestCase):
