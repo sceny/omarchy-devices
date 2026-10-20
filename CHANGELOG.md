@@ -10,6 +10,12 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Keys is a list over the page you are on**: `?` opens every key as an
+  overlay instead of a page, so a key can be tried with the list in view.
+  Each group folds with a one-line summary, the one for where you are is
+  unfolded, descriptions are a few words, and each group's **Open** (or
+  `Shift+O`) goes to its page or section and marks it for a moment
+  ([#352](https://github.com/sceny/omarchy-devices/issues/352)).
 - **A feature's switch works while KDE Connect is away**: an away device's rows no longer show every feature as away with the switch gone. A feature you turned off shows as off, the switch of one that is on turns it off, and a missing permission is allowed over the screen link when it reaches the device ([#373](https://github.com/sceny/omarchy-devices/issues/373)).
 - **Dismissing the last notification no longer makes the section vanish**: the rows fade, the section folds closed, and only then is it gone, at the panel's own pace, as the Gallery does.
 - **The All apps tile is laid out in its place**: coming back to the main page, the tile first showed at the end of the first PINNED row and glided to its place once the apps arrived; it now glides only when a pin or an unpin of yours moves it ([#369](https://github.com/sceny/omarchy-devices/issues/369)).

@@ -1,7 +1,7 @@
 import QtQuick
 import qs.Commons
 
-// One key, drawn as a key cap. The Keys page and the Screen and apps page
+// One key, drawn as a key cap. The Keys overlay and the Screen and apps page
 // both draw their keys with this, so a key reads the same everywhere.
 Rectangle {
   id: cap

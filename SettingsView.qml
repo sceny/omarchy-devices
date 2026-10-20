@@ -368,7 +368,7 @@ Column {
     }
   }
 
-  // ---- Keys: its row last on Settings' first page, and the page ----
+  // ---- Keys: its row last on Settings' first page (it opens the overlay) ----
   Item { visible: root.firstIndex("keys") >= 0; width: 1; height: Style.space(6) }
   PanelSeparator { visible: root.firstIndex("keys") >= 0; foreground: root.foreground }
   Repeater {
@@ -382,17 +382,6 @@ Column {
       rowIndex: index
     }
   }
-  Repeater {
-    model: root.scopeKind === "keys" ? root.rows : []
-    KeyGroupRow {
-      required property var modelData
-      required property int index
-      width: root.width
-      row: modelData
-      rowIndex: index
-    }
-  }
-
   Column {
     id: groupsBox
     visible: root.hasGroups
@@ -899,92 +888,6 @@ Column {
     gap: Style.space(6)
     motion: root.motion
     onMoved: function(a, b) { var r = root.rowAt("shortcut", a); if (r) root.moveRequested(r.key, b - a) }
-  }
-
-  // A group on the Keys page: its heading, where the cursor stops so the
-  // page scrolls with the keys, then one line per key: the keys as key caps
-  // in a column, what they do beside them (two lines when it wraps).
-  component KeyGroupRow: Column {
-    id: group
-    property var row: ({})
-    property int rowIndex: -1
-    spacing: Style.space(4)
-    // The widest line of keys ("1–9 · Shift+H Shift+L") fits its column.
-    readonly property real capsWidth: Math.round(width * 0.40)
-
-    Item { visible: group.rowIndex > 0; width: 1; height: Style.space(6) }
-    CursorSurface {
-      width: group.width
-      hasCursor: false
-      foreground: root.foreground
-      implicitHeight: heading.implicitHeight + Style.space(4)
-      CursorStop { here: root.cursorIndex === group.rowIndex; glide: root.cursorGlide }
-
-      MouseArea {
-        anchors.fill: parent
-        hoverEnabled: true
-        onEntered: root.hovered(group.rowIndex)
-      }
-      PanelSectionHeader {
-        id: heading
-        anchors.verticalCenter: parent.verticalCenter
-        text: String(group.row.group || "").toUpperCase()
-        foreground: root.foreground
-        fontFamily: root.fontFamily
-      }
-    }
-    Repeater {
-      model: group.row.items || []
-      RowLayout {
-        id: keyLine
-        required property var modelData
-        width: group.width
-        spacing: Style.space(10)
-        Flow {
-          Layout.preferredWidth: group.capsWidth
-          Layout.alignment: Qt.AlignTop
-          Layout.leftMargin: Style.space(10)
-          spacing: Style.space(3)
-          Repeater {
-            model: keyLine.modelData.caps
-            Item {
-              id: token
-              required property string modelData
-              readonly property bool between: modelData === "·"
-              width: between ? betweenText.implicitWidth : cap.width
-              height: cap.height
-              KeyCap {
-                id: cap
-                visible: !token.between
-                label: token.modelData
-                foreground: root.foreground
-                fontFamily: root.fontFamily
-              }
-              Text {
-                id: betweenText
-                visible: token.between
-                anchors.centerIn: parent
-                textFormat: Text.PlainText
-                text: "·"
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
-            }
-          }
-        }
-        Text {
-          textFormat: Text.PlainText
-          Layout.preferredWidth: group.width - group.capsWidth - Style.space(26)
-          Layout.alignment: Qt.AlignTop
-          text: keyLine.modelData.label
-          color: root.dim
-          font.family: root.fontFamily
-          font.pixelSize: Style.font.bodySmall
-          wrapMode: Text.WordWrap
-        }
-      }
-    }
   }
 
   // A row of the device list (a device, one asking to pair, one in reach),
