@@ -156,3 +156,18 @@ class ClosingHandsTheKeyboardBack(unittest.TestCase):
         branch = body[close.end() - 1:match_close(body, close.end() - 1) + 1]
         self.assertIn("keyCatcher.forceActiveFocus()", branch,
                       "a field that held the keyboard at close keeps it at the next open")
+
+
+class AppTilesGlideOnlyOnTheUsersOwnChange(unittest.TestCase):
+    def test_every_position_behavior_in_the_pinned_row_is_gated(self):
+        with open(os.path.join(ROOT, "AppPinRow.qml")) as f:
+            text = code_only(f.read())
+        behaviors = re.findall(r"Behavior on (?:x|y)\s*\{[^\n]*", text)
+        self.assertTrue(behaviors, "AppPinRow.qml has no position behavior")
+        for b in behaviors:
+            self.assertRegex(b, r"\{\s*enabled:", "a tile moves to its place with no glide until the user changes the row: %s" % b)
+
+    def test_the_all_apps_tile_waits_for_pins_that_arrived(self):
+        with open(os.path.join(ROOT, "AppPinRow.qml")) as f:
+            text = code_only(f.read())
+        self.assertRegex(text, r"glides:\s*row\.animate\s*&&\s*row\.pinsKnown")

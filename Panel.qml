@@ -292,7 +292,7 @@ Panel {
     if (key === "settings/root") return pairedDevices.length !== 1
     if (key.indexOf("settings/") !== 0) return true
     var scope = key.slice(9)
-    if (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(scope) >= 0) return true
+    if (["defaults", "connection", "addDevice", "ready"].indexOf(scope) >= 0) return true
     return isPaired(scope.indexOf("screen:") === 0 ? scope.slice(7) : scope.indexOf("reach:") === 0 ? scope.slice(6) : scope)
   }
   function navAsk(hint, open) {
@@ -531,6 +531,7 @@ Panel {
     else {
       screenWaitOpen = ""   // closed: no longer waiting to open the screen
       soundTarget = null    // the sound card goes with the panel
+      keysOpen = false      // so does the Keys overlay
       fixAsk = null         // so does the ask to fix what stopped
       // A password card not answered goes with the last panel: nothing
       // runs (another monitor's panel may still show it).
@@ -1262,11 +1263,83 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("addDevice")
   }
-  // Every key the panel answers to (#194): ? from any page, the page menu,
-  // or its row in Settings.
+  // Every key the panel answers to (#194, #352): an overlay on the page the
+  // user is on, from ? , the page menu or its row in Settings. The page under
+  // it keeps its keys, so they can be tried; the overlay is not a page on the
+  // stack. It opens on the group for where the user is, unfolded, and follows
+  // them while they move. Shift+J / Shift+K go through the groups, Shift+O (or
+  // a group's Open) goes to its place, ? and Esc close it.
+  property bool keysOpen: false
+  property int keysCursor: 0
+  property int keysUnfolded: 0
+  readonly property var keysGroups: Model.keysRows()
+  readonly property int keysPlaceIndex: Model.keysGroupIndex({
+    page: settingsOpen ? "settings" : messagesOpen ? "messages" : contactsOpen ? "contacts" : appsOpen ? "apps" : "main",
+    editing: editing, section: mainView && cursorActive ? focusSection : "" })
+  onKeysPlaceIndexChanged: if (keysOpen) keysShowGroup(keysPlaceIndex)
+  function keysShowGroup(i) { keysCursor = i; keysUnfolded = i }
   function openKeys() {
-    if (!settingsOpen) openSettings()
-    openScope("keys")
+    if (keysOpen) return
+    keysShowGroup(keysPlaceIndex)
+    keysOpen = true
+  }
+  function closeKeys() { keysOpen = false }
+  function toggleKeys() { if (keysOpen) closeKeys(); else openKeys() }
+  function keysMove(step) { keysShowGroup(Math.max(0, Math.min(keysGroups.length - 1, keysCursor + step))) }
+  // A click on a header folds its group, or unfolds it and takes the cursor.
+  function keysClicked(i) {
+    keysCursor = i
+    keysUnfolded = keysUnfolded === i ? -1 : i
+  }
+  // A group's Open: the overlay closes and the place shows, marked.
+  function keysOpenGroup(i) {
+    var g = keysGroups[i]
+    if (!g || !g.place) return
+    closeKeys()
+    goToPlace(g.place)
+  }
+  function goToPlace(place) {
+    var page = place.page
+    if ((page === "messages" || page === "contacts") && !navKeyValid(page)) {
+      if (phone) phone.report("Not available on this device", false)
+      return
+    }
+    var there = page === "main" ? mainView : page === "messages" ? messagesOpen : page === "contacts" ? contactsOpen : settingsOpen
+    if (!there) {
+      if (page === "messages") openMessagesView(-1)
+      else if (page === "contacts") openContactsView()
+      else if (page === "settings") openSettings()
+      else { editing = false; settingsOpen = false; messagesOpen = false; contactsOpen = false; appsOpen = false }
+    }
+    markPlace(place)
+  }
+  // The place Open landed on is marked once it shows: after the page change
+  // has settled, a section brought into view first.
+  property var pendingMark: null
+  property string markedSection: ""
+  function markPlace(place) {
+    pendingMark = place
+    if (targetPage === shownPage && !pageSwap.running && !navPending) fireMark()
+  }
+  onSettledChanged: if (settled && pendingMark) fireMark()
+  function fireMark() {
+    var place = pendingMark
+    pendingMark = null
+    var section = place.page === "main" && place.section !== "" && drawnSections.indexOf(place.section) >= 0 ? place.section : ""
+    markedSection = section
+    if (section !== "" && panelFlick && sectionsBox) {
+      var y = sectionsBox.mapToItem(panelFlick.contentItem, 0, sectionsBox.topOf(section)).y
+      var h = sectionsBox.items[section].height
+      var margin = Style.space(12)
+      if (y < panelFlick.contentY || y + h > panelFlick.contentY + panelFlick.height)
+        glidePage(Math.max(0, Math.min(Math.max(0, panelFlick.contentHeight - panelFlick.height), y - margin)))
+    }
+    var mark = section !== "" ? sectionMark : pageMark
+    mark.pulse()
+  }
+  function keysInfo() {
+    return JSON.stringify({ open: keysOpen, cursor: keysCursor, unfolded: keysUnfolded, here: keysPlaceIndex, group: keysGroups[keysCursor].group,
+                            opens: keysGroups[keysCursor].place || null, marked: markedSection })
   }
   // A pairing on Add a device that completes: its card says so in place
   // (✓ Paired with …) for a moment, then the panel goes to the device's
@@ -1333,7 +1406,7 @@ Panel {
     // is left.
     if (settingsScope === "root" && pairedDevices.length === 1) targetScope = settingsHome("root")
     else if (settingsOpen && (screenId !== "" || reachId !== "" ? !isPaired(screenId !== "" ? screenId : reachId)
-                              : !scopeDevice && ["root", "defaults", "connection", "addDevice", "ready", "keys"].indexOf(settingsScope) < 0))
+                              : !scopeDevice && ["root", "defaults", "connection", "addDevice", "ready"].indexOf(settingsScope) < 0))
       targetScope = pairedDevices.length === 0 ? "addDevice" : settingsHome("root")
     if (!opened || !showSettings || settingsScope !== "addDevice") return
     for (var i = 0; i < pairedDevices.length; i++) {
@@ -1373,7 +1446,6 @@ Panel {
     : reachId !== "" ? Model.reachRows(reachSetup)
     : settingsScope === "connection" ? Model.connectionRows(setupChecks, ignoredChecks)
     : settingsScope === "ready" ? Model.readyRows(setupChecks)
-    : settingsScope === "keys" ? Model.keysRows()
     : settingsScope === "addDevice" ? Model.addDeviceRows(Model.devicesListRows(snapshot, profilesRead, lowPercent))
     : Model.settingsPageRows({
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
@@ -2422,7 +2494,8 @@ Panel {
     else if (row.kind === "resetGroup") resetGroup(row.key)
     else if (row.kind === "editPage" && scopeDevice) { phone.view(scopeDevice.id); settingsOpen = false; Qt.callLater(startEditing) }
     else if (row.kind === "unpair" && scopeDevice) armOrUnpair({ id: String(scopeDevice.id), name: Model.deviceLabel(scopeDevice), paired: true })
-    else if (row.kind === "connection" || row.kind === "addDevice" || row.kind === "keys") openScope(row.kind)
+    else if (row.kind === "connection" || row.kind === "addDevice") openScope(row.kind)
+    else if (row.kind === "keys") toggleKeys()
     else if (row.kind === "check" && phone && row.fix !== "" && !row.ok) fixRequested(row.fix)
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "reachAction") reachAction(row.key, row.address, typeHere)
@@ -2865,13 +2938,19 @@ Panel {
     function navInfo(): string { return root.navInfo() }
     function goHome(): string { root.goHome(); return root.navInfo() }
     function goBack(): string { root.backOrClose(); return root.navInfo() }
+    // The Keys overlay, for checks: toggle it, move through its groups, fold
+    // one as a click would, or press a group's Open. Each answers keysInfo.
+    function keys(): string { root.toggleKeys(); return root.keysInfo() }
+    function keysInfo(): string { return root.keysInfo() }
+    function keysMove(step: int): string { root.keysMove(step); return root.keysInfo() }
+    function keysClick(i: int): string { root.keysClicked(i); return root.keysInfo() }
+    function keysOpenGroup(i: int): string { root.keysOpenGroup(i); return root.keysInfo() }
     // For checking the transitions: open a page as a click would (a push).
     function page(name: string): string {
       if (name === "settings") root.openSettings()
       else if (name === "connection") root.openConnection()
       else if (name === "ready") root.openReady()
       else if (name === "addDevice") root.openAddDevice()
-      else if (name === "keys") root.openKeys()
       else if (name === "messages") root.openMessagesView(-1)
       else if (name === "contacts") root.openContactsView()
       else if (name === "apps") root.openAppsView()
@@ -3504,6 +3583,7 @@ Panel {
         else if (root.soundTarget) root.closeSoundCard()
         else if (root.fixAsk) root.closeFixAsk()
         else if (root.pageMenuOpen) root.closePageMenu()
+        else if (root.keysOpen) root.closeKeys()
         else if (root.editing) root.cancelEditing()
         else if (root.messagesOpen) { if (!messagesView.goBack()) root.backOrClose() }
         else if (root.contactsOpen) { if (!contactsView.goBack()) root.backOrClose() }
@@ -3552,7 +3632,10 @@ Panel {
         if (root.fixAsk) return
         // Home: the start, from two pages deep. Esc never means Home.
         if (t === Model.HOME_KEY) { root.goHome(); return }
-        if (t === "?") { root.openKeys(); return }
+        if (t === "?") { root.toggleKeys(); return }
+        // While Keys shows: Shift+J / Shift+K go through its groups, Shift+O opens one.
+        if (root.keysOpen && (t === "J" || t === "K")) { root.keysMove(t === "J" ? 1 : -1); return }
+        if (root.keysOpen && t === "O") { root.keysOpenGroup(root.keysCursor); return }
         if (root.contactsOpen) {
           if (!contactsView) return
           if (t === "/") contactsView.focusSearch()
@@ -3689,9 +3772,32 @@ Panel {
             foreground: root.foreground
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
-            onClicked: { root.closePageMenu(); root.openKeys() }
+            onClicked: { root.closePageMenu(); root.toggleKeys() }
           }
         }
+      }
+
+      // ---- Keys (#352): every key, over the page the user is on. The page
+      //      under it keeps the keyboard, so a key can be tried while the list
+      //      stays in reach ----
+      KeysOverlay {
+        id: keysCard
+        z: 10
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: Style.space(8)
+        width: parent.width - Style.space(16)
+        groups: root.keysGroups
+        shown: root.keysOpen
+        cursor: root.keysCursor
+        unfolded: root.keysUnfolded
+        motion: root.motion
+        animate: root.keysOpen && opacity > 0.99
+        foreground: root.foreground
+        panelBackground: root.bar ? root.bar.background : Color.background
+        fontFamily: root.fontFamily
+        onGroupClicked: function(i) { root.keysClicked(i) }
+        onOpenRequested: function(i) { root.keysOpenGroup(i) }
       }
 
       // While it shows, the rest of the panel takes no click (another fix
@@ -4781,7 +4887,6 @@ Panel {
             // On a device's page the title already names it.
             meta: root.showSettings ? (root.screenId !== "" ? "Screen and apps" : root.reachId !== "" ? "From anywhere" : root.settingsScope === "connection" ? "Diagnostics · this computer" : root.settingsScope === "addDevice" ? "Add a device"
                 : root.settingsScope === "ready" ? "Getting ready"
-                : root.settingsScope === "keys" ? "Keys"
                 : root.settingsScope === "defaults" && !root.editingDevice ? "Settings · For all devices"
                 : root.editingDevice ? (root.pairedDevices.length === 1 ? "Settings" : "Settings · This device")
                 : "Settings · " + (root.pairedDevices.length === 1 ? "1 device" : root.pairedDevices.length + " devices"))
@@ -4865,6 +4970,14 @@ Panel {
               motion: root.motion
               foreground: root.foreground
               Component.onCompleted: root.cursorGlide = this
+            }
+            // Where a group's Open landed, when it is a page: the whole page.
+            PlaceFlash {
+              id: pageMark
+              anchors.fill: parent
+              z: 40
+              motion: root.motion
+              accent: Color.accent
             }
             readonly property real dpr: QW.Screen.devicePixelRatio > 0 ? QW.Screen.devicePixelRatio : 1
             width: parent.width
@@ -5106,6 +5219,19 @@ Panel {
                 }
                 visible: root.showMain && root.drawnSections.length > 0
                 width: parent.width
+
+                // Where a group's Open landed, marked for a moment.
+                PlaceFlash {
+                  id: sectionMark
+                  z: 40
+                  motion: root.motion
+                  accent: Color.accent
+                  readonly property var item: root.markedSection !== "" ? sectionsBox.items[root.markedSection] : null
+                  x: -Style.space(6)
+                  width: parent.width + Style.space(12)
+                  y: (root.markedSection !== "" ? sectionsBox.topOf(root.markedSection) : 0) - Style.space(4)
+                  height: (item ? item.height : 0) + Style.space(8)
+                }
 
                 // Editing: the sections' order, moved by their grips (Reorder).
                 Reorder {
@@ -6412,7 +6538,7 @@ Panel {
                 sectionOrder: root.editedProfile.sectionOrder
                 barIndicators: root.editedProfile.barIndicators
                 batteryLowOnly: root.editedProfile.batteryLowOnly
-                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready", "keys"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
+                scopeKind: root.screenId !== "" ? "screen" : root.reachId !== "" ? "reach" : root.editingDevice ? "device" : (["defaults", "connection", "addDevice", "ready"].indexOf(root.settingsScope) >= 0 ? root.settingsScope : "root")
                 screenSetup: root.screenSetup
                 screenQr: root.screenPairing ? root.screenPairing.qr : null
                 screenOpen: root.screenId !== "" && !!root.phone && root.phone.screenIsOpen(root.screenId)

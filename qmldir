@@ -10,9 +10,11 @@ FoldBody 1.0 FoldBody.qml
 FoldToggle 1.0 FoldToggle.qml
 KeyCap 1.0 KeyCap.qml
 KeyedApps 1.0 KeyedApps.qml
+KeysOverlay 1.0 KeysOverlay.qml
 MessagesView 1.0 MessagesView.qml
 PairingKey 1.0 PairingKey.qml
 PairingPopup 1.0 PairingPopup.qml
+PlaceFlash 1.0 PlaceFlash.qml
 PanelField 1.0 PanelField.qml
 PointerGate 1.0 PointerGate.qml
 QrCode 1.0 QrCode.qml

@@ -3174,65 +3174,91 @@ function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
   return rows
 }
 
-// The Keys page (#194): every key the panel answers to, by where it works.
+// The Keys overlay (#194, #352): every key the panel answers to, by where it
+// works, drawn over the page the user is on. A group names the place its
+// Open goes to (`place`: a page, and the section on the main page; none for
+// the groups that belong to no place) and the one line it shows folded.
 // tests/keys.test.js fails the build when it drifts from the key handlers in
 // Panel.qml or from docs/use/keyboard.md.
-var KEYS_ROW = { kind: "keys", key: "keys", glyph: GLYPH.keyboard, label: "Keys", hint: "Every key the panel answers to (?)" }
+var KEYS_ROW = { kind: "keys", key: "keys", glyph: GLYPH.keyboard, label: "Keys", hint: "Every key, over the page you are on (?)" }
 var KEYS = [
-  { group: "Everywhere", keys: [
+  { group: "Everywhere", place: null, summary: "Move, activate, back", keys: [
     ["j k · ↑ ↓", "Move"],
-    ["h l · ← →", "Sideways: shortcuts, players, into a conversation"],
-    ["PgUp PgDn", "A page at a time"],
+    ["h l · ← →", "Sideways"],
+    ["PgUp PgDn", "A page"],
     ["Enter · Space", "Activate"],
-    ["Tab Shift+Tab", "Next · previous panel in the bar"],
-    ["Esc", "Back where you came from, then close"],
-    ["0", "Home, from two pages deep"],
-    ["?", "This page"]] },
-  { group: "Main page", keys: [
-    ["c", "Fold the section under the cursor"],
-    ["m · a · s", "Messages · all apps · Settings"],
-    ["E", "Edit the page; again when done"],
-    ["1–9 · Shift+H Shift+L", "Switch device · previous · next device"]] },
-  { group: "Notifications", keys: [
+    ["Tab Shift+Tab", "Next · previous panel"],
+    ["Esc", "Back, then close"],
+    ["0", "Home"]] },
+  { group: "Keys", place: null, summary: "Show, move, open", keys: [
+    ["?", "Show · hide"],
+    ["Shift+J Shift+K", "Next · previous group"],
+    ["Shift+O", "Open the group"]] },
+  { group: "Main page", place: { page: "main", section: "" }, summary: "Fold, edit, switch device", keys: [
+    ["c", "Fold the section"],
+    ["m · a · s", "Messages · apps · Settings"],
+    ["E", "Edit the page"],
+    ["1–9 · Shift+H Shift+L", "Device · previous · next"]] },
+  { group: "Notifications", place: { page: "main", section: "notifications" }, summary: "Reply, dismiss, open", keys: [
     ["r", "Reply"],
-    ["x", "Dismiss (a notification or a received file)"],
-    ["Shift+Delete", "Dismiss all notifications"],
+    ["x", "Dismiss"],
+    ["Shift+Delete", "Dismiss all"],
     ["e", "Show all of it"],
-    ["o", "Open its app or conversation"]] },
-  { group: "Now playing", keys: [
-    ["[ ]", "Previous · next track"],
+    ["o", "Open its app"]] },
+  { group: "Now playing", place: { page: "main", section: "media" }, summary: "Track, seek, volume", keys: [
+    ["[ ]", "Previous · next"],
     [", .", "Seek 10 s"],
     ["- =", "Volume"]] },
-  { group: "Apps", keys: [
-    ["Enter · Shift+Enter", "Open · open popped out"],
-    ["p", "Pin or unpin (All apps)"],
+  { group: "Apps", place: { page: "main", section: "apps" }, summary: "Open, pin, sound", keys: [
+    ["Enter · Shift+Enter", "Open · pop out"],
+    ["p", "Pin or unpin"],
     ["Shift+H Shift+L", "Move a pinned app"],
-    ["x", "Take one out of Recent"],
-    ["v", "Where an open app's sound plays"]] },
-  { group: "Messages", keys: [
-    ["/ · u", "Search · unread only"],
-    ["n · i", "New message · write a reply"],
+    ["x", "Forget from Recent"],
+    ["v", "Where its sound plays"]] },
+  { group: "Messages", place: { page: "messages", section: "" }, summary: "Search, new, reply", keys: [
+    ["/ · u", "Search · unread"],
+    ["n · i", "New · reply"],
     ["g G", "First · last"]] },
-  { group: "Contacts", keys: [
+  { group: "Contacts", place: { page: "contacts", section: "" }, summary: "Search, refresh", keys: [
     ["/ · r", "Search · refresh"],
     ["g G", "First · last"],
     ["m", "Messages"]] },
-  { group: "Editing and Settings", keys: [
-    ["Shift+K Shift+J", "Move a section, a device, a shortcut"],
-    ["Esc", "Put back what was there (editing)"]] }
+  { group: "Editing and Settings", place: { page: "settings", section: "" }, summary: "Move, put back", keys: [
+    ["Shift+K Shift+J", "Move an item"],
+    ["Esc", "Put back (editing)"]] }
 ]
-// One row per group: the cursor stops on the group, and its keys are drawn
-// beneath it as key caps. `caps` is a key line's tokens in order: a cap each,
-// and "·" between alternatives ("j k · ↑ ↓").
+// One row per group: the cursor stops on the group's header, and its keys are
+// drawn beneath it as key caps. `caps` is a key line's tokens in order: a cap
+// each, and "·" between alternatives ("j k · ↑ ↓").
 function keyCaps(keys) {
   return String(keys).split(" ").filter(function(c) { return c !== "" })
 }
 function keysRows() {
   return KEYS.map(function(g) {
-    return { kind: "keyGroup", key: g.group, group: g.group,
+    return { kind: "keyGroup", key: g.group, group: g.group, summary: g.summary, place: g.place,
              items: g.keys.map(function(k) { return { keys: k[0], caps: keyCaps(k[0]), label: k[1] } }) }
   })
 }
+// The group for where the user is (`ctx`: page "main" | "messages" | "contacts"
+// | "apps" | "settings", editing, section: the main page's section holding the
+// cursor, or ""). Its index in KEYS.
+function keysGroupIndex(ctx) {
+  var name = "Main page"
+  if (ctx.page === "messages") name = "Messages"
+  else if (ctx.page === "contacts") name = "Contacts"
+  else if (ctx.page === "apps") name = "Apps"
+  else if (ctx.page === "settings" || ctx.editing) name = "Editing and Settings"
+  else if (ctx.section === "notifications" || ctx.section === "received") name = "Notifications"
+  else if (ctx.section === "media") name = "Now playing"
+  else if (ctx.section === "apps") name = "Apps"
+  for (var i = 0; i < KEYS.length; i++) if (KEYS[i].group === name) return i
+  return 0
+}
+// A group's Open: the tooltip (the caller adds the key through keyTip).
+function keysOpenLabel(group) { return "Open " + group }
+// How long the place Open lands on stays marked once it has settled; it fades
+// in and out at MOTION.
+var PLACE_FLASH_HOLD_MS = 700
 
 // Every row of the settings page, in one list so keyboard and mouse share a
 // cursor. `ctx`:
@@ -3960,7 +3986,8 @@ var TIP_KEYS = {
   home: HOME_KEY, back: "Esc", edit: "E", settings: "s", messages: "m",
   reply: "r", dismiss: "x", open: "o", forget: "x",
   prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
-  pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete"
+  pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete",
+  keysOpen: "Shift+O"
 }
 function keyTip(label, id) {
   var k = TIP_KEYS[id]
@@ -4049,7 +4076,6 @@ function navLabel(key, ctx) {
   if (scope === "connection") return "Diagnostics"
   if (scope === "addDevice") return "Add a device"
   if (scope === "ready") return "Getting ready"
-  if (scope === "keys") return "Keys"
   if (scope.indexOf("screen:") === 0) return "Screen and apps"
   if (scope.indexOf("reach:") === 0) return "From anywhere"
   if (ctx.single) return "Settings"

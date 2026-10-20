@@ -71,6 +71,12 @@ Item {
 
   AppTile { id: probe; visible: false; app: ({ name: "x" }) }
 
+  // True once the row has held pins through a change: the first pins to arrive
+  // (the list is read) move the All apps tile to its place with no glide.
+  property bool pinsKnown: false
+  onCountChanged: Qt.callLater(function() { row.pinsKnown = row.count > 0 })
+  Component.onCompleted: pinsKnown = count > 0
+
   Reorder {
     id: pinOrder
     columns: row.columns
@@ -202,8 +208,11 @@ Item {
     readonly property var slot: Model.gridSlot(Model.allAppsSlot(row.count, row.columns, row.incoming), row.columns, row.cellWidth, row.cellHeight, row.gap)
     x: slot.x
     y: slot.y
-    Behavior on x { NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
-    Behavior on y { NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
+    // Only the user's own change glides it: pins that arrive with the list,
+    // or a page that is still appearing, find it already in its place.
+    readonly property bool glides: row.animate && row.pinsKnown
+    Behavior on x { enabled: glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
+    Behavior on y { enabled: glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
     width: row.cellWidth
     canPin: false
     app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
