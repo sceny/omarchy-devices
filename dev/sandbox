@@ -1097,11 +1097,16 @@ cmd_dev() {
 # ------------------------------------------------------------ verify-clean ----
 
 store_processes_left() {
-  local names pattern
+  local names line
   names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | paste -sd '|')
-  pattern=$(printf '%s' "$SB_STATE" | sed 's/[[\.*^$/]/\\&/g')
-  [[ -n $names ]] && pattern="$names|$pattern"
-  pgrep -u "$SB_UID" -af "$pattern" 2>/dev/null | grep -v 'pgrep\|verify-clean' | head -5
+  {
+    [[ -n $names ]] && pgrep -u "$SB_UID" -af "$names" 2>/dev/null
+    pgrep -u "$SB_UID" -af '' 2>/dev/null | while IFS= read -r line; do
+      case $line in
+        *"$SB_STATE/"* | *"$SB_STATE "* | *"$SB_STATE") printf '%s\n' "$line" ;;
+      esac
+    done
+  } | grep -v 'pgrep\|verify-clean' | head -5
 }
 
 cmd_verify_clean() {
