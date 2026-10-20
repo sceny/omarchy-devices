@@ -32,6 +32,7 @@ import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SANDBOX = os.path.join(ROOT, "dev", "sandbox")
+HOSTILE_SH = os.path.join(ROOT, "dev", "sandbox.d", "hostile.sh")
 GOOD_SHA = "a" * 40
 REPO = "sceny/omarchy-devices"
 
@@ -1063,6 +1064,39 @@ class SignalHandlingMechanism(unittest.TestCase):
         body = re.search(r"^dev_pull\(\) \{\n(.*?)^\}", self.script, re.MULTILINE | re.DOTALL)
         self.assertIsNotNone(body)
         self.assertIn("store_lock_acquire", body.group(1))
+
+    def test_every_interrupt_trap_ends_the_script_after_its_cleanup(self):
+        for path in (SANDBOX, HOSTILE_SH):
+            with open(path) as f:
+                traps = [line for line in f.read().splitlines() if re.match(r"\s*trap '.*' .*\b(INT|TERM)\b", line)]
+            self.assertTrue(traps, path)
+            for line in traps:
+                with self.subTest(file=os.path.basename(path), line=line.strip()):
+                    self.assertIn("exit", line)
+                    self.assertIn("HUP", line)
+
+
+class HostileTestOwnership(unittest.TestCase):
+    """Step 16 of the hostile test judges what the test started, never the shared store."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.script = f.read()
+        with open(HOSTILE_SH) as f:
+            cls.hostile = f.read()
+
+    def test_every_container_the_sandbox_starts_carries_its_owner(self):
+        starts = [line for line in self.script.splitlines() if '--label "$SB_LABEL=$id"' in line]
+        self.assertGreaterEqual(len(starts), 4, f"found {len(starts)} container starts")
+        for line in starts:
+            with self.subTest(line=line.strip()):
+                self.assertIn('--label "$SB_OWNER_LABEL=$SB_OWNER"', line)
+
+    def test_the_hostile_test_names_its_owner_and_scopes_step_sixteen_to_it(self):
+        self.assertIn("SB_OWNER=$(", self.hostile)
+        self.assertIn('label=$SB_OWNER_LABEL=$SB_OWNER', self.hostile)
+        self.assertNotIn("cmd_verify_clean", self.hostile)
 
 
 class Reencode(unittest.TestCase):

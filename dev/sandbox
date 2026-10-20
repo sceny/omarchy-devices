@@ -91,6 +91,8 @@ SB_STATE=${SANDBOX_STATE:-$SB_HOME/.local/share/sceny-sandbox}
 SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
 SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
+SB_OWNER_LABEL=org.sceny.sandbox.owner
+SB_OWNER=
 
 SB_MEMORY=${SANDBOX_MEMORY:-10g}
 SB_CPUS=${SANDBOX_CPUS:-8}
@@ -366,7 +368,7 @@ run_unit() {
     timeout --signal=KILL $((timeout + 90)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --label "$SB_OWNER_LABEL=$SB_OWNER" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
@@ -453,7 +455,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
     timeout --signal=KILL $((secs + 30)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --label "$SB_OWNER_LABEL=$SB_OWNER" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
@@ -820,7 +822,7 @@ dev_start() {
   id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
-  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
+  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_OWNER_LABEL=$SB_OWNER" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
     --pull never --log-driver none \
     --network none --no-hosts \
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
@@ -982,7 +984,7 @@ dev_assemble() {
     timeout --signal=KILL 330 \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --label "$SB_OWNER_LABEL=$SB_OWNER" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \

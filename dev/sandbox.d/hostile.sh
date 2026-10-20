@@ -30,6 +30,24 @@ hostile_cleanup() {
   HOSTILE_WORK=""
 }
 
+# Step 16 judges what this test started. Other runs and sessions are live on the
+# shared store, so verify-clean (the whole store) is not the test's check.
+hostile_leftovers() {
+  local bad=0 names id
+  names=$(pm ps -a --filter "label=$SB_OWNER_LABEL=$SB_OWNER" --format '{{.Names}}' 2>/dev/null)
+  if [[ -n $names ]]; then
+    fail "containers this test started are left: $(tr '\n' ' ' <<<"$names")"
+    bad=1
+  fi
+  for id in $(sed -n 's/.*sandbox run \([0-9a-f]\{8\}\):.*/\1/p' "$HOSTILE_WORK"/run-*.log 2>/dev/null); do
+    if [[ -e $SB_STATE/runs/$id ]]; then
+      fail "run directory left: $SB_STATE/runs/$id"
+      bad=1
+    fi
+  done
+  return $bad
+}
+
 # Listeners on the host that must never see a connection from the sandbox.
 hostile_listeners() {
   python3 - "$HOSTILE_WORK" <<'PY' &
@@ -356,7 +374,9 @@ cmd_hostile_test() {
   fi
   mkdir -p "$SB_STATE/hostile"
   HOSTILE_WORK=$(mktemp -d "$SB_STATE/hostile/sceny-hostile.XXXXXX")
-  trap 'hostile_cleanup' EXIT INT TERM
+  trap 'hostile_cleanup' EXIT
+  trap 'hostile_cleanup; exit 130' INT TERM HUP
+  SB_OWNER=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
   local rand
   rand=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 
@@ -504,22 +524,24 @@ PY
   fi
 
   unset "$secret_name"
-  # The work directory is in the store, which verify-clean reads: it goes
-  # before the check, or is moved out for the reader when --keep asked for it.
+  say "16. nothing this test started is left"
+  local clean=0
+  hostile_leftovers || clean=1
   local kept=""
   if ((keep)); then
     kept=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile-kept.XXXXXX") && mv -- "$HOSTILE_WORK"/* "$kept"/ 2>/dev/null
   fi
   [[ $HOSTILE_WORK == "$SB_STATE"/hostile/* ]] && rm -rf -- "$HOSTILE_WORK"
+  if [[ -n $HOSTILE_WORK && -e $HOSTILE_WORK ]]; then
+    fail "hostile work directory left: $HOSTILE_WORK"
+    clean=1
+  fi
   HOSTILE_WORK=""
-  say "16. nothing is left"
-  local clean=0
-  cmd_verify_clean || clean=1
   if ((clean == 0)); then
-    ok "verify-clean"
+    ok "nothing this test started is left (containers, sessions, run directories, work directory)"
     HOSTILE_PASS=$((HOSTILE_PASS + 1))
   else
-    fail "verify-clean"
+    fail "something this test started is left"
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
   fi
   local still=0
