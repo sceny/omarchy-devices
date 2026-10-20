@@ -23,8 +23,15 @@ RUN printf '[omarchy]\nServer = https://pkgs.omarchy.org/stable/$arch\n\n' >>/et
       pipewire wireplumber qrencode nodejs procps-ng psmisc util-linux unzip zstd perl gum uwsm \
       mesa vulkan-swrast libva ttf-jetbrains-mono-nerd noto-fonts qt6-declarative qt6-wayland qt6-svg \
       libpulse nss alsa-lib libxkbcommon xorg-xwayland xdg-utils which inotify-tools wl-clipboard \
- && pacman -S --noconfirm omarchy/quickshell \
  && pacman -Scc --noconfirm
+
+# Build quickshell from AUR source to match the machine's development build
+RUN pacman -Syu --noconfirm --needed base-devel cmake && \
+    mkdir -p /tmp/quickshell && cd /tmp/quickshell && \
+    git clone https://aur.archlinux.org/quickshell.git . && \
+    makepkg -si --noconfirm && \
+    cd / && rm -rf /tmp/quickshell && \
+    pacman -Scc --noconfirm
 
 # Omarchy's shell and commands: the two packages' files, not their desktop
 # dependencies (display manager, bootloader, snapshots).
