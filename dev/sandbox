@@ -1127,6 +1127,14 @@ cmd_dev() {
 
 # ------------------------------------------------------------ verify-clean ----
 
+store_processes_left() {
+  local names pattern
+  names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | paste -sd '|')
+  pattern=$(printf '%s' "$SB_STATE" | sed 's/[[\.*^$/]/\\&/g')
+  [[ -n $names ]] && pattern="$names|$pattern"
+  pgrep -u "$SB_UID" -af "$pattern" 2>/dev/null | grep -v 'pgrep\|verify-clean' | head -5
+}
+
 cmd_verify_clean() {
   require_tools
   store_lock_acquire
@@ -1173,8 +1181,7 @@ cmd_verify_clean() {
     fail "mounts of the sandbox store are still held ($list)"
     bad=1
   else ok "no mount held"; fi
-  # Processes started for a run carry its container name in their command line.
-  list=$(pgrep -u "$SB_UID" -af 'sceny-sandbox-[0-9a-f]{8}' | grep -v 'pgrep\|verify-clean' | head -5)
+  list=$(store_processes_left)
   if [[ -n $list ]]; then
     fail "processes left:
 $list"

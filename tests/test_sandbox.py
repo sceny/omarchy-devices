@@ -25,6 +25,7 @@ import struct
 import subprocess
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 import zlib
@@ -975,6 +976,42 @@ class SandboxLock(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("verify-clean waits for the lock and says so", r.stdout)
         self.assertIn("exit 0 after the release", r.stdout)
+
+    def test_process_check_finds_this_stores_processes_and_no_others(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        func = "store_processes_left() {" + text.split("store_processes_left() {")[1].split("\n}\n")[0] + "\n}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            store = os.path.join(tmp, "store")
+            other = os.path.join(tmp, "other")
+
+            def start(argv0):
+                proc = subprocess.Popen(["bash", "-c", 'exec -a "$0" sleep 60', argv0])
+                self.addCleanup(lambda: (proc.kill(), proc.wait()))
+                deadline = time.time() + 5
+                while time.time() < deadline:
+                    with open(f"/proc/{proc.pid}/cmdline", "rb") as f:
+                        if argv0.encode() in f.read():
+                            return
+                    time.sleep(0.02)
+                self.fail(f"stand-in process did not start: {argv0}")
+
+            def left(names, state):
+                script = f"SB_UID=$(id -u)\nSB_STATE=\"$STATE\"\npm() {{ printf '%s\\n' \"$PM_NAMES\"; }}\n{func}store_processes_left\n"
+                env = {**os.environ, "STATE": state, "PM_NAMES": "\n".join(names)}
+                r = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=20, env=env)
+                return r.stdout
+
+            self.assertEqual(left([], store), "")
+            start("conmon --name sceny-sandbox-deadbeef")
+            self.assertIn("sceny-sandbox-deadbeef", left(["sceny-sandbox-deadbeef"], store))
+            start("conmon --name sceny-sandbox-cafe0001")
+            self.assertIn("sceny-sandbox-cafe0001", left(["sceny-sandbox-deadbeef", "sceny-sandbox-cafe0001"], store))
+            start(f"podman --root {store}/storage run leaked")
+            self.assertIn(f"{store}/storage run leaked", left([], store))
+            start(f"podman --root {other}/storage run --name sceny-sandbox-0badf00d")
+            self.assertNotIn("0badf00d", left(["sceny-sandbox-deadbeef"], store))
+            self.assertNotIn(f"{other}/storage", left([], store))
 
 
 class SignalHandlingMechanism(unittest.TestCase):
