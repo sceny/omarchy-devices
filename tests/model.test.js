@@ -1509,7 +1509,7 @@ test("KDE Connect away while the screen link reaches the device: one problem, fi
   assert.equal(gone.features.find(r => r.key === "notifications").state, "away")
 })
 
-test("KDE Connect away: its switches stay the user's, and adb's permissions are read (SCE-918)", () => {
+test("KDE Connect away: its switches stay the user's, and adb's permissions are read", () => {
   const away = Object.assign(M.demoFeatures(), { reachable: false })
   const by = (rows, k) => rows.find(r => r.key === k)
   const rows = M.featureRows(away, null, "Pixel 8")
