@@ -41,9 +41,16 @@ await() { # <seconds> <test command...>
   return 1
 }
 
+vc_gone() { ! kill -0 "$vc_pid" 2>/dev/null; }
+
 # The holder takes the lock the way dev/sandbox does and keeps it until told.
-timeout 60 flock -x "$SANDBOX_STATE/.lock" bash -c \
-  'touch "$1"; while [ ! -e "$2" ]; do sleep 0.1; done' _ "$work/held" "$work/release" &
+(
+  exec 9>>"$SANDBOX_STATE/.lock"
+  flock -x 9 || exit 1
+  touch "$work/held"
+  n=600
+  while [[ ! -e $work/release ]] && ((n-- > 0)); do sleep 0.1; done
+) &
 holder_pid=$!
 await 10 test -e "$work/held" || fail "the lock holder did not take the lock"
 
@@ -57,7 +64,7 @@ echo "ok: verify-clean waits for the lock and says so"
 touch "$work/release"
 wait "$holder_pid"
 holder_pid=""
-await 20 bash -c "! kill -0 $vc_pid 2>/dev/null" || fail "verify-clean did not finish after the lock was released"
+await 20 vc_gone || fail "verify-clean did not finish after the lock was released"
 wait "$vc_pid"
 rc=$?
 vc_pid=""
