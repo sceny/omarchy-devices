@@ -97,6 +97,48 @@ class Qml(unittest.TestCase):
             os.remove(f.name)
 
 
+BEHAVIOR_ENABLED = re.compile(r"\bBehavior\s+on\s+\w+\s*\{\s*enabled\s*:([^;}\n]*)")
+ENABLED_ALLOWED = {"true", "false", "null", "undefined", "parent", "Model", "Math", "Qt"}
+
+
+def behavior_enabled_bare_names(path):
+    """A Behavior's `enabled` that names a property bare. The binding is
+    outside the attached item's scope, so a bare name is a ReferenceError
+    and `enabled` keeps its default (true); only an id, `parent` and the
+    globals resolve (#391). A member (`tile.glides`) is read from its id."""
+    text = code_only(open(path).read())
+    name = os.path.basename(path)
+    ids = set(re.findall(r"\bid\s*:\s*(\w+)", text))
+    found = []
+    for m in BEHAVIOR_ENABLED.finditer(text):
+        for n in re.finditer(r"(?<![\w.])([A-Za-z_]\w*)\b(?!\s*:)", m.group(1)):
+            if n.group(1) not in ids | ENABLED_ALLOWED:
+                found.append("%s:%d: Behavior enabled reads %s bare; name its item by an id"
+                             % (name, text.count("\n", 0, m.start(1)) + 1, n.group(1)))
+    return found
+
+
+class BehaviorEnabledNamesItsItem(unittest.TestCase):
+    def test_no_behavior_reads_a_bare_property(self):
+        found = [p for f in sorted(glob.glob(os.path.join(ROOT, "*.qml"))) for p in behavior_enabled_bare_names(f)]
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_check_finds_one(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  Tile {\n    id: tile\n    readonly property bool glides: true\n"
+                    "    Behavior on x { enabled: glides; NumberAnimation {} }\n"
+                    "    Behavior on y { enabled: tile.glides && !drag; NumberAnimation {} }\n"
+                    "    Behavior on z { enabled: tile.glides; NumberAnimation {} }\n  }\n}\n")
+        try:
+            found = behavior_enabled_bare_names(f.name)
+            self.assertEqual(len(found), 2, found)
+            self.assertIn("glides", found[0])
+            self.assertIn("drag", found[1])
+        finally:
+            os.remove(f.name)
+
+
 def repeater_delegates_that_reparent(path):
     """A Repeater's delegate that sets its own `parent:`. The Repeater stacks
     each new item after the last, which must be a sibling; one moved away
