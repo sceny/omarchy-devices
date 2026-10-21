@@ -6,10 +6,32 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
-## Unreleased
+## 0.9.0 — 2026-10-21
 
 ### Highlights
 
+- **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
+  answer and make calls with the audio on this computer, over Bluetooth. The
+  card follows a call to its end: microphone, keypad, volume, a second call
+  held or joined, music here paused meanwhile. Call back, or call from a
+  conversation.
+- **Contacts**: the phone's address book in the panel, two panes like
+  Messages: a searchable list with each person's photo, and the full card.
+  *Message* starts a text, *Call* opens the dialer on the phone, an email, an
+  address and a website open in their app. Texts take their names from the
+  same cards.
+- **A failed restart after the clipboard setting is tried again**: when
+  KDE Connect's clipboard plugin could not be started again after the plugin
+  wrote `sendPassword=false`, nothing said it still ran on the old setting;
+  the plugin now finishes the restart on its next look at the device
+  ([#344](https://github.com/sceny/omarchy-devices/issues/344)).
+- **Dismiss all**: a button beside the Notifications title clears them in
+  one press, and Shift+Delete does the same from the keyboard
+  ([#194](https://github.com/sceny/omarchy-devices/issues/194),
+  [#252](https://github.com/sceny/omarchy-devices/issues/252)).
+- **The plugin's adb runs on its own server**: the adb and scrcpy the plugin
+  starts use a server in the plugin's runtime folder, not the one you use
+  for your own work ([#320](https://github.com/sceny/omarchy-devices/pull/320)).
 - **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an
   overlay instead of a page, so a key can be tried with the list in view.
@@ -98,16 +120,6 @@ GitHub release with these notes.
   let that row take the cursor. A hover now runs only when the very event
   that brought it is a move
   ([#330](https://github.com/sceny/omarchy-devices/issues/330)).
-- **Calls here** ([#59](https://github.com/sceny/omarchy-devices/issues/59)):
-  answer and make calls with the audio on this computer, over Bluetooth. The
-  card follows a call to its end: microphone, keypad, volume, a second call
-  held or joined, music here paused meanwhile. Call back, or call from a
-  conversation.
-- **Contacts**: the phone's address book in the panel, two panes like
-  Messages: a searchable list with each person's photo, and the full card.
-  *Message* starts a text, *Call* opens the dialer on the phone, an email, an
-  address and a website open in their app. Texts take their names from the
-  same cards.
 - **From anywhere**: the phone in the panel away from home, through Tailscale
   or NordVPN Meshnet, or an address you type. Its page says how it is
   connected now.
@@ -170,14 +182,14 @@ GitHub release with these notes.
 
 ### Issues
 
-- [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away
 - [#8](https://github.com/sceny/omarchy-devices/issues/8) Reach devices over Tailscale or a custom address
 - [#59](https://github.com/sceny/omarchy-devices/issues/59) Answer and place calls with the audio on the computer (Bluetooth hands-free)
+- [#119](https://github.com/sceny/omarchy-devices/issues/119) Networking: one reliable path to each device, at home and away (mesh, USB, Bluetooth, firewall)
+- [#122](https://github.com/sceny/omarchy-devices/issues/122) Notification click opens exactly what it is about, as Phone Link does (investigation)
 - [#129](https://github.com/sceny/omarchy-devices/issues/129) Sound: where a device's sound plays, per window, from the plugin
-- [#122](https://github.com/sceny/omarchy-devices/issues/122) Notification open: a text message opens its conversation, any other its app; the exact screen inside it needs KDE Connect's help
+- [#152](https://github.com/sceny/omarchy-devices/issues/152) Screen and apps off still shows the Screen shortcut and the Apps section
 - [#153](https://github.com/sceny/omarchy-devices/issues/153) Problems: one fixed card that closes, red dots where the effect is, an ask on use
 - [#159](https://github.com/sceny/omarchy-devices/issues/159) Settings shows "Everything works" although the rules say it shows nothing while everything works
-- [#152](https://github.com/sceny/omarchy-devices/issues/152) Editing a device's page offered the Screen shortcut and the Apps section while Screen and apps was off
 - [#160](https://github.com/sceny/omarchy-devices/issues/160) MessagesView: binding loop on a picture message's "picture" property
 - [#171](https://github.com/sceny/omarchy-devices/issues/171) Call numbers, keypad tones and contact searches still go on the bridge's command line
 - [#172](https://github.com/sceny/omarchy-devices/issues/172) Diagnostics: a failing check with three buttons cuts its name and wraps its detail
@@ -185,21 +197,117 @@ GitHub release with these notes.
 - [#176](https://github.com/sceny/omarchy-devices/issues/176) First run: the password card shows two of the seven actions, one cut off mid-line
 - [#177](https://github.com/sceny/omarchy-devices/issues/177) Gallery shows a problem on a fresh pairing, before the user has used it
 - [#178](https://github.com/sceny/omarchy-devices/issues/178) Gallery keeps saying to allow storage after the plugin has granted it
+- [#188](https://github.com/sceny/omarchy-devices/issues/188) Notification access: Allow reads back as not allowed right after the grant landed
+- [#189](https://github.com/sceny/omarchy-devices/issues/189) Gallery switch turned on from off enables the plugin but does not grant storage; nothing says what is left
 - [#191](https://github.com/sceny/omarchy-devices/issues/191) Bridge `watch` leaves its `ip -o monitor address` child running when it exits
+- [#194](https://github.com/sceny/omarchy-devices/issues/194) Clear all notifications
+- [#199](https://github.com/sceny/omarchy-devices/issues/199) Startup: TypeError 'appWindowsOf' of null at Panel.qml allApps binding
+- [#200](https://github.com/sceny/omarchy-devices/issues/200) Cold pairing: Notifications ask does not show until the device's screen state has been read
+- [#201](https://github.com/sceny/omarchy-devices/issues/201) dev/soak ignores RIG_TMP_ROOT (cannot find a rig started with a custom root)
+- [#203](https://github.com/sceny/omarchy-devices/issues/203) Show the panel's keyboard keys in the panel
+- [#214](https://github.com/sceny/omarchy-devices/issues/214) Settings: saving a nickname with Enter logs 'root is not defined' and the page's keys stop
+- [#246](https://github.com/sceny/omarchy-devices/issues/246) Notifications: folding moves the summary's ellipsis when the dismiss-all button hides
+- [#250](https://github.com/sceny/omarchy-devices/issues/250) Keys page: a test that fails when Model.KEYS and the key handlers drift apart
+- [#252](https://github.com/sceny/omarchy-devices/issues/252) Notifications: a key for dismiss all
+- [#254](https://github.com/sceny/omarchy-devices/issues/254) Settings: with the pointer resting on the panel, the keys cannot reach the last rows (the cursor jumps back as the page scrolls)
+- [#256](https://github.com/sceny/omarchy-devices/issues/256) Keys page: compact rows with key caps, and each control's tooltip names its key
+- [#259](https://github.com/sceny/omarchy-devices/issues/259) public-text check: close three gaps and three false positives found in review of #257
+- [#260](https://github.com/sceny/omarchy-devices/issues/260) Unpairing a device leaves its From anywhere or Screen and apps page open
+- [#262](https://github.com/sceny/omarchy-devices/issues/262) Panel edits made in demo mode are written to the real shell.json entry
+- [#264](https://github.com/sceny/omarchy-devices/issues/264) Rig: IPC hooks for the away card's Why? and a lost From anywhere address
+- [#267](https://github.com/sceny/omarchy-devices/issues/267) Calls: the player skip for a call matches 'kdeconnect' anywhere in the bus name
+- [#272](https://github.com/sceny/omarchy-devices/issues/272) Contacts: the Contacts page asks for contacts, Messages no longer does
+- [#276](https://github.com/sceny/omarchy-devices/issues/276) Public-text check: a sentence with an exempting word still hides a leak in the same sentence
+- [#282](https://github.com/sceny/omarchy-devices/issues/282) MessagesView: binding loop at line 1203 when a conversation opens (still on 0.8.3 to 0.8.5)
+- [#285](https://github.com/sceny/omarchy-devices/issues/285) Panel: keyboard focus goes to keyCatcher when the panel closes
+- [#286](https://github.com/sceny/omarchy-devices/issues/286) Clipboard: a user's own autoShare=true still sends passwords (write sendPassword=false when absent)
+- [#287](https://github.com/sceny/omarchy-devices/issues/287) Notifications: dismiss all raises one failure toast per row
+- [#288](https://github.com/sceny/omarchy-devices/issues/288) Rig check devices-screen-window: no scrcpy window within 30 s on a cold emulator (flake)
+- [#289](https://github.com/sceny/omarchy-devices/issues/289) Sandbox: two commands on one store collide (verify-clean fails on the other's live container)
+- [#290](https://github.com/sceny/omarchy-devices/issues/290) Sandbox: run_cleanup is not trapped on HUP, so a vanished caller can leave a container
+- [#291](https://github.com/sceny/omarchy-devices/issues/291) Sandbox: hostile-test keeps its work under $TMPDIR and loses its result when the scratch directory goes
+- [#292](https://github.com/sceny/omarchy-devices/issues/292) Screen: the filtered scrcpy log stays in the runtime directory after a bridge-only screen-close
+- [#304](https://github.com/sceny/omarchy-devices/issues/304) dev/release-prepare runs the freeze check and refuses a release while main is frozen
+- [#306](https://github.com/sceny/omarchy-devices/issues/306) Releasing: a class is named by its mechanism first; a pass carries forward only on an identical tree
+- [#308](https://github.com/sceny/omarchy-devices/issues/308) IPC pressShortcut, pressSetting and pressScreenAction can focus a text field
+- [#309](https://github.com/sceny/omarchy-devices/issues/309) Review list: every line names the tests that check it; lints for logs, images, root and listeners
+- [#317](https://github.com/sceny/omarchy-devices/issues/317) release-prepare: an urgent fix is refused when GitHub cannot be read; --check-freeze fails outside the repository
+- [#324](https://github.com/sceny/omarchy-devices/issues/324) Settings: the keyboard cursor on Unpair and Reset shortcuts is not drawn and the page does not scroll to it
+- [#325](https://github.com/sceny/omarchy-devices/issues/325) Hover-needs-a-pointer-move check misses block handlers and the Messages suggestions list
+- [#327](https://github.com/sceny/omarchy-devices/issues/327) Messages: a resting pointer can still take the cursor once when it last moved outside the lists
+- [#330](https://github.com/sceny/omarchy-devices/issues/330) Main page: a resting pointer can still take the cursor when content moves under it after it last moved over a header
+- [#332](https://github.com/sceny/omarchy-devices/issues/332) Contacts: the key-hint line is below the fold on a 720 px screen while the ask shows
+- [#333](https://github.com/sceny/omarchy-devices/issues/333) Demo: a contacts permission that broke, so the problem on Contacts and Messages can be seen
+- [#335](https://github.com/sceny/omarchy-devices/issues/335) Messages: the header call button shows for short-code senders, which cannot be dialled
+- [#339](https://github.com/sceny/omarchy-devices/issues/339) Messages: the key-hint line is cut off at the bottom when a note shows above the page
+- [#344](https://github.com/sceny/omarchy-devices/issues/344) Clipboard: a failed restart after writing sendPassword=false is never retried for a device with its own auto-share
+- [#350](https://github.com/sceny/omarchy-devices/issues/350) A phone's media session shows as a notification with no player in Now playing
+- [#365](https://github.com/sceny/omarchy-devices/issues/365) Bar widget does not load with Qt 6.12: qmldir lists only Clipboard
+- [#368](https://github.com/sceny/omarchy-devices/issues/368) Sandbox: verify-clean reads processes host-wide, so another store's run fails it and the lock test
+- [#369](https://github.com/sceny/omarchy-devices/issues/369) Apps: the All apps tile jumps to its place after going to Messages and back
+- [#373](https://github.com/sceny/omarchy-devices/issues/373) Settings: a feature's switch and its permission are blocked while KDE Connect is away, though other gateways serve them
+- [#376](https://github.com/sceny/omarchy-devices/issues/376) Sandbox: verify-clean process check misses a store path with regex characters and matches a sibling store
+- [#384](https://github.com/sceny/omarchy-devices/issues/384) Sandbox: hostile-test's interrupt trap does not exit, so a signal mid-run disarms the rest of the test
+- [#385](https://github.com/sceny/omarchy-devices/issues/385) Sandbox: hostile-test step 16 fails while another run's session is live on the shared store
+- [#389](https://github.com/sceny/omarchy-devices/issues/389) Opening Settings from the main page freezes the panel for about half a second
+- [#391](https://github.com/sceny/omarchy-devices/issues/391) AppPinRow: the All apps tile's glide guard throws ReferenceError (glides is not defined), so its pinsKnown check never runs (#372)
+- [#392](https://github.com/sceny/omarchy-devices/issues/392) Sandbox: hostile test step 16 does not judge the out-dir runs or the dev pull's containers
 
 ### Pull requests without an issue
 
-- [#143](https://github.com/sceny/omarchy-devices/pull/143) Contacts: the phone's address book in the panel (with [#144](https://github.com/sceny/omarchy-devices/pull/144), [#145](https://github.com/sceny/omarchy-devices/pull/145), [#146](https://github.com/sceny/omarchy-devices/pull/146), [#147](https://github.com/sceny/omarchy-devices/pull/147): photos, links that open in their app, Google Contacts, round photos)
-- [#148](https://github.com/sceny/omarchy-devices/pull/148) Nested navigation: Back returns to where you came from, Home from two deep
-- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator: all development goes into it
-- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once: draw from what is in memory
 - [#142](https://github.com/sceny/omarchy-devices/pull/142) Setup that gets out of the way: asked where you use it, no plumbing in Settings
-- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check that the shell runs the plugin's files, not the code it read at start
+- [#143](https://github.com/sceny/omarchy-devices/pull/143) Contacts: the phone's address book in the panel
+- [#144](https://github.com/sceny/omarchy-devices/pull/144) Contacts: the list shows each person's photo
+- [#145](https://github.com/sceny/omarchy-devices/pull/145) Contacts: an email, an address and a website open in their app
+- [#146](https://github.com/sceny/omarchy-devices/pull/146) Contacts: say what Google Contacts holds, and find a card there
+- [#147](https://github.com/sceny/omarchy-devices/pull/147) Contacts: a photo is round, like the initial it replaces
+- [#148](https://github.com/sceny/omarchy-devices/pull/148) Nested navigation: Back returns to where you came from, Home from two deep
+- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator (SCE-326)
+- [#150](https://github.com/sceny/omarchy-devices/pull/150) AGENTS: the owner's install follows develop by timer (SCE-402)
+- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once (SCE-403)
+- [#157](https://github.com/sceny/omarchy-devices/pull/157) Release procedure: security review, emulator regression, owner's go (SCE-459)
+- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check the shell runs the plugin's files (SCE-476)
+- [#166](https://github.com/sceny/omarchy-devices/pull/166) releasing.md: release security review is a threat-model review (SCE-480)
+- [#167](https://github.com/sceny/omarchy-devices/pull/167) Releasing: the owner is asked only when every check passed on the exact SHA running on their machine
 - [#179](https://github.com/sceny/omarchy-devices/pull/179) Rig: a cold computer for the cold-install check
+- [#180](https://github.com/sceny/omarchy-devices/pull/180) Releasing: a security FAIL rejects the candidate; whole-plugin review every release
 - [#185](https://github.com/sceny/omarchy-devices/pull/185) Fix with AI: fence device-supplied names and details
-- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: its edges are two items, not a Repeater's delegates that move away
-- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver and its media-player fixture
-- [#150](https://github.com/sceny/omarchy-devices/pull/150), [#157](https://github.com/sceny/omarchy-devices/pull/157), [#158](https://github.com/sceny/omarchy-devices/pull/158), [#166](https://github.com/sceny/omarchy-devices/pull/166), [#167](https://github.com/sceny/omarchy-devices/pull/167), [#180](https://github.com/sceny/omarchy-devices/pull/180) Development and release docs: install follows `develop`, release procedure, security review, Contacts and Calls limits
+- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: remove the unattributed stackAfter warning (SCE-568)
+- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver (SCE-464)
+- [#208](https://github.com/sceny/omarchy-devices/pull/208) CI: run the marketplace's validation and security baseline on PRs into main
+- [#209](https://github.com/sceny/omarchy-devices/pull/209) dev/release-prepare: a release PR has its version on the first push
+- [#210](https://github.com/sceny/omarchy-devices/pull/210) Class lints for private text on argv (C1) and the clipboard read without a paste (C2)
+- [#212](https://github.com/sceny/omarchy-devices/pull/212) isPhonePlayer: anchor to KDE Connect's exact bus-name prefix (SCE-618)
+- [#216](https://github.com/sceny/omarchy-devices/pull/216) release.yml: check and publish jobs, no expression under permissions
+- [#217](https://github.com/sceny/omarchy-devices/pull/217) Class lint C1: .exec( is a sink; an allowed bare name is checked where it is given a value
+- [#218](https://github.com/sceny/omarchy-devices/pull/218) Releasing: the release template, the status page and the finding classes
+- [#220](https://github.com/sceny/omarchy-devices/pull/220) AGENTS.md: the contributor code rule (SCE-659)
+- [#221](https://github.com/sceny/omarchy-devices/pull/221) dev/sandbox: run one exact contributor commit in a rootless podman container (SCE-658)
+- [#226](https://github.com/sceny/omarchy-devices/pull/226) Standing texts say what is: AGENTS.md and docs/internals
+- [#228](https://github.com/sceny/omarchy-devices/pull/228) diagnose-panel: a KDE Connect fault is handled in the plugin (SCE-709)
+- [#238](https://github.com/sceny/omarchy-devices/pull/238) dev/sandbox: the rig's compositor starts in the container, so hostile-test phase 14 runs (SCE-717)
+- [#239](https://github.com/sceny/omarchy-devices/pull/239) dev/sandbox: hostile-test tells the rig's own X socket from a host one
+- [#240](https://github.com/sceny/omarchy-devices/pull/240) dev/sandbox dev: a session for Sceny's own tree, version pins, recordings (SCE-662)
+- [#243](https://github.com/sceny/omarchy-devices/pull/243) All development and testing in the sandbox (SCE-660)
+- [#244](https://github.com/sceny/omarchy-devices/pull/244) Sandbox docs follow-up: --session, --timeout, rig sync (SCE-660)
+- [#247](https://github.com/sceny/omarchy-devices/pull/247) Review: every non-blocking finding becomes an issue; public comments hold no run details
+- [#249](https://github.com/sceny/omarchy-devices/pull/249) Review: an item not checked is checked before the merge or tracked
+- [#257](https://github.com/sceny/omarchy-devices/pull/257) CI: fail the build on public text that names our setup, leaves an item with no issue, or names another repo's issue bare
+- [#258](https://github.com/sceny/omarchy-devices/pull/258) Sandbox: one image per repository on a common base; omarchy-paperclipai and dev/soak run in it (SCE-741)
+- [#270](https://github.com/sceny/omarchy-devices/pull/270) CI: the release brings develop level with a public-text status on the commit
+- [#280](https://github.com/sceny/omarchy-devices/pull/280) Harden mesh peer matching, stills, cache folder and Omarchy path; pin CI actions
+- [#296](https://github.com/sceny/omarchy-devices/pull/296) Class lint: allowed parameter names are checked where they are given; no shell strings in scripts
+- [#299](https://github.com/sceny/omarchy-devices/pull/299) Hardening: text commands refuse argv, bounded device-file copy, text field run in tests
+- [#318](https://github.com/sceny/omarchy-devices/pull/318) Open from the device: check the opened file's own path against the mount
+- [#320](https://github.com/sceny/omarchy-devices/pull/320) Run the plugin's adb and scrcpy against its own adb server
+- [#322](https://github.com/sceny/omarchy-devices/pull/322) Calls: the missed-call card offers Calls here while it is not set up
+- [#334](https://github.com/sceny/omarchy-devices/pull/334) Rig: drop show, hide and up --visible; the rig is always hidden
+- [#348](https://github.com/sceny/omarchy-devices/pull/348) Messages: a message notification opens its own conversation or none
+- [#349](https://github.com/sceny/omarchy-devices/pull/349) Messages: a conversation loads whole when a message arrives as it opens
+- [#353](https://github.com/sceny/omarchy-devices/pull/353) Keys: an overlay over the current page, folding groups, each with Open
+- [#367](https://github.com/sceny/omarchy-devices/pull/367) Sandbox: install quickshell from Omarchy repository to match host
+- [#370](https://github.com/sceny/omarchy-devices/pull/370) Panel: Notifications fades and folds away when the last one goes
+- [#388](https://github.com/sceny/omarchy-devices/pull/388) Sandbox: drop the unused [omarchy] pacman repository
 
 ### Upgrading
 
@@ -211,6 +319,16 @@ GitHub release with these notes.
   (home, office) and to your mesh, instead of only the network you were on.
   Rules you have stay.
 - **This computer** has a *Mesh network* row (optional).
+- **Calls here is on for every device**: it needs the phone paired over
+  Bluetooth, and its switch on a device's page turns it off for that device.
+  Until it is set up, a missed call offers *Call back from here*.
+- **The sound setting has a third place**, *Both* (Android 13); an open
+  app's tile keeps its own choice. A stored `here` or `phone` reads as before.
+- **The plugin writes `sendPassword=false`** into KDE Connect's clipboard
+  settings for each paired device that has no choice of its own, as it
+  already does for `autoShare`; a value you wrote there stays.
+- **`?` opens the keys as an overlay** over the page you are on, no longer a
+  page of their own.
 - Nothing else in your settings is rewritten; new keys (`closedProblems`)
   appear on your next change.
 
