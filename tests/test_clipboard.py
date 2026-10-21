@@ -143,6 +143,87 @@ class KeepHereTests(unittest.TestCase):
         self.assertEqual(seen, [("[General]\nautoShare=false\nsendPassword=false\n", (bridge.CLIPBOARD_PLUGIN, True))])
 
 
+class FailedRestartTests(unittest.TestCase):
+    """A restart that fails after the file was written is finished by a later
+    call: the file no longer differs, so nothing else says it is owed."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = os.path.join(self.tmp.name, "dev1", bridge.CLIPBOARD_PLUGIN, "config")
+        os.makedirs(os.path.dirname(self.path))
+        with open(self.path, "w") as f:
+            f.write("[General]\nautoShare=true\n")
+        self.loaded, self.fail, self.sets = True, [], []
+        bridge.CLIPBOARD_UNSETTLED.clear()
+        real_call, real_sleep = bridge.call, bridge.time.sleep
+        bridge.call, bridge.time.sleep = self.daemon, lambda s: None
+        self.addCleanup(lambda: (setattr(bridge, "call", real_call), setattr(bridge.time, "sleep", real_sleep),
+                                 bridge.CLIPBOARD_UNSETTLED.clear()))
+
+    def daemon(self, conn, path, iface, method, args=None, sig=None):
+        if method == "pluginsConfigFile":
+            return (os.path.join(self.tmp.name, "dev1", "config"),)
+        if method == "Get":
+            if not self.loaded:
+                raise bridge.GLib.Error("not loaded")
+            return (False,)
+        if method == "setPluginEnabled":
+            if self.fail and self.fail[0] == args[1]:
+                self.fail.pop(0)
+                raise bridge.GLib.Error("D-Bus error")
+            self.sets.append(args[1])
+            self.loaded = args[1]
+        return ()
+
+    def test_a_restart_that_failed_is_tried_again_until_it_works(self):
+        self.fail = [False, False]
+        for _ in range(2):
+            with self.assertRaises(bridge.GLib.Error):
+                bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual(self.sets, [])
+        self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "shared")
+        self.assertEqual(self.sets, [False, True])
+        self.assertEqual(bridge.keep_clipboard_here("dev1", object()), "shared")
+        self.assertEqual(self.sets, [False, True], "a plugin already set is not cycled")
+        self.assertEqual(bridge.CLIPBOARD_UNSETTLED, {})
+
+    def test_a_plugin_a_half_done_restart_left_off_comes_back_on(self):
+        self.fail = [True]
+        with self.assertRaises(bridge.GLib.Error):
+            bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual((self.sets, self.loaded), ([False], False))
+        bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual((self.sets, self.loaded), ([False, True], True))
+        bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual(self.sets, [False, True])
+
+    def test_a_plugin_the_user_turned_off_meanwhile_is_not_started(self):
+        self.fail = [False]
+        with self.assertRaises(bridge.GLib.Error):
+            bridge.keep_clipboard_here("dev1", object())
+        self.loaded = False
+        bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual(self.sets, [])
+        self.assertEqual(bridge.CLIPBOARD_UNSETTLED, {})
+
+    def test_a_device_without_a_choice_finishes_a_half_done_restart_too(self):
+        os.remove(self.path)
+        self.fail = [True]
+        with self.assertRaises(bridge.GLib.Error):
+            bridge.keep_clipboard_here("dev1", object())
+        bridge.keep_clipboard_here("dev1", object())
+        self.assertEqual((self.sets, self.loaded), ([False, True], True))
+
+    def test_every_snapshot_tries_again_through_keep_for(self):
+        self.fail = [False]
+        done = set()
+        devices = [{"id": "dev1", "paired": True}]
+        bridge.keep_clipboard_for(devices, done, object())
+        self.assertEqual(done, set())
+        bridge.keep_clipboard_for(devices, done, object())
+        self.assertEqual((done, self.sets), ({"dev1"}, [False, True]))
+
+
 class KeepForTests(unittest.TestCase):
     def test_a_failed_device_is_tried_again_and_a_done_one_is_not(self):
         calls = []
