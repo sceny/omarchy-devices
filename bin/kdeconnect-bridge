@@ -2430,18 +2430,48 @@ def write_private(path, text):
     os.replace(tmp, path)
 
 
+# Devices whose loaded plugin still has to read what was written: "restart"
+# while it runs on the old setting, "off" when a restart stopped it and did
+# not start it again. KDE Connect has no getter for sendPassword, and the
+# file no longer differs once written, so this is the only record that a
+# restart is owed; the next snapshot finishes it.
+CLIPBOARD_UNSETTLED = {}
+
+
 def start_clipboard_again(conn, device_id):
     dpath = device_path(device_id)
+    CLIPBOARD_UNSETTLED[device_id] = "restart"
     call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, False), "(sb)")
+    CLIPBOARD_UNSETTLED[device_id] = "off"
     time.sleep(0.5)
     call(conn, dpath, IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, True), "(sb)")
+    del CLIPBOARD_UNSETTLED[device_id]
+
+
+def settle_clipboard(conn, device_id, due):
+    """Finishes what a restart owes, or starts one that is `due`: a plugin a
+    restart left off is turned on (it reads the file as it loads); a loaded
+    plugin is started again; one that is not loaded needs nothing. True when
+    it acted."""
+    owed = CLIPBOARD_UNSETTLED.get(device_id)
+    if owed == "off":
+        call(conn, device_path(device_id), IFACE + ".device", "setPluginEnabled", (CLIPBOARD_PLUGIN, True), "(sb)")
+        del CLIPBOARD_UNSETTLED[device_id]
+        return True
+    if due or owed:
+        if clipboard_auto_share_off(conn, device_id) is False:
+            start_clipboard_again(conn, device_id)
+            return True
+        CLIPBOARD_UNSETTLED.pop(device_id, None)
+    return False
 
 
 def keep_clipboard_here(device_id, conn=None, cycle=True):
     """Makes a device's copies leave only when the user sends them. Returns
     "shared" when the user chose auto-share for it (its copies still leave,
     but a password never does unless the user also set sendPassword), "changed"
-    when the plugin was set (and, loaded, started again), else "here"."""
+    when the plugin was set (and, loaded, started again), else "here". A
+    restart that failed is tried again by the next call until it works."""
     conn = conn or bus()
     path = clipboard_config_path(conn, device_id)
     try:
@@ -2453,14 +2483,12 @@ def keep_clipboard_here(device_id, conn=None, cycle=True):
     text, changed = ini_fill(text, CLIPBOARD_HERE[1:] if shared else CLIPBOARD_HERE)
     if changed:
         write_private(path, text)
+        if cycle:
+            CLIPBOARD_UNSETTLED.setdefault(device_id, "restart")
+    acted = cycle and settle_clipboard(conn, device_id, not shared)
     if shared:
-        if changed and cycle and clipboard_auto_share_off(conn, device_id) is False:
-            start_clipboard_again(conn, device_id)
         return "shared"
-    if cycle and clipboard_auto_share_off(conn, device_id) is False:
-        start_clipboard_again(conn, device_id)
-        return "changed"
-    return "changed" if changed else "here"
+    return "changed" if changed or acted else "here"
 
 
 def keep_clipboard_for(devices, done, conn):
