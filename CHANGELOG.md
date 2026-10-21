@@ -262,38 +262,39 @@ GitHub release with these notes.
 - [#146](https://github.com/sceny/omarchy-devices/pull/146) Contacts: say what Google Contacts holds, and find a card there
 - [#147](https://github.com/sceny/omarchy-devices/pull/147) Contacts: a photo is round, like the initial it replaces
 - [#148](https://github.com/sceny/omarchy-devices/pull/148) Nested navigation: Back returns to where you came from, Home from two deep
-- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator (SCE-326)
-- [#150](https://github.com/sceny/omarchy-devices/pull/150) AGENTS: the owner's install follows develop by timer (SCE-402)
-- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once (SCE-403)
-- [#157](https://github.com/sceny/omarchy-devices/pull/157) Release procedure: security review, emulator regression, owner's go (SCE-459)
-- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check the shell runs the plugin's files (SCE-476)
-- [#166](https://github.com/sceny/omarchy-devices/pull/166) releasing.md: release security review is a threat-model review (SCE-480)
+- [#149](https://github.com/sceny/omarchy-devices/pull/149) Hidden test rig with a small Android emulator
+- [#150](https://github.com/sceny/omarchy-devices/pull/150) AGENTS: the owner's install follows develop by timer
+- [#151](https://github.com/sceny/omarchy-devices/pull/151) The panel opens at once
+- [#157](https://github.com/sceny/omarchy-devices/pull/157) Release procedure: security review, emulator regression, owner's go
+- [#158](https://github.com/sceny/omarchy-devices/pull/158) Docs for 0.9: Contacts setup, limits for Calls and Contacts, CHANGELOG issues
+- [#164](https://github.com/sceny/omarchy-devices/pull/164) dev/loaded-code: check the shell runs the plugin's files
+- [#166](https://github.com/sceny/omarchy-devices/pull/166) releasing.md: release security review is a threat-model review
 - [#167](https://github.com/sceny/omarchy-devices/pull/167) Releasing: the owner is asked only when every check passed on the exact SHA running on their machine
 - [#179](https://github.com/sceny/omarchy-devices/pull/179) Rig: a cold computer for the cold-install check
 - [#180](https://github.com/sceny/omarchy-devices/pull/180) Releasing: a security FAIL rejects the candidate; whole-plugin review every release
 - [#185](https://github.com/sceny/omarchy-devices/pull/185) Fix with AI: fence device-supplied names and details
-- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: remove the unattributed stackAfter warning (SCE-568)
-- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver (SCE-464)
+- [#190](https://github.com/sceny/omarchy-devices/pull/190) Albums row: remove the unattributed stackAfter warning
+- [#192](https://github.com/sceny/omarchy-devices/pull/192) dev/soak: the 30-minute resilience soak driver
 - [#208](https://github.com/sceny/omarchy-devices/pull/208) CI: run the marketplace's validation and security baseline on PRs into main
 - [#209](https://github.com/sceny/omarchy-devices/pull/209) dev/release-prepare: a release PR has its version on the first push
 - [#210](https://github.com/sceny/omarchy-devices/pull/210) Class lints for private text on argv (C1) and the clipboard read without a paste (C2)
-- [#212](https://github.com/sceny/omarchy-devices/pull/212) isPhonePlayer: anchor to KDE Connect's exact bus-name prefix (SCE-618)
+- [#212](https://github.com/sceny/omarchy-devices/pull/212) isPhonePlayer: anchor to KDE Connect's exact bus-name prefix
 - [#216](https://github.com/sceny/omarchy-devices/pull/216) release.yml: check and publish jobs, no expression under permissions
 - [#217](https://github.com/sceny/omarchy-devices/pull/217) Class lint C1: .exec( is a sink; an allowed bare name is checked where it is given a value
 - [#218](https://github.com/sceny/omarchy-devices/pull/218) Releasing: the release template, the status page and the finding classes
-- [#220](https://github.com/sceny/omarchy-devices/pull/220) AGENTS.md: the contributor code rule (SCE-659)
-- [#221](https://github.com/sceny/omarchy-devices/pull/221) dev/sandbox: run one exact contributor commit in a rootless podman container (SCE-658)
+- [#220](https://github.com/sceny/omarchy-devices/pull/220) AGENTS.md: the contributor code rule
+- [#221](https://github.com/sceny/omarchy-devices/pull/221) dev/sandbox: run one exact contributor commit in a rootless podman container
 - [#226](https://github.com/sceny/omarchy-devices/pull/226) Standing texts say what is: AGENTS.md and docs/internals
-- [#228](https://github.com/sceny/omarchy-devices/pull/228) diagnose-panel: a KDE Connect fault is handled in the plugin (SCE-709)
-- [#238](https://github.com/sceny/omarchy-devices/pull/238) dev/sandbox: the rig's compositor starts in the container, so hostile-test phase 14 runs (SCE-717)
+- [#228](https://github.com/sceny/omarchy-devices/pull/228) diagnose-panel: a KDE Connect fault is handled in the plugin
+- [#238](https://github.com/sceny/omarchy-devices/pull/238) dev/sandbox: the rig's compositor starts in the container, so hostile-test phase 14 runs
 - [#239](https://github.com/sceny/omarchy-devices/pull/239) dev/sandbox: hostile-test tells the rig's own X socket from a host one
-- [#240](https://github.com/sceny/omarchy-devices/pull/240) dev/sandbox dev: a session for Sceny's own tree, version pins, recordings (SCE-662)
-- [#243](https://github.com/sceny/omarchy-devices/pull/243) All development and testing in the sandbox (SCE-660)
-- [#244](https://github.com/sceny/omarchy-devices/pull/244) Sandbox docs follow-up: --session, --timeout, rig sync (SCE-660)
+- [#240](https://github.com/sceny/omarchy-devices/pull/240) dev/sandbox dev: a session for Sceny's own tree, version pins, recordings
+- [#243](https://github.com/sceny/omarchy-devices/pull/243) All development and testing in the sandbox
+- [#244](https://github.com/sceny/omarchy-devices/pull/244) Sandbox docs follow-up: --session, --timeout, rig sync
 - [#247](https://github.com/sceny/omarchy-devices/pull/247) Review: every non-blocking finding becomes an issue; public comments hold no run details
 - [#249](https://github.com/sceny/omarchy-devices/pull/249) Review: an item not checked is checked before the merge or tracked
 - [#257](https://github.com/sceny/omarchy-devices/pull/257) CI: fail the build on public text that names our setup, leaves an item with no issue, or names another repo's issue bare
-- [#258](https://github.com/sceny/omarchy-devices/pull/258) Sandbox: one image per repository on a common base; omarchy-paperclipai and dev/soak run in it (SCE-741)
+- [#258](https://github.com/sceny/omarchy-devices/pull/258) Sandbox: one image per repository on a common base; omarchy-paperclipai and dev/soak run in it
 - [#270](https://github.com/sceny/omarchy-devices/pull/270) CI: the release brings develop level with a public-text status on the commit
 - [#280](https://github.com/sceny/omarchy-devices/pull/280) Harden mesh peer matching, stills, cache folder and Omarchy path; pin CI actions
 - [#296](https://github.com/sceny/omarchy-devices/pull/296) Class lint: allowed parameter names are checked where they are given; no shell strings in scripts
