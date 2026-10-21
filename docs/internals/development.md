@@ -142,8 +142,10 @@ dev/sandbox verify-clean                           # nothing left behind
   and a `dev` session: what a synced tree carries, what the session can
   reach (no network, host listener, socket, home, canary, capability), and
   what a hostile pull cannot bring out. Its last check judges only what it
-  started (its runs, its session, its canaries); `verify-clean` judges the
-  whole store and is run by hand.
+  started: every id the sandbox makes while it runs (`new_id` writes them to
+  the test's log: its runs, the `--out` runs, a session and the containers of
+  its pull) and its canaries; `verify-clean` judges the whole store and is run
+  by hand. A new container or run directory takes its id from `new_id`.
 
 ### Sceny's own tree: `dev/sandbox dev`
 
