@@ -202,6 +202,7 @@ Item {
 
   // The rest of the apps, after the pinned ones (no recent row).
   AppTile {
+    id: allAppsTile
     visible: row.allTile
     // At the row's right end; one place on when the pins reach it (an app
     // coming in included), as the pinned ones slide.
@@ -211,8 +212,8 @@ Item {
     // Only the user's own change glides it: pins that arrive with the list,
     // or a page that is still appearing, find it already in its place.
     readonly property bool glides: row.animate && row.pinsKnown
-    Behavior on x { enabled: glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
-    Behavior on y { enabled: glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
+    Behavior on x { enabled: allAppsTile.glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
+    Behavior on y { enabled: allAppsTile.glides; NumberAnimation { duration: Model.MOTION.inMs * row.motion; easing.type: Easing.OutCubic } }
     width: row.cellWidth
     canPin: false
     app: ({ name: "All apps", glyph: Model.GLYPH.apps, icon: "" })
