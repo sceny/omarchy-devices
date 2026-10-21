@@ -17,6 +17,8 @@ HOSTILE_WORK=""
 HOSTILE_LISTENER_PID=""
 HOSTILE_SAMPLER_PID=""
 HOSTILE_CANARIES=()
+HOSTILE_RUN_IDS=()
+HOSTILE_DEV_NAMES=()
 
 hostile_cleanup() {
   [[ -n $HOSTILE_LISTENER_PID ]] && kill "$HOSTILE_LISTENER_PID" 2>/dev/null
@@ -30,8 +32,50 @@ hostile_cleanup() {
   HOSTILE_WORK=""
 }
 
+# A step writes into the work directory; one that finds it gone stops here,
+# never writing to a path such as /sha-probe.
+hostile_here() {
+  [[ -n $HOSTILE_WORK && -d $HOSTILE_WORK ]] || die "hostile-test: the work directory is gone; nothing more runs"
+}
+
+# The three canaries, each still holding the text this test wrote into it.
+hostile_canaries_intact() { # <rand>
+  local f n=0
+  for f in "${HOSTILE_CANARIES[@]}"; do
+    [[ $(cat "$f" 2>/dev/null) == "SANDBOX-CANARY-$1" ]] || return 1
+    n=$((n + 1))
+  done
+  ((n == 3))
+}
+
+# What this test's own runs and sessions left behind: their containers,
+# run directories, mounts and processes, and the work directory. Other runs
+# and sessions on the store are not judged here.
+hostile_left() { # <work dir>
+  local work=$1 id name names pattern="" left=()
+  names=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
+  for id in "${HOSTILE_RUN_IDS[@]}"; do
+    pattern+="|sceny-sandbox-$id"
+    grep -qx "sceny-sandbox-$id" <<<"$names" && left+=("container sceny-sandbox-$id")
+    [[ -e $SB_STATE/runs/$id ]] && left+=("run directory $id")
+    grep -qF " $SB_STATE/runs/$id" /proc/self/mountinfo && left+=("mount of run $id")
+  done
+  for name in "${HOSTILE_DEV_NAMES[@]}"; do
+    pattern+="|$name"
+    grep -qx "$name" <<<"$names" && left+=("container $name")
+  done
+  [[ -n $pattern ]] && pgrep -u "$SB_UID" -f "${pattern#|}" >/dev/null && left+=("process of those runs or sessions")
+  [[ -e $work ]] && left+=("work directory $work")
+  if ((${#left[@]})); then
+    step "left by this test: ${left[*]}"
+    return 1
+  fi
+  return 0
+}
+
 # Listeners on the host that must never see a connection from the sandbox.
 hostile_listeners() {
+  hostile_here
   python3 - "$HOSTILE_WORK" <<'PY' &
 import json, os, selectors, socket, sys, time
 work = sys.argv[1]
@@ -73,6 +117,7 @@ PY
 # One commit per mode in the throwaway repository; prints the sha.
 hostile_commit() { # <repo> <mode>
   local repo=$1 mode=$2
+  hostile_here
   (
     cd "$repo" || exit 1
     mkdir -p tests dev
@@ -99,33 +144,42 @@ PY
 # hostile_run <kind> <mode> [cmd_run options...]: run the commit of <mode>
 # and print the judge's lines for <kind>.
 hostile_run() {
-  local kind=$1 mode=$2 out
+  local kind=$1 mode=$2 out checks=0 id what status detail
+  hostile_here
   shift 2
   out="$HOSTILE_WORK/out-$kind"
   # cmd_run exits through die on a refusal; a subshell keeps this test going.
   (cmd_run sceny/omarchy-devices "$(cat "$HOSTILE_WORK/sha-$mode")" --from "$HOSTILE_WORK/repo" --out "$out" "$@") \
     >"$HOSTILE_WORK/run-$kind.log" 2>&1
   sed 's/^/    /' "$HOSTILE_WORK/run-$kind.log" >&2
-  local line what status detail
+  while read -r id; do HOSTILE_RUN_IDS+=("$id"); done \
+    < <(sed -n 's/.*sandbox run \([0-9a-f]\{8\}\):.*/\1/p' "$HOSTILE_WORK/run-$kind.log")
   while IFS=$'\t' read -r status what detail; do
     case $status in
     PASS)
       ok "$what"
       HOSTILE_PASS=$((HOSTILE_PASS + 1))
+      checks=$((checks + 1))
       ;;
     FAIL)
       fail "$what"
       printf '      evidence: %s\n' "$detail" >&2
       HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+      checks=$((checks + 1))
       ;;
     INFO) step "$what" ;;
     esac
   done < <(python3 "$SB_DIR/sandbox.d/hostile/judge.py" "$HOSTILE_WORK" "$kind" "$out")
+  if ((checks == 0)); then
+    fail "the judge gave no verdict for $kind"
+    HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
+  fi
 }
 
 # Host MemAvailable every half second while a run goes: what the host lost,
 # measured from outside the container.
 hostile_sample_start() {
+  hostile_here
   : >"$HOSTILE_WORK/memavail.log"
   (while :; do
     awk '/^MemAvailable:/ {print $2}' /proc/meminfo >>"$HOSTILE_WORK/memavail.log"
@@ -142,6 +196,7 @@ hostile_sample_stop() {
 # --out inside a git repository is refused, and the default is not in a checkout.
 hostile_out_dir() {
   local sha inside rc
+  hostile_here
   sha=$(cat "$HOSTILE_WORK/sha-probe")
   inside="$HOSTILE_WORK/repo/results"
   (cmd_run sceny/omarchy-devices "$sha" --from "$HOSTILE_WORK/repo" --out "$inside" --steps tests) >"$HOSTILE_WORK/run-out-dir.log" 2>&1
@@ -180,6 +235,7 @@ hostile_out_dir() {
 hostile_dev() { # <profile>: devices or paperclipai
   local profile=${1:-devices} repo plugin_id
   local tree="$HOSTILE_WORK/devtree-$profile" out="$HOSTILE_WORK/dev-out-$profile" id line status what rc
+  hostile_here
   case $profile in
   devices) repo=sceny/omarchy-devices plugin_id=sceny.devices ;;
   paperclipai) repo=sceny/omarchy-paperclipai plugin_id=sceny.paperclipai ;;
@@ -209,6 +265,7 @@ hostile_dev() { # <profile>: devices or paperclipai
     return 0
   fi
   DEV_NAME=sceny-sandbox-dev-$id
+  HOSTILE_DEV_NAMES+=("$DEV_NAME")
   DEV_PROFILE=$profile
   local check_dev
   check_dev() { # <what> <status>
@@ -327,7 +384,7 @@ PY
   check_dev "the session's /out is empty after a pull" $?
 
   (dev_stop) >/dev/null 2>&1
-  [[ -z $(dev_names) ]]
+  [[ -z $(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -Fx -- "$DEV_NAME") ]]
   check_dev "the session is stopped and removed" $?
   DEV_NAME="" DEV_PROFILE=""
 }
@@ -356,7 +413,8 @@ cmd_hostile_test() {
   fi
   mkdir -p "$SB_STATE/hostile"
   HOSTILE_WORK=$(mktemp -d "$SB_STATE/hostile/sceny-hostile.XXXXXX")
-  trap 'hostile_cleanup' EXIT INT TERM
+  trap 'hostile_cleanup' EXIT
+  trap 'hostile_cleanup; exit 130' INT TERM HUP
   local rand
   rand=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 
@@ -504,33 +562,27 @@ PY
   fi
 
   unset "$secret_name"
-  # The work directory is in the store, which verify-clean reads: it goes
-  # before the check, or is moved out for the reader when --keep asked for it.
-  local kept=""
+  # The work directory is in the store: it goes before the check, or is moved
+  # out for the reader when --keep asked for it.
+  local kept="" work=$HOSTILE_WORK
   if ((keep)); then
     kept=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile-kept.XXXXXX") && mv -- "$HOSTILE_WORK"/* "$kept"/ 2>/dev/null
   fi
   [[ $HOSTILE_WORK == "$SB_STATE"/hostile/* ]] && rm -rf -- "$HOSTILE_WORK"
   HOSTILE_WORK=""
-  say "16. nothing is left"
-  local clean=0
-  cmd_verify_clean || clean=1
-  if ((clean == 0)); then
-    ok "verify-clean"
+  say "16. nothing this test made is left"
+  if hostile_left "$work"; then
+    ok "its runs, sessions, mounts, processes and work directory are gone"
     HOSTILE_PASS=$((HOSTILE_PASS + 1))
   else
-    fail "verify-clean"
+    fail "something this test made is left (listed above)"
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
   fi
-  local still=0
-  for f in "${HOSTILE_CANARIES[@]}"; do
-    [[ $(cat "$f" 2>/dev/null) == "SANDBOX-CANARY-$rand" ]] || still=1
-  done
-  if ((still == 0)); then
+  if hostile_canaries_intact "$rand"; then
     ok "the canaries on this machine are intact and were never modified"
     HOSTILE_PASS=$((HOSTILE_PASS + 1))
   else
-    fail "a canary changed"
+    fail "a canary changed, is missing, or was never planted"
     HOSTILE_FAIL=$((HOSTILE_FAIL + 1))
   fi
   say "hostile test: $HOSTILE_PASS passed, $HOSTILE_FAIL failed"

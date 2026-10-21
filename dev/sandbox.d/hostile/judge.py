@@ -119,10 +119,12 @@ if kind in ("probe", "probe-rig"):
         check("the rig was up while the hostile script ran (the script unit exits 0 only then)", results.get("script") == 0, results)
 
 elif kind == "memory":
-    progress = open(os.path.join(ud, "mem-progress")).read() if os.path.exists(os.path.join(ud, "mem-progress")) else "0"
+    path = os.path.join(ud, "mem-progress")
+    progress = int(open(path).read() or 0) if os.path.exists(path) else None
     limit_mb = 1024
     check("a memory bomb is stopped at the memory limit (the host did not swap or stall)",
-          summary.get("oom_killed") is True or int(progress or 0) <= limit_mb + 256, {"allocated_mb": progress, "oom": summary.get("oom_killed")})
+          summary.get("oom_killed") is True or (progress is not None and progress <= limit_mb + 256),
+          {"allocated_mb": progress, "oom": summary.get("oom_killed")})
     info(f"allocated {progress} MB before it was stopped, limit {limit_mb} MB, oom killed {summary.get('oom_killed')}")
 
 elif kind == "processes":
@@ -138,8 +140,8 @@ elif kind == "disk":
     info(", ".join(f"{k} {v['mb']} MB" for k, v in p.items()))
 
 elif kind == "hang":
-    check("a commit that never ends is killed at the timeout (no results leave)",
-          summary.get("timed_out") is True or not os.path.exists(os.path.join(out, "results.tsv")), summary)
+    check("a commit that never ends is killed at the timeout, and the run records it",
+          summary.get("timed_out") is True, summary)
     info(f"run lasted {summary.get('seconds')} s with a {summary.get('timeout')} s timeout")
 
 elif kind == "stdout-flood":

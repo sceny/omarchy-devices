@@ -141,7 +141,9 @@ dev/sandbox verify-clean                           # nothing left behind
   render node (the host's free memory is recorded before, lowest and after),
   and a `dev` session: what a synced tree carries, what the session can
   reach (no network, host listener, socket, home, canary, capability), and
-  what a hostile pull cannot bring out.
+  what a hostile pull cannot bring out. Its last check judges only what it
+  started (its runs, its session, its canaries); `verify-clean` judges the
+  whole store and is run by hand.
 
 ### Sceny's own tree: `dev/sandbox dev`
 
