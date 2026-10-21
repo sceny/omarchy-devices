@@ -17,8 +17,7 @@ HOSTILE_WORK=""
 HOSTILE_LISTENER_PID=""
 HOSTILE_SAMPLER_PID=""
 HOSTILE_CANARIES=()
-HOSTILE_RUN_IDS=()
-HOSTILE_DEV_NAMES=()
+HOSTILE_IDS=()
 
 hostile_cleanup() {
   [[ -n $HOSTILE_LISTENER_PID ]] && kill "$HOSTILE_LISTENER_PID" 2>/dev/null
@@ -30,6 +29,7 @@ hostile_cleanup() {
   HOSTILE_CANARIES=()
   if [[ -n $HOSTILE_WORK && $HOSTILE_WORK == "$SB_STATE"/hostile/* ]]; then rm -rf -- "$HOSTILE_WORK"; fi
   HOSTILE_WORK=""
+  SB_ID_LOG=""
 }
 
 # A step writes into the work directory; one that finds it gone stops here,
@@ -48,21 +48,27 @@ hostile_canaries_intact() { # <rand>
   ((n == 3))
 }
 
-# What this test's own runs and sessions left behind: their containers,
-# run directories, mounts and processes, and the work directory. Other runs
-# and sessions on the store are not judged here.
+# What this test's own work left behind: every run, session and container the
+# sandbox made while it ran (their ids come from new_id, which writes SB_ID_LOG:
+# the runs, the out-dir runs, a dev session and the containers of its pull), and
+# the work directory. Other runs and sessions on the store are not judged here.
+hostile_ids_read() { # <id log>
+  local id
+  HOSTILE_IDS=()
+  [[ -f $1 ]] || return 0
+  while read -r id; do [[ $id =~ ^[0-9a-f]{8}$ ]] && HOSTILE_IDS+=("$id"); done <"$1"
+}
+
 hostile_left() { # <work dir>
   local work=$1 id name names pattern="" left=()
   names=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
-  for id in "${HOSTILE_RUN_IDS[@]}"; do
-    pattern+="|sceny-sandbox-$id"
-    grep -qx "sceny-sandbox-$id" <<<"$names" && left+=("container sceny-sandbox-$id")
+  for id in "${HOSTILE_IDS[@]}"; do
+    pattern+="|sceny-sandbox-$id|sceny-sandbox-dev-$id"
+    for name in "sceny-sandbox-$id" "sceny-sandbox-dev-$id"; do
+      grep -qx "$name" <<<"$names" && left+=("container $name")
+    done
     [[ -e $SB_STATE/runs/$id ]] && left+=("run directory $id")
     grep -qF " $SB_STATE/runs/$id" /proc/self/mountinfo && left+=("mount of run $id")
-  done
-  for name in "${HOSTILE_DEV_NAMES[@]}"; do
-    pattern+="|$name"
-    grep -qx "$name" <<<"$names" && left+=("container $name")
   done
   [[ -n $pattern ]] && pgrep -u "$SB_UID" -f "${pattern#|}" >/dev/null && left+=("process of those runs or sessions")
   [[ -e $work ]] && left+=("work directory $work")
@@ -144,7 +150,7 @@ PY
 # hostile_run <kind> <mode> [cmd_run options...]: run the commit of <mode>
 # and print the judge's lines for <kind>.
 hostile_run() {
-  local kind=$1 mode=$2 out checks=0 id what status detail
+  local kind=$1 mode=$2 out checks=0 what status detail
   hostile_here
   shift 2
   out="$HOSTILE_WORK/out-$kind"
@@ -152,8 +158,6 @@ hostile_run() {
   (cmd_run sceny/omarchy-devices "$(cat "$HOSTILE_WORK/sha-$mode")" --from "$HOSTILE_WORK/repo" --out "$out" "$@") \
     >"$HOSTILE_WORK/run-$kind.log" 2>&1
   sed 's/^/    /' "$HOSTILE_WORK/run-$kind.log" >&2
-  while read -r id; do HOSTILE_RUN_IDS+=("$id"); done \
-    < <(sed -n 's/.*sandbox run \([0-9a-f]\{8\}\):.*/\1/p' "$HOSTILE_WORK/run-$kind.log")
   while IFS=$'\t' read -r status what detail; do
     case $status in
     PASS)
@@ -265,7 +269,6 @@ hostile_dev() { # <profile>: devices or paperclipai
     return 0
   fi
   DEV_NAME=sceny-sandbox-dev-$id
-  HOSTILE_DEV_NAMES+=("$DEV_NAME")
   DEV_PROFILE=$profile
   local check_dev
   check_dev() { # <what> <status>
@@ -413,6 +416,8 @@ cmd_hostile_test() {
   fi
   mkdir -p "$SB_STATE/hostile"
   HOSTILE_WORK=$(mktemp -d "$SB_STATE/hostile/sceny-hostile.XXXXXX")
+  SB_ID_LOG="$HOSTILE_WORK/ids"
+  : >"$SB_ID_LOG"
   trap 'hostile_cleanup' EXIT
   trap 'hostile_cleanup; exit 130' INT TERM HUP
   local rand
@@ -565,6 +570,8 @@ PY
   # The work directory is in the store: it goes before the check, or is moved
   # out for the reader when --keep asked for it.
   local kept="" work=$HOSTILE_WORK
+  hostile_ids_read "$SB_ID_LOG"
+  SB_ID_LOG=""
   if ((keep)); then
     kept=$(mktemp -d "${TMPDIR:-/tmp}/sceny-hostile-kept.XXXXXX") && mv -- "$HOSTILE_WORK"/* "$kept"/ 2>/dev/null
   fi

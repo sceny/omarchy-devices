@@ -19,6 +19,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOSTILE = os.path.join(ROOT, "dev", "sandbox.d", "hostile.sh")
 JUDGE = os.path.join(ROOT, "dev", "sandbox.d", "hostile", "judge.py")
+SANDBOX = os.path.join(ROOT, "dev", "sandbox")
 
 STUBS = """
 say() { :; }
@@ -51,6 +52,13 @@ def bash(body):
         proc.communicate()
         raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
+
+
+def new_id_source():
+    with open(SANDBOX) as f:
+        m = re.search(r"^new_id\(\) \{\n.*?^\}\n", f.read(), re.M | re.S)
+    assert m, "dev/sandbox has no new_id"
+    return m.group(0)
 
 
 def hostile_source():
@@ -133,7 +141,7 @@ class Canaries(unittest.TestCase):
 class Leftovers(unittest.TestCase):
     """The final check judges only the runs and sessions this test started."""
 
-    def left(self, ids, devs, listing, runs=(), work_exists=False):
+    def left(self, ids, listing, runs=(), work_exists=False):
         with tempfile.TemporaryDirectory() as state:
             for run in runs:
                 os.makedirs(os.path.join(state, "runs", run))
@@ -144,37 +152,126 @@ class Leftovers(unittest.TestCase):
                 f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\n'
                 f"FAKE_PS='{listing}'\n"
                 "pm() { printf '%s\\n' \"$FAKE_PS\"; }\n"
-                f"HOSTILE_RUN_IDS=({' '.join(ids)})\n"
-                f"HOSTILE_DEV_NAMES=({' '.join(devs)})\n"
+                f"HOSTILE_IDS=({' '.join(ids)})\n"
                 f'hostile_left "{work}"\necho RC=$?\n'
             )
             return bash(body).stdout.strip().splitlines()[-1]
 
     def test_a_live_session_of_another_run_is_not_this_tests_leftover(self):
-        self.assertEqual(
-            self.left(["aaaaaaaa"], ["sceny-sandbox-dev-cccccccc"], "sceny-sandbox-dev-bbbbbbbb"),
-            "RC=0",
-        )
+        self.assertEqual(self.left(["aaaaaaaa"], "sceny-sandbox-dev-bbbbbbbb"), "RC=0")
 
     def test_another_runs_directory_is_not_this_tests_leftover(self):
-        self.assertEqual(self.left(["aaaaaaaa"], [], "", runs=["bbbbbbbb"]), "RC=0")
+        self.assertEqual(self.left(["aaaaaaaa"], "", runs=["bbbbbbbb"]), "RC=0")
 
     def test_nothing_left_passes(self):
-        self.assertEqual(self.left(["aaaaaaaa"], ["sceny-sandbox-dev-cccccccc"], ""), "RC=0")
+        self.assertEqual(self.left(["aaaaaaaa", "cccccccc"], ""), "RC=0")
 
     def test_its_own_container_is_a_leftover(self):
-        self.assertEqual(self.left(["aaaaaaaa"], [], "sceny-sandbox-aaaaaaaa"), "RC=1")
+        self.assertEqual(self.left(["aaaaaaaa"], "sceny-sandbox-aaaaaaaa"), "RC=1")
 
     def test_its_own_run_directory_is_a_leftover(self):
-        self.assertEqual(self.left(["aaaaaaaa"], [], "", runs=["aaaaaaaa"]), "RC=1")
+        self.assertEqual(self.left(["aaaaaaaa"], "", runs=["aaaaaaaa"]), "RC=1")
 
     def test_its_own_dev_session_is_a_leftover(self):
-        self.assertEqual(
-            self.left([], ["sceny-sandbox-dev-cccccccc"], "sceny-sandbox-dev-cccccccc"), "RC=1"
-        )
+        self.assertEqual(self.left(["cccccccc"], "sceny-sandbox-dev-cccccccc"), "RC=1")
 
     def test_its_own_work_directory_is_a_leftover(self):
-        self.assertEqual(self.left([], [], "", work_exists=True), "RC=1")
+        self.assertEqual(self.left([], "", work_exists=True), "RC=1")
+
+    def test_a_container_of_a_dev_pull_is_a_leftover(self):
+        # the pull's re-encode and video containers and its run directory have ids of their own
+        self.assertEqual(self.left(["cccccccc", "dddddddd"], "sceny-sandbox-dddddddd"), "RC=1")
+        self.assertEqual(self.left(["cccccccc", "dddddddd"], "", runs=["dddddddd"]), "RC=1")
+
+
+class EveryIdIsJudged(unittest.TestCase):
+    """The runs and containers the test starts without its own record (the out-dir
+    runs, a dev pull's containers) are judged because every id comes from new_id."""
+
+    def test_no_id_is_made_but_by_new_id(self):
+        with open(SANDBOX) as f:
+            made = re.findall(r"^.*\$\(od .*urandom.*$", f.read(), re.M)
+        self.assertEqual(len(made), 1, f"an id made outside new_id: {made}")
+        self.assertIn("urandom", new_id_source())
+
+    def test_new_id_writes_the_log_from_a_subshell_and_prints_the_id(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "ids")
+            r = bash(
+                new_id_source()
+                + f'SB_ID_LOG="{log}"\n: >"$SB_ID_LOG"\n'
+                'a=$(new_id)\n(b=$(new_id); echo "B=$b")\necho "A=$a"\n'
+            )
+            lines = dict(l.split("=") for l in r.stdout.split())
+            with open(log) as f:
+                logged = f.read().split()
+            self.assertEqual(sorted(logged), sorted([lines["A"], lines["B"]]))
+            self.assertTrue(all(re.fullmatch(r"[0-9a-f]{8}", i) for i in logged), logged)
+
+    def test_new_id_prints_an_id_with_no_log(self):
+        r = bash(new_id_source() + 'SB_ID_LOG=""\nnew_id\n')
+        self.assertRegex(r.stdout.strip(), r"^[0-9a-f]{8}$")
+
+    def test_a_leak_of_a_run_the_test_never_recorded_by_hand_fails_the_final_check(self):
+        with tempfile.TemporaryDirectory() as state:
+            log = os.path.join(state, "ids")
+            body = (
+                new_id_source()
+                + f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\nSB_ID_LOG="{log}"\n: >"$SB_ID_LOG"\n'
+                # a run started by the test's out-dir step: its id is made in a subshell
+                '(id=$(new_id); mkdir -p "$SB_STATE/runs/$id"; echo "RUN=$id")\n'
+                "pm() { :; }\n"
+                'hostile_ids_read "$SB_ID_LOG"\n'
+                f'hostile_left "{state}/nowork"\necho RC=$?\n'
+            )
+            r = bash(body)
+            self.assertEqual(r.stdout.strip().splitlines()[-1], "RC=1", r.stdout)
+
+    def out_dir_step(self, leave):
+        # the real hostile_out_dir, its cmd_run replaced by one that makes an id and refuses
+        with tempfile.TemporaryDirectory() as state:
+            work = os.path.join(state, "hostile", "w")
+            os.makedirs(work)
+            with open(os.path.join(work, "sha-probe"), "w") as f:
+                f.write("deadbeef" * 5 + "\n")
+            body = (
+                new_id_source()
+                + f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\nSB_DIR="{state}"\nHOSTILE_WORK="{work}"\n'
+                + f'SB_ID_LOG="{work}/ids"\n: >"$SB_ID_LOG"\n'
+                "cmd_run() { local id; id=$(new_id); "
+                + ('mkdir -p "$SB_STATE/runs/$id"; ' if leave else "")
+                + "echo 'run: refused: inside a git repository'; return 1; }\n"
+                "hostile_out_dir >/dev/null 2>&1\n"
+                'hostile_ids_read "$SB_ID_LOG"\n'
+                'echo "IDS=${#HOSTILE_IDS[@]}"\n'
+                f'rm -rf "{work}"\nhostile_left "{work}"\necho RC=$?\n'
+            )
+            return bash(body).stdout.strip().splitlines()[-2:]
+
+    def test_a_run_left_by_the_out_dir_step_fails_the_final_check(self):
+        self.assertEqual(self.out_dir_step(leave=True), ["IDS=2", "RC=1"])
+
+    def test_clean_out_dir_runs_pass_the_final_check(self):
+        self.assertEqual(self.out_dir_step(leave=False), ["IDS=2", "RC=0"])
+
+    def test_a_clean_run_of_the_recorded_ids_passes(self):
+        with tempfile.TemporaryDirectory() as state:
+            log = os.path.join(state, "ids")
+            body = (
+                new_id_source()
+                + f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\nSB_ID_LOG="{log}"\n: >"$SB_ID_LOG"\n'
+                '(new_id >/dev/null)\n(new_id >/dev/null)\npm() { :; }\n'
+                'hostile_ids_read "$SB_ID_LOG"\n'
+                f'hostile_left "{state}/nowork"\necho RC=$?\n'
+            )
+            self.assertEqual(bash(body).stdout.strip().splitlines()[-1], "RC=0")
+
+    def test_the_test_records_every_id_and_reads_them_before_its_work_directory_goes(self):
+        src = hostile_source()
+        self.assertIn('SB_ID_LOG="$HOSTILE_WORK/ids"', src)
+        self.assertLess(src.index('hostile_ids_read "$SB_ID_LOG"'), src.index('say "16.'))
+        self.assertNotIn("HOSTILE_RUN_IDS", src)
+        self.assertNotIn("HOSTILE_DEV_NAMES", src)
 
 
 class RunVerdicts(unittest.TestCase):
@@ -187,17 +284,18 @@ class RunVerdicts(unittest.TestCase):
                 f.write("deadbeef" * 5 + "\n")
             body = (
                 f'SB_DIR="{sbdir}"\nHOSTILE_WORK="{work}"\n'
-                "cmd_run() { echo '==> sandbox run abcdef12: repo'; }\n"
+                + new_id_source()
+                + "cmd_run() { echo '==> sandbox run abcdef12: repo'; }\n"
                 "hostile_run probe probe --steps tests\n"
-                'echo "FAILS=$HOSTILE_FAIL IDS=${HOSTILE_RUN_IDS[*]}"\n'
+                'echo "FAILS=$HOSTILE_FAIL"\n'
             )
             return bash(body).stdout.strip().splitlines()[-1]
 
     def test_a_judge_that_writes_no_verdict_fails_the_step(self):
-        self.assertEqual(self.run_with_judge(""), "FAILS=1 IDS=abcdef12")
+        self.assertEqual(self.run_with_judge(""), "FAILS=1")
 
     def test_a_judge_that_passes_fails_nothing_and_the_run_is_kept(self):
-        self.assertEqual(self.run_with_judge("PASS\tsomething held\n"), "FAILS=0 IDS=abcdef12")
+        self.assertEqual(self.run_with_judge("PASS\tsomething held\n"), "FAILS=0")
 
 
 class Judge(unittest.TestCase):

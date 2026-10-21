@@ -91,6 +91,16 @@ SB_STATE=${SANDBOX_STATE:-$SB_HOME/.local/share/sceny-sandbox}
 SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
 SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
+SB_ID_LOG=""
+
+# An id for a run, a session or a container. The hostile test points SB_ID_LOG at
+# a file, so every id this sandbox makes while it runs is judged at its end.
+new_id() {
+  local id
+  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  [[ -n $SB_ID_LOG ]] && printf '%s\n' "$id" >>"$SB_ID_LOG"
+  printf '%s\n' "$id"
+}
 
 SB_MEMORY=${SANDBOX_MEMORY:-10g}
 SB_CPUS=${SANDBOX_CPUS:-8}
@@ -349,7 +359,7 @@ run_unit() {
   local devices=("$@")
   UNIT_EXIT=0 UNIT_SECONDS=0 UNIT_NOTE="" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=false
   local id started=$SECONDS rc=0 tarfile="$SB_RUN_DIR/out.tar"
-  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  id=$(new_id)
   SB_RUN_NAME="sceny-sandbox-$id"
   rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
 
@@ -446,7 +456,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
   local unit=$1 out=$2 dest=${3:-$2/$1} secs=${4:-120}
   local png="$SB_RUN_DIR/png" tarfile="$SB_RUN_DIR/png-out.tar" id rc=0
   [[ -n $(ls -A "$png" 2>/dev/null) ]] || return 0
-  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  id=$(new_id)
   SB_RUN_NAME="sceny-sandbox-$id"
   step "unit $unit: re-encoding its pictures in a container of their own"
   (
@@ -618,7 +628,7 @@ cmd_run() {
   fi
 
   local id stamp
-  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  id=$(new_id)
   stamp=$(date -u +%Y%m%d-%H%M%S)
   # The default is under the sandbox's own store, never inside a checkout: a
   # result tree is read as data, and a place a shell, an editor or git acts on
@@ -817,7 +827,7 @@ dev_start() {
     die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
   (($(dev_names | grep -c .) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX sessions are running already (dev/sandbox dev status); stop one"
   pins_check "$profile" || die "dev start: the $profile image is behind this machine"
-  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  id=$(new_id)
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
   pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
@@ -907,7 +917,7 @@ dev_pull() {
   out=$(realpath -m -- "$out")
   [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "dev pull: $out exists and is not empty"
   out_in_git "$out" && die "dev pull: $out is inside a git repository (or is one); results go in a directory git does not manage"
-  rid=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  rid=$(new_id)
   SB_RUN_DIR="$SB_STATE/runs/$rid"
   # The pictures are re-encoded in the session's own image.
   SB_RUN_IMAGE=$(image_of "$DEV_PROFILE")
@@ -975,7 +985,7 @@ dev_assemble() {
     warn "recording $name: no frame came back"
     return 0
   }
-  id=$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')
+  id=$(new_id)
   SB_RUN_NAME="sceny-sandbox-$id"
   step "recording $name: building the video in a container of its own"
   (
