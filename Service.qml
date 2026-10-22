@@ -1205,7 +1205,7 @@ Item {
       }
       if (status && status.state === "ready" && !demo) {
         // Read now: the card has grown to the display's real shape.
-        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit, undefined, false, screenThenStretch)
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit, "here", false, screenThenStretch)
         return
       }
       if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
