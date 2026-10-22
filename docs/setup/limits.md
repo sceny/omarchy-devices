@@ -8,6 +8,9 @@ The panel shows what KDE Connect sends. Today it does not:
 - pass on an app's **buttons** (*Mark as read*) or the phone's **read
   state**;
 - carry **RCS** chats (only SMS and MMS);
+- **paste** or **drop** a picture into a reply: attach it with the
+  attach button. The panel never takes part in a clipboard transfer or a drag
+  (the shell would freeze on a program that never answers);
 - keep each player's **position**: only the playing one has a seek bar;
 - on an **iPhone**, share notifications, texts or media: files and the
   clipboard only, while the app is open;

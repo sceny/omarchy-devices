@@ -273,6 +273,7 @@ IMAGE_SOURCES = {
     ("ContactsView.qml", 'rowFace.photo !== "" ? "file://" + encodeURI(rowFace.photo) : ""'): "a contact's photo: the bridge's decoded copy in the contacts cache (contact_photo)",
     ("AppTile.qml", 'tile.hasIcon ? "file://" + tile.app.icon : ""'): "an app's icon: drawn and decoded by the bridge into apps-<device>/",
     ("MessagesView.qml", 'file.hasPreview ? "file://" + file.modelData.thumb : ""'): "a picture message's preview: the bridge's sms/preview_* file",
+    ("MessagesView.qml", 'view.attachmentPreview !== "" ? "file://" + encodeURI(view.attachmentPreview) : ""'): "the picture waiting in the composer: the bridge's small PNG made from the decoded pixels (prepare_outgoing)",
     ("ScreenTurn.qml", 'turn.turning ? "" : turn.oldStill'): "a still of this computer's own screen, in $XDG_RUNTIME_DIR/sceny.devices/",
     ("ScreenTurn.qml", "turn.oldStill"): "a still of this computer's own screen, in $XDG_RUNTIME_DIR/sceny.devices/",
     ("ScreenTurn.qml", 'turn.turning ? "" : turn.newStill'): "a still of this computer's own screen, in $XDG_RUNTIME_DIR/sceny.devices/",
@@ -301,6 +302,7 @@ IMAGE_DECODERS = {
     "contact_photo": "fit_image",
     "safe_image": "fit_image",
     "safe_art": "safe_image",
+    "prepare_outgoing": "fit_image",
 }
 
 IMAGE_TYPE = re.compile(r"\b(?:Image|AnimatedImage|BorderImage|IconImage)\s*\{")

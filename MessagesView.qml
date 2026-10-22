@@ -43,6 +43,15 @@ Item {
   // it is message text, so it never goes to disk.
   property var drafts: ({})
   property var draftThread: -1
+  // The picture waiting to go with the next message ({ path, preview, name,
+  // bytes }, from the bridge's outgoing-picture), kept per conversation the
+  // same way. Memory only.
+  property var attachment: null
+  property var attachments: ({})
+  readonly property string attachmentPreview: attachment && attachment.preview ? attachment.preview : ""
+  readonly property bool hasMessage: composer.text.trim() !== "" || !!attachment
+  // Where the chooser was opened from, so its answer lands in the same place.
+  property var attachingFor: null
 
   function stashDraft() {
     if (draftThread === undefined || draftThread < 0) return
@@ -50,6 +59,28 @@ Item {
     if (composer.text.trim() !== "") next[draftThread] = composer.text
     else delete next[draftThread]
     drafts = next
+    var pictures = Object.assign({}, attachments)
+    if (attachment) pictures[draftThread] = attachment
+    else delete pictures[draftThread]
+    attachments = pictures
+  }
+
+  function attachPicture() {
+    if (!sms || attachingFor !== null) return
+    attachingFor = newMode ? -2 : sms.openThreadId
+    if (!sms.choosePicture()) attachingFor = null
+  }
+
+  Connections {
+    target: view.sms
+    function onPictureChosen(picture) {
+      var here = view.newMode ? -2 : view.sms.openThreadId
+      if (view.attachingFor === here) view.attachment = picture
+      view.attachingFor = null
+    }
+    function onChoosingPictureChanged() {
+      if (!view.sms.choosingPicture) view.attachingFor = null
+    }
   }
 
   property int threadCursor: 0
@@ -346,6 +377,7 @@ Item {
     sms.openThread(tid)
     draftThread = tid
     composer.text = drafts[tid] || ""
+    attachment = attachments[tid] || null
     threadOpened(tid)
     var at = sms.indexOfThread(tid)
     if (shown && shown !== sms.threads) {
@@ -1022,10 +1054,68 @@ Item {
           }
         }
 
+        // The picture waiting to be sent: the user's own choice, so it
+        // grows in at the panel's pace and goes with the message.
+        Item {
+          Layout.fillWidth: true
+          Layout.preferredHeight: view.attachment ? Style.space(52) : 0
+          clip: true
+          visible: Layout.preferredHeight > 0
+          Behavior on Layout.preferredHeight { NumberAnimation { duration: Model.MOTION.inMs * view.motion; easing.type: Easing.OutCubic } }
+
+          Row {
+            id: chip
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+            Rectangle {
+              width: Style.space(44)
+              height: Style.space(44)
+              radius: Style.cornerRadius
+              color: Style.hoverFillFor(view.foreground, Color.accent)
+              clip: true
+              Image {
+                anchors.fill: parent
+                source: view.attachmentPreview !== "" ? "file://" + encodeURI(view.attachmentPreview) : ""
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+                smooth: true
+              }
+            }
+            Text {
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(implicitWidth, Style.space(240))
+              elide: Text.ElideMiddle
+              textFormat: Text.PlainText
+              text: view.attachment ? view.attachment.name : ""
+              color: view.dim
+              font.family: view.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+            PanelActionButton {
+              anchors.verticalCenter: parent.verticalCenter
+              iconText: Model.GLYPH.close
+              tooltipText: "Remove the picture"
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+              onClicked: view.attachment = null
+            }
+          }
+        }
+
         RowLayout {
           Layout.fillWidth: true
           spacing: Style.space(6)
 
+          WaitButton {
+            glyph: Model.GLYPH.attach
+            waiting: !!view.sms && view.sms.choosingPicture
+            motion: view.motion
+            tooltipText: "Attach a picture"
+            foreground: view.foreground
+            fontFamily: view.fontFamily
+            enabled: composer.enabled && !view.sms.demo && !view.sendingNew
+            onClicked: view.attachPicture()
+          }
           PanelField {
             id: composer
             Layout.fillWidth: true
@@ -1047,7 +1137,7 @@ Item {
             tooltipText: waiting ? "Sending" : "Send"
             foreground: view.foreground
             fontFamily: view.fontFamily
-            enabled: composer.text.trim() !== "" && !!view.sms && view.sms.reachable
+            enabled: view.hasMessage && !!view.sms && view.sms.reachable
               && (!view.newMode || (view.recipients.length > 0 && !view.sendingNew))
             onClicked: view.sendComposer()
           }
@@ -1057,19 +1147,23 @@ Item {
   }
 
   function sendComposer() {
-    if (!sms) return
+    if (!sms || !hasMessage) return
     if (newMode) {
       if (recipients.length === 0 || sendingNew) return
       var numbers = []
       for (var i = 0; i < recipients.length; i++) numbers.push(recipients[i].number)
-      if (sms.sendNew(numbers, composer.text)) { composer.text = ""; sendingNew = true }
+      if (sms.sendNew(numbers, composer.text, attachment)) { composer.text = ""; attachment = null; sendingNew = true }
       return
     }
-    if (sms.reply(composer.text)) {
+    if (sms.reply(composer.text, attachment)) {
       composer.text = ""
+      attachment = null
       var next = Object.assign({}, drafts)
       delete next[sms.openThreadId]
       drafts = next
+      var pictures = Object.assign({}, attachments)
+      delete pictures[sms.openThreadId]
+      attachments = pictures
     }
   }
 

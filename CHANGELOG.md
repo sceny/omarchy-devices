@@ -11,6 +11,7 @@ GitHub release with these notes.
 ### Highlights
 
 - **Settings switches answer at once**: a feature's switch moves on the click, dims its row and shows a ring beside it while the change reaches the device, then settles on what the device reports; it took two to three seconds with the knob frozen. A change to one row no longer rebuilds every row of its group, so the knob glides and the keyboard cursor stays ([#404](https://github.com/sceny/omarchy-devices/issues/404)).
+- **Send a picture from Messages**: an attach button beside the reply field attaches a picture, shown above the field until it is sent as an MMS, scaled down to fit and stripped of its location. The picture is decoded in isolation. Paste and drop are not offered, since the shell takes no part in clipboard or drag transfers ([#405](https://github.com/sceny/omarchy-devices/issues/405)).
 - **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an
   overlay instead of a page, so a key can be tried with the list in view.
