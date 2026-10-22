@@ -3075,13 +3075,16 @@ Panel {
       return JSON.stringify({ notifications: root.sectionNotes.notifications, contacts: root.sectionNotes.contacts ? root.sectionNotes.contacts.kind : "", card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
     // Demo: this computer's Bluetooth and the viewed device's match in a
-    // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
-    // row and the missed-call card. "waiting" (the phone not paired, the plugin
+    // state (ready, off, adapter, missing, audio, unpaired, unkept, dropped),
+    // for Calls here's row, the problems it counts, what its Fix would run
+    // and the missed-call card. "waiting" (the phone not paired, the plugin
     // waiting for it) and "failed" (a step did not work) also set the row's
-    // pending state; nothing real runs. Kept until `live`.
+    // pending state; nothing real runs. `missing`'s Fix asks for the
+    // password on a card describing the plan (pressSetting on the row, then
+    // rootAsk). Kept until `live`.
     function demoBluetooth(kind: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
-      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped", "waiting", "failed"].indexOf(kind) < 0) return "no state " + kind
+      if (Model.DEMO_BLUETOOTH_STATES.indexOf(kind) < 0) return "no state " + kind
       var base = kind === "waiting" ? "unpaired" : kind === "failed" ? "unkept" : kind
       root.phone.showDemoBluetooth(base)
       if (root.device) {
@@ -3092,7 +3095,10 @@ Panel {
         root.phone.setPending(id, "callsHere", pend)
       }
       var row = root.device ? root.featureRowsFor(root.device).filter(function(r) { return r.key === "callsHere" })[0] : null
-      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null, offer: root.callOffer })
+      var mine = root.allProblems.filter(function(p) { return !!row && p.affects.indexOf(row.key) >= 0 })
+      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null,
+                              plan: row ? Model.featurePlan(row).map(function(s) { return s.fix.verb + " " + s.fix.what + (s.fix.arg ? " " + s.fix.arg : "") }) : [],
+                              problems: mine.map(function(p) { return p.key }), problemCount: root.settingsIssues, offer: root.callOffer })
     }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).

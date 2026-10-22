@@ -2212,3 +2212,30 @@ test("the demo has a group of three", () => {
   const groups = M.groupNotifications(M.demoSnapshot(null, "").devices[0].notifications)
   assert.deepEqual(groups.map(g => g.count), [1, 1, 3])
 })
+
+test("every demo Bluetooth state shows its row, counts at most one problem and plans the right fix (#261)", () => {
+  const expected = {
+    ready: { state: "on", problems: [], plan: [] },
+    off: { state: "setup", problems: [], plan: ["fix:bluetooth-on"] },
+    adapter: { state: "unavailable", problems: [], plan: [] },
+    missing: { state: "setup", problems: [], plan: ["fix:bluetooth"] },
+    audio: { state: "setup", problems: [], plan: ["fix:audio"] },
+    unpaired: { state: "setup", problems: [], plan: [] },
+    unkept: { state: "setup", problems: [], plan: ["device:bluetooth"] },
+    dropped: { state: "attention", problems: ["bt:phone"], plan: ["device:bluetooth"] }
+  }
+  assert.deepEqual(Object.keys(expected).concat(["waiting", "failed"]).sort(), M.DEMO_BLUETOOTH_STATES.slice().sort())
+  Object.keys(expected).forEach(kind => {
+    const st = M.demoBluetoothState(kind, "Pixel 8")
+    const setup = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "ready", line: "" }, name: "Pixel 8", checks: [],
+      own: { callsHere: true }, bluetooth: st.bluetooth, handsfree: st.handsfree, matched: [], reachable: true, deviceName: "Pixel 8" })
+    const row = setup.features.find(r => r.key === "callsHere")
+    assert.equal(row.state, expected[kind].state, kind)
+    const problems = M.settingsProblems([], [], [{ id: "d1", title: "Pixel 8", noun: "phone", rows: setup.features, setup }])
+    assert.deepEqual(problems.map(p => p.key), expected[kind].problems, kind + ": counted once, only when it worked and stopped")
+    assert.deepEqual(M.featurePlan(row).map(s => s.fix.verb + ":" + s.fix.what), expected[kind].plan, kind)
+  })
+  const missing = M.demoBluetoothState("missing", "Pixel 8")
+  assert.equal(missing.bluetooth.bluez, false)
+  assert.equal(M.demoBluetoothState("ready", "Pixel 8").handsfree.connected, true)
+})
