@@ -1242,6 +1242,86 @@ function notificationTitle(n) {
   return String(n.title || n.app || "Notification").trim()
 }
 
+// ---- Groups: the phone's stacks (#435) ----
+// Notifications from one app are one group, as Android bundles them; a
+// conversation (a chat or a text: it has a reply or its messages) is a group
+// of its own within the app, as iOS threads them, so two chats never merge
+// into one. The app is its package (KDE Connect's id is Android's key), else
+// its name. A notification with neither is alone. The group stands where its
+// newest member stands, and the members keep the phone's order, newest first.
+function notificationGroupKey(n) {
+  var app = notificationPackage(n) || String(n && n.app || "").trim().toLowerCase()
+  if (!app) return "\n" + String(n && n.id)
+  var chat = !!(n.replyId) || !!(n.conversation && n.conversation.length > 0)
+  return chat ? app + "\n" + chatTitle(n).title.toLowerCase() : app
+}
+
+// [{ key, app, notes (newest first), count, dismissable (how many) }].
+function groupNotifications(list) {
+  var groups = []
+  var at = {}
+  for (var i = 0; i < (list || []).length; i++) {
+    var n = list[i]
+    if (!n) continue
+    var key = notificationGroupKey(n)
+    if (at[key] === undefined) {
+      at[key] = groups.length
+      groups.push({ key: key, app: String(n.app || "").trim(), notes: [], count: 0, dismissable: 0 })
+    }
+    var g = groups[at[key]]
+    g.notes.push(n)
+    g.count++
+    if (n.dismissable === true) g.dismissable++
+  }
+  return groups
+}
+
+// The line a group's header says: "4 from Calendar".
+function groupTitle(g) {
+  return g.count + " from " + (g.app || "this app")
+}
+
+// What the keyboard walks, in the order drawn (`expanded`: group key -> true).
+// A group of one is its notification. A bigger one is its header, the newest
+// notification, and, open, the rest.
+function notificationRows(groups, expanded) {
+  var rows = []
+  for (var i = 0; i < (groups || []).length; i++) {
+    var g = groups[i]
+    if (g.count === 1) { rows.push({ kind: "note", group: g.key, note: g.notes[0], member: false }); continue }
+    rows.push({ kind: "header", group: g.key, note: null, member: false })
+    var open = !!(expanded && expanded[g.key])
+    for (var j = 0; j < g.notes.length; j++) {
+      if (j > 0 && !open) break
+      rows.push({ kind: "note", group: g.key, note: g.notes[j], member: j > 0 })
+    }
+  }
+  return rows
+}
+
+// Where each group's first row stands in `notificationRows`.
+function groupBases(groups, expanded) {
+  var bases = []
+  var at = 0
+  for (var i = 0; i < (groups || []).length; i++) {
+    bases.push(at)
+    var g = groups[i]
+    at += g.count === 1 ? 1 : (expanded && expanded[g.key] ? 1 + g.count : 2)
+  }
+  return bases
+}
+
+// `expanded` with the groups that are gone, or no longer more than one
+// notification, taken out; the same object when nothing changed.
+function pruneExpanded(expanded, groups) {
+  var keep = {}
+  var changed = false
+  for (var i = 0; i < (groups || []).length; i++)
+    if (groups[i].count > 1 && expanded && expanded[groups[i].key]) keep[groups[i].key] = true
+  for (var k in (expanded || {})) if (!keep[k]) changed = true
+  return changed ? keep : expanded
+}
+
 // A snapshot for looking at the panel without waiting for real traffic: the
 // live device (or a stand-in) with notifications covering reply,
 // dismiss, actions, a long body and a group chat. Used by the `demo` IPC. Media is not
@@ -1299,12 +1379,16 @@ function demoSnapshot(live, kind) {
   // Every feature, whatever the real device offers or whether it is here.
   dev.can = { ring: true, clipboard: true, share: true, sms: true, contacts: true, media: true, notifications: true, ping: true }
   dev.network = { type: "5G", strength: 3 }
-  // Two, so the panel's other sections have room: a text message (reply,
-  // its own buttons, a long text) and a group chat (who said what).
+  // A text message (reply, its own buttons, a long text), a group chat (who
+  // said what) and three from one app (a group).
   dev.notifications = [
     { id: "demo-4", key: "k4", app: "Messages", title: "Alex Rivera", text: "Running ten minutes late, traffic on the bridge is terrible. Start without me if everyone is there, and save me a slice! Also, could you put the folding chairs by the door so I can grab them on the way in?", ticker: "", dismissable: true, replyId: "r4", actions: ["Mark as read", "Reply"], icon: "", silent: false },
     { id: "demo-5", key: "0|com.example.whatsapp|5|null|10005", app: "WhatsApp", title: "Book club (3 messages)", text: "Sam Park: Chapter nine is a lot\nMaya Chen: No spoilers!\nMaya Chen: Thursday at 7 still works?", ticker: "", dismissable: true, replyId: "r5", actions: ["Mark as read", "Mute"], icon: "", silent: false,
       conversation: [{ sender: "Sam Park", text: "Chapter nine is a lot" }, { sender: "Maya Chen", text: "No spoilers!" }, { sender: "", text: "Thursday at 7 still works?" }] },
+    // Three from one app: a group (newest shown, the rest a click away).
+    { id: "demo-6", key: "0|com.example.calendar|6|null|10006", app: "Calendar", title: "Team sync", text: "Starts in 10 minutes, room 4B", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
+    { id: "demo-7", key: "0|com.example.calendar|7|null|10006", app: "Calendar", title: "Dentist", text: "Tomorrow at 15:30", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
+    { id: "demo-8", key: "0|com.example.calendar|8|null|10006", app: "Calendar", title: "Pay the rent", text: "Due on the first", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
   ]
   // Bluetooth calls set up: paired and connected for calls (demoCall rings).
   dev.handsfree = Object.assign(demoHandsfree(dev.name), { connected: kind !== "away" })
