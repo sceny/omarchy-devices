@@ -284,6 +284,12 @@ finding blocks the pull request.
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
   Tests: `tests/model.test.js`.
+- The panel's rules a script can read: nothing the IPC target reaches focuses
+  a text field, no `Keys.onEscapePressed` outside `PanelField.qml`, every
+  animation `duration:` reads `Model.MOTION`, and nothing beside a section
+  title is taller than `FoldToggle.headerHeight`. Each fails naming file:line.
+  Tests: `tests/test_panel_rules.py` (`NothingScriptedFocusesAField`,
+  `ShippedQml`, `PlantedCases`).
 
 Each line ends with the tests that fail the build for it (`Tests:` and the
 files, with the classes in brackets), or with `manual:` and one line on why a
