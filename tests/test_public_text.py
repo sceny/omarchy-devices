@@ -67,6 +67,10 @@ class Environment(unittest.TestCase):
             "The phone's screen opens under the bar; demo mode shows a Pixel 8.",
             "A picture is decoded in a sandbox, never by the shell.",
             "Thumbnails are decoded in a sandbox with no network.",
+            "Pictures are decoded only in a sandbox, never by the shell.",
+            "Decoding happens in the sandbox.",
+            "Decoding runs in a sandbox with no network.",
+            "Each image is decoded within its own sandbox.",
             "The cache is `~/.cache/sceny.devices/` and stills live in $XDG_RUNTIME_DIR/sceny.devices/.",
             "The QML container item keeps the row's width.",
             "The container keeps its width.",
@@ -118,6 +122,7 @@ class Environment(unittest.TestCase):
             ("container", "The layout of the panel was fine and we checked all of it in a container."),
             ("sandbox", "Ran the suite in the sandbox, which decodes the picture."),
             ("sandbox", "Verified: decoded images look right in the sandbox."),
+            ("sandbox", "Checked in the sandbox that images decode."),
             ("sandbox", "Thumbnails are decoded, and the panel was checked in the sandbox."),
         ]:
             with self.subTest(text=text):

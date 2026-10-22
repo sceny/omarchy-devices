@@ -23,7 +23,7 @@
           "tests/test_sandbox.py"
         ],
         "quoted": true,
-        "unless_near": "decod\\w*\\s+(?:in|with|by|inside|within|via|through)\\s+(?:the\\s+|an?\\s+)?sandbox(?:es)?\\b|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
+        "unless_near": "decod\\w*\\s+(?:only\\s+|(?:happens|runs)\\s+)?(?:in|with|by|inside|within|via|through)\\s+(?:the\\s+|an?\\s+|its\\s+(?:own\\s+)?|own\\s+)?sandbox(?:es)?\\b|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
       },
       {
         "id": "rig",
