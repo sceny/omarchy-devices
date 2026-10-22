@@ -638,6 +638,15 @@ one only with the owner.
   opens and as the device turns (`fit_tile`, `--fit`; the layout moves a
   shared edge from either side, so the change is measured and corrected).
   Alone on its workspace, a tile fills it.
+- **The screen's picture can fill its window** (`screenStretch`, per device,
+  off by default, not experimental: scrcpy's `--render-fit=stretched`, asked
+  only when this scrcpy lists the option, `tools.stretch`). It is a row of
+  the Screen and apps page whenever the screen is set up, docked or not.
+  The screen's own window only: an app's follows its window's size
+  already. scrcpy cannot change it running, so the panel gives it on every
+  opening (`--stretch`) and, the screen open, `screen-stretch` opens the
+  window again in its place (as a sound change does, `reopen_open_window`);
+  a sound change keeps it.
 - **Keys the panel tells are this machine's,** read from Hyprland
   (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
   description or command; `bound_keys`), never assumed. An action with no
