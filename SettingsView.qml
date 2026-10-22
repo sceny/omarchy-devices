@@ -1653,7 +1653,6 @@ Column {
   // until it is done; nothing else: no state, no fix here.
   component FeatureRow: CursorSurface {
     id: featureRow
-    Component.onCompleted: console.log("TIMING built FeatureRow " + row.key)
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
@@ -2019,7 +2018,6 @@ Column {
 
   component LayoutRow: CursorSurface {
     id: layoutRow
-    Component.onCompleted: console.log("TIMING built LayoutRow " + row.key)
     property var row: ({})
     property int rowIndex: -1
 

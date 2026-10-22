@@ -970,7 +970,6 @@ Panel {
   // Fix with AI show on every problem, always).
   readonly property var setupById: {
     var out = {}
-    var _t0 = Date.now()
     if (!phone) return out
     var pend = phone.featurePending
     pairedDevices.forEach(function(d) {
@@ -987,7 +986,6 @@ Panel {
       })
       out[id] = setup
     })
-    console.log("TIMING setupById " + (Date.now() - _t0) + " ms")
     return out
   }
   readonly property var featureRowsById: {
@@ -1018,7 +1016,7 @@ Panel {
   }
   // Only while the panel is open: nothing carries on by itself unseen, and
   // opening resolves what changed meanwhile.
-  onFeatureRowsByIdChanged: { console.log("TIMING featureRows changed t=" + Date.now() + " " + JSON.stringify((featureRowsById[phone && phone.deviceIndex >= 0 && device ? String(device.id) : ""] || []).map(function(r){return r.key+":"+r.on}).join(","))); resolvePendingFeatures() }
+  onFeatureRowsByIdChanged: resolvePendingFeatures()
   // Fix with AI: what is wrong, and what the plugin's own fix did.
   function aiProblem(r) { return { label: r.label, where: viewedKind(), detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
   function aiProblemOf(p) { return { label: p.label + (p.gateway ? " via " + p.gateway : ""), where: p.whereKind || "", detail: p.detail, tried: p.tried || "" } }
@@ -1205,7 +1203,6 @@ Panel {
   // Connect's plugins on or off for this device (it stops sending it), or
   // the plugin's own flag (Screen and apps).
   function featureSwitch(row, on) {
-    console.log("TIMING featureSwitch click " + row.key + " " + on + " t=" + Date.now())
     var d = featureDevice()
     if (!d || !phone || !row) return
     var f = Model.FEATURES.filter(function(x) { return x.key === row.key })[0]
@@ -2431,9 +2428,7 @@ Panel {
     var entry = { id: root.moduleName }
     for (var existing in root.settings) if (existing !== "id") entry[existing] = root.settings[existing]
     for (var key in values) entry[key] = values[key]
-    var t0 = Date.now()
     root.settings = entry
-    console.log("TIMING settings assigned in " + (Date.now() - t0) + " ms")
     if (root.hostWidget && "settings" in root.hostWidget) root.hostWidget.settings = entry
     // A demo is a preview: its layout lives in memory and never reaches shell.json.
     if (phone && phone.demo) return
