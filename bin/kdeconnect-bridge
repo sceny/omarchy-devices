@@ -48,12 +48,19 @@ not re-printed, so the shell only wakes when something moved.
                                               --tiled (--at x,y,w,h: the panel's card),
                                               an app tiled (--pop: Omarchy's pop-out), no
                                               on-screen keyboard (--sound here|phone|both:
-                                              where its sound plays); returns once the
-                                              window is there
+                                              where its sound plays; --stretch: the
+                                              screen's picture fills its window); returns
+                                              once the window is there
   kdeconnect-bridge screen-sound <device> here|phone|both [package] [label]
                                               where a window's sound plays: kept for
                                               next time, and its open window opened
                                               again in its place with it
+                                              (--stretch: the screen keeps its picture
+                                              filling the window)
+  kdeconnect-bridge screen-stretch <device> on|off
+                                              the screen's picture filling its window
+                                              (--render-fit=stretched): its open window
+                                              opened again in its place with it
   kdeconnect-bridge screen-volume <device> [package] [label] [--set 0-1] [--mute on|off|toggle]
                                               a window's sound here, as JSON
                                               ({found, volume, muted, output})
@@ -3678,15 +3685,18 @@ def scrcpy_version(text):
 def screen_tools(run=subprocess.run):
     """Whether scrcpy and adb are here, and what this scrcpy can do."""
     scrcpy, adb = shutil.which("scrcpy"), shutil.which("adb")
-    version = ()
+    version, render_fit = (), False
     if scrcpy:
         try:
             version = scrcpy_version(run([scrcpy, "--version"], capture_output=True, text=True, timeout=10).stdout)
+            if version:
+                render_fit = "--render-fit" in (run([scrcpy, "--help"], capture_output=True, text=True, timeout=10).stdout or "")
         except (OSError, subprocess.TimeoutExpired):
             pass
     return {"scrcpy": bool(scrcpy), "adb": bool(adb), "ok": bool(scrcpy and adb),
             "version": "%d.%d" % version if version else "",
-            "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX}
+            "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX,
+            "renderFit": render_fit}
 
 
 def parse_adb_devices(text):
@@ -4787,12 +4797,14 @@ def parse_texture(line):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def screen_command(serial, title, package="", tools=None, log="", sound="here"):
+def screen_command(serial, title, package="", tools=None, log="", sound="here", stretch=False):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4, and the
     device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`
-    (SOUND_PLACES): where its sound plays."""
+    (SOUND_PLACES): where its sound plays. `stretch`: the device's picture
+    fills the screen's window whatever its shape, when this scrcpy can
+    (`--render-fit`); an app's window follows its own size already."""
     # Line-buffered (stdbuf, grep --line-buffered): through a file, scrcpy's
     # own lines were held back and came in a late batch, after the turn they
     # told of. Only the watcher's two lines are kept (SCREEN_LOG_LINES).
@@ -4812,6 +4824,8 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
             cmd += ["--flex-display", "--display-ime-policy=hide"]
+    elif stretch and (tools or {}).get("renderFit"):
+        cmd += ["--render-fit=stretched"]
     return cmd + sound_args(sound)
 
 
@@ -4873,7 +4887,7 @@ def launch_or_focus(title, cmd):
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
-                sound="here", popout=False):
+                sound="here", popout=False, stretch=False):
     """Opens the device's screen, docked or tiled, or one of its apps,
     tiled (or, `popout`, Omarchy's pop-out: floating and pinned at the top
     right, the device's shape), in a window here, and returns once the
@@ -4915,7 +4929,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     log = screen_log(title) if not package else ""
     if log:
         os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for this window
-    launch(screen_command(status["serial"], title, package, status["tools"], log, sound))
+    launch(screen_command(status["serial"], title, package, status["tools"], log, sound, stretch))
     if package:
         apps_opened(device_id, package)
     for _ in range(WINDOW_WAIT_SEC * 4):
@@ -5041,7 +5055,7 @@ def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=N
     return tile_back(place, look() or new, run, look, sleep)
 
 
-def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep):
+def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep, stretch=False):
     """Where a window's sound plays: kept as its next default (the screen's,
     or that app's), and, its window open, opened again in its place with
     it."""
@@ -5051,16 +5065,44 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
         return say("That is not an app's package name", EXIT_FAILED)
     device = screen_device(device_id) or {}
     name = device.get("name") or "Device"
-    title = screen_title(name, label)
     window_sounds(device_id, package or SCREEN_SOUND, sound)
     what = label or name + "'s screen"
     where = {"here": "here", "phone": "on " + name, "both": "here and on " + name}[sound]
+    return reopen_screen(device_id, package, label, sound, stretch, launch, sleep,
+                         "%s plays its sound %s next time" % (what, where), "The sound plays elsewhere next time",
+                         "%s plays its sound %s" % (what, where), "The window's sound changed",
+                         "its sound changes when it opens again", "The device is out of reach: its sound changes when it opens again")
+
+
+def screen_stretch(device_id, on, launch=None, sleep=time.sleep):
+    """The screen's picture filling its window (`--render-fit=stretched`),
+    its window open: opened again in its place, with the sound it had. The
+    choice itself is the panel's (a setting); closed, it applies next time."""
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    what = name + "'s screen"
+    state = "fills its window" if on else "keeps its shape"
+    sound = window_sounds(device_id).get(SCREEN_SOUND, "here")
+    return reopen_screen(device_id, "", "", sound, on, launch, sleep,
+                         "%s %s next time" % (what, state), "The screen changes next time",
+                         "%s %s" % (what, state), "The screen's picture changed",
+                         "its picture changes when it opens again", "The device is out of reach: its picture changes when it opens again")
+
+
+def reopen_screen(device_id, package, label, sound, stretch, launch, sleep, closed_line, closed_osd, done_line, done_osd,
+                  out_of_reach, out_of_reach_osd):
+    """A window's choice (sound, picture) changed: its window, if open,
+    opens again in its place with the choice; else it applies next time."""
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name, label)
+    what = label or name + "'s screen"
     win = find_window(title)
     if not win:
-        return say("%s plays its sound %s next time" % (what, where), osd="The sound plays elsewhere next time")
+        return say(closed_line, osd=closed_osd)
     status = screen_status(device_id)
     if status["state"] != "ready":
-        return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED, osd="The device is out of reach: its sound changes when it opens again")
+        return say("%s is out of reach: %s" % (name, out_of_reach), EXIT_FAILED, osd=out_of_reach_osd)
     border = border_size()
     mons = hypr_json("monitors")
     disp = status.get("display") or device_display(status["serial"])
@@ -5077,12 +5119,12 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     def start():
         if log:
             os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for the watcher
-        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
+        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound, stretch)
         (launch or (lambda c: launch_or_focus(title, c)))(cmd)
 
     if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
         return say("%s did not open again: open it from the panel" % what, EXIT_FAILED, osd="The window did not open again: open it from the panel")
-    return say("%s plays its sound %s" % (what, where), osd="The window's sound changed")
+    return say(done_line, osd=done_osd)
 
 
 # Its sound here: scrcpy's PipeWire stream, found by the window's process
@@ -6982,7 +7024,12 @@ def main(argv):
     if argv[0] == "screen-sound":
         if len(argv) < 3:
             return say("screen-sound needs a device id and here, phone or both", EXIT_FAILED)
-        return screen_sound(argv[1], argv[2], argv[3] if len(argv) > 3 else "", argv[4] if len(argv) > 4 else "")
+        rest = [a for a in argv[3:] if a != "--stretch"]
+        return screen_sound(argv[1], argv[2], rest[0] if rest else "", rest[1] if len(rest) > 1 else "", stretch="--stretch" in argv)
+    if argv[0] == "screen-stretch":
+        if len(argv) < 3 or argv[2] not in ("on", "off"):
+            return say("screen-stretch needs a device id and on or off", EXIT_FAILED)
+        return screen_stretch(argv[1], argv[2] == "on")
     if argv[0] == "screen-volume":
         if len(argv) < 2:
             return say("screen-volume needs a device id", EXIT_FAILED)
@@ -7048,10 +7095,11 @@ def main(argv):
                 skip = False
             elif a in ("--at", "--ctx", "--sound"):
                 skip = True
-            elif a not in ("--tiled", "--docked", "--fit", "--pop"):
+            elif a not in ("--tiled", "--docked", "--fit", "--pop", "--stretch"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
                            docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv,
+                           stretch="--stretch" in argv,
                            sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
     if argv[0] == "call":
         if len(argv) < 3:

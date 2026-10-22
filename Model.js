@@ -2360,7 +2360,7 @@ function demoHandsfree(deviceName, calls, ended, audio) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound) {
+function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound, stretch) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -2443,6 +2443,11 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound
                              both: "Its sound plays here and on " + name }[sound]
                        + ". An open app's tile changes its own, and the app keeps it." })
     }
+    // The picture filling the window, whatever its shape: always offered
+    // once the screen is set up; said plainly when this scrcpy cannot.
+    actions.push({ key: "stretch", label: "Stretch to the window", on: stretch === true,
+                   hint: tools.renderFit === true ? "The picture fills its window, whatever its shape"
+                     : "This version of scrcpy cannot stretch the picture" })
   }
   return {
     state: state, line: line, steps: onlyStep ? [] : steps, pairingNote: pairingNote,
@@ -2564,7 +2569,7 @@ function screenRows(setup) {
 // Made-up states for the demo phone (screenshots and checks): nothing in a
 // demo reaches adb or a device.
 function demoScreen(kind) {
-  var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true }
+  var tools = { scrcpy: true, adb: true, ok: true, version: "4.1", apps: true, flex: true, renderFit: true }
   if (kind === "tools") return { state: "tools", tools: { ok: false } }
   // The demo's keys are Omarchy's defaults; a real device's come from this
   // machine (the bridge).
@@ -2896,6 +2901,7 @@ var PROFILE_SETTINGS = {
   // Experimental, off unless chosen: a tiled screen's tile takes the
   // device's width (Hyprland has no such thing; the plugin moves the edge).
   screenFitTile: function(v) { return v === true || v === "true" },
+  screenStretch: function(v) { return v === true || v === "true" },
   collapsed: function(v) { return collapsedState(v) }
 }
 

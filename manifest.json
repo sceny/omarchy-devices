@@ -29,6 +29,7 @@
       "showCalls": true,
       "screenDocked": true,
       "screenFitTile": false,
+      "screenStretch": false,
       "appSound": "here",
       "lowBatteryPercent": 15,
       "deviceId": "",
@@ -206,6 +207,13 @@
         "label": "Fit a tiled screen to the device (experimental)",
         "defaultValue": false,
         "description": "When the screen opens as a window, beside another window its tile takes the device's width, and follows it as it turns. Hyprland has no such option; the plugin moves the tile's edge."
+      },
+      {
+        "key": "screenStretch",
+        "type": "boolean",
+        "label": "Stretch the screen to its window",
+        "defaultValue": false,
+        "description": "The device's picture fills its window whatever its shape, instead of keeping its proportions with bars. Off by default."
       },
       {
         "key": "appSound",

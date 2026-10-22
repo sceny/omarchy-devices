@@ -1134,6 +1134,7 @@ Item {
   property bool screenThenDocked: true
   property var screenThenPlace: null       // where the docked window goes: a function, read at launch
   property bool screenThenFit: false       // tiled: its tile takes the device's width (experimental)
+  property bool screenThenStretch: false   // its picture fills the window, whatever its shape
   property var screenThenApp: null         // an app to open once read, instead of the screen ({ package, name, sound, pop })
   property string demoScreenKind: "pair"
   signal screenSetupNeeded(string id, var app)
@@ -1204,7 +1205,7 @@ Item {
       }
       if (status && status.state === "ready" && !demo) {
         // Read now: the card has grown to the display's real shape.
-        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit)
+        launchScreen(id, "", "", screenThenDocked, screenThenPlace ? screenThenPlace() : null, screenThenFit, undefined, false, screenThenStretch)
         return
       }
       if (status && status.state === "ready") { demoOpening.device = String(id); demoOpening.restart(); return }
@@ -1226,13 +1227,14 @@ Item {
   // `place`: a function giving where the docked window goes ({ rect: the
   // panel's card as it becomes the window, ctx: the chip's place }), read
   // once the state is.
-  function pressScreen(id, docked, place, fit) {
+  function pressScreen(id, docked, place, fit, stretch) {
     if (!id || isBusy("screen")) return
     setBusy("screen", true)
     screenThen = String(id)
     screenThenDocked = docked !== false
     screenThenPlace = place || null
     screenThenFit = fit === true
+    screenThenStretch = stretch === true
     readScreen(id)
   }
   // An app's tile: its window, tiled, once the state is read (as the
@@ -1264,7 +1266,7 @@ Item {
     if (place && place.ctx) out.push("--ctx", JSON.stringify(place.ctx))
     return out
   }
-  function launchScreen(id, pkg, label, docked, place, fit, sound, pop) {
+  function launchScreen(id, pkg, label, docked, place, fit, sound, pop, stretch) {
     var key = pkg ? "screen:" + id + ":" + pkg : "screen"
     var cmd = [bridge, "screen-open", String(id), pkg || "", label || ""]
     var wasOpen = pkg ? appWindowsOf(id)[label || ""] === true : screenIsOpen(id)
@@ -1275,6 +1277,7 @@ Item {
     else if (docked === false) { cmd.push("--tiled"); if (fit) cmd.push("--fit") }
     else cmd = cmd.concat(placeArgs(place))
     if (sound !== "here") cmd.push("--sound", sound)
+    if (!pkg && stretch === true) cmd.push("--stretch")
     if (!pkg) {
       var places = Object.assign({}, screenPlaces)
       places[String(id)] = { ctx: place && place.ctx ? place.ctx : ({}), fit: fit === true }
@@ -1442,7 +1445,7 @@ Item {
   }
   // The choice from the window's tile: kept, and the window opened again in
   // its place with it. `pkg` "" is the screen.
-  function setWindowSound(id, pkg, label, sound) {
+  function setWindowSound(id, pkg, label, sound, stretch) {
     if (!id || Model.SOUND_PLACES.indexOf(sound) < 0) return
     var key = pkg || Model.SCREEN_SOUND
     var busyKey = "sound:" + id + ":" + key
@@ -1454,13 +1457,36 @@ Item {
       return
     }
     setBusy(busyKey, true)
-    var proc = actionComponent.createObject(root, { key: busyKey, command: [bridge, "screen-sound", String(id), sound, pkg || "", label || ""] })
+    var cmd = [bridge, "screen-sound", String(id), sound, pkg || "", label || ""]
+    if (!pkg && stretch === true) cmd.push("--stretch")
+    var proc = actionComponent.createObject(root, { key: busyKey, command: cmd })
     proc.exited.connect(function(code) {
       if (code !== 0) return
       root.noteWindowSound(String(id), key, sound)
       root.windowStream = null
       // The screen's watcher goes with its old window: a new one for the new.
       if (!pkg) { rewatch.device = String(id); rewatch.restart() }
+    })
+    proc.running = true
+  }
+  // The screen's picture filling its window (or keeping its shape), chosen
+  // on its page: an open window opens again in its place with it.
+  function setScreenStretch(id, on) {
+    if (!id) return
+    if (demo) {
+      report("Demo: the screen would open again " + (on ? "filling its window" : "keeping its shape"), false, "Demo: the window would open again with its picture changed")
+      return
+    }
+    if (!screenIsOpen(String(id))) return
+    var busyKey = "stretch:" + id
+    if (isBusy(busyKey)) return
+    setBusy(busyKey, true)
+    var proc = actionComponent.createObject(root, { key: busyKey, command: [bridge, "screen-stretch", String(id), on === true ? "on" : "off"] })
+    proc.exited.connect(function(code) {
+      if (code !== 0) return
+      root.windowStream = null
+      rewatch.device = String(id)
+      rewatch.restart()
     })
     proc.running = true
   }
