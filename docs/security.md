@@ -21,7 +21,8 @@
 - A notification's buttons come from the notice KDE Connect itself posts
   on this computer for it. The plugin listens for that one notice, from KDE
   Connect only, holds its text in memory just long enough to match it, and
-  writes only which buttons a notification has to the cache.
+  writes only the buttons of a notification that has some to the cache,
+  under a digest of its key, never its text or key.
 - A contact's website, address or email that you open goes on the command
   line of the browser or app that opens it, and stays there while that
   program runs, where another program on this computer can read it.

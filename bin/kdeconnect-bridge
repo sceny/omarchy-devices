@@ -347,12 +347,21 @@ def notification_texts(p):
 
 class NotificationActions:
     """The actions of each device's notifications, from the daemon's own
-    Notify calls (`note`), by the notification's Android key."""
+    Notify calls (`note`), by the notification's Android key. The key can
+    carry what the app chose (a conversation, a contact), so the file holds
+    only its digest, and only for a notification that has buttons."""
+
+    FORGET_AFTER_S = 600   # a notification absent this long is gone, not unlisted
 
     def __init__(self, bound=None):
         self.records = {}      # device name -> its calls, newest last
-        self.bound = bound if bound is not None else {}   # device id -> {key: [actions]}
+        self.bound = bound if bound is not None else {}   # device id -> {digest: [actions]}
+        self.absent = {}       # (device id, digest) -> when it was first missing from the list
         self.changed = False
+
+    @staticmethod
+    def digest(key):
+        return hashlib.sha256(key.encode("utf-8", "replace")).hexdigest()[:16]
 
     def note(self, record):
         calls = self.records.setdefault(record["device"], [])
@@ -362,28 +371,42 @@ class NotificationActions:
     def actions_for(self, device_id, device_name, key, p):
         if not key:
             return []
-        pairs = notification_texts(p)
+        digest = self.digest(key)
         bound = self.bound.setdefault(device_id, {})
+        pairs = notification_texts(p)
         for record in reversed(self.records.get(device_name, [])):
             if (record["summary"], record["body"]) in pairs:
-                if bound.get(key) != record["actions"]:
-                    bound[key] = record["actions"]
+                if record["actions"]:
+                    if bound.get(digest) != record["actions"]:
+                        bound[digest] = record["actions"]
+                        self.changed = True
+                elif bound.pop(digest, None) is not None:
                     self.changed = True
                 break
-        return list(bound.get(key, []))
-
-    def keep(self, device_id, keys):
-        # A device that just reconnected lists nothing for a moment: nothing
-        # is forgotten then.
-        bound = self.bound.get(device_id)
-        if not bound or not keys:
-            return
-        for key in [k for k in bound if k not in keys]:
-            del bound[key]
-            self.changed = True
+        found = list(bound.get(digest, []))
         if not bound:
             del self.bound[device_id]
-            self.changed = True
+        return found
+
+    def keep(self, device_id, keys, now=None):
+        # A device that just reconnected lists only some of its notifications
+        # for a while, so one missing from the list is forgotten only after
+        # it has stayed missing for FORGET_AFTER_S.
+        now = time.monotonic() if now is None else now
+        bound = self.bound.get(device_id)
+        if not bound:
+            return
+        listed = {self.digest(k) for k in keys if k}
+        for digest in list(bound):
+            slot = (device_id, digest)
+            if digest in listed:
+                self.absent.pop(slot, None)
+            elif now - self.absent.setdefault(slot, now) >= self.FORGET_AFTER_S:
+                del bound[digest]
+                del self.absent[slot]
+                self.changed = True
+        if not bound:
+            del self.bound[device_id]
 
 
 def actions_path():

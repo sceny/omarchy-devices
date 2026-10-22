@@ -83,17 +83,53 @@ class Matching(unittest.TestCase):
         later = bridge.NotificationActions(registry.bound)   # a restart: no calls, the cache
         self.assertEqual(later.actions_for("d1", "Pixel 8", "k1", self.props), ["Mark as read"])
 
-    def test_gone_notifications_are_forgotten(self):
+    def test_gone_notifications_are_forgotten_after_a_while(self):
         registry = self.registry()
         registry.actions_for("d1", "Pixel 8", "k1", self.props)
-        registry.keep("d1", ["k9"])
+        registry.changed = False
+        registry.keep("d1", ["k9"], now=0)
+        registry.keep("d1", ["k9"], now=registry.FORGET_AFTER_S - 1)
+        self.assertEqual(registry.actions_for("d1", "Pixel 8", "k1", self.props), ["Mark as read"])
+        registry.keep("d1", ["k9"], now=registry.FORGET_AFTER_S)
+        self.assertEqual(registry.bound, {})
+        self.assertTrue(registry.changed)
+
+    def test_a_partial_list_after_a_restart_forgets_nothing(self):
+        registry = self.registry()
+        registry.actions_for("d1", "Pixel 8", "k1", self.props)
+        later = bridge.NotificationActions(registry.bound)   # a restart: the cache only
+        later.keep("d1", [], now=0)
+        later.keep("d1", ["k2"], now=5)
+        later.keep("d1", ["k1", "k2"], now=10)               # k1 is listed after all
+        later.keep("d1", ["k2"], now=10 + later.FORGET_AFTER_S - 1)
+        self.assertEqual(later.actions_for("d1", "Pixel 8", "k1", self.props), ["Mark as read"])
+
+    def test_a_notification_without_buttons_is_not_kept(self):
+        registry = bridge.NotificationActions({})
+        registry.note(bridge.notify_record(notify("Chat", "Sam: Lunch?", ["inline-reply", "Reply"])))
+        self.assertEqual(registry.actions_for("d1", "Pixel 8", "k1", self.props), [])
+        self.assertEqual(registry.bound, {})
+        self.assertFalse(registry.changed)
+
+    def test_buttons_that_went_away_are_dropped(self):
+        registry = self.registry()
+        registry.actions_for("d1", "Pixel 8", "k1", self.props)
+        registry.note(bridge.notify_record(notify("Chat", "Sam: Lunch?", [])))
+        self.assertEqual(registry.actions_for("d1", "Pixel 8", "k1", self.props), [])
         self.assertEqual(registry.bound, {})
 
-    def test_an_empty_list_forgets_nothing(self):
+    def test_the_file_holds_no_key_text(self):
+        key = "0|com.example.chat|7|conversation-with-sam-555-0100|10042"
         registry = self.registry()
-        registry.actions_for("d1", "Pixel 8", "k1", self.props)
-        registry.keep("d1", [])
-        self.assertEqual(registry.bound["d1"], {"k1": ["Mark as read"]})
+        registry.actions_for("d1", "Pixel 8", key, self.props)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "a.json")
+            bridge.save_actions(path, registry.bound)
+            with open(path) as f:
+                text = f.read()
+        for part in ("com.example.chat", "conversation-with-sam", "555-0100", "10042"):
+            self.assertNotIn(part, text)
+        self.assertIn("Mark as read", text)
 
     def test_records_are_bounded(self):
         registry = bridge.NotificationActions({})
@@ -131,8 +167,8 @@ class Persistence(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "a.json")
             self.assertEqual(bridge.load_actions(path), {})
-            bridge.save_actions(path, {"d1": {"k1": ["Archive"]}})
-            self.assertEqual(bridge.load_actions(path), {"d1": {"k1": ["Archive"]}})
+            bridge.save_actions(path, {"d1": {"a1b2": ["Archive"]}})
+            self.assertEqual(bridge.load_actions(path), {"d1": {"a1b2": ["Archive"]}})
             with open(path, "w") as f:
                 f.write(json.dumps({"d1": ["x"], "d2": {"k": "no", "j": ["a", 3]}}))
             self.assertEqual(bridge.load_actions(path), {"d2": {"j": ["a"]}})
