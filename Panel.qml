@@ -734,6 +734,30 @@ Panel {
     openScope("screen:" + id)
     if (phone) phone.readScreen(id)
   }
+  // Screen and apps is on for the viewed device: its options page (where it
+  // opens, its sound) is one step away, whatever the page the user is on.
+  function screenOptionsFor(d) {
+    if (!d) return false
+    var row = (featureRowsById[String(d.id)] || []).filter(function(r) { return r.key === "screen" })[0]
+    return !!row && row.on !== false && row.state !== "unavailable"
+  }
+  // Settings' feature row (its index): the page of that row's device.
+  function openScreenOptionsRow(index) {
+    var row = settingsRows[index]
+    var d = featureDevice()
+    if (row && d && row.opens === "screen") openScreenSetup(String(d.id))
+  }
+  // The key o on the Screen shortcut or in the Apps section.
+  function screenOptionsKey() {
+    var onScreen = focusSection === "actions" && (actions[actionIndex] || {}).key === "screen"
+    if (!onScreen && focusSection !== "apps") return false
+    if (!screenOptionsFor(device)) return false
+    openScreenOptions()
+    return true
+  }
+  function openScreenOptions() {
+    if (device && screenOptionsFor(device)) openScreenSetup(String(device.id))
+  }
   // A This computer row's button: its fix (a card first when it needs a
   // password).
   function fixRequested(what) { if (phone) phone.fixSetup(what) }
@@ -3675,12 +3699,15 @@ Panel {
         if (t === "m") { root.openMessagesView(-1); return }
         if (t === "a" && root.mainView && root.allApps.length > 0) { root.openAppsView(); return }
         if (t === "v" && root.soundKey()) return
+        if (t === "o" && root.mainView && root.cursorActive && root.screenOptionsKey()) return
         if (root.settingsOpen) {
           var row = root.settingsRows[root.settingsIndex]
           // Shift+K / Shift+J glide the row like its arrows (Reorder).
           if (root.cursorActive && row && (t === "K" || t === "J")
               && (row.kind === "device" || row.kind === "layout" || ((row.kind === "shortcut" || row.kind === "bar") && row.on)))
             settingsView.glideMove(row.kind, row.pos, t === "K" ? -1 : 1)
+          // Screen and apps: its options page.
+          else if (root.cursorActive && row && t === "o" && row.kind === "feature" && row.opens === "screen" && row.on !== false) root.openScreenOptionsRow(root.settingsIndex)
           // A device's page: its tabs, as on the main page.
           else if (root.manyDevices && root.tabsOnSettings && t >= "1" && t <= "9") root.tabAt(Number(t) - 1)
           else if (root.manyDevices && root.tabsOnSettings && (t === "H" || t === "L")) root.tabStep(t === "H" ? -1 : 1)
@@ -3748,7 +3775,7 @@ Panel {
           id: menuColumn
           anchors.centerIn: parent
           // As wide as its widest entry (the entries fill it).
-          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
+          width: Math.max(menuEdit.implicitWidth, menuScreen.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
           Button {
             id: menuEdit
             width: menuColumn.width
@@ -3759,6 +3786,19 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.startEditing() }
+          }
+          Button {
+            id: menuScreen
+            visible: root.screenOptionsFor(root.device)
+            width: menuColumn.width
+            height: visible ? implicitHeight : 0
+            leftAlign: true
+            iconText: Model.GLYPH.screen
+            text: "Screen and apps"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openScreenOptions() }
           }
           Button {
             id: menuSettings
@@ -6597,6 +6637,7 @@ Panel {
                 onFixRequested: function(what) { root.fixRequested(what) }
                 onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
                 onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
+                onFeatureOpened: function(i) { root.openScreenOptionsRow(i) }
                 onFixAllRequested: root.fixAll()
                 onFixWithAiRequested: function(what, index) { root.fixWithAi(what, index) }
                 onCheckAgainRequested: if (root.phone && root.featureDevice()) root.phone.readFeatures(String(root.featureDevice().id), true)

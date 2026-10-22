@@ -19,7 +19,9 @@ ticks each step as it sees it done:
    with QR code*, and scan it.
 
 The **Screen** shortcut then joins the device's shortcuts. *Opens under the
-bar* or *Opens as a window* on the same page. Android 10 and older:
+bar* or *Opens as a window* on the same page, which stays one step away:
+right-click the main page › **Screen and apps**, or `o` on the Screen
+shortcut or in Apps. Android 10 and older:
 *USB debugging* and a cable instead.
 
 Not wanted? Its switch on the device's page turns it off: no screen, no
