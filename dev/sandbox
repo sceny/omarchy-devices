@@ -1143,7 +1143,7 @@ store_processes_left() {
         *"$SB_STATE/"* | *"$SB_STATE "* | *"$SB_STATE") printf '%s\n' "$line" ;;
       esac
     done
-  } | grep -v 'pgrep\|verify-clean' | head -5
+  } | grep -v 'pgrep\|verify-clean' | awk '!seen[$0]++' | head -5
 }
 
 cmd_verify_clean() {
