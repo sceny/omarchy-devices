@@ -327,7 +327,7 @@ dev/sandbox dev rig exec -- bin/kdeconnect-bridge photos-cached <device>   # the
 "${IPC[@]}" pressDismiss 0         # demo only: a notification's X
 "${IPC[@]}" pressDismissAll        # demo only: the Notifications header's dismiss all
 "${IPC[@]}" demoCall ringing       # demo only: a call on the viewed device; also missed, none
-"${IPC[@]}" demoBluetooth off      # demo only: Calls here's row, its problems, its Fix plan and the card under the call, per Bluetooth state; ready, off, adapter, missing (Fix asks for the password: pressSetting on the row, then rootAsk), audio, unpaired, unkept, dropped, waiting (waiting for the phone to pair), failed (a step did not work)
+"${IPC[@]}" demoBluetooth off      # demo only: Calls here's row, its problems, its Fix plan and the card under the call, per Bluetooth state; ready, off, adapter, missing (its Fix plan: the answer's plan field; a demo runs no step and shows no password card), audio, unpaired, unkept, dropped, waiting (waiting for the phone to pair), failed (a step did not work)
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card's Text back (nothing focused) and X
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc on the panel
 "${IPC[@]}" move 0 1                 # an arrow key (dx dy): the cursor moves, the glide slides; never Enter (slowMotion 10 to watch)

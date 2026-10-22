@@ -3079,9 +3079,8 @@ Panel {
     // for Calls here's row, the problems it counts, what its Fix would run
     // and the missed-call card. "waiting" (the phone not paired, the plugin
     // waiting for it) and "failed" (a step did not work) also set the row's
-    // pending state; nothing real runs. `missing`'s Fix asks for the
-    // password on a card describing the plan (pressSetting on the row, then
-    // rootAsk). Kept until `live`.
+    // pending state; nothing real runs, and a demo's Fix shows no password
+    // card: the answer's plan is what the Fix would run. Kept until `live`.
     function demoBluetooth(kind: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
       if (Model.DEMO_BLUETOOTH_STATES.indexOf(kind) < 0) return "no state " + kind
