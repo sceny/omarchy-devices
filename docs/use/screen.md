@@ -9,6 +9,8 @@ your mouse and keyboard while the phone stays in your pocket.
 
 - **Docked** under its chip, in the phone's own shape, on every workspace;
   or as a window like any other, your choice.
+- **Fill the window** stretches the picture to its window, with no black
+  bars, at the cost of its proportions (off unless you choose it).
 - **It turns with the phone.** Sideways, or a foldable opened: the window
   takes the new shape as the phone does.
 - **Your keyboard and mouse.** Type, scroll; right-click is Back,

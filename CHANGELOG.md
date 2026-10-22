@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **The screen can fill its window**: *Fill the window with the screen* on the Screen and apps page stretches the picture to its window, so a tile of another shape has no black bars (scrcpy's own option). It shows whenever the screen is set up, applies to the open window at once, and is off by default since a stretched picture is distorted ([#401](https://github.com/sceny/omarchy-devices/issues/401)).
 - **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an
   overlay instead of a page, so a key can be tried with the list in view.
