@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run R3, the regression on the emulator, for one commit, and write its record.
 
-  dev/regression <sha> [--out DIR] [--timeout SECONDS]
+  dev/regression <sha> [--out DIR] [--timeout SECONDS] [--harness develop|pr]
   dev/regression <sha> --from-output DIR [--out DIR]
 
 The run goes through `dev/sandbox run` with the rig steps and dev/regression.sh.
@@ -160,6 +160,8 @@ def main(argv):
     parser.add_argument("--out", type=Path,
                         help="record directory (default: under $XDG_STATE_HOME, outside any repository)")
     parser.add_argument("--timeout", type=int, default=3000, help="sandbox run timeout in seconds")
+    parser.add_argument("--harness", choices=["develop", "pr"], default="develop",
+                        help="dev/ the sandbox runs: develop's (a release candidate) or the commit's own")
     parser.add_argument("--from-output", type=Path, metavar="DIR",
                         help="write the record from a finished run's output, without a sandbox")
     args = parser.parse_args(argv)
@@ -180,7 +182,7 @@ def main(argv):
         output = out / "sandbox-output"
         command = [str(SANDBOX), "run", REPO, args.sha, "--out", str(output),
                    "--steps", "tests,rig,script", "--script", str(SCRIPT),
-                   "--timeout", str(args.timeout)]
+                   "--timeout", str(args.timeout), "--harness", args.harness]
         print(f"regression: {' '.join(command)}", file=sys.stderr)
         subprocess.run(command)
 
