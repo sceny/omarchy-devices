@@ -198,8 +198,12 @@ finding blocks the pull request.
   `print` has an argument that names a private field (only a length may be
   written). `tests/test_lints.py` reads the bridge's syntax tree and every
   QML file, and fails naming file:line; a name found not private goes in
-  `LOG_ALLOWED` with the reason.
-  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`).
+  `LOG_ALLOWED` with the reason. Two more checks hold what a name list
+  misses: a QML `console.*` argument is a length, a literal or a caught
+  error, never a bare value; and the bridge runs its verbs and `sms` commands
+  with a marker in every text field, and the marker never reaches stderr.
+  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`),
+  `tests/test_logs.py` (`QmlLogsHoldNoPrivateText`, `NoPrivateTextOnStderr`).
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
   nothing a device sent: a toast with a value passes its own display line
   (`report`'s third argument, the bridge's `say(..., osd=...)`).
