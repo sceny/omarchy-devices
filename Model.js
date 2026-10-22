@@ -536,17 +536,21 @@ function barParts(device, indicators, state) {
   // `glyph`: the device's own icon when its user picked one (deviceIcon).
   var parts = [{ key: "glyph", text: st.glyph || deviceGlyph(device), urgent: false }]
   var reachable = !!device && device.reachable === true
+  // Away for KDE Connect, here for calls (Bluetooth hands-free): a call and
+  // the Bluetooth link show; nothing KDE Connect carries does.
+  var viaCalls = !reachable && st.bluetooth === true
   var c = batteryCharge(device)
   var low = lowBattery(device, st.lowPercent === undefined ? 15 : st.lowPercent)
   var showBattery = c >= 0 && (!st.lowOnly || low)
   function add(key, text, urgent) { parts.push({ key: key, text: text, urgent: !!urgent }) }
   // A call is news, not an indicator: it leads whatever else is chosen.
-  if (st.call && reachable) parts.push({ key: "call", text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
+  if (st.call && (reachable || viaCalls)) parts.push({ key: "call", text: st.call.state === "ringing" ? GLYPH.callRing : GLYPH.callMissed, urgent: false, call: st.call.state })
   for (var i = 0; i < indicators.length; i++) {
     var key = indicators[i]
     if (key === "connection") {
       if (!device) continue
-      if (!reachable) add(key, GLYPH.wifiOff)
+      if (viaCalls) add(key, GLYPH.bluetooth)
+      else if (!reachable) add(key, GLYPH.wifiOff)
       else add(key, device.links && device.links[0] === "Bluetooth" ? GLYPH.bluetooth : GLYPH.wifi)
       continue
     }
@@ -601,6 +605,16 @@ function barSummary(indicators, lowOnly) {
   }
   var line = labels.length ? labels.join(", ") : "The glyph alone"
   return lowOnly && (indicators.indexOf("battery") >= 0 || indicators.indexOf("percent") >= 0) ? line + " · battery when low" : line
+}
+
+// What a device whose KDE Connect is away still does, said as its status:
+// the screen link (adb) and Bluetooth hands-free each reach it by
+// themselves. "" when neither does.
+function hereOnlyLine(screenReaches, callsReach) {
+  if (screenReaches && callsReach) return "Screen, apps and calls only"
+  if (screenReaches) return "Screen and apps only"
+  if (callsReach) return "Calls only"
+  return ""
 }
 
 function statusWord(snapshot, device) {
@@ -1276,9 +1290,10 @@ function demoSnapshot(live, kind) {
   // kept under its id, and do not apply here (#108).
   dev.name = "Pixel 8"
   dev.id = "demo"
-  dev.reachable = kind !== "away"
+  // "awayCalls": KDE Connect away, Bluetooth hands-free still connected.
+  dev.reachable = kind !== "away" && kind !== "awayCalls"
   // Away: where it was, as the bridge's cache would say it.
-  dev.lastSeen = kind === "away" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
+  dev.lastSeen = kind === "away" || kind === "awayCalls" ? { link: "LAN", address: "192.168.1.50", at: Date.now() - 12 * 60000 } : null
   // "charging": the battery filling, for its glyph and % in the bar.
   if (kind === "charging") dev.battery = { charge: 64, charging: true }
   // Every feature, whatever the real device offers or whether it is here.
@@ -3000,12 +3015,14 @@ function deviceIcon(device, profile) {
 function attention(device, profile, st) {
   var s = st || {}
   var here = !!device && device.reachable === true
+  // Calls reach the device over Bluetooth hands-free with KDE Connect away.
+  var calls = here || s.bluetooth === true
   var countsMessages = !!profile && (profile.barIndicators || []).indexOf("messages") >= 0
   var a = {
     notifications: here ? Math.max(0, s.notifications || 0) : 0,
     messages: here && countsMessages ? Math.max(0, s.messages || 0) : 0,
-    ringing: here && !!s.call && s.call.state === "ringing",
-    missed: here && !!s.call && s.call.state === "missed",
+    ringing: calls && !!s.call && s.call.state === "ringing",
+    missed: calls && !!s.call && s.call.state === "missed",
     lowBattery: here && lowBattery(device, s.lowPercent === undefined ? 15 : s.lowPercent)
   }
   a.any = a.notifications > 0 || a.messages > 0 || a.ringing || a.missed || a.lowBattery
@@ -3044,7 +3061,7 @@ function chips(snapshot, settings, states, pairing) {
       parts: barParts(d, p.barIndicators, { glyph: glyph, lowPercent: st.lowPercent, lowOnly: p.batteryLowOnly,
         notifications: a.notifications, messages: a.messages, playing: !!st.playing , call: st.call }),
       bubble: barBubble(d, p.barIndicators, a.notifications),
-      dimmed: d.reachable !== true,
+      dimmed: d.reachable !== true && st.bluetooth !== true,
       ringing: a.ringing,
       marks: { missed: a.missed, lowBattery: a.lowBattery }
     })
@@ -3065,9 +3082,9 @@ function openingDevice(snapshot, settings, states) {
   var shown = devices.filter(function(d, i) { return resolveProfile(settings, d, i === 0).showInPanel })
   for (var i = 0; i < devices.length; i++) {
     var st = (states && states[devices[i].id]) || {}
-    if (devices[i].reachable === true && st.call && st.call.state === "ringing") return devices[i]
+    if ((devices[i].reachable === true || st.bluetooth === true) && st.call && st.call.state === "ringing") return devices[i]
   }
-  for (var j = 0; j < shown.length; j++) if (shown[j].reachable === true) return shown[j]
+  for (var j = 0; j < shown.length; j++) if (shown[j].reachable === true || ((states && states[shown[j].id]) || {}).bluetooth === true) return shown[j]
   return shown.length > 0 ? shown[0] : (devices.length > 0 ? devices[0] : null)
 }
 
@@ -3147,15 +3164,16 @@ function groupCustom(custom, group) {
 
 // The Devices list at the top of Settings: every paired device in order,
 // then devices asking to pair, then devices in reach that could be paired.
-// `screenOnly`: ids the screen link reaches while KDE Connect does not.
-function devicesListRows(snapshot, settings, lowPercent, screenOnly) {
+// `hereOnly`: id -> what reaches the device while KDE Connect does not
+// (hereOnlyLine).
+function devicesListRows(snapshot, settings, lowPercent, hereOnly) {
   var ordered = orderedDevices(snapshot, settings)
   var rows = []
   for (var i = 0; i < ordered.length; i++) {
     var d = ordered[i]
     var p = resolveProfile(settings, d, i === 0)
     rows.push({ kind: "device", id: String(d.id), glyph: deviceIcon(d, p), title: deviceTitle(d, p), name: String(d.name || ""),
-                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : (screenOnly && screenOnly[String(d.id)] ? "Screen and apps only" : "Away"),
+                status: d.reachable === true ? metaLine(snapshot, d, lowPercent) : (hereOnly && hereOnly[String(d.id)] ? hereOnly[String(d.id)] : "Away"),
                 away: d.reachable !== true, first: i === 0, last: i === ordered.length - 1, pos: i, count: ordered.length })
   }
   // Asking to pair first (they wait on the user), then those in reach.
