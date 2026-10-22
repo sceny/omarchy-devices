@@ -1578,6 +1578,18 @@ function snippetHolds(snippet, text) {
   return lo.length >= 12 && hi.indexOf(lo) === 0
 }
 
+// How a text notification is cleared once its conversation has been read:
+// the app's own "Mark as read" button when KDE Connect lists it (the phone
+// marks the messages read and drops the notification), else a dismiss. null:
+// neither is possible (an ongoing notification).
+function readClearing(n) {
+  if (!n) return null
+  var actions = Array.isArray(n.actions) ? n.actions : []
+  for (var i = 0; i < actions.length; i++)
+    if (/^mark( as)? read$/i.test(String(actions[i]).trim())) return { action: String(actions[i]) }
+  return n.dismissable === true ? { action: "" } : null
+}
+
 // The thread a message notification belongs to, or -1. The sender's name or
 // number (the title) finds it; a name the phone knows and this computer does
 // not (a thread titled by its number) is found by the message itself, when
