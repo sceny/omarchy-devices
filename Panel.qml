@@ -2588,7 +2588,8 @@ Panel {
   // The conversation on screen is read: its text notifications go, by the
   // phone's own Mark as read when KDE Connect lists it, else a dismiss (the
   // phone drops the notification either way). One try for each notification,
-  // so one the phone keeps is not asked again at every change.
+  // so one the phone keeps is not asked again at every change. The threads
+  // may load after the conversation opens, so a new thread list asks again.
   property var clearedNotes: ({})
   readonly property int readThreadId: opened && messagesOpen && sms && sms.openThreadId >= 0 ? sms.openThreadId : -1
   function clearReadNotifications() {
@@ -2605,6 +2606,7 @@ Panel {
     }
   }
   onReadThreadIdChanged: clearReadNotifications()
+  Connections { target: root.sms; function onModelRevisionChanged() { root.clearReadNotifications() } }
 
   function isTextNotification(n) {
     return !!n && (Model.isMessagingApp(n.app) || threadForNotification(n) >= 0)
