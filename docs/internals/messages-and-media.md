@@ -14,9 +14,15 @@ the top of the bridge's `sms` section.
   answers the request with `conversationLoaded`, or when the burst goes
   quiet for 0.8 s. That count is how many messages KDE Connect holds, so it
   is trusted only as the answer to a page asked for.
-- KDE Connect cannot mark messages read. A thread is unread when the phone
+- KDE Connect cannot mark messages read: its `sms` interface has no such
+  call and the protocol no such packet. A thread is unread when the phone
   says so and has a message newer than what was opened here
   (`sms-seen-<device>.json`).
+- A conversation open on screen clears its text notifications
+  (`Panel.clearReadNotifications`, once for each): the app's own *Mark as
+  read* through `action` when the notification lists it (needs the
+  actions property of [#29](https://github.com/sceny/omarchy-devices/issues/29)),
+  else `dismiss`. The phone drops the notification either way.
 - Chat notifications arrive as markup KDE Connect builds (`<b>sender</b>`,
   `<br/>`); the bridge splits that fixed format into plain pairs and the
   panel shows only plain text.

@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **Reading a conversation clears its notification**: opening a text conversation in the panel (or while it is open and a new message arrives) takes that conversation's notification off the phone and the panel, using the app's own *Mark as read* when KDE Connect lists it, else a dismiss. The messages themselves stay unread on the phone until KDE Connect passes on app buttons and read state ([#437](https://github.com/sceny/omarchy-devices/issues/437), [#29](https://github.com/sceny/omarchy-devices/issues/29)).
 - **Settings switches answer at once**: a feature's switch moves on the click, dims its row and shows a ring beside it while the change reaches the device, then settles on what the device reports; it took two to three seconds with the knob frozen. A change to one row no longer rebuilds every row of its group, so the knob glides and the keyboard cursor stays ([#404](https://github.com/sceny/omarchy-devices/issues/404)).
 - **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an

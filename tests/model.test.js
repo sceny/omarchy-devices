@@ -257,6 +257,16 @@ test("messages: thread times and day headers", () => {
     ["Today", "Yesterday", "May 2, 2024"])
 })
 
+test("a read conversation's notification goes by the phone's Mark as read, else a dismiss", () => {
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: ["Call", "Mark as read"] }), { action: "Mark as read" })
+  assert.deepEqual(M.readClearing({ dismissable: false, actions: ["Mark read"] }), { action: "Mark read" })
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: [] }), { action: "" }, "released KDE Connect lists no buttons")
+  assert.deepEqual(M.readClearing({ dismissable: true }), { action: "" })
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: ["Mark as unread", "Reply"] }), { action: "" })
+  assert.equal(M.readClearing({ dismissable: false, actions: [] }), null, "an ongoing notification stays")
+  assert.equal(M.readClearing(null), null)
+})
+
 test("a text-message notification finds its thread by name or number", () => {
   const threads = [{ tid: 1, title: "Alex", addressKeys: "5145550123" }, { tid: 2, title: "55555", addressKeys: "55555" }]
   assert.equal(M.threadForNotification({ app: "Messages", title: "Alex" }, threads), 1)

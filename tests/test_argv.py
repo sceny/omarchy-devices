@@ -433,6 +433,7 @@ ASSIGNED_ALLOWED = {
     ("Panel.qml", "pkg", "app.package"): "an Android package name from the device's app list",
     ("Panel.qml", "sound", "key"): "setWindowSound accepts only a member of Model.SOUND_PLACES: here, phone or both",
     ("Panel.qml", "action", "action"): "the name of a button the app gave the notification (Reply, Archive), not message text",
+    ("Panel.qml", "action", "how.action"): "Model.readClearing gives only a button titled Mark as read (tests/model.test.js), not message text",
     ("Panel.qml", "action", "String(noteAction.modelData)"): "the name of a button the app gave the notification (Reply, Archive), not message text",
     ("Panel.qml", "path", "tile.photo.path"): "a gallery photo's path in the plugin's cache",
 }
