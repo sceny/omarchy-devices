@@ -290,6 +290,15 @@ finding blocks the pull request.
   reviewed list, each entry with why it is not real.
   manual: a script cannot tell a real name from a made-up one; the reviewer
   reads the diff and the screenshots for names and message text.
+- No workflow runs with the base repository's token on text from elsewhere,
+  and none grants more than it must: no `pull_request_target` or
+  `workflow_run` trigger; a top-level `permissions` that is read-only; a job's
+  write permission only on the reviewed list (`release`'s `publish` job, with
+  its reason); no `${{ }}` in a `run:` line or a `script:` input except the
+  values GitHub makes (event text goes through `env:`); every action pinned by
+  a full commit id. The reviewer reads a new action or permission from the diff.
+  Tests: `tests/test_workflows.py` (`ShippedWorkflows`, `Planted`),
+  `tests/test_public_text.py` (`Workflow`).
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
