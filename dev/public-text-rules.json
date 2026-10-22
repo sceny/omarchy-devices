@@ -23,7 +23,7 @@
           "tests/test_sandbox.py"
         ],
         "quoted": true,
-        "unless_near": "decod|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
+        "unless_near": "decod\\w*\\s+(?:in|with|by|inside|within|via|through)\\s+(?:the\\s+|an?\\s+)?sandbox(?:es)?\\b|bubblewrap|glycin|pixbuf|ffmpeg|\\b(?:no|without|around|outside|bypass\\w*)\\s+(?:the\\s+|a\\s+)?sandbox"
       },
       {
         "id": "rig",
@@ -68,7 +68,7 @@
           "tests/test_sandbox.py"
         ],
         "quoted": true,
-        "unless_near": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml"
+        "unless_near": "\\bqml\\b|\\bitem\\b|layout|\\brow\\b|\\bcolumn\\b|flickable|rectangle|scroll|\\.qml|\\bcards?\\b|\\btiles?\\b|\\bgrid\\b|\\bcells?\\b|\\bwidgets?\\b|\\bpills?\\b|\\bsections?\\b"
       },
       {
         "id": "paperclip",
@@ -106,7 +106,7 @@
       {
         "id": "test-count",
         "regex": "\\b\\d+\\)?\\s+(?:(?:unit|node|python|bridge|model)\\s+)?tests?\\b(?!/)|\\b(?:ran|run|runs|running)\\s+\\d+\\s+(?:unit\\s+)?tests?\\b|\\bOK \\(\\d+ tests?\\)",
-        "unless_before": "\\b(?:adds?|added|adding|introduc(?:es?|ed|ing)|includes?|including|writes?|wrote)\\s+(?:\\w+\\s+){0,3}$"
+        "unless_before": "\\b(?:adds?|added|adding|introduc(?:es?|ed|ing)|includes?|including|writes?|wrote)\\s+(?:(?!(?:and|or|but|nor|then|plus|so|while|ran|run|runs|running|pass|passes|passed|passing)\\b)\\w+\\s+){0,3}$"
       }
     ],
     "quoted_when_changed": [

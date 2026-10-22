@@ -116,6 +116,9 @@ class Environment(unittest.TestCase):
             ("container", "Started a container and opened the panel."),
             ("sandbox", "The thumbnails are decoded, the picture looks right and the panel was checked in the sandbox."),
             ("container", "The layout of the panel was fine and we checked all of it in a container."),
+            ("sandbox", "Ran the suite in the sandbox, which decodes the picture."),
+            ("sandbox", "Verified: decoded images look right in the sandbox."),
+            ("sandbox", "Thumbnails are decoded, and the panel was checked in the sandbox."),
         ]:
             with self.subTest(text=text):
                 self.assertIn((ENV, rule), problems(text))
@@ -126,6 +129,7 @@ class Environment(unittest.TestCase):
             "The QML item is placed in a container row.",
             "Thumbnails are decoded in the sandbox before the shell loads them.",
             "Every layout runs inside a container item.",
+            "Pictures are decoded in the sandbox, and the panel loads them.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -135,6 +139,8 @@ class Environment(unittest.TestCase):
             "The container keeps its width.",
             "A container for the pinned row grows with its content.",
             "Containers hold the shortcuts.",
+            "Creates a container for the cards.",
+            "Creates a container for the tiles and the grid.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -142,15 +148,27 @@ class Environment(unittest.TestCase):
             "Ran it inside a rootless container.",
             "A fresh container per run.",
             "The container image is rebuilt.",
+            "Creates a container from the image.",
         ]:
             with self.subTest(text=text):
                 self.assertIn((ENV, "container"), problems(text))
 
     def test_a_count_of_tests_a_change_adds_is_not_a_run(self):
-        for text in ["Adds 3 tests.", "Added 12 new tests for the key.", "Includes 2 tests for the order."]:
+        for text in [
+            "Adds 3 tests.",
+            "Added 12 new tests for the key.",
+            "Includes 2 tests for the order.",
+            "Adds 3 tests and writes 2 tests.",
+        ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
-        for text in ["Adds a case. The suite ran 380 tests.", "Adds 3 tests; 380 tests pass.", "Adds 3 tests, 92 passed."]:
+        for text in [
+            "Adds a case. The suite ran 380 tests.",
+            "Adds 3 tests; 380 tests pass.",
+            "Adds 3 tests, 92 passed.",
+            "We add 3 tests and 92 tests pass.",
+            "Adds 3 tests and 92 tests pass.",
+        ]:
             with self.subTest(text=text):
                 self.assertTrue(checks(text), text)
 
