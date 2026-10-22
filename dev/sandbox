@@ -338,6 +338,18 @@ run_cleanup() {
   store_lock_release
 }
 
+# A run killed by a signal its traps do not catch never reaches run_cleanup. Every
+# run holds the store lock to its end, so once this command holds it, nothing
+# under runs/ is live.
+clear_stale_runs() {
+  local dir
+  for dir in "$SB_STATE"/runs/*; do
+    [[ -e $dir ]] || continue
+    warn "removed the directory of a run that did not finish: ${dir##*/}"
+    rm -rf -- "$dir"
+  done
+}
+
 # Podman's default seccomp profile without new user namespaces, made for the run.
 make_seccomp() {
   python3 "$SB_DIR/sandbox.d/seccomp.py" /usr/share/containers/seccomp.json "$SB_RUN_DIR/seccomp.json" ||
@@ -642,6 +654,7 @@ cmd_run() {
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
+  clear_stale_runs
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
 
@@ -924,6 +937,7 @@ dev_pull() {
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
+  clear_stale_runs
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
 
