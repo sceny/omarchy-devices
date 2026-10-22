@@ -298,6 +298,11 @@ class Reach(unittest.TestCase):
         self.assertEqual(bridge.unreach("p1", "typed", conn=object()), bridge.EXIT_OK)
         self.assertEqual(d.custom, ["100.101.102.103"])
         self.assertNotIn("typed", bridge.network_record("p1"))
+        bridge.network_record("p1", {"peerKey": "n111"})
+        self.assertEqual(bridge.unreach("p1", "address", conn=object()), bridge.EXIT_OK)
+        record = bridge.network_record("p1")
+        for key in ("address", "mesh", "peer", "peerKey"):
+            self.assertNotIn(key, record, key)
 
     def test_nothing_changes_for_a_bad_address_or_a_device_not_paired(self):
         d = self.use(FakeDaemon(["10.0.0.5"]))

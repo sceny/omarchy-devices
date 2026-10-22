@@ -160,6 +160,27 @@ class CacheFolder(unittest.TestCase):
         self.assertEqual(bridge.omarchy_bin(env, stat_of(0, 0o40757)), default, "writable by all")
         self.assertEqual(bridge.omarchy_bin(env, mock_missing), default)
 
+    def test_omarchys_folder_is_judged_where_a_symlink_leads_and_by_every_parent(self):
+        default = "/usr/share/omarchy/bin"
+        env = {"OMARCHY_PATH": "/opt/omarchy"}
+        modes = {"/": (0, 0o40755), "/srv": (0, 0o40755), "/srv/real": (0, 0o40755), "/srv/real/bin": (0, 0o40755),
+                 "/opt": (0, 0o40755), "/opt/omarchy": (1000, 0o40755), "/opt/omarchy/bin": (0, 0o40755)}
+
+        def stat(path):
+            uid, mode = modes[path]
+            return os.stat_result((mode, 0, 0, 1, uid, 0, 0, 0, 0, 0))
+
+        link = lambda path: "/srv/real/bin" if path == "/opt/omarchy/bin" else path
+        self.assertEqual(bridge.omarchy_bin(env, stat, link), "/srv/real/bin", "the target is the one judged")
+        modes["/srv"] = (0, 0o40775)
+        self.assertEqual(bridge.omarchy_bin(env, stat, link), default, "the target's parent is group-writable")
+        modes["/srv"] = (1000, 0o40755)
+        self.assertEqual(bridge.omarchy_bin(env, stat, link), default, "the target's parent is a user's")
+        modes["/srv"] = (0, 0o40755)
+        modes["/srv/real/bin"] = (1000, 0o40755)
+        self.assertEqual(bridge.omarchy_bin(env, stat, link), default, "the target is a user's")
+        self.assertEqual(bridge.omarchy_bin(env, stat, lambda path: path), default, "its own parent is a user's")
+
     def test_a_runtime_folder_of_someone_else_is_not_used(self):
         with tempfile.TemporaryDirectory() as tmp:
             saved = os.environ.get("XDG_RUNTIME_DIR")
