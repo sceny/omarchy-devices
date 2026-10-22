@@ -301,6 +301,7 @@ IMAGE_DECODERS = {
     "contact_photo": "fit_image",
     "safe_image": "fit_image",
     "safe_art": "safe_image",
+    "prepare_outgoing": "fit_image",
 }
 
 IMAGE_TYPE = re.compile(r"\b(?:Image|AnimatedImage|BorderImage|IconImage)\s*\{")
