@@ -3303,8 +3303,9 @@ var KEYS = [
     ["1–9 · Shift+H Shift+L", "Device · previous · next"]] },
   { group: "Notifications", place: { page: "main", section: "notifications" }, summary: "Reply, dismiss, open", keys: [
     ["r", "Reply"],
-    ["x", "Dismiss"],
+    ["x", "Dismiss · a group on its title"],
     ["Shift+Delete", "Dismiss all"],
+    ["l · h", "Open · fold a group"],
     ["e", "Show all of it"],
     ["o", "Open its app"]] },
   { group: "Now playing", place: { page: "main", section: "media" }, summary: "Track, seek, volume", keys: [

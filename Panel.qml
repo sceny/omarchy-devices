@@ -48,6 +48,7 @@ Panel {
   property var openGroups: ({})
   readonly property var notifRows: Model.notificationRows(notifGroups, openGroups)
   readonly property var notifBases: Model.groupBases(notifGroups, openGroups)
+  onNotifRowsChanged: ensureCursor()
   onNotificationsChanged: {
     if (notifications.length > 0) openGroups = Model.pruneExpanded(openGroups, Model.groupNotifications(notifications))
     ensureCursor()
