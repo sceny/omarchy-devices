@@ -4145,6 +4145,7 @@ Panel {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: Model.GLYPH.screen
           color: root.foreground
@@ -4163,6 +4164,7 @@ Panel {
           font.pixelSize: Style.font.bodySmall
         }
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: "\u{F0996}"
           color: Qt.darker(root.foreground, 1.55)
@@ -4198,6 +4200,7 @@ Panel {
           Row {
             spacing: Style.space(6)
             Text {
+              textFormat: Text.PlainText
               anchors.verticalCenter: parent.verticalCenter
               text: Model.GLYPH.tip
               color: Color.accent
@@ -4289,6 +4292,7 @@ Panel {
                 anchors.rightMargin: Style.space(8)
                 spacing: Style.space(10)
                 Text {
+                  textFormat: Text.PlainText
                   text: Model.GLYPH.devices
                   color: Color.accent
                   font.family: root.fontFamily
@@ -5050,6 +5054,7 @@ Panel {
                   width: parent.width - Style.space(16)
                   spacing: Style.space(10)
                   Text {
+                    textFormat: Text.PlainText
                     Layout.alignment: Qt.AlignVCenter
                     text: Model.deviceIcon(root.device, root.profile)
                     color: root.dim
@@ -5091,6 +5096,7 @@ Panel {
 
                   Text {
                     id: chipGlyph
+                    textFormat: Text.PlainText
                     x: Style.space(10)
                     y: barGrid.y + Style.space(3)
                     text: Model.deviceIcon(root.device, root.profile)
@@ -6730,6 +6736,7 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(4)
       Text {
+        textFormat: Text.PlainText
         anchors.horizontalCenter: parent.horizontalCenter
         text: editTile.tile.glyph || ""
         color: root.foreground
@@ -6748,6 +6755,7 @@ Panel {
       }
     }
     Text {
+      textFormat: Text.PlainText
       anchors.top: parent.top
       anchors.right: parent.right
       anchors.margins: Style.space(3)
@@ -6815,6 +6823,7 @@ Panel {
         height: sampleText.implicitHeight
         Text {
           id: sampleText
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: barTile.tile.key !== "bubble"
           text: barTile.tile.sample || ""
@@ -6832,6 +6841,7 @@ Panel {
           radius: height / 2
           color: Color.urgent
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: barTile.tile.sample || ""
             color: "white"
@@ -6941,6 +6951,7 @@ Panel {
       }
       // Without a thumbnail (or the demo picture): the kind of picture.
       Text {
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         visible: !tile.photo.thumb
         text: tile.photo.video ? Model.GLYPH.video : Model.GLYPH.picture
@@ -6979,6 +6990,7 @@ Panel {
       radius: width / 2
       color: Qt.rgba(0, 0, 0, 0.55)
       Text {
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         text: Model.GLYPH.play
         color: "white"
@@ -7079,6 +7091,7 @@ Panel {
           sourceSize.width: 64
         }
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: parent.children[0].status !== Image.Ready
           text: Model.isImage(rrow.entry.name) ? Model.GLYPH.picture : Model.GLYPH.document
@@ -7261,6 +7274,7 @@ Panel {
             opacity: card.playing ? 1.0 : 0.6
           }
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: !cardArt.visible
             text: Model.GLYPH.music
@@ -7410,6 +7424,7 @@ Panel {
         height: tileGlyph.implicitHeight
         Text {
           id: tileGlyph
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           text: tile.action.glyph || ""
           color: tile.isOn ? Color.accent : root.foreground
@@ -7705,6 +7720,7 @@ Panel {
           sourceSize.height: 44
         }
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: !appIcon.visible
           text: Model.GLYPH.bell

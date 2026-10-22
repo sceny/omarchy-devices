@@ -624,6 +624,7 @@ Item {
         visible: !(!!view.sms && view.sms.openThreadId >= 0) && !view.newMode
         spacing: Style.space(6)
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: Model.GLYPH.messages
           color: view.dim
@@ -699,6 +700,7 @@ Item {
                     font.pixelSize: Style.font.bodySmall
                   }
                   Text {
+                    textFormat: Text.PlainText
                     anchors.verticalCenter: parent.verticalCenter
                     text: Model.GLYPH.close
                     color: view.dim
@@ -1291,6 +1293,7 @@ Item {
                     height: chipGlyph.implicitHeight
                     Text {
                       id: chipGlyph
+                      textFormat: Text.PlainText
                       opacity: file.fetching ? 0 : 1
                       text: String(file.modelData.mime).indexOf("video/") === 0 ? Model.GLYPH.video
                         : (String(file.modelData.mime).indexOf("audio/") === 0 ? Model.GLYPH.music

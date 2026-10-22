@@ -7,6 +7,7 @@ import "Model.js" as Model
 // row follows the pointer; on release it glides into place.
 Text {
   id: grip
+  textFormat: Text.PlainText
   property Reorder order: null
   property int index: -1
   // The row that moves, for its height.

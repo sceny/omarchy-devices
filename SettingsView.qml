@@ -165,6 +165,7 @@ Column {
         width: parent.width
         spacing: Style.space(6)
         Text {
+          textFormat: Text.PlainText
           Layout.leftMargin: Style.space(4)
           text: root.problemCount > 0 ? Model.GLYPH.alert : Model.GLYPH.check
           color: root.problemCount > 0 ? Color.urgent : root.foreground
@@ -906,6 +907,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: (listRow.row.glyph || "") !== ""
         text: listRow.row.glyph || ""
         color: root.foreground
@@ -989,6 +991,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: ["device", "defaults", "editPage", "connection", "addDevice", "keys"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
@@ -998,6 +1001,7 @@ Column {
       }
       // A choice on Screen and apps (Opens under the bar, Opens as a window).
       Text {
+        textFormat: Text.PlainText
         visible: listRow.row.kind === "screenAction" && listRow.row.on !== undefined
         text: listRow.row.on === true ? Model.GLYPH.checked : Model.GLYPH.unchecked
         color: listRow.row.on === true ? root.foreground : root.dim
@@ -1006,6 +1010,7 @@ Column {
         Layout.alignment: Qt.AlignVCenter
       }
       Text {
+        textFormat: Text.PlainText
         visible: listRow.row.kind === "resetGroup"
         text: Model.GLYPH.reset
         color: root.dim
@@ -1033,6 +1038,7 @@ Column {
       anchors.rightMargin: Style.space(12)
       spacing: Style.space(14)
       Text {
+        textFormat: Text.PlainText
         text: root.justPaired ? root.justPaired.glyph : ""
         color: Color.accent
         font.family: root.fontFamily
@@ -1098,6 +1104,7 @@ Column {
         spacing: Style.space(14)
 
         Text {
+          textFormat: Text.PlainText
           Layout.alignment: Qt.AlignTop
           Layout.topMargin: Style.space(2)
           text: pcard.row.glyph || ""
@@ -1187,6 +1194,7 @@ Column {
       anchors.centerIn: parent
       spacing: Style.space(4)
       Text {
+        textFormat: Text.PlainText
         anchors.verticalCenter: parent.verticalCenter
         text: pillBox.failing ? Model.GLYPH.alert : (pillBox.on ? Model.GLYPH.check : Model.GLYPH.optional)
         color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
@@ -1246,6 +1254,7 @@ Column {
           height: tileGlyph.implicitHeight
           Text {
             id: tileGlyph
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: Model.GLYPH.screen
             color: root.screenOpen ? Color.accent : root.foreground
@@ -1568,6 +1577,7 @@ Column {
         elide: Text.ElideRight
       }
       Text {
+        textFormat: Text.PlainText
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
@@ -1679,6 +1689,7 @@ Column {
       spacing: Style.space(10)
 
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignVCenter
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
@@ -1767,6 +1778,7 @@ Column {
       anchors.rightMargin: Style.space(6)
 
       Text {
+        textFormat: Text.PlainText
         Layout.row: 0
         Layout.column: 0
         Layout.alignment: Qt.AlignVCenter
@@ -1936,6 +1948,7 @@ Column {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: idRow.row.kind === "icon"
           text: idRow.row.glyph || ""
           color: root.foreground
@@ -2130,6 +2143,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         text: shortcutRow.row.on ? Model.GLYPH.checked : Model.GLYPH.unchecked
         color: shortcutRow.row.on ? root.foreground : root.dim
         font.family: root.fontFamily
@@ -2138,6 +2152,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         text: shortcutRow.row.glyph || ""
         color: root.foreground
         font.family: root.fontFamily

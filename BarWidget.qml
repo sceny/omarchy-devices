@@ -313,6 +313,7 @@ BarWidget {
 
           Text {
             id: bubbleText
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: chip.modelData.bubble > 9 ? "9+" : String(chip.modelData.bubble)
             color: "white"

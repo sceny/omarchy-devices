@@ -217,6 +217,12 @@ finding blocks the pull request.
   file:line until a reviewer has read what feeds it.
   Tests: `tests/test_lints.py` (`ImagesOnlyFromSafePaths`),
   `tests/test_device_limits.py` (`ArtOnlyFromTheArtCache`).
+- Text a device sent is shown as text, never as markup: every `Text` and
+  `Label` in the shipped QML writes `textFormat: Text.PlainText` itself, glyph
+  items included, since Qt's default (`AutoText`) renders a string that looks
+  like HTML as rich text. A new one without the line fails the build naming
+  file:line.
+  Tests: `tests/test_qml.py` (`QmlTextIsPlain`).
 - A file from the device reaches `open-file` / `gio open` only through one
   gate (`open_file`, `--from-device` or `--local`): what the file holds
   decides whether it is a picture (then only the sandbox's copy opens, and

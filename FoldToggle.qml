@@ -61,6 +61,7 @@ Item {
     spacing: 0
 
     Text {
+      textFormat: Text.PlainText
       Layout.rightMargin: Style.space(6)
       Layout.alignment: Qt.AlignVCenter
       text: Model.GLYPH.chevronRight

@@ -99,6 +99,7 @@ PanelWindow {
       spacing: Style.space(14)
 
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignTop
         Layout.topMargin: Style.space(2)
         text: popup.shown ? Model.deviceGlyph(popup.shown) : ""
