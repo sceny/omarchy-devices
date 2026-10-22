@@ -737,6 +737,35 @@ Item {
     featurePending = next
   }
   function pendingFor(id, key) { return featurePending[String(id) + ":" + key] || null }
+  // A feature switch turned and not yet read back ("id:key"): the knob shows
+  // what was asked at once. It goes when the features read that began after
+  // the work ended is in, so the knob never flips back to the old report
+  // before the new one arrives; a failure then shows the knob as the device
+  // reports it. { on, doneAt: 0 while the work runs }.
+  property var featureAsked: ({})
+  function setAsked(id, key, on) {
+    var next = Object.assign({}, featureAsked)
+    if (on === null) delete next[String(id) + ":" + key]
+    else next[String(id) + ":" + key] = { on: on === true, doneAt: 0 }
+    featureAsked = next
+  }
+  function askedFor(id, key) { return featureAsked[String(id) + ":" + key] || null }
+  function askedDone(id, key) {
+    var k = String(id) + ":" + key
+    if (!featureAsked[k]) return
+    var next = Object.assign({}, featureAsked)
+    next[k] = { on: next[k].on, doneAt: Date.now() }
+    featureAsked = next
+  }
+  function askedClear(id, startedAt) {
+    var next = {}, changed = false
+    Object.keys(featureAsked).forEach(function(k) {
+      var a = featureAsked[k]
+      if (k.split(":")[0] === String(id) && a.doneAt > 0 && startedAt >= a.doneAt) changed = true
+      else next[k] = a
+    })
+    if (changed) featureAsked = next
+  }
   // Waiting for a step that can be seen when done: read again every few
   // seconds, for two minutes at most.
   Timer {
@@ -919,6 +948,7 @@ Item {
     Process {
       id: featuresProc
       property string device: ""
+      readonly property real startedAt: Date.now()
       stdout: StdioCollector {
         onStreamFinished: {
           var r = null
@@ -927,6 +957,7 @@ Item {
             var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next
             root.storageGranted(featuresProc.device, r)
           }
+          root.askedClear(featuresProc.device, featuresProc.startedAt)
           featuresProc.destroy()
         }
       }
@@ -1040,6 +1071,8 @@ Item {
     function finish() {
       setBusy(key, false)
       if (feature) {
+        if (findDevice(id)) askedDone(id, feature)
+        else setAsked(id, feature, null)
         if (stoppedAt) setPending(id, feature, stoppedAt)
         else if (left) setPending(id, feature, Object.assign({ at: Date.now(), failed: false, tried: "it did what it could; one step is left" }, left))
       }
