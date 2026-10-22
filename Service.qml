@@ -1782,8 +1782,10 @@ Item {
   function dismiss(n, group) { if (n) run("dismiss", [n.id], "dismiss:" + n.id, { kind: "dismiss", note: String(n.id), group: group || "" }) }
   // Every notification that can be dismissed, each as its own X would (#194);
   // the ones that stay are said once, when the last has answered (#287).
-  function dismissAll() {
-    var list = notifications
+  function dismissAll() { dismissMany(notifications) }
+  // One group's (#435): the same press, over its members.
+  function dismissGroup(g) { if (g) dismissMany(g.notes) }
+  function dismissMany(list) {
     var group = "dismissAll:" + Date.now()
     var keys = []
     for (var i = 0; i < list.length; i++) {
