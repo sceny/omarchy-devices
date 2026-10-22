@@ -22,7 +22,7 @@ typed, so a short code works too.
 
 ## Send a picture
 
-The paperclip beside the reply field opens Omarchy's file chooser. The
+The attach button beside the reply field opens Omarchy's file chooser. The
 picture waits above the field with its name; ✕ takes it back. It goes with
 the message (or alone) as an MMS, scaled down to fit a text message, so
 its location and camera details do not travel. Your phone's carrier and
