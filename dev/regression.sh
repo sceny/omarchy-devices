@@ -15,6 +15,12 @@ mkdir -p "$OUT_DIR"
 TSV="$OUT_DIR/features.tsv"
 printf 'feature\trule\thow\tresult\tevidence\n' > "$TSV"
 
+# The sandbox brings the rig up with no owner, and a rig with no owner is found
+# only by its id.
+RIG_SELECT=$(dev/rig ps --json | jq -r '.rigs[0].id') || exit 1
+[[ -n $RIG_SELECT && $RIG_SELECT != null ]] || { echo "no rig is up" >&2; exit 1; }
+export RIG_SELECT
+
 failed=0
 
 row() {
