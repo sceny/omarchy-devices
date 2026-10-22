@@ -42,7 +42,15 @@ Panel {
   property bool notesFading: false
   property bool notesClosing: false
   readonly property var shownNotes: notifications.length > 0 || heldNotes.length === 0 ? notifications : heldNotes
+  // The notifications as the phone stacks them (#435): the groups, which of
+  // them are open (memory only), and the rows the keyboard walks.
+  readonly property var notifGroups: Model.groupNotifications(shownNotes)
+  property var openGroups: ({})
+  readonly property var notifRows: Model.notificationRows(notifGroups, openGroups)
+  readonly property var notifBases: Model.groupBases(notifGroups, openGroups)
+  onNotifRowsChanged: ensureCursor()
   onNotificationsChanged: {
+    if (notifications.length > 0) openGroups = Model.pruneExpanded(openGroups, Model.groupNotifications(notifications))
     ensureCursor()
     clearReadNotifications()
     var id = device ? String(device.id) : ""
@@ -2573,6 +2581,35 @@ Panel {
     expandedNotes = next
   }
 
+  // A group opens to every notification in it, or folds back to the newest
+  // (#435). The cursor never stays on a row that folded away.
+  function groupOf(key) { return notifGroups.filter(function(x) { return x.key === key })[0] || null }
+  function groupBase(key) {
+    for (var i = 0; i < notifGroups.length; i++) if (notifGroups[i].key === key) return notifBases[i]
+    return -1
+  }
+  function setGroupOpen(key, open) {
+    var g = groupOf(key)
+    if (!g || g.count < 2 || (openGroups[key] === true) === open) return
+    if (!open) {
+      var base = groupBase(key)
+      if (notifIndex > base + 1 && notifIndex <= base + g.count) notifIndex = base + 1
+    }
+    var next = Object.assign({}, openGroups)
+    if (open) next[key] = true
+    else delete next[key]
+    openGroups = next
+    ensureCursor()
+  }
+  function toggleGroup(key) { setGroupOpen(key, openGroups[key] !== true) }
+  // Where a notification stands among the rows, or -1 (folded away).
+  function rowOfNote(id) {
+    for (var i = 0; i < notifRows.length; i++) if (notifRows[i].note && String(notifRows[i].note.id) === String(id)) return i
+    return -1
+  }
+  // The notification the cursor is on; a group's header is not one.
+  readonly property var cursorNote: notifRows[notifIndex] ? notifRows[notifIndex].note : null
+
   // A text-message notification opens its conversation; with no thread to
   // match, the messages view opens on the list, searched for who sent it,
   // with no conversation open (never the one left open before).
@@ -2757,7 +2794,7 @@ Panel {
     var s = sections
     if (s.length === 0) return
     if (s.indexOf(focusSection) < 0) focusSection = s[0]
-    if (notifIndex >= notifications.length) notifIndex = Math.max(0, notifications.length - 1)
+    if (notifIndex >= notifRows.length) notifIndex = Math.max(0, notifRows.length - 1)
     if (photoIndex >= photos.length) photoIndex = Math.max(0, photos.length - 1)
     if (receivedIndex >= received.length) receivedIndex = Math.max(0, received.length - 1)
     if (appIndex > sectionApps.length) appIndex = sectionApps.length
@@ -2777,6 +2814,16 @@ Panel {
         appIndex = foldedStops[Math.max(0, Math.min(foldedStops.length - 1, (at < 0 ? 0 : at) + dx))]
       }
       else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
+      // Notifications: right opens the group under the cursor, left folds it
+      // and lands on its header.
+      else if (focusSection === "notifications" && !isCollapsed("notifications") && notifRows[notifIndex]) {
+        var gr = notifRows[notifIndex]
+        var gg = groupOf(gr.group)
+        if (gg && gg.count > 1) {
+          if (dx > 0) setGroupOpen(gr.group, true)
+          else { var gb = groupBase(gr.group); setGroupOpen(gr.group, false); notifIndex = gb; scrollToCursor() }
+        }
+      }
       return
     }
     // Apps: PINNED rows, then RECENT, before leaving the section.
@@ -2805,13 +2852,13 @@ Panel {
     }
     if (focusSection === "notifications" && !isCollapsed("notifications")) {
       var next = notifIndex + dy
-      if (next >= 0 && next < notifications.length) { notifIndex = next; scrollToCursor(); return }
-      if (next >= notifications.length) return
+      if (next >= 0 && next < notifRows.length) { notifIndex = next; scrollToCursor(); return }
+      if (next >= notifRows.length) return
     }
     var at = s.indexOf(focusSection) + dy
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
-    if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
+    if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : Math.max(0, notifRows.length - 1)
     if (focusSection === "photos") photoIndex = dy > 0 ? 0 : Math.max(0, photos.length - 1)
     if (focusSection === "received") receivedIndex = dy > 0 ? 0 : Math.max(0, received.length - 1)
     scrollToCursor()
@@ -2835,7 +2882,9 @@ Panel {
       var shownCard = cardRepeater.itemAt(shownPlayer)
       if (shownCard) shownCard.togglePlaying()
     } else if (focusSection === "notifications") {
-      openReply(notifications[notifIndex])
+      var cur = notifRows[notifIndex]
+      if (cur && cur.kind === "header") toggleGroup(cur.group)
+      else if (cur) openReply(cur.note)
     } else if (focusSection === "apps") {
       if (appIndex < sectionApps.length) openApp(sectionApps[appIndex], pop === true)
       else openAppsView()
@@ -3183,6 +3232,27 @@ Panel {
       return "ok"
     }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
+    // Groups (#435): what the section draws, a group opened or folded as its
+    // header's click, and its dismiss all as a click (demo only).
+    function groupsInfo(): string {
+      return JSON.stringify({
+        groups: root.notifGroups.map(function(g) { return { key: g.key, app: g.app, count: g.count, dismissable: g.dismissable, open: root.openGroups[g.key] === true, ids: g.notes.map(function(n) { return n.id }) } }),
+        rows: root.notifRows.map(function(r) { return r.kind === "header" ? "header:" + r.group : r.note.id + (r.member ? ":member" : "") }),
+        cursor: root.notifIndex })
+    }
+    function toggleGroup(index: int): string {
+      var g = root.notifGroups[index]
+      if (!g || g.count < 2) return "no group at " + index
+      root.toggleGroup(g.key)
+      return root.openGroups[g.key] === true ? "open" : "folded"
+    }
+    function pressDismissGroup(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var g = root.notifGroups[index]
+      if (!g || g.dismissable === 0) return "nothing to dismiss at " + index
+      root.phone.dismissGroup(g)
+      return "ok"
+    }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     // Many devices. A device is its id, nickname or name. Every verb acts on
     // the viewed device; `view` picks it, `openOn` opens the panel on it.
@@ -3432,7 +3502,7 @@ Panel {
     function openReply(index: int): string {
       var n = root.notifications[index]
       if (!n || !n.replyId) return "no replyable notification at " + index
-      root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = index
+      root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = Math.max(0, root.rowOfNote(n.id))
       root.openReply(n)
       return "ok"
     }
@@ -3616,8 +3686,9 @@ Panel {
           return
         }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
-          var n = root.notifications[root.notifIndex]
-          if (n && n.dismissable) root.phone.dismiss(n)
+          var row = root.notifRows[root.notifIndex]
+          if (row && row.kind === "header") { var hg = root.groupOf(row.group); if (hg && hg.dismissable > 0) root.phone.dismissGroup(hg) }
+          else if (row && row.note && row.note.dismissable) root.phone.dismiss(row.note)
         }
       }
       onCloseRequested: {
@@ -3748,15 +3819,21 @@ Panel {
         if (t === ".") { root.nudgePosition(10); return }
         if (t === "[" && root.phone) { root.phone.mediaAction("Previous", root.shownPlayerObject); return }
         if (t === "]" && root.phone) { root.phone.mediaAction("Next", root.shownPlayerObject); return }
-        if (t === "e" && root.cursorActive && root.focusSection === "notifications") { root.toggleExpanded(root.notifications[root.notifIndex]); return }
+        if (t === "e" && root.cursorActive && root.focusSection === "notifications") {
+          var er = root.notifRows[root.notifIndex]
+          if (er && er.kind === "header") root.toggleGroup(er.group)
+          else root.toggleExpanded(root.cursorNote)
+          return
+        }
         if (t === "o" && root.cursorActive && root.focusSection === "notifications") {
-          var tn = root.notifications[root.notifIndex]
+          var tn = root.cursorNote
+          if (!tn) return
           if (root.isTextNotification(tn)) root.openNotificationConversation(tn)
           else if (root.notificationApp(tn)) root.openApp(root.notificationApp(tn))
           return
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
-          root.openReply(root.notifications[root.notifIndex])
+          root.openReply(root.cursorNote)
       }
 
       // ---- The page menu (right-click): Edit page, Settings ----
@@ -6065,13 +6142,13 @@ Panel {
                       Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
 
                       Repeater {
-                        model: root.shownNotes
-                        NotificationRow {
+                        model: root.notifGroups
+                        NotificationGroup {
                           required property var modelData
                           required property int index
                           width: notifColumn.width
-                          note: modelData
-                          rowIndex: index
+                          group: modelData
+                          base: root.notifBases[index] || 0
                         }
                       }
                     }
@@ -7692,6 +7769,116 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
+      }
+    }
+  }
+
+  // One group of notifications (#435): its header and the newest one, and
+  // open, the rest, which fold in and out as a section does. A group of one
+  // is its notification alone.
+  component NotificationGroup: Column {
+    id: grp
+    property var group: ({ key: "", notes: [], count: 0, dismissable: 0 })
+    property int base: 0
+    readonly property bool multi: group.count > 1
+    readonly property bool open: multi && root.openGroups[group.key] === true
+    readonly property real indent: multi ? Style.space(10) : 0
+    spacing: Style.space(4)
+
+    NotificationGroupHeader {
+      visible: grp.multi
+      width: grp.width
+      group: grp.group
+      rowIndex: grp.base
+      open: grp.open
+    }
+    NotificationRow {
+      x: grp.indent
+      width: grp.width - grp.indent
+      note: grp.group.notes[0]
+      rowIndex: grp.base + (grp.multi ? 1 : 0)
+    }
+    FoldBody {
+      width: grp.width
+      open: grp.open
+      motion: root.motion
+      animate: root.settled
+      spacing: Style.space(4)
+      Repeater {
+        model: grp.group.notes.slice(1)
+        NotificationRow {
+          required property var modelData
+          required property int index
+          x: grp.indent
+          width: grp.width - grp.indent
+          note: modelData
+          rowIndex: grp.base + 2 + index
+        }
+      }
+    }
+  }
+
+  // A group's header: how many and from which app, a click to open or fold
+  // it, and the button that dismisses every one of them on the device.
+  component NotificationGroupHeader: CursorSurface {
+    id: gh
+    property var group: ({ key: "", app: "", notes: [], count: 0, dismissable: 0 })
+    property int rowIndex: 0
+    property bool open: false
+    readonly property bool dismissing: !!root.phone && group.notes.some(function(n) { return root.phone.isBusy("dismiss:" + n.id) })
+
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === gh.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    implicitHeight: Style.space(26)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = gh.rowIndex })
+      onClicked: root.toggleGroup(gh.group.key)
+    }
+
+    RowLayout {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(6)
+
+      Text {
+        textFormat: Text.PlainText
+        Layout.alignment: Qt.AlignVCenter
+        text: Model.GLYPH.chevronRight
+        rotation: gh.open ? 90 : 0
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Behavior on rotation { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+      }
+      Text {
+        textFormat: Text.PlainText
+        Layout.fillWidth: true
+        text: Model.groupTitle(gh.group)
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        elide: Text.ElideRight
+      }
+      WaitButton {
+        visible: gh.group.dismissable > 0
+        glyph: Model.GLYPH.clearAll
+        waiting: gh.dismissing
+        motion: root.motion
+        tooltipText: gh.dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all " + gh.group.dismissable + " on " + Model.deviceLabel(root.device), "dismiss")
+        foreground: root.foreground
+        hoverColor: root.urgent
+        fontFamily: root.fontFamily
+        enabled: !!root.phone && !gh.dismissing
+        onClicked: root.phone.dismissGroup(gh.group)
       }
     }
   }
