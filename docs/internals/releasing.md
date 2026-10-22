@@ -278,8 +278,11 @@ finding blocks the pull request.
   Dependabot security updates): GitHub refuses a push that holds a token
   before it is public. A refused push is fixed by removing the token from the
   commit, never by bypassing the protection.
+  Tests: `tests/test_personal_data.py` (`NoPersonalDataInTheTree`): a number
+  outside the 555 exchange, an email outside the example domains, a random
+  device id or Bluetooth address, an adb serial that is not a fixture's.
   manual: a script cannot tell a real name from a made-up one; the reviewer
-  reads the diff and the screenshots (#302 scripts the numbers, emails and ids).
+  reads the diff and the screenshots for names and message text.
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
