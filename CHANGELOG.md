@@ -10,6 +10,7 @@ GitHub release with these notes.
 
 ### Highlights
 
+- **A notification's buttons show with released KDE Connect**: *Mark as read*, *Archive* and the phone's other buttons were missing on every notification, because released KDE Connect does not list them. The plugin now reads them from the notice KDE Connect posts on this computer for each phone notification and sends them back when one is pressed. A notification already on the phone when it connected, or one that arrives silent, has no notice and so no buttons ([#436](https://github.com/sceny/omarchy-devices/issues/436)).
 - **Settings switches answer at once**: a feature's switch moves on the click, dims its row and shows a ring beside it while the change reaches the device, then settles on what the device reports; it took two to three seconds with the knob frozen. A change to one row no longer rebuilds every row of its group, so the knob glides and the keyboard cursor stays ([#404](https://github.com/sceny/omarchy-devices/issues/404)).
 - **Settings opens without a freeze**: each group of rows built a hidden row for every row of the page, about twenty times over, so opening Settings stopped the panel for most of a second; each group now builds only its own rows, and a test fails when one does not ([#389](https://github.com/sceny/omarchy-devices/issues/389)).
 - **Keys is a list over the page you are on**: `?` opens every key as an

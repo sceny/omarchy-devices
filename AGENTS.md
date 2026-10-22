@@ -37,6 +37,13 @@ clipboard settings in KDE Connect's config (*Rules*).
   per device, the phone's permissions over adb, the mount) and asks only for
   what it cannot, one step at a time, then carries on by itself. KDE
   Connect's daemon and command line are enough: its own app is never needed.
+- **A notification's buttons come from KDE Connect's own notice.** Released
+  KDE Connect lists no `actions` on D-Bus (#436); the bridge reads the
+  daemon's `Notify` calls to the notification server with a bus monitor
+  limited to that sender and method, matches each to its notification by
+  text, and keeps only the button labels, per Android key, in the cache. The
+  monitor never sends or logs, holds a notice's text in memory only, and
+  what D-Bus lists wins when a KDE Connect has it.
 - **A feature no source offers is not faked.** Ongoing notifications never
   leave the phone; messages cannot be marked read on the phone; RCS is not
   in the SMS store. Say so in the UI or the docs (`docs/setup/limits.md`).

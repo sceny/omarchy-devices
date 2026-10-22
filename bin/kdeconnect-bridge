@@ -239,14 +239,14 @@ def cap_text(value, limit):
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
-def read_notifications(conn, dpath):
+def read_notifications(conn, dpath, registry=None, device_id="", device_name=""):
     npath = dpath + "/notifications"
     try:
         ids = call(conn, npath, IFACE + ".device.notifications",
                    "activeNotifications")[0]
     except GLib.Error:
         return None
-    out = []
+    out, keys = [], []
     for nid in list(ids)[-CAP_NOTIFICATIONS:]:
         p = props(conn, "%s/%s" % (npath, nid),
                   IFACE + ".device.notifications.notification")
@@ -259,9 +259,14 @@ def read_notifications(conn, dpath):
                         for m in conversation[-CAP_CONVERSATION:]]
         if conversation:
             text = conversation_text(conversation)
+        key = cap_text(p.get("internalId", ""), CAP_KEY)
+        actions = [cap_text(a, CAP_SHORT) for a in list(p.get("actions", []) or [])[:CAP_ACTIONS]]
+        if not actions and registry is not None:
+            actions = registry.actions_for(device_id, device_name, key, p)
+        keys.append(key)
         out.append({
             "id": nid,
-            "key": cap_text(p.get("internalId", ""), CAP_KEY),
+            "key": key,
             "app": cap_text(p.get("appName", ""), CAP_SHORT),
             "title": cap_text(p.get("title", ""), CAP_SHORT),
             "text": cap_text(text, CAP_TEXT),
@@ -269,13 +274,191 @@ def read_notifications(conn, dpath):
             "ticker": cap_text(p.get("ticker", ""), CAP_SHORT),
             "dismissable": bool(p.get("dismissable", False)),
             "replyId": cap_text(p.get("replyId", ""), CAP_SHORT),
-            "actions": [cap_text(a, CAP_SHORT) for a in list(p.get("actions", []) or [])[:CAP_ACTIONS]],
+            "actions": actions,
             "icon": safe_image(icon, NOTE_ICON_BOX) if icon else "",
             "silent": bool(p.get("silent", False)),
         })
+    if registry is not None:
+        registry.keep(device_id, keys)
     # activeNotifications is in arrival order; newest first reads better.
     out.reverse()
     return out
+
+
+# ---- A notification's own buttons -------------------------------------------
+#
+# Released KDE Connect keeps a notification's actions to itself: the packet
+# carries them, the daemon sends them back with sendAction, and no D-Bus
+# property tells them (#29, #436). The daemon does show each phone
+# notification through freedesktop notifications, with the actions in the
+# Notify call and its device's name in the hint x-kdeconnect-source-device.
+# The bridge reads those calls from a bus monitor limited to this one
+# sender and method (the bus delivers no other message), keeps the device's
+# latest few in memory, and gives a notification the actions of the call
+# that carries its text. A notification that comes with its actions on D-Bus
+# (a KDE Connect that has them) keeps those.
+#
+# The daemon makes no call for a notification already on the phone when it
+# connects (it is silent), so what was matched is also kept in the cache,
+# by the notification's Android key, until the notification goes.
+
+NOTIFY_MATCH = ("type='method_call',sender='%s',interface='org.freedesktop.Notifications',"
+                "member='Notify'" % BUS_NAME)
+SOURCE_DEVICE_HINT = "x-kdeconnect-source-device"
+NOT_PHONE_ACTIONS = ("default", "inline-reply")   # the daemon's own, not the phone's
+CAP_NOTIFY_RECORDS = 200                          # per device (the newest)
+
+
+def match_key(value):
+    """Text as the daemon's call and its D-Bus object both have it: the
+    entities read, markup tags gone, only letters and digits kept. The daemon
+    shows a text as markup or not, with the title before it or not."""
+    plain = re.sub(r"<[^>]*>", "", html.unescape(str(value or "")))
+    return "".join(c for c in plain.casefold() if c.isalnum())
+
+
+def notify_record(args):
+    """What a Notify call from the daemon says about a phone notification:
+    {device, summary, body, actions}; None for any other call (the daemon's
+    own notifications carry no source device)."""
+    try:
+        _app, _replaces, _icon, summary, body, actions, hints, _timeout = args
+    except (TypeError, ValueError):
+        return None
+    device = hints.get(SOURCE_DEVICE_HINT) if isinstance(hints, dict) else None
+    if not isinstance(device, str) or not device or not isinstance(actions, (list, tuple)):
+        return None
+    labels = [cap_text(label, CAP_SHORT) for ident, label in zip(actions[0::2], actions[1::2])
+              if ident not in NOT_PHONE_ACTIONS and isinstance(label, str)]
+    return {"device": device, "summary": match_key(summary), "body": match_key(body),
+            "actions": labels[:CAP_ACTIONS]}
+
+
+def notification_texts(p):
+    """The (summary, body) pairs the daemon shows `p`'s notification with:
+    the phone's app name in the title and "title: text" in the body, or the
+    title and the text when the server takes the app name as a hint."""
+    app, title, text, ticker = (match_key(p.get(k)) for k in ("appName", "title", "text", "ticker"))
+    pairs = {(title, text)}
+    for body in (title + text, text, title, ticker):
+        pairs.add((app, body))
+    return pairs
+
+
+class NotificationActions:
+    """The actions of each device's notifications, from the daemon's own
+    Notify calls (`note`), by the notification's Android key."""
+
+    def __init__(self, bound=None):
+        self.records = {}      # device name -> its calls, newest last
+        self.bound = bound if bound is not None else {}   # device id -> {key: [actions]}
+        self.changed = False
+
+    def note(self, record):
+        calls = self.records.setdefault(record["device"], [])
+        calls.append(record)
+        del calls[:-CAP_NOTIFY_RECORDS]
+
+    def actions_for(self, device_id, device_name, key, p):
+        if not key:
+            return []
+        pairs = notification_texts(p)
+        bound = self.bound.setdefault(device_id, {})
+        for record in reversed(self.records.get(device_name, [])):
+            if (record["summary"], record["body"]) in pairs:
+                if bound.get(key) != record["actions"]:
+                    bound[key] = record["actions"]
+                    self.changed = True
+                break
+        return list(bound.get(key, []))
+
+    def keep(self, device_id, keys):
+        # A device that just reconnected lists nothing for a moment: nothing
+        # is forgotten then.
+        bound = self.bound.get(device_id)
+        if not bound or not keys:
+            return
+        for key in [k for k in bound if k not in keys]:
+            del bound[key]
+            self.changed = True
+        if not bound:
+            del self.bound[device_id]
+            self.changed = True
+
+
+def actions_path():
+    return os.path.join(state_dir(), "notification-actions.json")
+
+
+def load_actions(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {device: {key: [a for a in labels if isinstance(a, str)] for key, labels in keys.items()
+                     if isinstance(labels, list)}
+            for device, keys in data.items() if isinstance(keys, dict)}
+
+
+def save_actions(path, bound):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(bound, f, sort_keys=True, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+class NotifyMonitor:
+    """A bus connection of its own that only listens: the bus sends it the
+    daemon's Notify calls and nothing else, and it can send nothing. The
+    calls reach `on_record` on the main loop."""
+
+    def __init__(self, on_record):
+        self.on_record = on_record
+        self.conn = None
+
+    def start(self):
+        """Whether the bus took the monitor; without one the notifications
+        simply show no buttons."""
+        try:
+            address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None)
+            conn = Gio.DBusConnection.new_for_address_sync(
+                address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+            conn.add_filter(self.filtered)
+            conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                           "org.freedesktop.DBus.Monitoring", "BecomeMonitor",
+                           GLib.Variant("(asu)", ([NOTIFY_MATCH], 0)), None,
+                           Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+        except GLib.Error:
+            return False
+        self.conn = conn
+        return True
+
+    def filtered(self, _conn, message, incoming, _data=None):
+        # Runs on the connection's own thread. An incoming method call is
+        # taken here and dropped: left to the connection, it would be answered
+        # "unknown method", and a monitor sends nothing. Everything else
+        # passes (our own BecomeMonitor, its reply).
+        if not incoming or message.get_message_type() != Gio.DBusMessageType.METHOD_CALL:
+            return message
+        try:
+            if message.get_member() == "Notify":
+                record = notify_record(message.get_body().unpack())
+                if record:
+                    GLib.idle_add(self.deliver, record)
+        except (GLib.Error, TypeError, ValueError, AttributeError):
+            pass
+        return None
+
+    def deliver(self, record):
+        self.on_record(record)
+        return False
 
 
 # Calls: KDE Connect's telephony plugin signals `callReceived(event, number,
@@ -297,7 +480,7 @@ def call_event(event, number, name, at_ms):
             "name": "" if name == number else name, "at": int(at_ms)}
 
 
-def read_device(conn, device_id, calls=None):
+def read_device(conn, device_id, calls=None, actions=None):
     dpath = device_path(device_id)
     d = props(conn, dpath, IFACE + ".device")
     if d is None:
@@ -364,14 +547,14 @@ def read_device(conn, device_id, calls=None):
     # stale when the phone switched apps.
 
     if has("notifications"):
-        n = read_notifications(conn, dpath)
+        n = read_notifications(conn, dpath, actions, device_id, dev["name"])
         dev["notifications"] = n if n is not None else []
 
     dev["call"] = (calls or {}).get(device_id)
     return dev
 
 
-def snapshot(conn, calls=None):
+def snapshot(conn, calls=None, actions=None):
     try:
         if not daemon_running(conn):
             return {"daemon": False, "devices": []}
@@ -384,7 +567,7 @@ def snapshot(conn, calls=None):
     devices = []
     for device_id in ids:
         try:
-            dev = read_device(conn, device_id, calls)
+            dev = read_device(conn, device_id, calls, actions)
         except GLib.Error:
             dev = None
         if dev:
@@ -1337,11 +1520,17 @@ def copy_file(path, local=False, run=None):
     return say("Copied")
 
 
+def start_notify_monitor(on_record):
+    monitor = NotifyMonitor(on_record)
+    return monitor if monitor.start() else None
+
+
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
     state = {"pending": 0, "last": None, "clipboard": set()}
     calls = {}
+    actions = NotificationActions(load_actions(actions_path()))
     seen = load_seen(seen_path())
     # Known here only while connected: a device away at start keeps the time
     # it left, not "now".
@@ -1357,7 +1546,10 @@ def watch():
 
     def emit():
         state["pending"] = 0
-        snap = snapshot(conn, calls)
+        snap = snapshot(conn, calls, actions)
+        if actions.changed:
+            actions.changed = False
+            save_actions(actions_path(), actions.bound)
         try:
             bt = bluetooth_state(sysconn, conn) if sysconn else None
         except GLib.Error:
@@ -1489,6 +1681,11 @@ def watch():
         schedule()
     if sysconn:
         sysconn.signal_subscribe(BLUEZ, None, None, None, None, Gio.DBusSignalFlags.NONE, on_bluez)
+    def on_notify(record):
+        actions.note(record)
+        schedule()
+
+    monitor = start_notify_monitor(on_notify)
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
     for number in (signal.SIGTERM, signal.SIGINT):
         GLib.unix_signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)

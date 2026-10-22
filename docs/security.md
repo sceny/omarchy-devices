@@ -18,6 +18,10 @@
   still arrives here. Turn automatic sharing back on in KDE Connect's own
   settings and the plugin leaves it on, but passwords still never go unless
   you also turn on sending passwords there.
+- A notification's buttons come from the notice KDE Connect itself posts
+  on this computer for it. The plugin listens for that one notice, from KDE
+  Connect only, holds its text in memory just long enough to match it, and
+  writes only which buttons a notification has to the cache.
 - A contact's website, address or email that you open goes on the command
   line of the browser or app that opens it, and stays there while that
   program runs, where another program on this computer can read it.
