@@ -301,8 +301,12 @@ one only with the owner.
   problem whose fix uses what adb knows (`device-fix reconnect`: KDE
   Connect pointed at the device's address, kept with the user's own custom
   devices; else `wake`: KDE Connect on the device let run in the
-  background and opened). The away card shows only when no gateway reaches
-  it.
+  background and opened). A device Bluetooth hands-free reaches (Calls here
+  on, connected for calls) is here too, for calls only: its call card, the
+  call and Bluetooth marks on its chip and the Calls here controls stay,
+  nothing KDE Connect carries shows, and its status says *Calls only*
+  (*Screen, apps and calls only* with the screen link). The away card shows
+  only when no gateway reaches it.
 - **Using a feature gets it working.** What a feature needs is asked where
   it is used, once, never ahead: notification access in Notifications,
   SMS on the Messages page, contacts on the Contacts page (an ask belongs to

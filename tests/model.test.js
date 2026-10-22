@@ -2097,3 +2097,44 @@ test("dismissAllResult: a press with no failure confirms once", () => {
     { text: "Dismissed", osd: "Dismissed", failed: false })
   assert.equal(M.dismissAllResult(0, 4, "Pixel 8", "", "", "", "").text, "")
 })
+
+test("a device reached only over Bluetooth hands-free is here for calls (#374)", () => {
+  const phoneAway = () => phone({ reachable: false })
+  const tabletAway = () => tablet({ reachable: false })
+  const prof = { barIndicators: ["messages"] }
+  const st = { bluetooth: true, call: { state: "ringing" } }
+  const a = M.attention(phoneAway(), prof, st)
+  assert.equal(a.ringing, true, "a ring over Bluetooth counts with KDE Connect away")
+  assert.equal(M.attention(phoneAway(), prof, { bluetooth: false, call: { state: "ringing" } }).any, false, "no gateway: nothing counts")
+  assert.equal(M.attention(phoneAway(), prof, { bluetooth: true, notifications: 4 }).notifications, 0, "what KDE Connect carries stays out")
+  const parts = M.barParts(phoneAway(), ["connection", "battery"], st)
+  assert.deepEqual(parts.map(p => p.key), ["glyph", "call", "connection"])
+  assert.equal(parts.find(p => p.key === "connection").text, M.GLYPH.bluetooth)
+  const away = M.barParts(phoneAway(), ["connection"], { call: { state: "ringing" } })
+  assert.deepEqual(away.map(p => p.key), ["glyph", "connection"], "away on every gateway: no call part")
+  assert.equal(away.find(p => p.key === "connection").text, M.GLYPH.wifiOff)
+  const chip = M.chips(snap(phoneAway()), M.readSettings({}), { p1: { bluetooth: true } }).chips[0]
+  assert.equal(chip.dimmed, false, "here over Bluetooth: not dimmed")
+  assert.equal(M.chips(snap(phoneAway()), M.readSettings({}), {}).chips[0].dimmed, true)
+  const s = M.readSettings({})
+  assert.equal(M.openingDevice(snap(phoneAway(), tabletAway()), s, { t1: { bluetooth: true } }).id, "t1", "the one reached for calls opens first")
+  assert.equal(M.openingDevice(snap(phoneAway(), tabletAway()), s, { p1: { bluetooth: true, call: { state: "ringing" } } }).id, "p1")
+})
+
+test("hereOnlyLine names what reaches a device KDE Connect does not", () => {
+  const phoneAway = () => phone({ reachable: false })
+  assert.equal(M.hereOnlyLine(true, false), "Screen and apps only")
+  assert.equal(M.hereOnlyLine(false, true), "Calls only")
+  assert.equal(M.hereOnlyLine(true, true), "Screen, apps and calls only")
+  assert.equal(M.hereOnlyLine(false, false), "")
+  const rows = M.devicesListRows(snap(phoneAway()), M.readSettings({}), 15, { p1: "Calls only" })
+  assert.equal(rows[0].status, "Calls only")
+  assert.equal(M.devicesListRows(snap(phoneAway()), M.readSettings({}), 15, {})[0].status, "Away")
+})
+
+test("the demo's awayCalls: KDE Connect away, Bluetooth connected", () => {
+  const d = M.demoSnapshot(null, "awayCalls").devices[0]
+  assert.equal(d.reachable, false)
+  assert.equal(d.handsfree.connected, true)
+  assert.equal(M.demoSnapshot(null, "away").devices[0].handsfree.connected, false)
+})

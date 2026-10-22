@@ -1903,20 +1903,30 @@ def bluetooth_checks(bt):
     return out
 
 
-def omarchy_bin(env=None, stat=os.stat):
+def omarchy_bin(env=None, stat=os.stat, realpath=os.path.realpath):
     """Omarchy's bin folder. Its helpers run as root through pkexec, so
-    OMARCHY_PATH counts only when that folder is owned by root and nobody
-    else can write to it; otherwise the packaged one."""
+    OMARCHY_PATH counts only when the folder it resolves to, and every folder
+    above that, is owned by root and nobody else can write to it (a symlink
+    or a writable parent would let another user swap what root runs);
+    otherwise the packaged one."""
     default = "/usr/share/omarchy/bin"
     env = os.environ if env is None else env
     path = os.path.join(env.get("OMARCHY_PATH") or "/usr/share/omarchy", "bin")
     if path == default:
         return default
-    try:
-        st = stat(path)
-    except OSError:
-        return default
-    return path if st.st_uid == 0 and not st.st_mode & 0o022 else default
+    resolved = realpath(path)
+    here = resolved
+    while True:
+        try:
+            st = stat(here)
+        except OSError:
+            return default
+        if st.st_uid != 0 or st.st_mode & 0o022:
+            return default
+        up = os.path.dirname(here)
+        if up == here:
+            return resolved
+        here = up
 
 
 OMARCHY_BIN = omarchy_bin()
@@ -2994,7 +3004,7 @@ def unreach(device_id, kind="", conn=None):
         return say(error.message, EXIT_FAILED, osd="")
     clear = {k: "" for k in kinds}
     if "address" in kinds:
-        clear.update(mesh="", peer="")
+        clear.update(mesh="", peer="", peerKey="")
     network_record(device_id, clear)
     return say("KDE Connect forgot that address")
 
