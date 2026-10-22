@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+import shutil
 import signal
 import stat
 import struct
@@ -1178,6 +1179,43 @@ class StaleRuns(unittest.TestCase):
             body = re.search(r"^" + name + r"\(\) \{\n(.*?)^\}", script, re.MULTILINE | re.DOTALL)
             self.assertIsNotNone(body, name)
             self.assertIn("store_lock_acquire\n  clear_stale_runs\n", body.group(1), name)
+
+
+def sandbox_runroot(state=None):
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir()}
+    if state is not None:
+        env["SANDBOX_STATE"] = state
+    r = subprocess.run(
+        ["bash", "-c", f'source "{SANDBOX}"\necho "RUNROOT=$SB_RUNTIME"\n'],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    return re.search(r"^RUNROOT=(\S+)$", r.stdout, re.MULTILINE).group(1)
+
+
+class ThrowawayRunroot(unittest.TestCase):
+    def test_a_throwaway_store_keeps_its_runroot_inside_itself(self):
+        self.assertEqual(sandbox_runroot(), f"/run/user/{os.getuid()}/sceny-sandbox", "the owner's runroot is unchanged")
+        self.assertEqual(sandbox_runroot("/tmp/throwaway-store-a"), "/tmp/throwaway-store-a/runroot")
+
+
+@unittest.skipUnless(shutil.which("podman"), "verify-clean on a real podman needs podman")
+class ThrowawayStoreVerifyClean(unittest.TestCase):
+    def test_verify_clean_passes_on_a_throwaway_store(self):
+        state = tempfile.mkdtemp(prefix="sceny-sandbox-verify-")
+        self.addCleanup(shutil.rmtree, state, True)
+        r = subprocess.run(
+            ["bash", SANDBOX, "verify-clean"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir(), "SANDBOX_STATE": state},
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no container (running or stopped)", r.stdout + r.stderr)
 
 
 if __name__ == "__main__":
