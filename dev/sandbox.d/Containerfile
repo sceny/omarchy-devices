@@ -92,13 +92,15 @@ FROM base AS paperclipai
 RUN pacman -Syu --noconfirm --needed npm postgresql && pacman -Scc --noconfirm
 
 # Paperclip's CLI, from a lockfile (package-lock.json, integrity per package):
-# the throwaway instance the paperclipai rig starts. Only the embedded
-# Postgres package may run an install script (package.json allowScripts: it
-# makes the library symlinks). Bump it on purpose, in a pull request, by
-# regenerating the lockfile with npm install --package-lock-only
-# --allow-remote=all, then a full install and --package-lock-only again.
+# the throwaway instance the paperclipai rig starts. No package's install
+# script runs at build, whatever the npm version; the embedded Postgres
+# package's own script (it makes the library symlinks) is run by name after.
+# Bump it on purpose, in a pull request, by regenerating the lockfile with
+# npm install --package-lock-only --allow-remote=all, then a full install and
+# --package-lock-only again.
 COPY harness/dev/sandbox.d/paperclipai-cli/ /opt/paperclipai-cli/
-RUN set -e; cd /opt/paperclipai-cli; npm ci --omit=dev --no-audit --no-fund --cache /tmp/npm-cache; \
+RUN set -e; cd /opt/paperclipai-cli; npm ci --omit=dev --ignore-scripts --no-audit --no-fund --cache /tmp/npm-cache; \
+    npm rebuild @embedded-postgres/linux-x64; \
     ln -s /opt/paperclipai-cli/node_modules/.bin/paperclipai /usr/local/bin/paperclipai; rm -rf /tmp/npm-cache /root/.npm
 
 # Sceny's own develop (dev/sandbox.d only: the units and the verdict) and

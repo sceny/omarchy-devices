@@ -117,8 +117,8 @@ dev/sandbox verify-clean                           # nothing left behind
   `pc-tests` (`test/run_all.sh`), `pc-selftest` (`dev/rig selftest`),
   `qml-parse`, `manifest`. Both: `rig-ci`, `script`. Any other repository is
   refused. Paperclip's image holds its own `dev/` from the branch `develop` of
-  its mirror (`dev/sandbox build --paperclip-ref REV` picks another branch),
-  so a Paperclip run is never judged by Devices' checks. Its rig finds the CLI
+  its mirror (`dev/sandbox build` takes only that `develop`), so a Paperclip
+  run is never judged by Devices' checks. Its rig finds the CLI
   in the image (`paperclipai`, installed from a lockfile,
   `dev/sandbox.d/paperclipai-cli/`) and `psql`; no `/dev/kvm` is passed in.
 - **The sha is the PR's head, in full.** A branch, a short sha or another
