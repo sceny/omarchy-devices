@@ -4170,7 +4170,7 @@ Panel {
           color: Qt.darker(root.foreground, 1.55)
           font.family: root.fontFamily
           font.pixelSize: Style.font.icon
-          RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: !!root.screenOpening }
+          RotationAnimator on rotation { from: 0; to: 360; duration: Model.MOTION.inMs * 4 * root.motion; loops: Animation.Infinite; running: !!root.screenOpening }
         }
       }
       // Tips: a section of its own at the foot of the waiting card, one tip
