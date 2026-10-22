@@ -56,3 +56,5 @@ plugin's guide. That guide tells it never to open the phone's data, send
 anything from it, or change the phone without asking. An issue it offers
 to file carries nothing private, and is filed only with your yes. The
 agent talks to its own service: what you tell it is up to you.
+
+Each asset and the tests that hold it: [assets and tests](internals/security-assets.md).

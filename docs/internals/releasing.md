@@ -198,8 +198,12 @@ finding blocks the pull request.
   `print` has an argument that names a private field (only a length may be
   written). `tests/test_lints.py` reads the bridge's syntax tree and every
   QML file, and fails naming file:line; a name found not private goes in
-  `LOG_ALLOWED` with the reason.
-  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`).
+  `LOG_ALLOWED` with the reason. Two more checks hold what a name list
+  misses: a QML `console.*` argument is a length, a literal or a caught
+  error, never a bare value; and the bridge runs its verbs and `sms` commands
+  with a marker in every text field, and the marker never reaches stderr.
+  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`),
+  `tests/test_logs.py` (`QmlLogsHoldNoPrivateText`, `NoPrivateTextOnStderr`).
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
   nothing a device sent: a toast with a value passes its own display line
   (`report`'s third argument, the bridge's `say(..., osd=...)`).
@@ -278,8 +282,14 @@ finding blocks the pull request.
   Dependabot security updates): GitHub refuses a push that holds a token
   before it is public. A refused push is fixed by removing the token from the
   commit, never by bypassing the protection.
+  Tests: `tests/test_personal_data.py` (`NoPersonalDataInTheTree`): a number
+  outside the 555 exchange, an email outside the example domains, a random
+  device id or Bluetooth address, an adb serial that is not a fixture's;
+  `tests/test_device_addresses.py` (`NoRealDeviceAddress`): an address with
+  a port (an adb endpoint) that is not a documentation address or in its
+  reviewed list, each entry with why it is not real.
   manual: a script cannot tell a real name from a made-up one; the reviewer
-  reads the diff and the screenshots (#302 scripts the numbers, emails and ids).
+  reads the diff and the screenshots for names and message text.
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
