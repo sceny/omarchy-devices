@@ -92,6 +92,11 @@ KDE Connect finds a device by broadcast, which stays on one network. The
 - **A network change** (`ip monitor address`, in `watch`): KDE Connect
   announces itself again (`forceOnNetworkChange`). It asks Qt about the
   network, which needs NetworkManager; Omarchy's network has none.
+- **A device that drops** (`KeepConnected`, in `watch`): a paired device not
+  reachable for 20 s is looked for the way the panel does on an away device
+  (`forceOnNetworkChange`), again after 30 s, 1, 2, 5 and then every 10
+  minutes, only while this computer has an address; it starts over when the
+  device is back. No panel and no click are needed.
 - **adb**: the plugin's own server, on a socket in its runtime folder (`adb_env`), never the
   default port; one a person runs themselves stays apart. USB first, then Wi-Fi, then the mesh. Away from the Wi-Fi, mDNS
   does not reach the device: its mesh address at the port Wireless

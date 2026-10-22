@@ -1548,6 +1548,41 @@ def start_notify_monitor(on_record):
     return monitor if monitor.start() else None
 
 
+class KeepConnected:
+    """Keeps paired devices connected with no panel open (#438). A link that
+    drops stays down until the daemon announces itself again, which it does
+    on a network change (rare on Omarchy's network) and when the panel opens
+    on an away device. A device paired and not reachable for GRACE_SEC (the
+    daemon often reconnects within seconds by itself) is looked for the way
+    the panel does, again after each delay of BACKOFF_SEC and then every
+    last one, so a device that is simply off costs one broadcast every ten
+    minutes. A device that comes back, or goes, starts over."""
+
+    GRACE_SEC = 20
+    BACKOFF_SEC = (30, 60, 120, 300, 600)
+
+    def __init__(self, search):
+        self.search = search
+        self.down = {}   # device id -> [attempts, next search, monotonic seconds]
+
+    def step(self, devices, now, network_up=True):
+        """Called with each snapshot and each heartbeat. True when it searched."""
+        gone = {d["id"] for d in devices if d.get("paired") and d.get("reachable") is not True}
+        for device_id in list(self.down):
+            if device_id not in gone:
+                del self.down[device_id]
+        for device_id in gone:
+            self.down.setdefault(device_id, [0, now + self.GRACE_SEC])
+        due = [entry for entry in self.down.values() if now >= entry[1]]
+        if not due or not network_up:
+            return False
+        for entry in due:
+            entry[0] += 1
+            entry[1] = now + self.BACKOFF_SEC[min(entry[0] - 1, len(self.BACKOFF_SEC) - 1)]
+        self.search()
+        return True
+
+
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
@@ -1602,6 +1637,7 @@ def watch():
         keep_clipboard_for(snap.get("devices", []), state["clipboard"], conn)
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
+        keep.step(snap.get("devices", []), time.monotonic(), bool(net.last))
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
@@ -1625,15 +1661,21 @@ def watch():
             net.check()
         return True
 
-    def on_network():
-        # Another Wi-Fi, a cable, a mesh up or down: KDE Connect announces
-        # itself on every network again now, and a device that hears it
-        # connects back, instead of waiting for its next broadcast.
+    def announce():
+        # KDE Connect announces itself on every network again now, and a
+        # device that hears it connects back, instead of waiting for its
+        # next broadcast.
         try:
             call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
         except GLib.Error:
             pass
+
+    def on_network():
+        # Another Wi-Fi, a cable, a mesh up or down.
+        announce()
         schedule()
+
+    keep = KeepConnected(announce)
 
     net = NetWatch(on_network)
 
