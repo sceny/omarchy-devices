@@ -280,7 +280,10 @@ finding blocks the pull request.
   commit, never by bypassing the protection.
   Tests: `tests/test_personal_data.py` (`NoPersonalDataInTheTree`): a number
   outside the 555 exchange, an email outside the example domains, a random
-  device id or Bluetooth address, an adb serial that is not a fixture's.
+  device id or Bluetooth address, an adb serial that is not a fixture's;
+  `tests/test_device_addresses.py` (`NoRealDeviceAddress`): an address with
+  a port (an adb endpoint) that is not a documentation address or in its
+  reviewed list, each entry with why it is not real.
   manual: a script cannot tell a real name from a made-up one; the reviewer
   reads the diff and the screenshots for names and message text.
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
