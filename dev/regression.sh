@@ -37,7 +37,7 @@ look() {
 }
 
 not_yet() {
-    row "$1" "$2" "$3" "not yet" "$4"
+    row "$1" "$2" "$3" "not yet" "-"
 }
 
 in_rig() {

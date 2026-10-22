@@ -78,7 +78,7 @@ def sandbox_rows(summary):
 
 
 def rig_rows(output):
-    rows = []
+    found = {}
     for path in sorted(output.rglob("summary.txt")):
         with path.open() as handle:
             if not handle.readline().startswith("rig summary for"):
@@ -87,9 +87,13 @@ def rig_rows(output):
         for line in path.read_text().splitlines():
             match = re.match(r"^(\S+)\s+(pass|FAIL)(\s|$)", line)
             if match:
+                name = f"Rig: {match.group(1)}"
                 result = PASS if match.group(2) == "pass" else FAIL
-                rows.append((f"Rig: {match.group(1)}", "The rig check holds",
-                             "dev/rig ci", result, evidence))
+                if found.get(name, (PASS, evidence))[0] == FAIL:
+                    continue
+                found[name] = (result, evidence)
+    rows = [(name, "The rig check holds", "dev/rig ci", result, evidence)
+            for name, (result, evidence) in found.items()]
     if not rows:
         rows.append(("Rig checks", "The rig checks run", "dev/rig ci", FAIL,
                      "no rig summary in the run's output"))
@@ -97,10 +101,10 @@ def rig_rows(output):
 
 
 def script_rows(output):
-    path = output / "features.tsv"
+    path = output / "script" / "features.tsv"
     if not path.is_file():
         return [("Script checks", "The script's checks run", "dev/regression.sh", FAIL,
-                 "the script wrote no features.tsv")]
+                 "the script wrote no script/features.tsv")]
     rows = []
     for line in path.read_text().splitlines()[1:]:
         if not line.strip():

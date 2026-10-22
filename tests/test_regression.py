@@ -46,17 +46,19 @@ class RegressionTest(unittest.TestCase):
                    "passed": bool(rows) and exit_code == 0}
         (self.output / "summary.json").write_text(json.dumps(summary))
 
-    def write_rig(self, rig_result="pass"):
-        rig = self.output / "rig"
-        rig.mkdir(exist_ok=True)
-        (rig / "summary.txt").write_text(
-            f"rig summary for test-rig\nmanifest  pass\ncold-install  {rig_result}\n"
-            "1 passed, 0 failed\n"
-        )
+    def write_rig(self, rig_result="pass", recap=False):
+        rig = self.output / "rig-ci" / "rig"
+        rig.mkdir(parents=True, exist_ok=True)
+        lines = f"rig summary for test-rig\nmanifest  pass\ncold-install  {rig_result}\n"
+        if recap:
+            lines += f"cold-install  {rig_result}\n"
+        (rig / "summary.txt").write_text(lines + "1 passed, 0 failed\n")
 
     def write_features(self, rows):
         text = FEATURES_HEADER + "".join("\t".join(row) + "\n" for row in rows)
-        (self.output / "features.tsv").write_text(text)
+        script = self.output / "script"
+        script.mkdir(exist_ok=True)
+        (script / "features.tsv").write_text(text)
 
     def run_regression(self, *extra):
         return subprocess.run(
@@ -119,7 +121,19 @@ class RegressionTest(unittest.TestCase):
         self.assertIn("no summary.json", self.record())
 
     def test_missing_script_features_exits_one(self):
-        (self.output / "features.tsv").unlink()
+        (self.output / "script" / "features.tsv").unlink()
+        done = self.run_regression()
+        self.assertEqual(done.returncode, 1, done.stderr)
+
+    def test_a_rig_recap_repeats_a_check_once(self):
+        self.write_rig(recap=True)
+        done = self.run_regression()
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertEqual(self.record().count("| Rig: cold-install |"), 1)
+
+    def test_a_failing_rig_recap_line_fails_the_check(self):
+        rig = self.output / "rig-ci" / "rig" / "summary.txt"
+        rig.write_text(rig.read_text() + "cold-install  FAIL exit=1\n")
         done = self.run_regression()
         self.assertEqual(done.returncode, 1, done.stderr)
 
