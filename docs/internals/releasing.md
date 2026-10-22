@@ -273,6 +273,12 @@ finding blocks the pull request.
   the event names (a player's art URL, a file the device sent).
   manual: which events a device can repeat is not a list a script can hold;
   the reviewer reads each new handler in the diff.
+- Events at rest are coalesced: `watch` writes the shell one snapshot after
+  a burst of signals (notifications, a player, a received file), never one
+  per signal, and a received picture's preview is made once per snapshot. A
+  burst of 500 signals, a millisecond apart, goes through the real `watch`
+  on a replaced bus.
+  Tests: `tests/test_watch_burst.py` (`WatchBurst`, `Unbounded`).
 - No personal data in code, comments, docs, tests, screenshots or commit
   messages. The repository's secret scanning and push protection are on (with
   Dependabot security updates): GitHub refuses a push that holds a token
