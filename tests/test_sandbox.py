@@ -20,6 +20,8 @@ import io
 import json
 import os
 import re
+import shutil
+import signal
 import stat
 import struct
 import subprocess
@@ -1094,6 +1096,126 @@ class Reencode(unittest.TestCase):
             data = f.read()
         self.assertTrue(data.startswith(b"\x89PNG"))
         self.assertNotIn(b"HOSTILE-TEXT", data)
+
+
+class BuildContext(unittest.TestCase):
+    def test_a_failed_build_removes_its_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = os.path.join(tmp, "state")
+            script = (
+                f'source "{SANDBOX}"\n'
+                "require_tools() { :; }\n"
+                "pm() { return 1; }\n"
+                "cmd_build --ref HEAD --profile devices\n"
+            )
+            r = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state},
+            )
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("the base image did not build", r.stderr)
+            left = [n for n in os.listdir(os.path.join(state, "builds")) if n.startswith("sceny-sandbox-build.")]
+            self.assertEqual(left, [], "a failed build leaves its context behind")
+
+
+class StaleRuns(unittest.TestCase):
+    def script(self, make_archive):
+        return (
+            f'source "{SANDBOX}"\n'
+            "require_tools() { :; }\n"
+            "pm() { return 0; }\n"
+            f"make_archive() {{ {make_archive}; }}\n"
+            f"cmd_run {REPO} {GOOD_SHA} --steps tests\n"
+        )
+
+    def test_a_run_killed_by_sigkill_is_cleared_by_the_next_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = os.path.join(tmp, "state")
+            runs = os.path.join(state, "runs")
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state}
+            killed = subprocess.Popen(
+                ["bash", "-c", self.script("sleep 60")],
+                env=env,
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+            def reap():
+                try:
+                    os.killpg(killed.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                killed.wait()
+
+            self.addCleanup(reap)
+            deadline = time.time() + 20
+            while not (os.path.isdir(runs) and os.listdir(runs)):
+                self.assertLess(time.time(), deadline, "the run did not make its directory")
+                time.sleep(0.05)
+            os.killpg(killed.pid, signal.SIGKILL)
+            killed.wait()
+            left = os.listdir(runs)
+            self.assertEqual(len(left), 1, "a run killed by SIGKILL leaves its directory")
+
+            r = subprocess.run(
+                ["bash", "-c", self.script("exit 3")],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env=env,
+            )
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertIn("removed the directory of a run that did not finish", r.stderr)
+            self.assertEqual(os.listdir(runs), [], "the next run leaves no directory of the killed run")
+
+    def test_every_run_clears_killed_runs_under_the_store_lock(self):
+        with open(SANDBOX) as f:
+            script = f.read()
+        for name in ("cmd_run", "dev_pull"):
+            body = re.search(r"^" + name + r"\(\) \{\n(.*?)^\}", script, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(body, name)
+            self.assertIn("store_lock_acquire\n  clear_stale_runs\n", body.group(1), name)
+
+
+def sandbox_runroot(state=None):
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir()}
+    if state is not None:
+        env["SANDBOX_STATE"] = state
+    r = subprocess.run(
+        ["bash", "-c", f'source "{SANDBOX}"\necho "RUNROOT=$SB_RUNTIME"\n'],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    return re.search(r"^RUNROOT=(\S+)$", r.stdout, re.MULTILINE).group(1)
+
+
+class ThrowawayRunroot(unittest.TestCase):
+    def test_a_throwaway_store_keeps_its_runroot_inside_itself(self):
+        self.assertEqual(sandbox_runroot(), f"/run/user/{os.getuid()}/sceny-sandbox", "the owner's runroot is unchanged")
+        self.assertEqual(sandbox_runroot("/tmp/throwaway-store-a"), "/tmp/throwaway-store-a/runroot")
+
+
+@unittest.skipUnless(shutil.which("podman"), "verify-clean on a real podman needs podman")
+class ThrowawayStoreVerifyClean(unittest.TestCase):
+    def test_verify_clean_passes_on_a_throwaway_store(self):
+        state = tempfile.mkdtemp(prefix="sceny-sandbox-verify-")
+        self.addCleanup(shutil.rmtree, state, True)
+        r = subprocess.run(
+            ["bash", SANDBOX, "verify-clean"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir(), "SANDBOX_STATE": state},
+        )
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no container (running or stopped)", r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

@@ -972,7 +972,9 @@ Panel {
       setup.features = setup.features.map(function(r) {
         var p = pend[id + ":" + r.key] || null
         if (p && r.state === "on") p = null   // done: nothing pending
-        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed) })
+        var asked = phone.featureAsked[id + ":" + r.key] || null
+        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed),
+                                      shown: asked ? asked.on : r.on !== false })
       })
       out[id] = setup
     })
@@ -1205,9 +1207,15 @@ Panel {
     }
     var plugins = f.switch.filter(function(k) { return k.indexOf("plugin:") === 0 }).map(function(k) { return k.slice(7) })
     if (plugins.length === 0) return
-    if (on) { featureAction(row); return }
-    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
-                   "feature:" + row.key)
+    // The knob moves now and the work follows; one change at a time.
+    if (phone.isBusy("feature:" + row.key)) return
+    var id = String(d.id)
+    phone.setAsked(id, row.key, on)
+    if (on) featureAction(row)
+    else phone.runSteps(id, [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
+                        "feature:" + row.key)
+    // Nothing ran (a page opened, a step left to the user): the knob stays as it was.
+    if (!phone.isBusy("feature:" + row.key)) phone.setAsked(id, row.key, null)
   }
   // Fix all, for what the page is about: Settings' status everything (this
   // computer first, its password asked once), This computer its checks, a
@@ -2514,7 +2522,7 @@ Panel {
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "reachAction") reachAction(row.key, row.address, typeHere)
     // What it shares: Enter flips its switch, as a click on it would.
-    else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.on === false)
+    else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.shown === false)
     else if (row.kind === "ready") getReady()
     else if (row.kind === "problem") openScope(row.opens ? row.opens : row.where === "computer" ? "connection" : row.where)
   }
@@ -4159,6 +4167,7 @@ Panel {
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: (root.screenOpening ? Model.MOTION.inMs : Model.MOTION.outMs) * root.motion; easing.type: Easing.OutCubic } }
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: Model.GLYPH.screen
           color: root.foreground
@@ -4177,12 +4186,13 @@ Panel {
           font.pixelSize: Style.font.bodySmall
         }
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: "\u{F0996}"
           color: Qt.darker(root.foreground, 1.55)
           font.family: root.fontFamily
           font.pixelSize: Style.font.icon
-          RotationAnimator on rotation { from: 0; to: 360; duration: 1000; loops: Animation.Infinite; running: !!root.screenOpening }
+          RotationAnimator on rotation { from: 0; to: 360; duration: Model.MOTION.inMs * 4 * root.motion; loops: Animation.Infinite; running: !!root.screenOpening }
         }
       }
       // Tips: a section of its own at the foot of the waiting card, one tip
@@ -4212,6 +4222,7 @@ Panel {
           Row {
             spacing: Style.space(6)
             Text {
+              textFormat: Text.PlainText
               anchors.verticalCenter: parent.verticalCenter
               text: Model.GLYPH.tip
               color: Color.accent
@@ -4303,6 +4314,7 @@ Panel {
                 anchors.rightMargin: Style.space(8)
                 spacing: Style.space(10)
                 Text {
+                  textFormat: Text.PlainText
                   text: Model.GLYPH.devices
                   color: Color.accent
                   font.family: root.fontFamily
@@ -5064,6 +5076,7 @@ Panel {
                   width: parent.width - Style.space(16)
                   spacing: Style.space(10)
                   Text {
+                    textFormat: Text.PlainText
                     Layout.alignment: Qt.AlignVCenter
                     text: Model.deviceIcon(root.device, root.profile)
                     color: root.dim
@@ -5105,6 +5118,7 @@ Panel {
 
                   Text {
                     id: chipGlyph
+                    textFormat: Text.PlainText
                     x: Style.space(10)
                     y: barGrid.y + Style.space(3)
                     text: Model.deviceIcon(root.device, root.profile)
@@ -6744,6 +6758,7 @@ Panel {
       anchors.centerIn: parent
       spacing: Style.space(4)
       Text {
+        textFormat: Text.PlainText
         anchors.horizontalCenter: parent.horizontalCenter
         text: editTile.tile.glyph || ""
         color: root.foreground
@@ -6762,6 +6777,7 @@ Panel {
       }
     }
     Text {
+      textFormat: Text.PlainText
       anchors.top: parent.top
       anchors.right: parent.right
       anchors.margins: Style.space(3)
@@ -6829,6 +6845,7 @@ Panel {
         height: sampleText.implicitHeight
         Text {
           id: sampleText
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: barTile.tile.key !== "bubble"
           text: barTile.tile.sample || ""
@@ -6846,6 +6863,7 @@ Panel {
           radius: height / 2
           color: Color.urgent
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: barTile.tile.sample || ""
             color: "white"
@@ -6955,6 +6973,7 @@ Panel {
       }
       // Without a thumbnail (or the demo picture): the kind of picture.
       Text {
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         visible: !tile.photo.thumb
         text: tile.photo.video ? Model.GLYPH.video : Model.GLYPH.picture
@@ -6993,6 +7012,7 @@ Panel {
       radius: width / 2
       color: Qt.rgba(0, 0, 0, 0.55)
       Text {
+        textFormat: Text.PlainText
         anchors.centerIn: parent
         text: Model.GLYPH.play
         color: "white"
@@ -7093,6 +7113,7 @@ Panel {
           sourceSize.width: 64
         }
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: parent.children[0].status !== Image.Ready
           text: Model.isImage(rrow.entry.name) ? Model.GLYPH.picture : Model.GLYPH.document
@@ -7275,6 +7296,7 @@ Panel {
             opacity: card.playing ? 1.0 : 0.6
           }
           Text {
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             visible: !cardArt.visible
             text: Model.GLYPH.music
@@ -7424,6 +7446,7 @@ Panel {
         height: tileGlyph.implicitHeight
         Text {
           id: tileGlyph
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           text: tile.action.glyph || ""
           color: tile.isOn ? Color.accent : root.foreground
@@ -7719,6 +7742,7 @@ Panel {
           sourceSize.height: 44
         }
         Text {
+          textFormat: Text.PlainText
           anchors.centerIn: parent
           visible: !appIcon.visible
           text: Model.GLYPH.bell

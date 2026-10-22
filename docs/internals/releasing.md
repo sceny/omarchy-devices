@@ -198,8 +198,12 @@ finding blocks the pull request.
   `print` has an argument that names a private field (only a length may be
   written). `tests/test_lints.py` reads the bridge's syntax tree and every
   QML file, and fails naming file:line; a name found not private goes in
-  `LOG_ALLOWED` with the reason.
-  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`).
+  `LOG_ALLOWED` with the reason. Two more checks hold what a name list
+  misses: a QML `console.*` argument is a length, a literal or a caught
+  error, never a bare value; and the bridge runs its verbs and `sms` commands
+  with a marker in every text field, and the marker never reaches stderr.
+  Tests: `tests/test_lints.py` (`LogsCarryNoPrivateText`),
+  `tests/test_logs.py` (`QmlLogsHoldNoPrivateText`, `NoPrivateTextOnStderr`).
 - The on-screen display's line (`omarchy-osd`, read by any local user) names
   nothing a device sent: a toast with a value passes its own display line
   (`report`'s third argument, the bridge's `say(..., osd=...)`).
@@ -213,6 +217,12 @@ finding blocks the pull request.
   file:line until a reviewer has read what feeds it.
   Tests: `tests/test_lints.py` (`ImagesOnlyFromSafePaths`),
   `tests/test_device_limits.py` (`ArtOnlyFromTheArtCache`).
+- Text a device sent is shown as text, never as markup: every `Text` and
+  `Label` in the shipped QML writes `textFormat: Text.PlainText` itself, glyph
+  items included, since Qt's default (`AutoText`) renders a string that looks
+  like HTML as rich text. A new one without the line fails the build naming
+  file:line.
+  Tests: `tests/test_qml.py` (`QmlTextIsPlain`).
 - A file from the device reaches `open-file` / `gio open` only through one
   gate (`open_file`, `--from-device` or `--local`): what the file holds
   decides whether it is a picture (then only the sandbox's copy opens, and
@@ -273,17 +283,44 @@ finding blocks the pull request.
   the event names (a player's art URL, a file the device sent).
   manual: which events a device can repeat is not a list a script can hold;
   the reviewer reads each new handler in the diff.
+- Events at rest are coalesced: `watch` writes the shell one snapshot after
+  a burst of signals (notifications, a player, a received file), never one
+  per signal, and a received picture's preview is made once per snapshot. A
+  burst of 500 signals, a millisecond apart, goes through the real `watch`
+  on a replaced bus.
+  Tests: `tests/test_watch_burst.py` (`WatchBurst`, `Unbounded`).
 - No personal data in code, comments, docs, tests, screenshots or commit
   messages. The repository's secret scanning and push protection are on (with
   Dependabot security updates): GitHub refuses a push that holds a token
   before it is public. A refused push is fixed by removing the token from the
   commit, never by bypassing the protection.
+  Tests: `tests/test_personal_data.py` (`NoPersonalDataInTheTree`): a number
+  outside the 555 exchange, an email outside the example domains, a random
+  device id or Bluetooth address, an adb serial that is not a fixture's;
+  `tests/test_device_addresses.py` (`NoRealDeviceAddress`): an address with
+  a port (an adb endpoint) that is not a documentation address or in its
+  reviewed list, each entry with why it is not real.
   manual: a script cannot tell a real name from a made-up one; the reviewer
-  reads the diff and the screenshots (#302 scripts the numbers, emails and ids).
+  reads the diff and the screenshots for names and message text.
+- No workflow runs with the base repository's token on text from elsewhere,
+  and none grants more than it must: no `pull_request_target` or
+  `workflow_run` trigger; a top-level `permissions` that is read-only; a job's
+  write permission only on the reviewed list (`release`'s `publish` job, with
+  its reason); no `${{ }}` in a `run:` line or a `script:` input except the
+  values GitHub makes (event text goes through `env:`); every action pinned by
+  a full commit id. The reviewer reads a new action or permission from the diff.
+  Tests: `tests/test_workflows.py` (`ShippedWorkflows`, `Planted`),
+  `tests/test_public_text.py` (`Workflow`).
 - Nothing a device sent reaches the Fix with AI prompt except quoted, capped
   and labelled as data (`Model.aiPrompt`; a device is named by its kind). A
   test feeds a device named with an instruction.
   Tests: `tests/model.test.js`.
+- The panel's rules a script can read: nothing the IPC target reaches focuses
+  a text field, no `Keys.onEscapePressed` outside `PanelField.qml`, every
+  animation `duration:` reads `Model.MOTION`, and nothing beside a section
+  title is taller than `FoldToggle.headerHeight`. Each fails naming file:line.
+  Tests: `tests/test_panel_rules.py` (`NothingScriptedFocusesAField`,
+  `ShippedQml`, `PlantedCases`).
 
 Each line ends with the tests that fail the build for it (`Tests:` and the
 files, with the classes in brackets), or with `manual:` and one line on why a

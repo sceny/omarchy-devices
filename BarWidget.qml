@@ -245,7 +245,7 @@ BarWidget {
                 font.family: button.fontFamily
                 font.pixelSize: button.fontSize
                 renderType: Text.NativeRendering
-                Behavior on color { ColorAnimation { duration: 160 } }
+                Behavior on color { ColorAnimation { duration: Model.MOTION.inMs } }
               }
               // The battery and its %: the % starts past the glyph's ink.
               TextMetrics {
@@ -265,7 +265,7 @@ BarWidget {
                 font.family: button.fontFamily
                 font.pixelSize: button.fontSize
                 renderType: Text.NativeRendering
-                Behavior on color { ColorAnimation { duration: 160 } }
+                Behavior on color { ColorAnimation { duration: Model.MOTION.inMs } }
               }
               Text {
                 id: suffixText
@@ -278,7 +278,7 @@ BarWidget {
                 font.family: button.fontFamily
                 font.pixelSize: button.fontSize
                 renderType: Text.NativeRendering
-                Behavior on color { ColorAnimation { duration: 160 } }
+                Behavior on color { ColorAnimation { duration: Model.MOTION.inMs } }
               }
             }
           }
@@ -313,6 +313,7 @@ BarWidget {
 
           Text {
             id: bubbleText
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: chip.modelData.bubble > 9 ? "9+" : String(chip.modelData.bubble)
             color: "white"

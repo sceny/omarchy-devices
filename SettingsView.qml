@@ -105,12 +105,14 @@ Column {
     for (var i = 0; i < rows.length; i++) if (rows[i].kind === kind) return i
     return -1
   }
-  // The rows a Repeater draws: only those it is for, each with its place
-  // in the page's order (the cursor's index). A Repeater over every row
-  // builds a hidden delegate for each row it does not draw.
+  // The places a Repeater draws: only the rows it is for, each by its place
+  // in the page's order (the cursor's index); the delegate reads its row at
+  // that place. A Repeater over every row builds a hidden delegate for each
+  // row it does not draw. The model holds places only, so a row changing
+  // (a switch turned) leaves the model as it was and the delegates are kept.
   function rowsWhere(test) {
     var out = []
-    for (var i = 0; i < rows.length; i++) if (test(rows[i])) out.push({ row: rows[i], at: i })
+    for (var i = 0; i < rows.length; i++) if (test(rows[i])) out.push({ at: i })
     return out
   }
   function hasKind(kinds) {
@@ -165,6 +167,7 @@ Column {
         width: parent.width
         spacing: Style.space(6)
         Text {
+          textFormat: Text.PlainText
           Layout.leftMargin: Style.space(4)
           text: root.problemCount > 0 ? Model.GLYPH.alert : Model.GLYPH.check
           color: root.problemCount > 0 ? Color.urgent : root.foreground
@@ -208,7 +211,7 @@ Column {
         ProblemRow {
           required property var modelData
           width: statusColumn.width
-          row: modelData.row
+          row: root.rows[modelData.at]
           rowIndex: modelData.at
         }
       }
@@ -254,7 +257,7 @@ Column {
         ListRow {
           required property var modelData
           width: root.width
-          row: modelData.row
+          row: root.rows[modelData.at]
           rowIndex: modelData.at
         }
       }
@@ -268,7 +271,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -299,7 +302,7 @@ Column {
         IdentityRow {
           required property var modelData
           width: root.width
-          row: modelData.row
+          row: root.rows[modelData.at]
           rowIndex: modelData.at
         }
       }
@@ -331,7 +334,7 @@ Column {
       FeatureRow {
         required property var modelData
         width: root.width
-        row: modelData.row
+        row: root.rows[modelData.at]
         rowIndex: modelData.at
       }
     }
@@ -346,7 +349,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -357,7 +360,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -370,7 +373,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -414,7 +417,7 @@ Column {
           LayoutRow {
             required property var modelData
             width: root.width
-            row: modelData.row
+            row: root.rows[modelData.at]
             rowIndex: modelData.at
           }
         }
@@ -458,7 +461,7 @@ Column {
           ShortcutRow {
             required property var modelData
             width: root.width
-            row: modelData.row
+            row: root.rows[modelData.at]
             rowIndex: modelData.at
           }
         }
@@ -468,7 +471,7 @@ Column {
           LayoutRow {
             required property var modelData
             width: root.width
-            row: modelData.row
+            row: root.rows[modelData.at]
             rowIndex: modelData.at
           }
         }
@@ -513,7 +516,7 @@ Column {
           ShortcutRow {
             required property var modelData
             width: root.width
-            row: modelData.row
+            row: root.rows[modelData.at]
             rowIndex: modelData.at
           }
         }
@@ -537,7 +540,7 @@ Column {
     CheckRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -613,7 +616,7 @@ Column {
     PairingCardRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -651,7 +654,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -661,7 +664,7 @@ Column {
     PairingCardRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -714,7 +717,7 @@ Column {
     model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "open" }) : []
     ScreenTileRow {
       required property var modelData
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -722,7 +725,7 @@ Column {
     model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "place" }) : []
     ScreenPlaceRow {
       required property var modelData
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -730,7 +733,7 @@ Column {
     model: root.scopeKind === "screen" ? root.rowsWhere(function(r) { return r.kind === "screenAction" && r.key === "appSound" }) : []
     ScreenSoundRow {
       required property var modelData
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -739,7 +742,7 @@ Column {
     ListRow {
       required property var modelData
       width: root.width
-      row: modelData.row
+      row: root.rows[modelData.at]
       rowIndex: modelData.at
     }
   }
@@ -906,6 +909,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: (listRow.row.glyph || "") !== ""
         text: listRow.row.glyph || ""
         color: root.foreground
@@ -989,6 +993,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         visible: ["device", "defaults", "editPage", "connection", "addDevice", "keys"].indexOf(listRow.row.kind) >= 0
         text: Model.GLYPH.chevronRight
         color: root.dim
@@ -998,6 +1003,7 @@ Column {
       }
       // A choice on Screen and apps (Opens under the bar, Opens as a window).
       Text {
+        textFormat: Text.PlainText
         visible: listRow.row.kind === "screenAction" && listRow.row.on !== undefined
         text: listRow.row.on === true ? Model.GLYPH.checked : Model.GLYPH.unchecked
         color: listRow.row.on === true ? root.foreground : root.dim
@@ -1006,6 +1012,7 @@ Column {
         Layout.alignment: Qt.AlignVCenter
       }
       Text {
+        textFormat: Text.PlainText
         visible: listRow.row.kind === "resetGroup"
         text: Model.GLYPH.reset
         color: root.dim
@@ -1033,6 +1040,7 @@ Column {
       anchors.rightMargin: Style.space(12)
       spacing: Style.space(14)
       Text {
+        textFormat: Text.PlainText
         text: root.justPaired ? root.justPaired.glyph : ""
         color: Color.accent
         font.family: root.fontFamily
@@ -1098,6 +1106,7 @@ Column {
         spacing: Style.space(14)
 
         Text {
+          textFormat: Text.PlainText
           Layout.alignment: Qt.AlignTop
           Layout.topMargin: Style.space(2)
           text: pcard.row.glyph || ""
@@ -1187,6 +1196,7 @@ Column {
       anchors.centerIn: parent
       spacing: Style.space(4)
       Text {
+        textFormat: Text.PlainText
         anchors.verticalCenter: parent.verticalCenter
         text: pillBox.failing ? Model.GLYPH.alert : (pillBox.on ? Model.GLYPH.check : Model.GLYPH.optional)
         color: pillBox.failing ? Color.urgent : (pillBox.on ? root.foreground : root.dim)
@@ -1246,6 +1256,7 @@ Column {
           height: tileGlyph.implicitHeight
           Text {
             id: tileGlyph
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: Model.GLYPH.screen
             color: root.screenOpen ? Color.accent : root.foreground
@@ -1568,6 +1579,7 @@ Column {
         elide: Text.ElideRight
       }
       Text {
+        textFormat: Text.PlainText
         text: Model.GLYPH.chevronRight
         color: root.dim
         font.family: root.fontFamily
@@ -1656,6 +1668,7 @@ Column {
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
     readonly property bool switchable: row.switchable === true
+    readonly property bool shown: row.shown !== undefined ? row.shown : row.on !== false
     hasCursor: false
     CursorStop { here: root.cursorIndex === featureRow.rowIndex; glide: root.cursorGlide }
     foreground: root.foreground
@@ -1666,7 +1679,7 @@ Column {
       hoverEnabled: true
       cursorShape: featureRow.switchable ? Qt.PointingHandCursor : Qt.ArrowCursor
       onEntered: root.hovered(featureRow.rowIndex)
-      onClicked: if (featureRow.switchable && !featureRow.working) root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
+      onClicked: if (featureRow.switchable && !featureRow.working) root.featureSwitched(featureRow.rowIndex, !featureRow.shown)
     }
 
     RowLayout {
@@ -1679,11 +1692,12 @@ Column {
       spacing: Style.space(10)
 
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignVCenter
         Layout.preferredWidth: Style.space(20)
         horizontalAlignment: Text.AlignHCenter
         text: featureRow.row.glyph || ""
-        color: featureRow.row.on === false ? root.dim : root.foreground
+        color: !featureRow.shown ? root.dim : root.foreground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
       }
@@ -1694,7 +1708,7 @@ Column {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           text: featureRow.row.label || ""
-          color: featureRow.row.on === false ? root.dim : root.foreground
+          color: !featureRow.shown ? root.dim : root.foreground
           font.family: root.fontFamily
           font.pixelSize: Style.font.body
           elide: Text.ElideRight
@@ -1721,13 +1735,23 @@ Column {
           }
         }
       }
+      // The ring waits where it is shown and takes the room always, so the
+      // row never changes its layout while the work runs.
+      WaitRing {
+        visible: featureRow.switchable
+        Layout.alignment: Qt.AlignVCenter
+        Layout.preferredWidth: Math.round(Style.font.caption * 1.2)
+        running: featureRow.working
+        color: root.dim
+        size: Math.round(Style.font.caption * 1.2)
+      }
       ToggleSwitch {
         visible: featureRow.switchable
         Layout.alignment: Qt.AlignVCenter
-        checked: featureRow.row.on !== false
+        checked: featureRow.shown
         busy: featureRow.working
         foreground: root.foreground
-        onToggled: root.featureSwitched(featureRow.rowIndex, featureRow.row.on === false)
+        onToggled: root.featureSwitched(featureRow.rowIndex, !featureRow.shown)
       }
     }
   }
@@ -1767,6 +1791,7 @@ Column {
       anchors.rightMargin: Style.space(6)
 
       Text {
+        textFormat: Text.PlainText
         Layout.row: 0
         Layout.column: 0
         Layout.alignment: Qt.AlignVCenter
@@ -1936,6 +1961,7 @@ Column {
         }
 
         Text {
+          textFormat: Text.PlainText
           visible: idRow.row.kind === "icon"
           text: idRow.row.glyph || ""
           color: root.foreground
@@ -2130,6 +2156,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         text: shortcutRow.row.on ? Model.GLYPH.checked : Model.GLYPH.unchecked
         color: shortcutRow.row.on ? root.foreground : root.dim
         font.family: root.fontFamily
@@ -2138,6 +2165,7 @@ Column {
       }
 
       Text {
+        textFormat: Text.PlainText
         text: shortcutRow.row.glyph || ""
         color: root.foreground
         font.family: root.fontFamily

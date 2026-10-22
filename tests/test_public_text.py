@@ -67,6 +67,10 @@ class Environment(unittest.TestCase):
             "The phone's screen opens under the bar; demo mode shows a Pixel 8.",
             "A picture is decoded in a sandbox, never by the shell.",
             "Thumbnails are decoded in a sandbox with no network.",
+            "Pictures are decoded only in a sandbox, never by the shell.",
+            "Decoding happens in the sandbox.",
+            "Decoding runs in a sandbox with no network.",
+            "Each image is decoded within its own sandbox.",
             "The cache is `~/.cache/sceny.devices/` and stills live in $XDG_RUNTIME_DIR/sceny.devices/.",
             "The QML container item keeps the row's width.",
             "The container keeps its width.",
@@ -116,6 +120,10 @@ class Environment(unittest.TestCase):
             ("container", "Started a container and opened the panel."),
             ("sandbox", "The thumbnails are decoded, the picture looks right and the panel was checked in the sandbox."),
             ("container", "The layout of the panel was fine and we checked all of it in a container."),
+            ("sandbox", "Ran the suite in the sandbox, which decodes the picture."),
+            ("sandbox", "Verified: decoded images look right in the sandbox."),
+            ("sandbox", "Checked in the sandbox that images decode."),
+            ("sandbox", "Thumbnails are decoded, and the panel was checked in the sandbox."),
         ]:
             with self.subTest(text=text):
                 self.assertIn((ENV, rule), problems(text))
@@ -126,6 +134,7 @@ class Environment(unittest.TestCase):
             "The QML item is placed in a container row.",
             "Thumbnails are decoded in the sandbox before the shell loads them.",
             "Every layout runs inside a container item.",
+            "Pictures are decoded in the sandbox, and the panel loads them.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -135,6 +144,8 @@ class Environment(unittest.TestCase):
             "The container keeps its width.",
             "A container for the pinned row grows with its content.",
             "Containers hold the shortcuts.",
+            "Creates a container for the cards.",
+            "Creates a container for the tiles and the grid.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -142,15 +153,27 @@ class Environment(unittest.TestCase):
             "Ran it inside a rootless container.",
             "A fresh container per run.",
             "The container image is rebuilt.",
+            "Creates a container from the image.",
         ]:
             with self.subTest(text=text):
                 self.assertIn((ENV, "container"), problems(text))
 
     def test_a_count_of_tests_a_change_adds_is_not_a_run(self):
-        for text in ["Adds 3 tests.", "Added 12 new tests for the key.", "Includes 2 tests for the order."]:
+        for text in [
+            "Adds 3 tests.",
+            "Added 12 new tests for the key.",
+            "Includes 2 tests for the order.",
+            "Adds 3 tests and writes 2 tests.",
+        ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
-        for text in ["Adds a case. The suite ran 380 tests.", "Adds 3 tests; 380 tests pass.", "Adds 3 tests, 92 passed."]:
+        for text in [
+            "Adds a case. The suite ran 380 tests.",
+            "Adds 3 tests; 380 tests pass.",
+            "Adds 3 tests, 92 passed.",
+            "We add 3 tests and 92 tests pass.",
+            "Adds 3 tests and 92 tests pass.",
+        ]:
             with self.subTest(text=text):
                 self.assertTrue(checks(text), text)
 
@@ -297,6 +320,34 @@ class Standing(unittest.TestCase):
             self.assertEqual(sorted((w, r) for w, _, r, _ in found),
                              [("AGENTS.md:2", "date-as-history"), ("AGENTS.md:2", "owner-said"),
                               ("AGENTS.md:2", "task-id"), ("AGENTS.md:3", "owner-said")])
+
+
+class PublicFiles(unittest.TestCase):
+    def check_release_notes(self, text):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "CHANGELOG.md"), "w") as handle:
+                handle.write(text)
+            return [(where, rule) for where, _, rule, _ in ptc.check_public_files(RULES, root)]
+
+    def test_a_release_note_line_with_a_task_id_fails(self):
+        self.assertEqual(self.check_release_notes("## 1.0.0\n\n- Fixed the fold (#12).\n- Copied from a title (SCE-123).\n"),
+                         [("CHANGELOG.md:4", "task-id")])
+
+    def test_a_release_note_names_no_private_path_count_or_paperclip(self):
+        found = self.check_release_notes("- Logs in /home/someone/x.\n- Stored under ~/.config/thing.\n"
+                                         "- Output in /tmp/run/out.\n- The suite ran 380 tests.\n- Tracked on the paperclip board.\n")
+        self.assertEqual(found, [("CHANGELOG.md:1", "home-path"), ("CHANGELOG.md:2", "dot-path"),
+                                 ("CHANGELOG.md:3", "tmp-path"), ("CHANGELOG.md:4", "test-count"),
+                                 ("CHANGELOG.md:5", "paperclip")])
+
+    def test_a_released_entry_may_name_the_rig_and_the_emulator(self):
+        self.assertEqual(self.check_release_notes("- A hidden test rig (`dev/rig`) with a small Android emulator.\n"), [])
+
+    def test_the_release_notes_pass(self):
+        self.assertEqual(ptc.check_public_files(RULES), [])
+
+    def test_every_pattern_it_names_exists(self):
+        self.assertTrue(set(RULES["public_files"]["pattern_ids"]) <= {p["id"] for p in RULES["environment"]["patterns"]})
 
 
 class Rules(unittest.TestCase):

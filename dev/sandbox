@@ -78,7 +78,8 @@
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
 # SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
 # SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
-# SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox).
+# SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox); a
+# store moved this way keeps its podman runroot inside itself.
 
 set -uo pipefail
 
@@ -87,8 +88,12 @@ SB_REPO_ROOT=$(cd -- "$SB_DIR/.." && pwd)
 
 SB_UID=$(id -u)
 SB_HOME=$(getent passwd "$SB_UID" | cut -d: -f6)
-SB_STATE=${SANDBOX_STATE:-$SB_HOME/.local/share/sceny-sandbox}
+SB_STATE_DEFAULT=$SB_HOME/.local/share/sceny-sandbox
+SB_STATE=${SANDBOX_STATE:-$SB_STATE_DEFAULT}
 SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
+if [[ $SB_STATE != "$SB_STATE_DEFAULT" ]]; then
+  SB_RUNTIME=$SB_STATE/runroot
+fi
 SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
 SB_ID_LOG=""
@@ -224,7 +229,7 @@ cmd_build() {
   # directory lives, and its context gone mid-way fails the later images.
   mkdir -p "$SB_STATE/builds"
   ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
-  trap 'rm -rf "$ctx"; store_lock_release' RETURN
+  trap "rm -rf '$ctx'; store_lock_release" EXIT
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
@@ -336,6 +341,18 @@ run_cleanup() {
   fi
   SB_RUN_NAME="" SB_RUN_DIR=""
   store_lock_release
+}
+
+# A run killed by a signal its traps do not catch never reaches run_cleanup. Every
+# run holds the store lock to its end, so once this command holds it, nothing
+# under runs/ is live.
+clear_stale_runs() {
+  local dir
+  for dir in "$SB_STATE"/runs/*; do
+    [[ -e $dir ]] || continue
+    warn "removed the directory of a run that did not finish: ${dir##*/}"
+    rm -rf -- "$dir"
+  done
 }
 
 # Podman's default seccomp profile without new user namespaces, made for the run.
@@ -642,6 +659,7 @@ cmd_run() {
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
+  clear_stale_runs
   mkdir -p -m 700 "$SB_RUN_DIR"
   mkdir -p -m 700 "$out"
 
@@ -924,6 +942,7 @@ dev_pull() {
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
+  clear_stale_runs
   mkdir -p -m 700 "$SB_RUN_DIR" "$out"
   mkdir -p -m 755 "$SB_RUN_DIR/png"
 
