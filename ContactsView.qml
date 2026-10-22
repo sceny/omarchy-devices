@@ -481,6 +481,7 @@ Item {
         visible: !view.hasCard
         spacing: Style.space(6)
         Text {
+          textFormat: Text.PlainText
           anchors.horizontalCenter: parent.horizontalCenter
           text: Model.GLYPH.contacts
           color: view.dim
@@ -745,6 +746,7 @@ Item {
       spacing: Style.space(10)
 
       Text {
+        textFormat: Text.PlainText
         Layout.alignment: Qt.AlignTop
         Layout.topMargin: Style.space(2)
         text: detail.model.glyph

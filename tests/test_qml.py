@@ -868,5 +868,70 @@ class QmldirListsEveryComponent(unittest.TestCase):
         self.assertEqual(self.used_by_name(sources, listed), [("Single", "Gone2"), ("Uses", "Gone")])
 
 
+def text_items_not_plain(path):
+    """file:line of each Text or Label that does not write `textFormat: Text.PlainText`
+    itself (a child's line does not count). Qt's default, AutoText, renders a
+    string that looks like HTML as rich text."""
+    with open(path) as f:
+        raw = f.read()
+    text = code_only(raw)
+    name = os.path.basename(path)
+    found = []
+    for m in re.finditer(r"(?<![\w.])(Text|Label)\s*\{", text):
+        depth, own = 1, []
+        for i in range(m.end(), len(text)):
+            c = text[i]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            if depth == 1:
+                own.append(text[i])
+        if not re.search(r"(?:^|[;\s])textFormat\s*:\s*Text\.PlainText\b", "".join(own)):
+            found.append("%s:%d: %s without textFormat: Text.PlainText" % (name, text.count("\n", 0, m.start()) + 1, m.group(1)))
+    return found
+
+
+class QmlTextIsPlain(unittest.TestCase):
+    def test_every_text_and_label_is_plain_text(self):
+        files = sorted(glob.glob(os.path.join(ROOT, "*.qml")))
+        found = [p for f in files for p in text_items_not_plain(f)]
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_scan_reads_the_items(self):
+        seen = 0
+        for f in glob.glob(os.path.join(ROOT, "*.qml")):
+            with open(f) as h:
+                seen += len(re.findall(r"(?<![\w.])(?:Text|Label)\s*\{", code_only(h.read())))
+        self.assertGreater(seen, 100)
+
+    def planted(self, source):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write(source)
+        try:
+            return text_items_not_plain(f.name)
+        finally:
+            os.remove(f.name)
+
+    def test_the_check_finds_a_text_without_the_line(self):
+        found = self.planted("Item {\n  Text {\n    text: x\n  }\n  Label { text: y }\n}\n")
+        self.assertEqual([p.split(": ", 1)[0].split(":")[1] for p in found], ["2", "5"], found)
+
+    def test_a_glyph_only_item_is_held_to_it_too(self):
+        self.assertEqual(len(self.planted("Item { Text { text: Model.GLYPH.alert; font.pixelSize: 12 } }\n")), 1)
+
+    def test_a_child_or_a_string_or_a_comment_does_not_count(self):
+        self.assertEqual(len(self.planted(
+            'Text {\n  text: "textFormat: Text.PlainText"\n  // textFormat: Text.PlainText\n'
+            '  Item { property int textFormat: Text.PlainText }\n}\n')), 1)
+
+    def test_the_line_passes(self):
+        self.assertEqual(self.planted("Text { textFormat: Text.PlainText; text: x }\nText {\n  textFormat: Text.PlainText\n  Item { }\n}\n"), [])
+        self.assertEqual(self.planted("Item { elide: Text.ElideRight; wrapMode: TextEdit.Wrap }\n"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

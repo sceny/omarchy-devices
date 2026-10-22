@@ -259,6 +259,7 @@ PanelWindow {
     // No old still: the device's glyph, upright and its own size while the
     // card turns and scales around it, until the new picture fades in.
     Text {
+      textFormat: Text.PlainText
       visible: turn.oldStill === "" || oldImage.status !== Image.Ready
       opacity: 1 - turn.blend
       anchors.centerIn: parent
