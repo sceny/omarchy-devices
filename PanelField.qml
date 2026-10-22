@@ -13,6 +13,10 @@ import qs.Ui
 //    page's own Esc takes over from there.
 // Fields set these, never their own Keys.onEscapePressed.
 //
+// `multiline` (a text message): the text wraps, Shift+Enter ends a line, Enter
+// still accepts, and the field grows with its text up to `maxLines`, then
+// scrolls. It grows at the owner's pace (`growMs`), never in a jump.
+//
 // It is a TextEdit, not a TextField: a TextField (QQuickTextInput) reads the
 // whole clipboard text whenever it becomes editable or the clipboard changes
 // (q_canPasteChanged: mimeData()->text()), with no limit on size or time, so
@@ -49,6 +53,9 @@ FocusScope {
   signal steppedOut()
   signal accepted()
 
+  property bool multiline: false
+  property int maxLines: 5
+  property int growMs: 0
   property alias text: edit.text
   property alias font: edit.font
   property alias cursorPosition: edit.cursorPosition
@@ -95,10 +102,20 @@ FocusScope {
   function _keepsSelection(event) {
     if (_modifierKeys.indexOf(event.key) >= 0) return true
     if (event.key === Qt.Key_Backspace && !(event.modifiers & ~Qt.ShiftModifier)) return true
+    if (multiline && _newLine(event)) return true
     if (event.matches(StandardKey.Delete) || event.matches(StandardKey.DeleteStartOfWord)
         || event.matches(StandardKey.DeleteEndOfWord) || event.matches(StandardKey.DeleteEndOfLine)) return true
     var ctrl = event.modifiers & (Qt.ControlModifier | Qt.MetaModifier)
     return event.text !== "" && event.text.charCodeAt(0) >= 0x20 && event.text.charCodeAt(0) !== 0x7F && !ctrl
+  }
+
+  function _enter(event) {
+    if (multiline && _newLine(event)) _insert("\n")
+    else accepted()
+  }
+
+  function _newLine(event) {
+    return (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && (event.modifiers & Qt.ShiftModifier)
   }
 
   // The selection's fixed end: where it began.
@@ -113,7 +130,7 @@ FocusScope {
     edit.select(p - t.slice(0, p).match(/\S*$/)[0].length, p + t.slice(p).match(/^\S*/)[0].length)
   }
 
-  readonly property var _breaks: new RegExp("[\\r\\n\\t" + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
+  readonly property var _breaks: new RegExp((multiline ? "[\\r\\t" : "[\\r\\n\\t") + String.fromCharCode(0x2028, 0x2029) + "]+", "g")
 
   // Replaces the selection with `incoming` cut to the cap, on one line.
   function _insert(incoming) {
@@ -123,6 +140,7 @@ FocusScope {
     var part = incoming.slice(0, room)
     var last = part.length > 0 ? part.charCodeAt(part.length - 1) : 0
     if (last >= 0xD800 && last <= 0xDBFF) part = part.slice(0, -1)
+    if (multiline) part = part.replace(/\r\n?/g, "\n")
     part = part.replace(_breaks, " ")
     var at = edit.cursorPosition
     edit.insert(at, part)
@@ -135,7 +153,17 @@ FocusScope {
   readonly property real _padY: Style.spacing.inputPaddingY
 
   implicitWidth: 120
-  implicitHeight: edit.implicitHeight + _padY * 2 + Border.top(_borderSpec) + Border.bottom(_borderSpec)
+  readonly property real _frameHeight: _padY * 2 + Border.top(_borderSpec) + Border.bottom(_borderSpec)
+  readonly property real _wantHeight: multiline
+    ? Math.min(Math.ceil(edit.contentHeight), Math.max(1, maxLines) * lineMetrics.lineSpacing) + _frameHeight
+    : edit.implicitHeight + _frameHeight
+  property real _shownHeight: _wantHeight
+  Behavior on _shownHeight {
+    enabled: field.multiline && field.growMs > 0
+    NumberAnimation { duration: field.growMs; easing.type: Easing.OutCubic }
+  }
+  implicitHeight: _shownHeight
+  FontMetrics { id: lineMetrics; font: edit.font }
 
   BorderSurface {
     anchors.fill: parent
@@ -152,30 +180,35 @@ FocusScope {
     anchors.topMargin: field._padY + Border.top(field._borderSpec)
     anchors.bottomMargin: field._padY + Border.bottom(field._borderSpec)
     clip: true
-    interactive: false
+    interactive: field.multiline
     contentWidth: edit.width
     contentHeight: edit.height
     function ensureVisible(r) {
       if (contentX >= r.x) contentX = r.x
       else if (contentX + width <= r.x + r.width) contentX = r.x + r.width - width
+      if (!field.multiline) return
+      if (contentY > r.y) contentY = r.y
+      else if (contentY + height < r.y + r.height) contentY = r.y + r.height - height
+      contentY = Math.max(0, Math.min(contentY, contentHeight - height))
     }
+    onHeightChanged: ensureVisible(edit.cursorRectangle)
 
     TextMetrics { id: measure; font: edit.font; text: edit.text + edit.preeditText }
 
     TextEdit {
       id: edit
       focus: true
-      width: Math.max(flick.width, measure.advanceWidth + 4)
+      width: field.multiline ? flick.width : Math.max(flick.width, measure.advanceWidth + 4)
       height: Math.max(flick.height, contentHeight)
       textFormat: TextEdit.PlainText
-      wrapMode: TextEdit.NoWrap
+      wrapMode: field.multiline ? TextEdit.WrapAtWordBoundaryOrAnywhere : TextEdit.NoWrap
       selectByMouse: false
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       color: field.foreground
       selectionColor: Style.selectionFillFor(field.foreground, field.accent)
       selectedTextColor: field.foreground
-      verticalAlignment: TextEdit.AlignVCenter
+      verticalAlignment: field.multiline ? TextEdit.AlignTop : TextEdit.AlignVCenter
       onCursorRectangleChanged: flick.ensureVisible(cursorRectangle)
 
       // Over the cap, then one line: a paste or an input method can bring
@@ -223,9 +256,10 @@ FocusScope {
       }
       // The owner's own keys (Keys.onPressed, onDownPressed, ...) first.
       Keys.forwardTo: [field]
-      // Enter ends the line instead of adding one.
-      Keys.onReturnPressed: function(event) { event.accepted = true; field.accepted() }
-      Keys.onEnterPressed: function(event) { event.accepted = true; field.accepted() }
+      // Enter ends the line instead of adding one; in a multiline field
+      // Shift+Enter adds it.
+      Keys.onReturnPressed: function(event) { event.accepted = true; field._enter(event) }
+      Keys.onEnterPressed: function(event) { event.accepted = true; field._enter(event) }
       Keys.onTabPressed: function(event) { event.accepted = true }
       Keys.onBacktabPressed: function(event) { event.accepted = true }
       Keys.onEscapePressed: function(event) {
@@ -241,7 +275,8 @@ FocusScope {
   Text {
     anchors.left: flick.left
     anchors.right: flick.right
-    anchors.verticalCenter: flick.verticalCenter
+    anchors.verticalCenter: field.multiline ? undefined : flick.verticalCenter
+    anchors.top: field.multiline ? flick.top : undefined
     visible: edit.length === 0 && edit.preeditText === ""
     text: field.placeholderText
     font: edit.font

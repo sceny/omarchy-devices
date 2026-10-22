@@ -36,6 +36,7 @@ Only your own click or Enter puts the cursor in the reply field.
 | `j` `k` · `g` `G` | Move · first, last |
 | `l` `h` | Into the conversation · back |
 | Enter | Open and reply; on a message: its picture, or copy |
+| Shift+Enter | A new line in the reply (it grows to five lines) |
 | `/` · `u` · `n` · `i` | Search · unread · new · reply |
 | PgUp PgDn | A page |
 | Esc · `0` | Back to where you came from · Home |
