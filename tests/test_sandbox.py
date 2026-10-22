@@ -1096,5 +1096,28 @@ class Reencode(unittest.TestCase):
         self.assertNotIn(b"HOSTILE-TEXT", data)
 
 
+class BuildContext(unittest.TestCase):
+    def test_a_failed_build_removes_its_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = os.path.join(tmp, "state")
+            script = (
+                f'source "{SANDBOX}"\n'
+                "require_tools() { :; }\n"
+                "pm() { return 1; }\n"
+                "cmd_build --ref HEAD --profile devices\n"
+            )
+            r = subprocess.run(
+                ["bash", "-c", script],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state},
+            )
+            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+            self.assertIn("the base image did not build", r.stderr)
+            left = [n for n in os.listdir(os.path.join(state, "builds")) if n.startswith("sceny-sandbox-build.")]
+            self.assertEqual(left, [], "a failed build leaves its context behind")
+
+
 if __name__ == "__main__":
     unittest.main()

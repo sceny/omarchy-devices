@@ -224,7 +224,7 @@ cmd_build() {
   # directory lives, and its context gone mid-way fails the later images.
   mkdir -p "$SB_STATE/builds"
   ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
-  trap 'rm -rf "$ctx"; store_lock_release' RETURN
+  trap "rm -rf '$ctx'; store_lock_release" EXIT
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
