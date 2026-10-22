@@ -299,6 +299,34 @@ class Standing(unittest.TestCase):
                               ("AGENTS.md:2", "task-id"), ("AGENTS.md:3", "owner-said")])
 
 
+class PublicFiles(unittest.TestCase):
+    def check_release_notes(self, text):
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "CHANGELOG.md"), "w") as handle:
+                handle.write(text)
+            return [(where, rule) for where, _, rule, _ in ptc.check_public_files(RULES, root)]
+
+    def test_a_release_note_line_with_a_task_id_fails(self):
+        self.assertEqual(self.check_release_notes("## 1.0.0\n\n- Fixed the fold (#12).\n- Copied from a title (SCE-123).\n"),
+                         [("CHANGELOG.md:4", "task-id")])
+
+    def test_a_release_note_names_no_private_path_count_or_paperclip(self):
+        found = self.check_release_notes("- Logs in /home/someone/x.\n- Stored under ~/.config/thing.\n"
+                                         "- Output in /tmp/run/out.\n- The suite ran 380 tests.\n- Tracked on the paperclip board.\n")
+        self.assertEqual(found, [("CHANGELOG.md:1", "home-path"), ("CHANGELOG.md:2", "dot-path"),
+                                 ("CHANGELOG.md:3", "tmp-path"), ("CHANGELOG.md:4", "test-count"),
+                                 ("CHANGELOG.md:5", "paperclip")])
+
+    def test_a_released_entry_may_name_the_rig_and_the_emulator(self):
+        self.assertEqual(self.check_release_notes("- A hidden test rig (`dev/rig`) with a small Android emulator.\n"), [])
+
+    def test_the_release_notes_pass(self):
+        self.assertEqual(ptc.check_public_files(RULES), [])
+
+    def test_every_pattern_it_names_exists(self):
+        self.assertTrue(set(RULES["public_files"]["pattern_ids"]) <= {p["id"] for p in RULES["environment"]["patterns"]})
+
+
 class Rules(unittest.TestCase):
     def test_every_pattern_compiles_and_has_an_id(self):
         patterns = (RULES["environment"]["patterns"] + RULES["open_item"]["markers"] +

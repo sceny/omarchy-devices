@@ -185,5 +185,9 @@
         "regex": "\\bthe owner(?:'s)? (?:said|decided|asked|decision|ask)\\b(?! (?:go|or no)\\b)"
       }
     ]
+  },
+  "public_files": {
+    "files": ["CHANGELOG.md"],
+    "pattern_ids": ["task-id", "paperclip", "home-path", "dot-path", "tmp-path", "test-count-passed", "test-count"]
   }
 }
