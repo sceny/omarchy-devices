@@ -20,6 +20,14 @@ typed, so a short code works too.
 
 ![A new message with suggestions (demo data)](../images/new-message.png)
 
+## Send a picture
+
+The paperclip beside the reply field opens Omarchy's file chooser. The
+picture waits above the field with its name; ✕ takes it back. It goes with
+the message (or alone) as an MMS, scaled down to fit a text message, so
+its location and camera details do not travel. Your phone's carrier and
+plan must allow MMS.
+
 ## By keyboard
 
 `l` moves into the conversation, where a highlight goes from message to
