@@ -958,7 +958,9 @@ Panel {
       setup.features = setup.features.map(function(r) {
         var p = pend[id + ":" + r.key] || null
         if (p && r.state === "on") p = null   // done: nothing pending
-        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed) })
+        var asked = phone.featureAsked[id + ":" + r.key] || null
+        return Object.assign({}, r, { pending: p, problem: r.state === "attention" || (!!p && p.failed),
+                                      shown: asked ? asked.on : r.on !== false })
       })
       out[id] = setup
     })
@@ -1191,9 +1193,15 @@ Panel {
     }
     var plugins = f.switch.filter(function(k) { return k.indexOf("plugin:") === 0 }).map(function(k) { return k.slice(7) })
     if (plugins.length === 0) return
-    if (on) { featureAction(row); return }
-    phone.runSteps(String(d.id), [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
-                   "feature:" + row.key)
+    // The knob moves now and the work follows; one change at a time.
+    if (phone.isBusy("feature:" + row.key)) return
+    var id = String(d.id)
+    phone.setAsked(id, row.key, on)
+    if (on) featureAction(row)
+    else phone.runSteps(id, [{ kind: "auto", fix: { verb: "device", what: "plugin", arg: plugins.map(function(k) { return k + "=off" }).join(",") } }],
+                        "feature:" + row.key)
+    // Nothing ran (a page opened, a step left to the user): the knob stays as it was.
+    if (!phone.isBusy("feature:" + row.key)) phone.setAsked(id, row.key, null)
   }
   // Fix all, for what the page is about: Settings' status everything (this
   // computer first, its password asked once), This computer its checks, a
@@ -2500,7 +2508,7 @@ Panel {
     else if (row.kind === "screenAction") screenAction(row.key)
     else if (row.kind === "reachAction") reachAction(row.key, row.address, typeHere)
     // What it shares: Enter flips its switch, as a click on it would.
-    else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.on === false)
+    else if (row.kind === "feature" && row.switchable) featureSwitch(row, row.shown === false)
     else if (row.kind === "ready") getReady()
     else if (row.kind === "problem") openScope(row.opens ? row.opens : row.where === "computer" ? "connection" : row.where)
   }
