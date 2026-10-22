@@ -1,0 +1,197 @@
+#!/usr/bin/env python3
+"""Run R3, the regression on the emulator, for one commit, and write its record.
+
+  dev/regression <sha> [--out DIR] [--timeout SECONDS]
+  dev/regression <sha> --from-output DIR [--out DIR]
+
+The run goes through `dev/sandbox run` with the rig steps and dev/regression.sh.
+The record (regression-record.md) is built only from what the run measured:
+the sandbox's summary.json, the rig's summary.txt and the script's features.tsv.
+A row nothing measured is "not yet", never a pass. A "look" row is a screenshot
+a person judges; it is counted in the record and does not change the status.
+
+Exit status: 0 when every row passes; 1 when a row fails or the run left no
+evidence; 2 when no row fails but some are not yet checked.
+
+--from-output reads a finished run's output (the same layout) and writes the
+record without starting a sandbox.
+"""
+
+import argparse
+import datetime
+import json
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+SANDBOX = HERE / "sandbox"
+SCRIPT = HERE / "regression.sh"
+REPO = "sceny/omarchy-devices"
+PASS, FAIL, NOT_YET, LOOK = "pass", "fail", "not yet", "look"
+
+NEEDS_REAL_DEVICE = [
+    ("Bluetooth audio", "The emulator has no Bluetooth stack"),
+    ("A real call", "The emulator has no cellular network or call audio"),
+    ("A carrier's messages", "The emulator has no carrier network"),
+    ("A vendor's battery settings", "The emulator has no vendor battery manager"),
+    ("A phone's permission screens", "The emulator does not show the phone's own prompts"),
+]
+
+
+def fail(message):
+    sys.exit(f"regression: {message}")
+
+
+def git(*args):
+    done = subprocess.run(["git", *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        fail(f"git {' '.join(args)} failed: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def read_summary(output):
+    path = output / "summary.json"
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except ValueError:
+        return None
+
+
+def sandbox_rows(summary):
+    rows = []
+    if not summary.get("results"):
+        rows.append(("Sandbox: units", "The run ran its units", "dev/sandbox run", FAIL,
+                     "summary.json lists no results"))
+    for result in summary.get("results", []):
+        clean = (result["exit"] == 0 and not result.get("note")
+                 and not result.get("oom_killed") and not result.get("timed_out"))
+        rows.append((f"Sandbox: {result['step']}", "The step exits 0 in the sandbox",
+                     "dev/sandbox run", PASS if clean else FAIL, "summary.json"))
+    limits = summary.get("timed_out") or summary.get("oom_killed")
+    rows.append(("Sandbox: limits", "The run stays within its time and memory limits",
+                 "dev/sandbox run", FAIL if limits else PASS, "summary.json"))
+    return rows
+
+
+def rig_rows(output):
+    rows = []
+    for path in sorted(output.rglob("summary.txt")):
+        with path.open() as handle:
+            if not handle.readline().startswith("rig summary for"):
+                continue
+        evidence = path.relative_to(output).as_posix()
+        for line in path.read_text().splitlines():
+            match = re.match(r"^(\S+)\s+(pass|FAIL)(\s|$)", line)
+            if match:
+                result = PASS if match.group(2) == "pass" else FAIL
+                rows.append((f"Rig: {match.group(1)}", "The rig check holds",
+                             "dev/rig ci", result, evidence))
+    if not rows:
+        rows.append(("Rig checks", "The rig checks run", "dev/rig ci", FAIL,
+                     "no rig summary in the run's output"))
+    return rows
+
+
+def script_rows(output):
+    path = output / "features.tsv"
+    if not path.is_file():
+        return [("Script checks", "The script's checks run", "dev/regression.sh", FAIL,
+                 "the script wrote no features.tsv")]
+    rows = []
+    for line in path.read_text().splitlines()[1:]:
+        if not line.strip():
+            continue
+        feature, rule, how, result, evidence = (line.split("\t") + [""] * 5)[:5]
+        if result not in (PASS, NOT_YET, LOOK):
+            result = FAIL
+        rows.append((feature, rule, how, result, evidence))
+    return rows
+
+
+def verdict(rows):
+    if any(row[3] == FAIL for row in rows) or not rows:
+        return 1
+    if any(row[3] == NOT_YET for row in rows):
+        return 2
+    return 0
+
+
+def cell(text):
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def render(sha, tree, when, summary, rows, code):
+    verdict_text = {0: "PASS", 1: "FAIL", 2: "NOT PASS (rows not yet checked)"}[code]
+    counts = {status: sum(1 for row in rows if row[3] == status) for status in (PASS, FAIL, NOT_YET, LOOK)}
+    lines = [
+        f"# Regression record for {sha[:12]}",
+        "",
+        f"- Candidate: [{sha[:7]}](https://github.com/{REPO}/commit/{sha}), tree `{tree}`",
+        f"- Run: {when}" + (f", {summary['seconds']} s in the sandbox" if summary else ", no sandbox summary"),
+        f"- Verdict: **{verdict_text}**: {counts[PASS]} pass, {counts[FAIL]} fail, {counts[NOT_YET]} not yet, {counts[LOOK]} to look at",
+        "",
+        "| Feature | Rule | How checked | Result | Evidence |",
+        "|---|---|---|---|---|",
+    ]
+    lines += [f"| {' | '.join(cell(c) for c in row[:4])} | {cell(row[4])} |" for row in rows]
+    lines += [
+        "",
+        "## Needs a real device",
+        "",
+        "| What | Why the emulator cannot | What the owner does | Result |",
+        "|---|---|---|---|",
+    ]
+    lines += [f"| {cell(what)} | {cell(why)} | Checks it on a real phone before the go | |"
+              for what, why in NEEDS_REAL_DEVICE]
+    return "\n".join(lines) + "\n"
+
+
+def main(argv):
+    parser = argparse.ArgumentParser(description="Run R3 for one commit and write its record.")
+    parser.add_argument("sha", help="full 40-hex SHA of the candidate commit")
+    parser.add_argument("--out", type=Path,
+                        help="record directory (default: under $XDG_STATE_HOME, outside any repository)")
+    parser.add_argument("--timeout", type=int, default=3000, help="sandbox run timeout in seconds")
+    parser.add_argument("--from-output", type=Path, metavar="DIR",
+                        help="write the record from a finished run's output, without a sandbox")
+    args = parser.parse_args(argv)
+
+    if not re.fullmatch(r"[0-9a-f]{40}", args.sha):
+        fail(f"SHA must be 40 lowercase hex characters, got: {args.sha}")
+    if git("cat-file", "-t", args.sha) != "commit":
+        fail(f"{args.sha} is not a commit in this repository")
+    tree = git("rev-parse", f"{args.sha}^{{tree}}")
+
+    state = Path.home() / ".local" / "state"
+    out = args.out or Path(state, "omarchy-devices", "regression", args.sha[:12])
+    out.mkdir(parents=True, exist_ok=True)
+
+    if args.from_output:
+        output = args.from_output
+    else:
+        output = out / "sandbox-output"
+        command = [str(SANDBOX), "run", REPO, args.sha, "--out", str(output),
+                   "--steps", "tests,rig,script", "--script", str(SCRIPT),
+                   "--timeout", str(args.timeout)]
+        print(f"regression: {' '.join(command)}", file=sys.stderr)
+        subprocess.run(command)
+
+    summary = read_summary(output)
+    rows = sandbox_rows(summary) if summary else [
+        ("Sandbox: run", "The run leaves its summary", "dev/sandbox run", FAIL, "no summary.json")]
+    rows += rig_rows(output) + script_rows(output)
+    code = verdict(rows)
+
+    when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    record = out / "regression-record.md"
+    record.write_text(render(args.sha, tree, when, summary, rows, code))
+    print(f"regression: record written to {record}", file=sys.stderr)
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
