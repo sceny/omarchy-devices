@@ -91,7 +91,10 @@ Item {
   // itself follows `device`.
   readonly property var callStates: {
     var out = {}
-    for (var id in calls) out[id] = { call: { state: calls[id].state } }
+    for (var i = 0; i < ordered.length; i++) {
+      var id = String(ordered[i].id)
+      out[id] = { call: calls[id] ? { state: calls[id].state } : null, bluetooth: callsReady(id) }
+    }
     return out
   }
 
@@ -438,7 +441,8 @@ Item {
         playing: playing,
         playingApps: playingApps,
         lowPercent: lowPercent,
-        call: calls[d.id] ? { state: calls[d.id].state } : null
+        call: calls[d.id] ? { state: calls[d.id].state } : null,
+        bluetooth: callsReady(d.id)
       }
     }
     return out

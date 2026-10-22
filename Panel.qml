@@ -721,10 +721,18 @@ Panel {
   // Here by one gateway or another: KDE Connect, or the screen link alone
   // (its screen and apps work; what KDE Connect carries waits for it).
   readonly property bool screenHere: !!device && !reachable && screenReaches(device.id)
-  readonly property bool deviceHere: reachable || screenHere
-  readonly property var screenOnlyIds: {
+  // Calls reach it over Bluetooth hands-free while KDE Connect is away.
+  function callsReach(id) { return !!phone && phone.callsReady(String(id)) }
+  readonly property bool callsHere: !!device && !reachable && callsReach(device.id)
+  readonly property bool deviceHere: reachable || screenHere || callsHere
+  // What reaches each device KDE Connect does not (Model.hereOnlyLine).
+  readonly property var hereOnlyLines: {
     var out = {}
-    pairedDevices.forEach(function(d) { if (d.reachable !== true && screenReaches(d.id)) out[String(d.id)] = true })
+    pairedDevices.forEach(function(d) {
+      if (d.reachable === true) return
+      var line = Model.hereOnlyLine(screenReaches(d.id), callsReach(d.id))
+      if (line !== "") out[String(d.id)] = line
+    })
     return out
   }
   readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
@@ -1451,7 +1459,7 @@ Panel {
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
     problems: allProblems,
-    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, screenOnlyIds),
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, hereOnlyLines),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
@@ -2045,7 +2053,7 @@ Panel {
   readonly property bool screenOn: !device || screenOnFor(device.id)
   readonly property var shownShortcutOrder: Model.shortcutsShown(shortcutOrder, screenOn)
   readonly property var actions: Model.shortcutTiles(shownShortcutOrder, can)
-    .filter(function(t) { return root.reachable || Model.shortcutByKey(t.key).needs === "" })
+    .filter(function(t) { return root.reachable || (Model.shortcutByKey(t.key).needs === "" && (t.key !== "screen" || root.screenHere)) })
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // What a section says about the viewed device's features
@@ -2069,7 +2077,7 @@ Panel {
       // The Devices section is gone: tabs switch, the pairing card and
       // Settings' device list pair and unpair.
       if (key === "devices") continue
-      else if (!reachable && !(screenHere && (key === "actions" || key === "apps"))) continue
+      else if (!reachable && !((screenHere || callsHere) && key === "actions") && !(screenHere && key === "apps")) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "apps" && showApps && screenOn && (allApps.length > 0 || !!sectionNotes.apps)) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -3447,6 +3455,8 @@ Panel {
         daemon: root.phone ? root.phone.daemon : false,
         device: root.device ? root.device.name : null,
         reachable: root.reachable,
+        here: root.deviceHere,
+        hereOnly: root.device ? root.hereOnlyLines[String(root.device.id)] || "" : "",
         bar: Model.barText(root.device, root.barIndicators, { lowPercent: root.lowPercent, lowOnly: root.batteryLowOnly,
           notifications: root.notifications.length, messages: root.sms ? root.sms.unreadCount : 0,
           playing: !!root.phone && root.phone.nowPlaying !== "" }),
@@ -4779,13 +4789,13 @@ Panel {
                   // Dimmed while away, and on the Messages page for a device
                   // without text messages (switchDevice says why).
                   readonly property bool textless: (root.showMessages && !root.hasTexts(modelData)) || (root.showContacts && !root.hasCards(modelData))
-                  opacity: modelData.reachable === true && !textless ? 1 : 0.5
+                  opacity: (modelData.reachable === true || !!root.hereOnlyLines[String(modelData.id)]) && !textless ? 1 : 0.5
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
                   tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + (root.showContacts ? " does not share its contacts" : " has no text messages")
-                    : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
+                    : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : (root.hereOnlyLines[String(modelData.id)] || "Away"))
                   onClicked: tabBox.onSettings ? root.openScope(String(modelData.id)) : root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
@@ -4893,11 +4903,11 @@ Panel {
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : root.showContacts ? (root.contacts && root.contacts.ready ? "Contacts · " + root.contacts.cards.length : "Contacts")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
-              : root.screenHere ? "Screen and apps only"
+              : !root.reachable && root.device && root.hereOnlyLines[String(root.device.id)] ? root.hereOnlyLines[String(root.device.id)]
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || root.screenReaches(root.heroDevice.id))) ? 1.0 : 0.45
+            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || !!root.hereOnlyLines[String(root.heroDevice.id)])) ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
@@ -6322,7 +6332,7 @@ Panel {
               // Connect missing or down: the first run's card.
               Column {
                 id: awayColumn
-                visible: root.showMain && !root.deviceHere
+                visible: root.showMain && (!root.deviceHere || (root.callsHere && !root.screenHere))
                 width: parent.width
                 spacing: Style.space(8)
                 readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon
@@ -6338,6 +6348,7 @@ Panel {
                     if (!root.phone || !root.snapshot) return "Looking for your devices…"
                     if (!root.phone.daemon) return "This computer is not ready for your devices yet."
                     if (!root.device) return "No device is paired yet."
+                    if (root.callsHere) return "KDE Connect is away from " + Model.deviceLabel(root.device) + ". Its calls still reach this computer over Bluetooth."
                     return Model.deviceLabel(root.device) + " is away"
                   }
                 }

@@ -310,7 +310,7 @@ the host: it reaches the owner's shell.
 ```bash
 IPC=(dev/sandbox dev rig ipc)
 "${IPC[@]}" status                 # what the panel shows
-"${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|down|none
+"${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|awayCalls|down|none
 "${IPC[@]}" demo many              # several devices (tabs, chips); many-pair adds a pairing request
 "${IPC[@]}" demo charging          # the demo phone charging
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received: what they hold; forget a received file (demo: made-up files)
