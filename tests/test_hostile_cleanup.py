@@ -178,6 +178,29 @@ class Leftovers(unittest.TestCase):
     def test_its_own_work_directory_is_a_leftover(self):
         self.assertEqual(self.left([], "", work_exists=True), "RC=1")
 
+    def test_a_process_that_names_the_work_directory_is_a_leftover(self):
+        with tempfile.TemporaryDirectory() as state:
+            work = os.path.join(state, "gone")
+            body = (
+                f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\nHOSTILE_IDS=()\n'
+                f'python3 -c "import time; time.sleep(60)" "{work}" &\nchild=$!\n'
+                f'hostile_left "{work}"\necho RC=$?\n'
+                'kill "$child"; wait "$child" 2>/dev/null\n'
+                f'hostile_left "{work}"\necho RC=$?\n'
+            )
+            lines = [l for l in bash(body).stdout.splitlines() if l.startswith("RC=")]
+            self.assertEqual(lines, ["RC=1", "RC=0"])
+
+    def test_a_child_of_this_test_still_running_is_a_leftover(self):
+        with tempfile.TemporaryDirectory() as state:
+            body = (
+                f'SB_STATE="{state}"\nSB_UID="{os.getuid()}"\nHOSTILE_IDS=()\n'
+                "sleep 60 &\nchild=$!\n"
+                f'hostile_left "{state}/nowork"\necho RC=$?\n'
+                'kill "$child"; wait "$child" 2>/dev/null\n'
+            )
+            self.assertEqual(bash(body).stdout.strip().splitlines()[-1], "RC=1")
+
     def test_a_container_of_a_dev_pull_is_a_leftover(self):
         # the pull's re-encode and video containers and its run directory have ids of their own
         self.assertEqual(self.left(["cccccccc", "dddddddd"], "sceny-sandbox-dddddddd"), "RC=1")
@@ -344,6 +367,28 @@ class Judge(unittest.TestCase):
 class FinalCheck(unittest.TestCase):
     def test_the_final_check_does_not_read_the_whole_store(self):
         self.assertNotIn("cmd_verify_clean", hostile_source())
+
+    def test_the_listener_and_sampler_stop_before_the_final_check(self):
+        src = hostile_source()
+        before_16 = src[src.index('unset "$secret_name"') : src.index('say "16.')]
+        self.assertIn("hostile_stop_listeners", before_16)
+        self.assertIn("hostile_sample_stop", before_16)
+
+
+class ListenerStop(unittest.TestCase):
+    def test_a_stopped_listener_is_gone_and_removes_its_socket(self):
+        with tempfile.TemporaryDirectory() as work:
+            body = (
+                f'HOSTILE_WORK="{work}"\nhostile_listeners || exit 3\n'
+                'pid=$HOSTILE_LISTENER_PID\n'
+                f'unix=$(python3 -c "import json; print(json.load(open(\'{work}/listeners.json\'))[\'unix_path\'])")\n'
+                '[[ -S $unix ]] && echo SOCKET_UP\n'
+                "hostile_stop_listeners\n"
+                'kill -0 "$pid" 2>/dev/null && echo ALIVE || echo GONE\n'
+                '[[ -e $unix ]] && echo SOCKET_LEFT || echo SOCKET_REMOVED\n'
+            )
+            r = bash(body)
+            self.assertEqual(r.stdout.split(), ["SOCKET_UP", "GONE", "SOCKET_REMOVED"], r.stdout + r.stderr)
 
 
 if __name__ == "__main__":

@@ -20,10 +20,8 @@ HOSTILE_CANARIES=()
 HOSTILE_IDS=()
 
 hostile_cleanup() {
-  [[ -n $HOSTILE_LISTENER_PID ]] && kill "$HOSTILE_LISTENER_PID" 2>/dev/null
-  HOSTILE_LISTENER_PID=""
-  [[ -n $HOSTILE_SAMPLER_PID ]] && kill "$HOSTILE_SAMPLER_PID" 2>/dev/null
-  HOSTILE_SAMPLER_PID=""
+  hostile_stop_listeners
+  hostile_sample_stop
   local f
   for f in "${HOSTILE_CANARIES[@]}"; do rm -f -- "$f"; done
   HOSTILE_CANARIES=()
@@ -72,6 +70,8 @@ hostile_left() { # <work dir>
   done
   [[ -n $pattern ]] && pgrep -u "$SB_UID" -f "${pattern#|}" >/dev/null && left+=("process of those runs or sessions")
   [[ -e $work ]] && left+=("work directory $work")
+  [[ -n $work ]] && pgrep -u "$SB_UID" -f -- "$work" >/dev/null && left+=("process in the work directory $work")
+  pgrep -P $$ >/dev/null && left+=("child process of this test")
   if ((${#left[@]})); then
     step "left by this test: ${left[*]}"
     return 1
@@ -83,8 +83,9 @@ hostile_left() { # <work dir>
 hostile_listeners() {
   hostile_here
   python3 - "$HOSTILE_WORK" <<'PY' &
-import json, os, selectors, socket, sys, time
+import json, os, selectors, signal, socket, sys, time
 work = sys.argv[1]
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 sel = selectors.DefaultSelector()
 def listen(name, s):
     s.listen(8)
@@ -118,6 +119,14 @@ PY
     sleep 0.1
   done
   return 1
+}
+
+# Stops the listener and waits for it to exit, so the final check sees it gone.
+hostile_stop_listeners() {
+  [[ -n $HOSTILE_LISTENER_PID ]] || return 0
+  kill "$HOSTILE_LISTENER_PID" 2>/dev/null
+  wait "$HOSTILE_LISTENER_PID" 2>/dev/null
+  HOSTILE_LISTENER_PID=""
 }
 
 # One commit per mode in the throwaway repository; prints the sha.
@@ -567,6 +576,9 @@ PY
   fi
 
   unset "$secret_name"
+  # Stopped before the check, so that the check judges them gone rather than still running.
+  hostile_stop_listeners
+  hostile_sample_stop
   # The work directory is in the store: it goes before the check, or is moved
   # out for the reader when --keep asked for it.
   local kept="" work=$HOSTILE_WORK
