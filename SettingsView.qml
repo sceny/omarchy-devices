@@ -39,6 +39,7 @@ Column {
   // What it can do: a feature's one action, its switch; Fix all.
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
+  signal featureOpened(int index)
   signal fixAllRequested()
   // Fix with AI (#101): the person's coding agent, with what went wrong.
   // what: "features" (the section's), "feature" or "check" (a row's).
@@ -1652,6 +1653,7 @@ Column {
   // until it is done; nothing else: no state, no fix here.
   component FeatureRow: CursorSurface {
     id: featureRow
+    Component.onCompleted: console.log("TIMING built FeatureRow " + row.key)
     property var row: ({})
     property int rowIndex: -1
     readonly property bool working: !!root.phone && (root.phone.isBusy("feature:" + row.key) || root.phone.isBusy("fixAll"))
@@ -1720,6 +1722,15 @@ Column {
             font.pixelSize: Style.font.caption
           }
         }
+      }
+      PanelActionButton {
+        visible: featureRow.row.opens === "screen" && featureRow.row.on !== false
+        Layout.alignment: Qt.AlignVCenter
+        iconText: Model.GLYPH.chevronRight
+        tooltipText: Model.keyTip("Where it opens, its sound", "open")
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.featureOpened(featureRow.rowIndex)
       }
       ToggleSwitch {
         visible: featureRow.switchable
@@ -2008,6 +2019,7 @@ Column {
 
   component LayoutRow: CursorSurface {
     id: layoutRow
+    Component.onCompleted: console.log("TIMING built LayoutRow " + row.key)
     property var row: ({})
     property int rowIndex: -1
 

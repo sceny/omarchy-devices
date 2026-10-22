@@ -1292,6 +1292,16 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   assert.ok(demo.some(a => a.system) && demo.some(a => a.opened > 0))
 })
 
+
+test("Screen and apps keeps a way to its options page beside its switch; no other feature has one", () => {
+  const rows = M.featureRows(M.demoFeatures(), M.demoScreen("ready"), "Pixel 8", [], { screenFeature: true })
+  assert.equal(rows.find(r => r.key === "screen").opens, "screen")
+  assert.deepEqual(rows.filter(r => r.opens).map(r => r.key), ["screen"])
+  const off = M.featureRows(M.demoFeatures(), M.demoScreen("ready"), "Pixel 8", [], { screenFeature: false }).find(r => r.key === "screen")
+  assert.equal(off.on, false)
+  assert.equal(off.opens, "screen")
+})
+
 test("features: a switch turned on from off runs the permission and the package too (#189)", () => {
   const report = M.demoFeatures()
   report.plugins.sftp.on = false
