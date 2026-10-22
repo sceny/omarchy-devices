@@ -35,6 +35,9 @@ EMAIL_ALLOWED = {"noreply@anthropic.com", "noreply@github.com"}
 # `name@autostart.service` is a systemd unit, not a mailbox.
 NOT_A_TLD = {"service", "socket", "target", "timer", "path", "mount", "slice", "scope"}
 
+# This file plants real-looking values to prove the lint fails on them.
+SELF = "tests/test_personal_data.py"
+
 SERIAL_FIXTURES = {"0A1B2C3D", "SERIAL"}
 MAC_FIXTURES = {"00:11:22:33:44:55"}
 
@@ -112,7 +115,7 @@ def tracked_files():
         for folder, dirs, files in os.walk(ROOT):
             dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
             names += [os.path.relpath(os.path.join(folder, f), ROOT) for f in files]
-    return sorted(n for n in names if not BINARY.search(n) and os.path.basename(n) not in LOCKFILES
+    return sorted(n for n in names if not BINARY.search(n) and os.path.basename(n) not in LOCKFILES and n != SELF
                   and os.path.isfile(os.path.join(ROOT, n)))
 
 
