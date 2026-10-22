@@ -92,8 +92,8 @@ Item {
   readonly property var callStates: {
     var out = {}
     for (var i = 0; i < ordered.length; i++) {
-      var id = String(ordered[i].id)
-      out[id] = { call: calls[id] ? { state: calls[id].state } : null, bluetooth: callsReady(id) }
+      var d = ordered[i]
+      out[d.id] = { call: calls[d.id] ? { state: calls[d.id].state } : null, bluetooth: callsReady(d.id) }
     }
     return out
   }
