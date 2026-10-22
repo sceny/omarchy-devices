@@ -81,6 +81,11 @@ class Refusals(unittest.TestCase):
                 r = sandbox("run", REPO, GOOD_SHA, "--steps", steps)
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
 
+    def test_build_takes_no_other_paperclip_branch(self):
+        r = sandbox("build", "--paperclip-ref", "feature")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("unknown option", r.stderr)
+
     def test_harness_is_develop_or_pr(self):
         self.refused(REPO, GOOD_SHA, "--harness", "host", message="--harness is develop or pr")
 
@@ -350,12 +355,28 @@ class Profiles(unittest.TestCase):
         self.assertIn("npm ci --omit=dev", body)
         self.assertNotIn("npm install", body.replace("npm install --package-lock-only", ""))
 
+    def test_no_install_script_runs_but_the_embedded_postgres_one_by_name(self):
+        body = self.stages["paperclipai"]
+        self.assertIn("npm ci --omit=dev --ignore-scripts", body)
+        self.assertIn("npm rebuild @embedded-postgres/linux-x64", body)
+        self.assertLess(body.index("npm ci"), body.index("npm rebuild"))
+
+    def test_the_paperclip_mirror_is_built_from_its_develop_only(self):
+        build = self.script[self.script.index("cmd_build() {") : self.script.index("valid_repo() {")]
+        self.assertIn("refs/heads/develop^{commit}", build)
+        self.assertNotIn("--paperclip-ref", self.script)
+
     def test_a_session_is_made_for_one_repository_and_kept_to_it(self):
         start = self.script[self.script.index("dev_start() {") :]
         self.assertIn('--label "$SB_PROFILE_LABEL=$profile"', start)
         sync = self.script[self.script.index("dev_sync() {") : self.script.index("# Pictures and recordings out")]
         self.assertIn("SB_PROFILE_LABEL", self.script[self.script.index("dev_profile() {") :])
         self.assertIn("manifest", sync)
+
+    def test_dev_sync_refuses_a_linked_manifest_before_it_reads_one(self):
+        sync = self.script[self.script.index("dev_sync() {") : self.script.index("# Pictures and recordings out")]
+        self.assertIn('! -L $tree/manifest.json', sync)
+        self.assertLess(sync.index('! -L $tree/manifest.json'), sync.index("id_found=$(python3"))
 
     def test_a_repository_that_is_not_allowed_has_no_session(self):
         r = sandbox("dev", "start", "--repo", "someone/else")

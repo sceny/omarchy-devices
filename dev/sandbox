@@ -4,14 +4,14 @@
 # script) in a rootless podman container that cannot reach the owner.
 #
 # Usage:
-#   dev/sandbox build [--profile devices|paperclipai|all] [--ref REV] [--paperclip-ref REV]
+#   dev/sandbox build [--profile devices|paperclipai|all] [--ref REV]
 #                                        build the common base image (Arch, Hyprland, Quickshell, Omarchy),
 #                                        then the image of a profile (default all) on it, from pinned sources:
 #                                        devices = the emulator and Android SDK, from REV's dev/;
 #                                        paperclipai = Paperclip's server and Postgres, from REV's
-#                                        dev/sandbox.d and sceny/omarchy-paperclipai's dev/ at its branch
-#                                        --paperclip-ref (defaults: origin/develop here, develop there;
-#                                        never contributor code). Each image holds only its own tools.
+#                                        dev/sandbox.d and sceny/omarchy-paperclipai's dev/ at its develop
+#                                        (never another branch: a branch can hold contributor commits).
+#                                        Each image holds only its own tools.
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name)
@@ -197,15 +197,11 @@ store_lock_release() {
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
-  local ref=origin/develop pc_ref=develop profile=all
+  local ref=origin/develop profile=all
   while (($#)); do
     case $1 in
     --ref)
       ref=${2:?--ref needs a revision}
-      shift
-      ;;
-    --paperclip-ref)
-      pc_ref=${2:?--paperclip-ref needs a revision}
       shift
       ;;
     --profile)
@@ -237,9 +233,9 @@ cmd_build() {
   if [[ $profile == all || $profile == paperclipai ]]; then
     fetch_mirror sceny/omarchy-paperclipai
     pc_git=$(mirror_dir sceny/omarchy-paperclipai)
-    # Only a branch of the repository itself: a pull request's head is contributor code.
-    pc_sha=$(git -C "$pc_git" rev-parse --verify "refs/heads/$pc_ref^{commit}" 2>/dev/null) ||
-      die "build: $pc_ref is not a branch of sceny/omarchy-paperclipai"
+    # Only develop: a pull request's head or any other branch can hold contributor commits.
+    pc_sha=$(git -C "$pc_git" rev-parse --verify "refs/heads/develop^{commit}" 2>/dev/null) ||
+      die "build: sceny/omarchy-paperclipai has no develop branch in its mirror"
     mkdir -p "$ctx/harness-paperclipai"
     git -C "$pc_git" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai"
   fi
@@ -899,6 +895,7 @@ dev_sync() {
   devices) want_id=sceny.devices ;;
   paperclipai) want_id=sceny.paperclipai ;;
   esac
+  [[ ! -L $tree/manifest.json ]] || die "dev sync: $tree/manifest.json is a link; a plugin's manifest is a file in its own tree"
   id_found=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1] + "/manifest.json")).get("id", ""))' "$tree" 2>/dev/null)
   [[ $id_found == "$want_id" ]] ||
     die "dev sync: this session is the $DEV_PROFILE profile (plugin $want_id) and $tree is ${id_found:-not a plugin}; use --tree with the right checkout, or start the other profile (dev start --repo)"
