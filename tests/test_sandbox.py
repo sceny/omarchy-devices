@@ -1018,6 +1018,8 @@ class SandboxLock(unittest.TestCase):
             self.assertNotIn("sibling-leak", left([], store))
             start(f"holder {store}")
             self.assertIn(f"holder {store}", left([], store))
+            start(f"conmon --name sceny-sandbox-feedbeef --root {store}/storage")
+            self.assertEqual(left(["sceny-sandbox-feedbeef"], store).count("conmon --name sceny-sandbox-feedbeef"), 1)
             for i, odd in enumerate(("c++ (x) {1} y?", "pipe|store")):
                 root = os.path.join(tmp, odd)
                 start(f"podman --root {root}/storage run odd-leak-{i}")
