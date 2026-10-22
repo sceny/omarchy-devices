@@ -14,6 +14,8 @@ your mouse and keyboard while the phone stays in your pocket.
 - **Your keyboard and mouse.** Type, scroll; right-click is Back,
   middle-click is Home. Copy on one side, paste on the other; drop a file
   on it to send it to the phone's Downloads.
+- **Stretch to the window** (a switch on its page, off by default): the
+  picture fills the window whatever its shape, with no bars.
 - **Full screen:** Omarchy's pop-out key, then its full screen key (the
   panel shows your keys).
 - **Its sound** plays here; the speaker on the Screen shortcut (or `v`)

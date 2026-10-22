@@ -637,7 +637,14 @@ one only with the owner.
   height, at most half the monitor, the window beside it the rest, when it
   opens and as the device turns (`fit_tile`, `--fit`; the layout moves a
   shared edge from either side, so the change is measured and corrected).
-  Alone on its workspace, a tile fills it.
+  Alone on its workspace, a tile fills it. Beside it, *Stretch to the
+  window* (`screenStretch`, per device, a plain switch whenever the screen is
+  set up, off by default) opens the screen with `--render-fit=stretched` when
+  this scrcpy offers the option (`tools.renderFit`, read from `scrcpy
+  --help`); an app's window follows its own size and is not stretched. Changed
+  while the screen is open, the window opens again in its place with the
+  choice and the sound it had (`screen-stretch`, as `screen-sound`); the sound
+  change passes `--stretch` so it keeps the choice. Both work together.
 - **Keys the panel tells are this machine's,** read from Hyprland
   (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
   description or command; `bound_keys`), never assumed. An action with no
