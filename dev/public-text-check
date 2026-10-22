@@ -239,12 +239,11 @@ def check_pull_request(rules, doc):
     return problems
 
 
-def check_standing(rules, root=ROOT):
-    """[(path:line, check, rule id, matched)] for the standing texts: they say what is,
-    with no task numbers, dates or the owner's words as history."""
-    section = rules["standing"]
+def check_files(globs, check, patterns, root=ROOT):
+    """[(path:line, check, rule id, matched)] for the files the globs name, each line
+    outside a fenced block read on its own."""
     problems = []
-    for pattern in section["files"]:
+    for pattern in globs:
         for path in sorted(glob.glob(os.path.join(root, pattern), recursive=True)):
             with open(path) as handle:
                 lines = handle.read().split("\n")
@@ -255,10 +254,26 @@ def check_standing(rules, root=ROOT):
                     continue
                 if fenced:
                     continue
-                for rule_id, matched in find_all(section["patterns"], line):
+                for rule_id, matched in find_all(patterns, line):
                     where = "%s:%d" % (os.path.relpath(path, root), number)
-                    problems.append((where, section["check"], rule_id, matched))
+                    problems.append((where, check, rule_id, matched))
     return problems
+
+
+def check_standing(rules, root=ROOT):
+    """[(path:line, check, rule id, matched)] for the standing texts: they say what is,
+    with no task numbers, dates or the owner's words as history."""
+    section = rules["standing"]
+    return check_files(section["files"], section["check"], section["patterns"], root)
+
+
+def check_public_files(rules, root=ROOT):
+    """[(path:line, check, rule id, matched)] for the release notes, which are public
+    text too: the private-text patterns of the environment check that a released
+    entry does not name."""
+    section = rules["public_files"]
+    patterns = [p for p in rules["environment"]["patterns"] if p["id"] in section["pattern_ids"]]
+    return check_files(section["files"], rules["environment"]["check"], patterns, root)
 
 
 def api(path, token):
@@ -329,7 +344,7 @@ def main(argv=None):
             except (urllib.error.URLError, KeyError, ValueError) as error:
                 print("public-text-check: could not read the pull request: %s" % type(error).__name__, file=sys.stderr)
                 return 2
-        problems = check_pull_request(rules, doc)
+        problems = check_pull_request(rules, doc) + check_public_files(rules)
         what = "public text"
 
     for where, check, rule_id, matched in problems:
