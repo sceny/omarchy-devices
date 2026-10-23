@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
 
 // Every text field in the plugin is one of these, so Esc steps back the same
 // way everywhere, one thing at a time:
@@ -15,7 +16,7 @@ import qs.Ui
 //
 // `multiline` (a text message): the text wraps, Shift+Enter ends a line, Enter
 // still accepts, and the field grows with its text up to `maxLines`, then
-// scrolls. It grows at the owner's pace (`growMs`), never in a jump.
+// scrolls. It grows at `Model.MOTION` times `motion`, never in a jump.
 //
 // It is a TextEdit, not a TextField: a TextField (QQuickTextInput) reads the
 // whole clipboard text whenever it becomes editable or the clipboard changes
@@ -55,7 +56,7 @@ FocusScope {
 
   property bool multiline: false
   property int maxLines: 5
-  property int growMs: 0
+  property real motion: 0
   property alias text: edit.text
   property alias font: edit.font
   property alias cursorPosition: edit.cursorPosition
@@ -159,8 +160,8 @@ FocusScope {
     : edit.implicitHeight + _frameHeight
   property real _shownHeight: _wantHeight
   Behavior on _shownHeight {
-    enabled: field.multiline && field.growMs > 0
-    NumberAnimation { duration: field.growMs; easing.type: Easing.OutCubic }
+    enabled: field.multiline && field.motion > 0
+    NumberAnimation { duration: Model.MOTION.inMs * field.motion; easing.type: Easing.OutCubic }
   }
   implicitHeight: _shownHeight
   FontMetrics { id: lineMetrics; font: edit.font }

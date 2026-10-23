@@ -301,6 +301,7 @@ def run_qml_tests(mutation=None):
             f.write(source)
         for name in ("Clipboard.qml", "tst_panelfield.qml"):
             shutil.copy(os.path.join(QML_TESTS, name), work)
+        shutil.copy(os.path.join(ROOT, "Model.js"), work)
         with open(os.path.join(work, "qmldir"), "w") as f:
             f.write("singleton Clipboard 1.0 Clipboard.qml\nPanelField 1.0 PanelField.qml\n")
         env = dict(os.environ, QT_QPA_PLATFORM="offscreen")

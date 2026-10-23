@@ -1031,7 +1031,7 @@ Item {
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignBottom
             multiline: true
-            growMs: Model.MOTION.inMs * view.motion
+            motion: view.motion
             placeholderText: !view.sms || !view.sms.reachable ? "The device is away"
               : (view.newMode && view.recipients.length === 0 ? "Pick who to send to first" : "Text message")
             enabled: !!view.sms && view.sms.reachable
