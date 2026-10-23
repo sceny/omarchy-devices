@@ -39,6 +39,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SANDBOX = HERE / "sandbox"
 MARKETPLACE_CHECK = HERE / "marketplace-check.mjs"
+PLANTED = HERE / "fixtures" / "regression" / "planted-features.tsv"
 MARKETPLACE_REPO = "https://github.com/omacom/omarchy-plugin-marketplace"
 DEFAULT_REPO = "sceny/omarchy-devices"
 CONFIG = "dev/regression.json"
@@ -151,11 +152,7 @@ def rig_rows(output):
     return rows
 
 
-def script_rows(output):
-    path = output / "script" / "features.tsv"
-    if not path.is_file():
-        return [("Script checks", "The script's checks run", "dev/regression.sh", FAIL,
-                 "the script wrote no script/features.tsv")]
+def features_rows(path):
     rows = []
     for line in path.read_text().splitlines()[1:]:
         if not line.strip():
@@ -165,6 +162,26 @@ def script_rows(output):
             result = FAIL
         rows.append((feature, rule, how, result, evidence))
     return rows
+
+
+def script_rows(output):
+    path = output / "script" / "features.tsv"
+    if not path.is_file():
+        return [("Script checks", "The script's checks run", "dev/regression.sh", FAIL,
+                 "the script wrote no script/features.tsv")]
+    return features_rows(path)
+
+
+def planted_row():
+    name = "Planted failure"
+    rule = "Every row of a known-bad fixture is reported as fail"
+    how = "dev/fixtures/regression/planted-features.tsv"
+    # The fixture is this harness's own, not the candidate's, so a candidate cannot weaken the check.
+    if not PLANTED.is_file():
+        return (name, rule, how, FAIL, "the planted fixture is missing")
+    rows = features_rows(PLANTED)
+    caught = bool(rows) and all(row[3] == FAIL for row in rows)
+    return (name, rule, how, PASS if caught else FAIL, PLANTED.name)
 
 
 def owner_issues(repo, path):
@@ -293,7 +310,7 @@ def main(argv):
     summary = read_summary(output)
     rows = sandbox_rows(summary) if summary else [
         ("Sandbox: run", "The run leaves its summary", "dev/sandbox run", FAIL, "no summary.json")]
-    rows += rig_rows(output) + script_rows(output)
+    rows += rig_rows(output) + script_rows(output) + [planted_row()]
     if config["marketplace"]:
         rows += marketplace_rows(args.repo, args.sha, out)
 

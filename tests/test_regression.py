@@ -1,4 +1,5 @@
 import json
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -99,6 +100,27 @@ class RegressionTest(unittest.TestCase):
         done = self.run_regression()
         self.assertEqual(done.returncode, 1, done.stderr)
         self.assertIn("1 fail", self.record())
+
+    def test_the_record_shows_the_planted_failure_caught(self):
+        done = self.run_regression()
+        self.assertEqual(done.returncode, 2, done.stderr)
+        row = next(line for line in self.record().splitlines() if line.startswith("| Planted failure |"))
+        self.assertIn("| pass |", row)
+
+    def test_a_planted_fixture_that_is_not_caught_exits_one(self):
+        harness = self.tmp / "harness" / "dev"
+        (harness / "fixtures" / "regression").mkdir(parents=True)
+        shutil.copy(REGRESSION, harness / "regression")
+        (harness / "fixtures" / "regression" / "planted-features.tsv").write_text(
+            FEATURES_HEADER + "Planted\trule\thow\tpass\tplanted-features.tsv\n")
+        done = subprocess.run(
+            ["python3", str(harness / "regression"), self.sha, "--from-output", str(self.output),
+             "--out", str(self.out), "--owner-issues", str(self.issues)],
+            cwd=self.repo, capture_output=True, text=True,
+        )
+        self.assertEqual(done.returncode, 1, done.stderr)
+        self.assertIn("| Planted failure |", self.record())
+        self.assertIn("| fail |", self.record())
 
     def test_look_row_does_not_change_the_exit_status(self):
         self.write_features([

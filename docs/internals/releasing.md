@@ -400,6 +400,10 @@ measured. Each row is a measured pass or fail; a row nothing measured is *not
 yet*, never a pass. Exit 0 is PASS, 1 is FAIL (a failed row or no evidence), 2
 is NOT PASS (no failure, but rows not yet checked).
 
+Every record has a *Planted failure* row: the command reads its own fixture of
+known-bad rows (`dev/fixtures/regression/planted-features.tsv`) and each must be
+reported as fail. A harness that lets one of them pass fails the record.
+
 The script runs with a rig up and writes its evidence (screenshots, recordings,
 logs) under `$SANDBOX_OUT`, which the run brings out as data. While writing or
 debugging the script, a `dev/sandbox dev` session on a checkout of that SHA does

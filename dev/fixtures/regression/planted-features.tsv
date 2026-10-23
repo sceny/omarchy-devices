@@ -1,0 +1,3 @@
+feature	rule	how	result	evidence
+Planted fail	a check that failed is reported as fail	known-bad fixture	fail	planted-features.tsv
+Planted unknown	an unrecognised result is never a pass	known-bad fixture	ok	planted-features.tsv
