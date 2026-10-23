@@ -26,11 +26,11 @@ import { spawnSync } from "node:child_process";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { candidateManifest } from "./candidate-manifest.mjs";
 
 const marketplace = process.env.MARKETPLACE_DIR;
 const commit = (process.argv[2] || "").toLowerCase();
 const outDir = resolve(process.argv[3] || ".");
-const repoRoot = resolve(import.meta.dirname, "..");
 const repoUrl = process.env.CHECK_REPO_URL || "https://github.com/sceny/omarchy-devices";
 
 if (!marketplace || !/^[a-f0-9]{40}$/.test(commit)) {
@@ -77,7 +77,7 @@ async function main() {
     load("verification-subject.mjs"),
     load("plugin-verification-request.mjs"),
   ]);
-  const manifest = JSON.parse(await readFile(join(repoRoot, "manifest.json"), "utf8"));
+  const manifest = await candidateManifest(repoUrl, commit, process.env.GITHUB_TOKEN);
   const registry = JSON.parse(await readFile(join(marketplace, "registry.json"), "utf8"));
   const listed = registry.sources.some((source) => source.plugins?.[manifest.id]);
   return listed

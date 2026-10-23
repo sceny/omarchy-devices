@@ -192,7 +192,7 @@ def marketplace_rows(repo, sha, out):
                            capture_output=True, text=True)
     if clone.returncode != 0:
         return [(name, rule, how, FAIL, "clone of the marketplace failed")]
-    install = subprocess.run(["npm", "ci"], cwd=source, capture_output=True, text=True)
+    install = subprocess.run(["npm", "ci", "--ignore-scripts"], cwd=source, capture_output=True, text=True)
     if install.returncode != 0:
         return [(name, rule, how, FAIL, "npm ci in the marketplace clone failed")]
     env = {**os.environ, "GITHUB_TOKEN": token.stdout.strip(), "MARKETPLACE_DIR": str(source),
