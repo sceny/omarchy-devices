@@ -1172,7 +1172,7 @@ class StaleRuns(unittest.TestCase):
             "require_tools() { :; }\n"
             "pm() { return 0; }\n"
             f"make_archive() {{ {make_archive}; }}\n"
-            f"cmd_run {REPO} {GOOD_SHA} --steps tests\n"
+            f"cmd_run {REPO} {GOOD_SHA} --steps tests --harness pr\n"
         )
 
     def test_a_run_killed_by_sigkill_is_cleared_by_the_next_run(self):
@@ -1260,6 +1260,55 @@ class ThrowawayStoreVerifyClean(unittest.TestCase):
         )
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("no container (running or stopped)", r.stdout + r.stderr)
+
+
+class DevelopRunsNeedACurrentImage(unittest.TestCase):
+    def run_cmd(self, built=None, harness="develop"):
+        tmp = tempfile.mkdtemp(prefix="sceny-sandbox-harness-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        repo = os.path.join(tmp, "repo")
+        os.makedirs(repo)
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": tmp,
+            "SANDBOX_STATE": os.path.join(tmp, "state"),
+            "GIT_AUTHOR_NAME": "t",
+            "GIT_AUTHOR_EMAIL": "t@example.invalid",
+            "GIT_COMMITTER_NAME": "t",
+            "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        }
+        subprocess.run(["git", "init", "-q", repo], check=True, env=env)
+        subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                        "commit", "-q", "--allow-empty", "-m", "develop"], check=True, env=env)
+        develop = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True, env=env
+        ).stdout.strip()
+        subprocess.run(["git", "-C", repo, "update-ref", "refs/remotes/origin/develop", develop], check=True, env=env)
+        script = (
+            f'source "{SANDBOX}"\n'
+            f'SB_REPO_ROOT="{repo}"\n'
+            "require_tools() { :; }\n"
+            f"pm() {{ case \"$1 $2\" in 'image inspect') printf '%s' '{built or develop}' ;; esac; }}\n"
+            "make_archive() { echo reached >&2; exit 5; }\n"
+            f"cmd_run {REPO} {GOOD_SHA} --steps tests --harness {harness}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+
+    def test_a_develop_run_on_an_image_of_an_older_develop_is_refused(self):
+        r = self.run_cmd(built="b" * 40)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("run 'dev/sandbox build --profile devices'", r.stderr)
+        self.assertNotIn("reached", r.stderr)
+
+    def test_a_develop_run_on_the_image_of_develop_goes_on(self):
+        r = self.run_cmd()
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("reached", r.stderr)
+
+    def test_a_pr_run_does_not_depend_on_the_image_harness(self):
+        r = self.run_cmd(built="b" * 40, harness="pr")
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("reached", r.stderr)
 
 
 if __name__ == "__main__":

@@ -276,6 +276,21 @@ valid_repo() {
 
 mirror_dir() { printf '%s/mirrors/%s.git\n' "$SB_STATE" "${1//\//__}"; }
 
+# A develop run uses the dev/ its image was built with: an image built from an older develop lacks what develop has since.
+harness_is_current() { # <profile>
+  local profile=$1 label want built
+  if [[ $profile == paperclipai ]]; then
+    label=org.sceny.sandbox.harness.paperclipai
+    want=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q 'refs/heads/develop^{commit}' 2>/dev/null)
+  else
+    label=org.sceny.sandbox.harness
+    want=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q 'origin/develop^{commit}' 2>/dev/null)
+  fi
+  built=$(pm image inspect --format "{{index .Labels \"$label\"}}" "$SB_RUN_IMAGE" 2>/dev/null)
+  [[ -n $want && $built == "$want" ]] ||
+    die "run: the $profile image was built from ${built:0:12}, develop is at ${want:0:12}: run 'dev/sandbox build --profile $profile'"
+}
+
 # This machine's mirror of a repository: heads and pull requests, fetched
 # without credentials.
 fetch_mirror() {
@@ -617,6 +632,7 @@ cmd_run() {
   profile=$(profile_of "$repo")
   SB_RUN_IMAGE=$(image_of "$profile")
   pm image exists "$SB_RUN_IMAGE" || die "run: no $profile image; run 'dev/sandbox build --profile $profile' first"
+  [[ $harness == pr ]] || harness_is_current "$profile"
   # Devices only for the steps that run the rig: the tests step gets none.
   # The emulator needs /dev/kvm; Paperclip's rig has no emulator and gets none.
   local devices=()
