@@ -13,6 +13,9 @@ The panel shows what KDE Connect sends. Today it does not:
   the ones that arrive while the panel is running
   ([#436](https://github.com/sceny/omarchy-devices/issues/436));
 - carry **RCS** chats (only SMS and MMS);
+- **paste** or **drop** a picture into a reply: attach it with the
+  attach button. The panel never takes part in a clipboard transfer or a drag
+  (the shell would freeze on a program that never answers);
 - keep each player's **position**: only the playing one has a seek bar;
 - on an **iPhone**, share notifications, texts or media: files and the
   clipboard only, while the app is open;

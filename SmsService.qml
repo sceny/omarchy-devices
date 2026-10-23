@@ -408,25 +408,59 @@ Item {
     refreshDays()
   }
 
-  function reply(text) {
+  // The picture on its way to the composer: the file chooser runs in the
+  // bridge, which decodes the chosen file in the sandbox and hands back a
+  // JPEG that fits a text message and a small preview (outgoing-picture).
+  // Memory only: the answer reaches whoever asked, through pictureChosen.
+  property bool choosingPicture: false
+  signal pictureChosen(var picture)
+
+  function choosePicture() {
+    if (demo || choosingPicture || bridge === "") return false
+    choosingPicture = true
+    picker.running = true
+    return true
+  }
+
+  Process {
+    id: picker
+    command: [sms.bridge, "outgoing-picture", "pick"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var answer = null
+        try { answer = JSON.parse(text) } catch (e) {}
+        // The answer goes out before the flag clears: whoever asked drops its
+        // claim on the flag's change, so a late answer would find none.
+        if (answer && answer.ok) sms.pictureChosen(answer)
+        else if (answer && !answer.cancelled) { sms.lastError = answer.error || "That picture could not be attached"; errorClear.restart() }
+        sms.choosingPicture = false
+      }
+    }
+    onExited: sms.choosingPicture = false
+  }
+
+  function reply(text, picture) {
     var body = String(text || "").trim()
-    if (demo || openThreadId < 0 || body === "") return false
-    if (!send({ cmd: "reply", thread: openThreadId, text: body })) return false
+    var files = picture ? [picture.path] : []
+    if (demo || openThreadId < 0 || (body === "" && files.length === 0)) return false
+    if (!send({ cmd: "reply", thread: openThreadId, text: body, attachments: files })) return false
     // Show it at once; the phone's own copy replaces it when it arrives.
     messageModel.insert(0, {
       uid: -Date.now(), body: body, date: Date.now(), time: Model.clockTime(Date.now()),
       sent: true, pending: true, failed: false, optimistic: true, sender: "",
-      attachments: "[]", showDay: false, day: Model.dayLabel(Date.now())
+      attachments: JSON.stringify(picture ? [{ part: -1, id: "", mime: "image/jpeg", thumb: picture.preview || "" }] : []),
+      showDay: false, day: Model.dayLabel(Date.now())
     })
     refreshDays()
     return true
   }
 
-  function sendNew(addresses, text) {
+  function sendNew(addresses, text, picture) {
     if (demo) return false
     var body = String(text || "").trim()
-    if (body === "" || !addresses || addresses.length === 0) return false
-    if (!send({ cmd: "send", addresses: addresses, text: body })) return false
+    var files = picture ? [picture.path] : []
+    if ((body === "" && files.length === 0) || !addresses || addresses.length === 0) return false
+    if (!send({ cmd: "send", addresses: addresses, text: body, attachments: files })) return false
     var keys = []
     for (var i = 0; i < addresses.length; i++) keys.push(digitKey(addresses[i]))
     pendingNewKeys = keys.sort()
@@ -477,6 +511,8 @@ Item {
   }
 
   function fetchAttachment(part, id, mime) {
+    // The picture just sent, shown before the phone's copy arrives: nothing to fetch.
+    if (part < 0) return
     // Demo pictures are local files already.
     if (demo) {
       for (var i = 0; i < messageModel.count; i++) {

@@ -33,6 +33,8 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path> [--local]   the file on the clipboard
                                               (a picture as the sandbox's JPEG, as open-file)
+  kdeconnect-bridge outgoing-picture pick|pasted [path]   a picture to attach to a text,
+                                              as JSON (a JPEG that fits, decoded in the sandbox)
   kdeconnect-bridge doctor                    setup checks, as JSON
   kdeconnect-bridge fix install|start|firewall|sshfs|screen|bluetooth|bluetooth-on|audio|tailscale|search
                                               fix one (install, firewall, sshfs, screen and
@@ -1061,7 +1063,7 @@ def safe_dir():
     return path
 
 
-def fit_image(src, dst, box, fmt="png"):
+def fit_image(src, dst, box, fmt="png", quality=92):
     """The image, fitted in box x box (never enlarged), from its decoded
     pixels (GdkPixbuf: glycin's sandbox on Omarchy), written as a PNG (alpha
     kept) or a JPEG (alpha flattened). False when it cannot be read."""
@@ -1085,7 +1087,7 @@ def fit_image(src, dst, box, fmt="png"):
                 flat.fill(0x000000ff)
                 pix.composite(flat, 0, 0, pix.get_width(), pix.get_height(), 0, 0, 1, 1, GdkPixbuf.InterpType.NEAREST, 255)
                 pix = flat
-            pix.savev(tmp, "jpeg", ["quality"], ["92"])
+            pix.savev(tmp, "jpeg", ["quality"], [str(quality)])
         else:
             pix.savev(tmp, "png", [], [])
         os.replace(tmp, dst)
@@ -1121,6 +1123,115 @@ def safe_full_picture(src, cache=None, limit=None):
     os.utime(folder)
     trim_cache(cache, OPEN_CACHE_MAX if limit is None else limit, keep=folder)
     return target
+
+
+# A picture sent from the composer (a text message with a picture is an MMS,
+# which carriers cap at a few hundred KB): the user's file is decoded in the
+# sandbox like any other image and sent as a JPEG of ours, scaled down until
+# it fits. Re-encoding drops what the file carried besides pixels (where and
+# with what it was taken). The daemon reads the JPEG when it sends, so the
+# copies stay a day, then go on the next picture.
+OUTGOING_SOURCE_MAX = 64 << 20
+OUTGOING_MAX_BYTES = 500_000
+OUTGOING_STEPS = ((2048, 85), (1600, 80), (1280, 75), (1024, 70), (800, 65), (640, 60))
+OUTGOING_PREVIEW_BOX = 160
+OUTGOING_KEEP_SEC = 24 * 3600
+OUTGOING_FILES = 5
+PICTURE_EXTENSIONS = "jpg jpeg png webp gif bmp avif heic heif tif tiff"
+
+
+def outgoing_dir():
+    path = os.path.join(state_dir(), "sms", "outgoing")
+    os.makedirs(path, mode=0o700, exist_ok=True)
+    return path
+
+
+def sweep_outgoing(folder, now=None):
+    """Removes the copies older than a day."""
+    now = time.time() if now is None else now
+    for name in os.listdir(folder):
+        path = os.path.join(folder, name)
+        try:
+            if now - os.lstat(path).st_mtime > OUTGOING_KEEP_SEC:
+                os.remove(path)
+        except OSError:
+            pass
+
+
+def prepare_outgoing(src, folder=None):
+    """{"ok", "path", "preview", "name", "bytes"} for a picture the user
+    chose: a JPEG of ours that fits a text message, and a small PNG preview
+    for the composer; {"ok": False, "error"} when it is not a picture that
+    can be read safely."""
+    folder = folder or outgoing_dir()
+    try:
+        sweep_outgoing(folder)
+        st = os.stat(src)
+        if not os.path.isfile(src):
+            raise OSError
+        if st.st_size > OUTGOING_SOURCE_MAX:
+            return {"ok": False, "error": "That picture is too large to send"}
+        if not looks_like_picture(src):
+            return {"ok": False, "error": "That is not a picture"}
+    except OSError:
+        return {"ok": False, "error": "That picture could not be read"}
+    token = os.urandom(8).hex()
+    jpeg = os.path.join(folder, token + ".jpg")
+    for box, quality in OUTGOING_STEPS:
+        if not fit_image(src, jpeg, box, "jpeg", quality):
+            return {"ok": False, "error": "This picture could not be read safely, so it was not attached"}
+        if os.path.getsize(jpeg) <= OUTGOING_MAX_BYTES:
+            break
+    else:
+        os.remove(jpeg)
+        return {"ok": False, "error": "That picture is too detailed to send as a text message"}
+    preview = os.path.join(folder, token + "-preview.png")
+    if not fit_image(jpeg, preview, OUTGOING_PREVIEW_BOX):
+        preview = ""
+    return {"ok": True, "path": jpeg, "preview": preview, "name": os.path.basename(src),
+            "bytes": os.path.getsize(jpeg)}
+
+
+def outgoing_picture(mode, path="", pick=None, folder=None):
+    """The verb behind the composer's attach button and its paste. `pick`
+    replaces the file chooser in tests. A pasted file is ours (the panel's
+    read of the clipboard, under the runtime folder) and goes once prepared."""
+    if mode == "pick":
+        chosen, error = (pick or pick_pictures)("Attach a picture")
+        if chosen is None:
+            return {"ok": False, "error": error}
+        if not chosen:
+            return {"ok": False, "cancelled": True}
+        return prepare_outgoing(chosen[0], folder)
+    if mode == "pasted":
+        runtime = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/nonexistent", "sceny.devices")
+        try:
+            inside = os.path.commonpath([os.path.realpath(path), os.path.realpath(runtime)]) == os.path.realpath(runtime)
+        except ValueError:
+            inside = False
+        if not inside or os.path.islink(path):
+            return {"ok": False, "error": "That picture could not be read"}
+        try:
+            return prepare_outgoing(path, folder)
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+    return {"ok": False, "error": "Unknown way to attach a picture"}
+
+
+def outgoing_files(paths, folder=None):
+    """The paths a send may hand the daemon: files this module prepared,
+    nothing else (the panel's word is not a licence to read any file)."""
+    folder = os.path.realpath(folder or outgoing_dir())
+    out = []
+    for path in paths[:OUTGOING_FILES]:
+        real = os.path.realpath(str(path))
+        if os.path.dirname(real) != folder or not real.endswith(".jpg") or not os.path.isfile(real):
+            raise ValueError("That picture is gone")
+        out.append(real)
+    return out
 
 
 def safe_image(src, box, folder=None, limit=SAFE_MAX):
@@ -1749,6 +1860,19 @@ def device_name(conn, device_id):
 def pick_files(title):
     try:
         out = subprocess.run(["omarchy-file-select", "--title", title, "--multiple"],
+                             capture_output=True, text=True, timeout=660)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return None, str(error)
+    if out.returncode == 1:
+        return [], ""
+    if out.returncode != 0:
+        return None, (out.stderr or "file chooser failed").strip()
+    return [p for p in out.stdout.splitlines() if p], ""
+
+
+def pick_pictures(title):
+    try:
+        out = subprocess.run(["omarchy-file-select", "--title", title, "--extensions", PICTURE_EXTENSIONS],
                              capture_output=True, text=True, timeout=660)
     except (OSError, subprocess.TimeoutExpired) as error:
         return None, str(error)
@@ -6271,8 +6395,9 @@ def app_icons(device_id, packages=None, emit=None, reader=PhoneReader):
 # speaks JSON lines: commands in on stdin, events out on stdout.
 #
 #   in   {"cmd":"load","thread":T,"start":0,"count":30}   a page of history
-#        {"cmd":"reply","thread":T,"text":"..."}
-#        {"cmd":"send","addresses":["+1..."],"text":"..."}
+#        {"cmd":"reply","thread":T,"text":"...","attachments":[P]}
+#        {"cmd":"send","addresses":["+1..."],"text":"...","attachments":[P]}
+#            (an attachment is a picture prepared by `outgoing-picture`)
 #        {"cmd":"attachment","part":P,"id":"..."}         fetch a full file
 #        {"cmd":"refresh"}                                re-read everything
 #   out  {"ev":"threads","threads":[...]}                 the whole list
@@ -7069,14 +7194,16 @@ class Sms:
                 self.load(int(cmd["thread"]), int(cmd.get("start", 0)), int(cmd.get("count", 30)))
             elif verb == "reply":
                 text = str(cmd.get("text", "")).strip()
-                if text:
-                    self.call("replyToConversation", (int(cmd["thread"]), text, []), "(xsav)")
+                files = [GLib.Variant("s", p) for p in outgoing_files(cmd.get("attachments") or [])]
+                if text or files:
+                    self.call("replyToConversation", (int(cmd["thread"]), text, files), "(xsav)")
                     self.out({"ev": "sent", "thread": int(cmd["thread"])})
             elif verb == "send":
                 text = str(cmd.get("text", "")).strip()
+                files = [GLib.Variant("s", p) for p in outgoing_files(cmd.get("attachments") or [])]
                 addrs = [GLib.Variant("(s)", (str(a),)) for a in cmd.get("addresses", []) if str(a).strip()]
-                if text and addrs:
-                    self.call("sendWithoutConversation", (addrs, text, []), "(avsav)")
+                if (text or files) and addrs:
+                    self.call("sendWithoutConversation", (addrs, text, files), "(avsav)")
                     self.out({"ev": "sent", "addresses": cmd.get("addresses", [])})
             elif verb == "attachment":
                 if cmd.get("mime"):
@@ -7191,6 +7318,9 @@ def main(argv):
         # A safe copy of a track's art (a file in KDE Connect's art cache),
         # for the panel to show: its path, or nothing.
         print(safe_art(argv[1] if len(argv) > 1 else "", int(argv[2]) if len(argv) > 2 else ART_BOX))
+        return EXIT_OK
+    if argv[0] == "outgoing-picture":
+        print(json.dumps(outgoing_picture(argv[1] if len(argv) > 1 else "", argv[2] if len(argv) > 2 else ""), ensure_ascii=False))
         return EXIT_OK
     if argv[0] == "copy-file":
         return copy_file(argv[1] if len(argv) > 1 else "", local="--local" in argv[2:])

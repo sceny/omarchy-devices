@@ -22,6 +22,7 @@ var GLYPH = {
   previous: "\u{F04AE}",
   reply: "\u{F17AD}",        // arrow-u-left-top
   send: "\u{F048A}",
+  attach: "\u{F03E2}",       // paperclip
   close: "\u{F0156}",
   clearAll: "\u{F039F}",     // notification-clear-all: dismiss every notification
   keyboard: "\u{F030C}",     // keyboard: the Keys page
