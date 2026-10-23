@@ -1306,7 +1306,7 @@ Panel {
   // KDE Connect stopped on a computer set up before: started here while the
   // panel is open (Service.autoStartDaemon); the card comes only if that failed.
   readonly property bool autoStartDue: opened && !!phone && phone.daemonAutoPending && phone.daemonAuto === ""
-  onAutoStartDueChanged: if (autoStartDue) phone.autoStartDaemon()
+  onAutoStartDueChanged: if (autoStartDue) Qt.callLater(function() { if (phone) phone.autoStartDaemon() })
   readonly property bool autoStartFailed: opened && !!phone && !phone.daemon && phone.daemonAuto === "tried"
   onAutoStartFailedChanged: if (autoStartFailed && !showSettings) openReady()
   // The first run's one step: everything any feature needs here, under one
