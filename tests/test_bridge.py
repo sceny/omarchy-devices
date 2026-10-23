@@ -841,6 +841,36 @@ class Photos(unittest.TestCase):
             self.assertEqual(bridge.photos("p1"), {"ok": False, "missing": "sshfs"})
         finally:
             bridge.shutil.which = saved
+
+    def test_a_mount_reported_up_that_is_not_one_is_a_failed_mount(self):
+        with tempfile.TemporaryDirectory() as point:
+            replies = {"mountPoint": [point], "getDirectories": [{point: ""}], "getMountError": [""]}
+            remounts = []
+            with mock.patch.object(bridge.shutil, "which", return_value="/usr/bin/sshfs"), \
+                 mock.patch.object(bridge, "bus", return_value=mock.Mock(call_sync=lambda *a: mock.Mock(unpack=lambda: (True,)))), \
+                 mock.patch.object(bridge, "call", side_effect=lambda conn, path, iface, method, *rest: replies[method]), \
+                 mock.patch.object(bridge, "remount", side_effect=lambda *a: remounts.append(a) or True), \
+                 mock.patch.object(bridge, "mount_alive", return_value=True):
+                got = bridge.photos("p1")
+        self.assertIs(got["ok"], False, "an empty folder that answers is not an empty gallery")
+        self.assertIs(got["dead"], True)
+        self.assertTrue(got["error"])
+        self.assertEqual(len(remounts), 1, "mounted again once before giving up")
+
+    def test_a_real_mount_is_read(self):
+        with tempfile.TemporaryDirectory() as point:
+            replies = {"mountPoint": [point], "getDirectories": [{point: ""}], "getMountError": [""]}
+            with mock.patch.object(bridge.shutil, "which", return_value="/usr/bin/sshfs"), \
+                 mock.patch.object(bridge, "bus", return_value=mock.Mock(call_sync=lambda *a: mock.Mock(unpack=lambda: (True,)))), \
+                 mock.patch.object(bridge, "call", side_effect=lambda conn, path, iface, method, *rest: replies[method]), \
+                 mock.patch.object(bridge, "state_dir", return_value=point), \
+                 mock.patch.object(bridge.os.path, "ismount", return_value=True), \
+                 mock.patch.object(bridge, "mount_alive", return_value=True):
+                got = bridge.photos("p1")
+        self.assertIs(got["ok"], True)
+        self.assertEqual(got["photos"], [])
+
+
 class LastSeen(unittest.TestCase):
     """Where a paired device was last connected, kept for its away page."""
 

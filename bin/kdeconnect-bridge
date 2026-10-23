@@ -1377,6 +1377,14 @@ def mount_alive(path, run=None):
         return False
 
 
+def mount_up(path, run=None):
+    """A mount that answers and is one: KDE Connect reports the storage
+    mounted while sshfs failed (no FUSE device, a stale mount), which leaves
+    the plain, empty mount point folder that answers a stat and lists as an
+    empty gallery."""
+    return mount_alive(path, run) and os.path.ismount(path)
+
+
 def photos(device_id, count=PHOTO_COUNT):
     """The device's newest photos and videos as JSON: {ok, photos, albums}
     or {ok: false, missing: "sshfs"} or {ok: false, error}."""
@@ -1393,12 +1401,13 @@ def photos(device_id, count=PHOTO_COUNT):
             return {"ok": False, "error": error or "The device did not allow its storage"}
         roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
         point = call(conn, path, iface, "mountPoint")[0]
-        # Mounted, but not answering (the phone restarted under it): mounted
-        # again once, before giving up; never listed while dead.
-        if not mount_alive(point):
-            if not remount(device_id, conn) or not mount_alive(call(conn, path, iface, "mountPoint")[0]):
+        # Mounted, but not answering (the phone restarted under it) or not
+        # a mount at all: mounted again once, before giving up; never listed
+        # while dead, so a failure is {ok: false} and not an empty gallery.
+        if not mount_up(point):
+            if not remount(device_id, conn) or not mount_up(call(conn, path, iface, "mountPoint")[0]):
                 return {"ok": False, "dead": True,
-                        "error": "Its storage stopped answering (a mount left behind): try again, or restart KDE Connect"}
+                        "error": "Its storage did not mount or stopped answering: try again, or restart KDE Connect"}
             roots = list(call(conn, path, iface, "getDirectories")[0].keys()) or [call(conn, path, iface, "mountPoint")[0]]
     except GLib.Error as error:
         return {"ok": False, "error": error.message}
