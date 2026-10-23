@@ -72,19 +72,19 @@ settings_persist() {
     [[ $(sha256sum < "$before") == "$(sha256sum < "$after")" ]] ||
         { echo "shell.json changed across a restart with no change made"; return 1; }
 
-    toggled=$(dev/rig ipc fold apps) || return 1
-    echo "fold apps -> $toggled"
+    toggled=$(dev/rig ipc fold notifications) || return 1
+    echo "fold notifications -> $toggled"
     sleep 1
     in_rig cat "$sj" > "$OUT_DIR/shell-folded.json" || return 1
-    jq -e --argjson v "$(jq -c '.apps // false' <<<"$toggled")" \
-        '[.. | objects | select(has("collapsed")) | .collapsed.apps // false] | any(. == $v)' \
+    jq -e --argjson v "$(jq -c '.notifications // false' <<<"$toggled")" \
+        '[.. | objects | select(has("collapsed")) | .collapsed.notifications // false] | any(. == $v)' \
         "$OUT_DIR/shell-folded.json" >/dev/null ||
         { echo "the fold was not written to shell.json"; return 1; }
 
     dev/rig restart-shell || return 1
     in_rig cat "$sj" > "$OUT_DIR/shell-after-second-restart.json" || return 1
-    jq -e --argjson v "$(jq -c '.apps // false' <<<"$toggled")" \
-        '[.. | objects | select(has("collapsed")) | .collapsed.apps // false] | any(. == $v)' \
+    jq -e --argjson v "$(jq -c '.notifications // false' <<<"$toggled")" \
+        '[.. | objects | select(has("collapsed")) | .collapsed.notifications // false] | any(. == $v)' \
         "$OUT_DIR/shell-after-second-restart.json" >/dev/null ||
         { echo "the fold did not survive the restart"; return 1; }
 }
@@ -106,10 +106,10 @@ versions_recorded() {
 }
 
 header_shots() {
-    dev/rig ipc fold apps >/dev/null || return 1
+    dev/rig ipc fold notifications >/dev/null || return 1
     sleep 1
     dev/rig screenshot "$OUT_DIR/headers-folded.png" || return 1
-    dev/rig ipc fold apps >/dev/null || return 1
+    dev/rig ipc fold notifications >/dev/null || return 1
     sleep 1
     dev/rig screenshot "$OUT_DIR/headers-open.png" || return 1
 }
@@ -151,10 +151,10 @@ measured "Versions recorded" \
 if header_shots > "$OUT_DIR/headers.log" 2>&1; then
     look "Section headers" \
         "Every header is one height, folded or open" \
-        "dev/rig ipc fold apps, dev/rig screenshot" "headers-folded.png, headers-open.png"
+        "dev/rig ipc fold notifications, dev/rig screenshot" "headers-folded.png, headers-open.png"
 else
     row "Section headers" "Every header is one height, folded or open" \
-        "dev/rig ipc fold apps, dev/rig screenshot" fail "headers.log"
+        "dev/rig ipc fold notifications, dev/rig screenshot" fail "headers.log"
     failed=1
 fi
 
