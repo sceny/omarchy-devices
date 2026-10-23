@@ -66,10 +66,10 @@ dev/sandbox dev up         # once per session: the rig, emulator booted and pair
   "Target not found" means the plugin failed to load and the widget is gone
   from the bar; read `"${RIG[@]}" logs shell`. The error can land after a quick
   log check has passed; the IPC check cannot.
-- **Always stop the session** (`dev/sandbox dev stop --all`, then
+- **Always stop the session** (`dev/sandbox dev --session <id> stop`, then
   `dev/sandbox verify-clean`). At most two sessions run at once; `dev/sandbox
-  dev status` lists them and `--session <id>` addresses one. Never kill a
-  process by name.
+  dev status` lists them, and `--session <id>` names the one to stop, which
+  is the one your run started. Never kill a process by name.
 - A session needs podman, `/dev/kvm` and a GPU render node on the host. Without
   them (a cloud session, no Omarchy), follow AGENTS.md, *Workflow*: the pull
   request says the change is not checked live, and the merge waits for someone

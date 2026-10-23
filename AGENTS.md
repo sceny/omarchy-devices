@@ -740,8 +740,8 @@ one only with the owner.
   `~/.config`, KDE Connect daemon, adb server and phone are never driven,
   restarted or written to by an agent; the owner looks at screenshots and
   recordings, never at a live rig. A session is always stopped
-  (`dev/sandbox dev stop`, then `dev/sandbox verify-clean`), and nothing is
-  ever killed by process name.
+  (`dev/sandbox dev --session <id> stop`, then `dev/sandbox verify-clean`),
+  and nothing is ever killed by process name.
 - **Every change goes into `develop` through a pull request:** a
   short-lived branch from `develop`, `gh pr create --base develop`, CI
   green, the change checked in the sandbox, squash-merge, delete the branch. `Closes #n` in a pull
@@ -1029,7 +1029,7 @@ run in order; the detail, the checklist and the record templates are in
   Bluetooth, or change the device's volume or playback in a test without
   the owner's go.
 - Leave a session or a test's side effect behind: stop sessions
-  (`dev/sandbox dev stop --all`, then `dev/sandbox verify-clean`). A cache a test
-  changes (an unread thread marked seen) is the session's own and goes with it;
-  on the host nothing is changed.
+  (`dev/sandbox dev --session <id> stop`, then `dev/sandbox verify-clean`). A
+  cache a test changes (an unread thread marked seen) is the session's own and
+  goes with it; on the host nothing is changed.
 - Commit anything read from a real device.
