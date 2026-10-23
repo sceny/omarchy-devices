@@ -625,6 +625,34 @@ class ArtDecodeSlotFreesOnExit(unittest.TestCase):
         self.assertNotEqual(self.check(late), [])
 
 
+class PictureAnswerComesBeforeTheFlagClears(unittest.TestCase):
+    """MessagesView drops its claim on a chosen picture when `choosingPicture`
+    turns false, so the picker's answer must go out first: after it, the
+    picture finds no claim and never reaches the composer."""
+
+    def stream_handler(self, text):
+        clean = code_only(text)
+        start = clean.index("id: picker")
+        body = clean[start:]
+        return body[body.index("onStreamFinished"):body.index("onExited")]
+
+    def check(self, text):
+        handler = self.stream_handler(text)
+        emit = handler.find("pictureChosen(")
+        clear = handler.find("choosingPicture = false")
+        return emit != -1 and clear != -1 and emit < clear
+
+    def test_the_answer_goes_out_before_the_flag_clears(self):
+        with open(os.path.join(ROOT, "SmsService.qml")) as f:
+            self.assertTrue(self.check(f.read()))
+
+    def test_the_check_finds_the_flag_clearing_first(self):
+        with open(os.path.join(ROOT, "SmsService.qml")) as f:
+            text = f.read()
+        early = text.replace("        var answer = null\n", "        sms.choosingPicture = false\n        var answer = null\n", 1)
+        self.assertFalse(self.check(early))
+
+
 class ThreadListHasOneWriter(unittest.TestCase):
     """SmsService keeps an id -> row index beside the thread ListModel
     (Model.threadRows*); a change to the list outside the five functions that

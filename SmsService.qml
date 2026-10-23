@@ -427,11 +427,13 @@ Item {
     command: [sms.bridge, "outgoing-picture", "pick"]
     stdout: StdioCollector {
       onStreamFinished: {
-        sms.choosingPicture = false
         var answer = null
-        try { answer = JSON.parse(text) } catch (e) { return }
-        if (answer.ok) sms.pictureChosen(answer)
-        else if (!answer.cancelled) { sms.lastError = answer.error || "That picture could not be attached"; errorClear.restart() }
+        try { answer = JSON.parse(text) } catch (e) {}
+        // The answer goes out before the flag clears: whoever asked drops its
+        // claim on the flag's change, so a late answer would find none.
+        if (answer && answer.ok) sms.pictureChosen(answer)
+        else if (answer && !answer.cancelled) { sms.lastError = answer.error || "That picture could not be attached"; errorClear.restart() }
+        sms.choosingPicture = false
       }
     }
     onExited: sms.choosingPicture = false
