@@ -1132,7 +1132,7 @@ cmd_dev() {
 
 store_processes_left() {
   local names line
-  names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | paste -sd '|')
+  names=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -E 'sceny-sandbox' | grep -vxFf <(dev_names) | paste -sd '|')
   {
     [[ -n $names ]] && pgrep -u "$SB_UID" -af "$names" 2>/dev/null
     pgrep -u "$SB_UID" -af '' 2>/dev/null | while IFS= read -r line; do
@@ -1140,20 +1140,23 @@ store_processes_left() {
         *"$SB_STATE/"* | *"$SB_STATE "* | *"$SB_STATE") printf '%s\n' "$line" ;;
       esac
     done
-  } | grep -v 'pgrep\|verify-clean' | awk '!seen[$0]++' | head -5
+  } | grep -vF -e pgrep -e verify-clean -e "label=$SB_DEV_LABEL" | grep -vFf <(dev_names) | awk '!seen[$0]++' | head -5
 }
 
+# A live dev session is another person's work in progress, not this store's leftover.
 cmd_verify_clean() {
   require_tools
   store_lock_acquire
   trap 'store_lock_release' RETURN
-  local bad=0 list
-  list=$(pm ps -a --format '{{.Names}}' 2>/dev/null)
+  local bad=0 list kept
+  kept=$(dev_names | paste -sd ' ')
+  [[ -z $kept ]] || step "not counted, live dev sessions of their owners: $kept"
+  list=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
   if [[ -n $list ]]; then
     fail "containers left: $(echo "$list" | tr '\n' ' ')"
     bad=1
   else ok "no container (running or stopped)"; fi
-  list=$(pm ps -a --external --format '{{.Names}}' 2>/dev/null)
+  list=$(pm ps -a --external --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
   if [[ -n $list ]]; then
     fail "storage containers left: $(echo "$list" | tr '\n' ' ')"
     bad=1
