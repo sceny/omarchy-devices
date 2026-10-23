@@ -241,3 +241,30 @@ class RootPlan(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AudioComesHereOnlyOnAClick(unittest.TestCase):
+    """The audio stays on the device until the user brings it: what routes it
+    here reads the click Service.qml records (`hereClicked`), whatever the
+    device or the Calls here setting says."""
+
+    def setUp(self):
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Service.qml")) as f:
+            self.text = f.read()
+
+    def block(self, name):
+        start = self.text.index(name)
+        return self.text[start:self.text.index("\n  }\n", start)]
+
+    def test_keeping_the_audio_on_the_device_ends_only_with_a_click(self):
+        self.assertIn("!hereClicked(", self.block("readonly property var callsToKeep"))
+
+    def test_the_audio_device_needs_the_click(self):
+        self.assertIn("hereClicked(id)", self.block("readonly property string callAudioDevice"))
+
+    def test_the_clicks_that_bring_it_here_record_one(self):
+        action = self.block("function callAction")
+        for key in ("answer", "holdAnswer", "endAnswer", "audioHere"):
+            self.assertIn('key === "%s"' % key, action)
+        self.assertIn("markHere(id)", action)
+        self.assertIn("markHere(id)", self.block("function placeCall"))

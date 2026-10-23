@@ -273,6 +273,12 @@ class NoPrivateTextOnStderr(unittest.TestCase):
         sms.sent = []
         sms.calls = []
         sms.fail = False
+        sms.daemon_owner = lambda: ":1.9"
+        cache = tempfile.TemporaryDirectory()
+        self.addCleanup(cache.cleanup)
+        saved = bridge.state_dir
+        bridge.state_dir = lambda: cache.name
+        self.addCleanup(setattr, bridge, "state_dir", saved)
 
         def call(method, args=None, sig=None, timeout=10000):
             if sms.fail:

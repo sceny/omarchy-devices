@@ -14,8 +14,10 @@ your mouse and keyboard while the phone stays in your pocket.
 - **It turns with the phone.** Sideways, or a foldable opened: the window
   takes the new shape as the phone does.
 - **Your keyboard and mouse.** Type, scroll; right-click is Back,
-  middle-click is Home. Copy on one side, paste on the other; drop a file
-  on it to send it to the phone's Downloads.
+  middle-click is Home. Copy on one side, paste on the other (a paste
+  in the window sends this computer's clipboard to the phone, and a copy on
+  the phone sets this one's); drop a file on it to send it to the phone's
+  Downloads.
 - **Full screen:** Omarchy's pop-out key, then its full screen key (the
   panel shows your keys).
 - **Its sound** plays here; the speaker on the Screen shortcut (or `v`)

@@ -126,6 +126,7 @@ import hashlib
 import html
 import ipaddress
 import json
+import math
 import shutil
 import stat
 import os
@@ -755,6 +756,40 @@ MOUNT_TIMEOUT_MS = 30000
 
 def received_path(device_id):
     return os.path.join(state_dir(), "received-%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+
+
+# Asking the phone for every conversation makes it send one packet per
+# conversation, so the ask is made at most once in SMS_ASK_MIN_SEC for a
+# device while the same KDE Connect daemon holds what it sent. A new daemon
+# starts empty and is always asked. The time and the daemon are kept in the
+# cache: the `sms` process restarts with each tab switch.
+SMS_ASK_MIN_SEC = 600
+
+
+def sms_asked_path(device_id):
+    return os.path.join(state_dir(), "sms-asked-%s.json" % re.sub(r"[^A-Za-z0-9_-]", "_", device_id))
+
+
+def sms_ask_due(device_id, owner, now=None):
+    try:
+        with open(sms_asked_path(device_id)) as f:
+            seen = json.load(f)
+        at = float(seen.get("at", 0))
+        same = bool(owner) and seen.get("owner") == owner
+    except (OSError, ValueError, TypeError, AttributeError):
+        return True
+    now = time.time() if now is None else now
+    return not same or not 0 <= now - at < SMS_ASK_MIN_SEC
+
+
+def sms_ask_done(device_id, owner, now=None):
+    path = sms_asked_path(device_id)
+    try:
+        with open(path + ".part", "w") as f:
+            json.dump({"at": time.time() if now is None else now, "owner": owner}, f)
+        os.replace(path + ".part", path)
+    except OSError:
+        pass
 
 
 def load_received(path):
@@ -1429,20 +1464,32 @@ def save_target(folder, name, size):
 
 def save_file(path, device_name):
     """A copy of a file from the device in Pictures/<device name>/, with its
-    own date; never over another file, and not twice."""
-    if not os.path.isfile(path):
-        return say("The file is gone", EXIT_FAILED)
-    folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
-    folder = os.path.join(pictures_dir(), folder_name)
-    os.makedirs(folder, exist_ok=True)
-    shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
-    target = save_target(folder, os.path.basename(path), os.path.getsize(path))
-    if target is None:
-        return say("Already in %s" % shown, osd="Already saved")
+    own date; never over another file, and not twice. The device decides what
+    is on its storage link, so the source is opened as `local_copy` opens it:
+    never through a link, never outside the mount."""
     try:
-        shutil.copy2(path, target)
+        source = open_in_storage(path)
     except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ELOOP, errno.EXDEV, errno.EINVAL):
+            if error.errno == errno.ENOENT:
+                return say("The file is gone", EXIT_FAILED)
+            return say("It is not a file on the device", EXIT_FAILED)
         return say(str(error), EXIT_FAILED, osd="")
+    with source:
+        folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
+        folder = os.path.join(pictures_dir(), folder_name)
+        os.makedirs(folder, exist_ok=True)
+        shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
+        info = os.fstat(source.fileno())
+        target = save_target(folder, os.path.basename(path), info.st_size)
+        if target is None:
+            return say("Already in %s" % shown, osd="Already saved")
+        try:
+            with open(target, "xb") as out:
+                shutil.copyfileobj(source, out)
+            os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns))
+        except OSError as error:
+            return say(str(error), EXIT_FAILED, osd="")
     return say("Saved to %s" % os.path.join(shown, os.path.basename(target)),
                 osd="Saved to %s" % os.path.basename(pictures_dir()))
 
@@ -1484,17 +1531,12 @@ def storage_root(path):
     return folder
 
 
-def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
-    """A copy of the device's file in the cache, under its own name (apps
-    show it): the one already there while the file is unchanged. The device
-    decides what is on its storage link, so the source is never a link to a
-    file of this computer, never anything but a regular file, and never
-    larger than the cache holds: it is opened without following a link, its
-    folder must resolve inside the link's mount (`root`) before the open and
-    the open file itself must after it (a folder swapped for a link in
-    between is refused), and the copy is read from that open file, up to
-    `limit` bytes."""
-    cache = cache or open_cache()
+def open_in_storage(path, root=None):
+    """The device's file opened for reading and nothing else: never through a
+    link (the last part is opened with O_NOFOLLOW), only inside the storage
+    link's mount (`root`), checked on its folder before the open and on the
+    open file itself after it, so a folder swapped for a link in between is
+    refused. Returns the file object, which is a regular file."""
     root = os.path.realpath(root or storage_root(path))
     if os.path.commonpath([os.path.realpath(os.path.dirname(os.path.abspath(path))), root]) != root:
         raise OSError(errno.EXDEV, "It is outside the device's storage")
@@ -1510,13 +1552,27 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
         opened = os.path.realpath("/proc/self/fd/%d" % fd)
         if os.path.commonpath([opened, root]) != root:
             raise OSError(errno.EXDEV, "It is outside the device's storage")
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise OSError(errno.EINVAL, "It is not a regular file")
     except BaseException:
         os.close(fd)
         raise
-    with os.fdopen(fd, "rb") as source:
+    return os.fdopen(fd, "rb")
+
+
+def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
+    """A copy of the device's file in the cache, under its own name (apps
+    show it): the one already there while the file is unchanged. The device
+    decides what is on its storage link, so the source is never a link to a
+    file of this computer, never anything but a regular file, and never
+    larger than the cache holds: it is opened without following a link, its
+    folder must resolve inside the link's mount (`root`) before the open and
+    the open file itself must after it (a folder swapped for a link in
+    between is refused), and the copy is read from that open file, up to
+    `limit` bytes."""
+    cache = cache or open_cache()
+    with open_in_storage(path, root) as source:
         st = os.fstat(source.fileno())
-        if not stat.S_ISREG(st.st_mode):
-            raise OSError(errno.EINVAL, "It is not a regular file")
         if st.st_size > limit:
             raise OSError(errno.EFBIG, "It is larger than the copies kept here")
         folder = os.path.join(cache, hashlib.sha1(path.encode()).hexdigest()[:16])
@@ -2328,7 +2384,7 @@ def as_root(argv):
     polkit agent asks for the password. Only `root_plan` builds such a command,
     and only `run_root` runs it, after the --confirm hash matches
     (tests/test_lints.py, RootOnlyAsConfirmed)."""
-    return ["pkexec"] + list(argv)
+    return ["/usr/bin/pkexec"] + list(argv)
 
 
 def pkg_add(packages):
@@ -2988,6 +3044,13 @@ def with_address(current, added_before, address):
     return out
 
 
+def given_address(current, added_before, address):
+    """The address to record as this plugin's own: `address`, unless KDE
+    Connect already had it from the user (it was in `current` and this
+    plugin had not added it), which stays the user's and is never taken back."""
+    return address if address and (address not in current or address == added_before) else ""
+
+
 def wait_reachable(device_id, conn, wait=RECONNECT_WAIT_SEC, sleep=time.sleep):
     for _ in range(int(wait * 2)):
         p = props(conn, device_path(device_id), IFACE + ".device") or {}
@@ -3019,7 +3082,7 @@ def reconnect(device_id, conn=None):
         if wanted != current:
             call(conn, ROOT, "org.freedesktop.DBus.Properties", "Set",
                  (IFACE + ".daemon", "customDevices", GLib.Variant("as", wanted)), "(ssv)")
-        screen_record(device_id, {"kdeAddress": address})
+        screen_record(device_id, {"kdeAddress": given_address(current, before, address)})
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
         return say(error.message, EXIT_FAILED, osd="")
@@ -3361,7 +3424,7 @@ def reach(device_id, address="", conn=None, meshes=None):
     try:
         if wanted != current:
             set_custom(conn, wanted)
-        update = {kind: address}
+        update = {kind: given_address(current, record.get(kind, ""), address)}
         if picked:
             update.update(mesh=picked["mesh"], peer=picked["name"], peerKey=picked.get("key", ""))
         network_record(device_id, update)
@@ -4470,7 +4533,7 @@ def screen_status(device_id):
     return status
 
 
-def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
+def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None, clock=time.monotonic):
     """Pairs adb with the device over Wi-Fi, as Android Studio does: prints
     a QR code to show, waits for the device to scan it (it then announces
     the name in the code over mDNS), pairs with the password in the code,
@@ -4492,9 +4555,10 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None):
     adb(["start-server"], timeout=15)
     emit({"ev": "qr", "ascii": ascii_code, "seconds": wait})
     found = None
-    for _ in range(int(wait)):
+    deadline = clock() + wait
+    while True:
         found = next((s for s in mdns_services() if s["kind"] == "pairing" and s["name"] == name), None)
-        if found:
+        if found or clock() >= deadline:
             break
         sleep(1)
     if not found:
@@ -6033,6 +6097,11 @@ def num(v, default=0.0):
     """A number attribute (float, dimension, fraction, integer)."""
     if not v:
         return default
+    value = num_value(v, default)
+    return value if math.isfinite(value) else default
+
+
+def num_value(v, default):
     t, d, raw = v
     if t == T_FLOAT:
         return struct_float(d)
@@ -7033,6 +7102,22 @@ class Sms:
         return self.conn.call_sync(BUS_NAME, self.path, SMS_IF, method, params, None,
                                    Gio.DBusCallFlags.NONE, timeout, None)
 
+    def daemon_owner(self):
+        try:
+            return self.conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus",
+                                       "GetNameOwner", GLib.Variant("(s)", (BUS_NAME,)), None,
+                                       Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
+        except GLib.Error:
+            return ""
+
+    def ask_all_threads(self, always=False):
+        """Asks the phone for every conversation (see SMS_ASK_MIN_SEC)."""
+        owner = self.daemon_owner()
+        if not always and not sms_ask_due(self.device_id, owner):
+            return
+        self.call("requestAllConversationThreads")
+        sms_ask_done(self.device_id, owner)
+
     def active(self):
         av = self.call("activeConversations").get_child_value(0)
         out = []
@@ -7267,7 +7352,7 @@ class Sms:
             elif verb == "refresh":
                 self.contacts, self.contact_list = read_contacts(self.device_id)
                 self.emit_threads()
-                self.call("requestAllConversationThreads")
+                self.ask_all_threads()
         except (GLib.Error, KeyError, ValueError, TypeError) as error:
             message = error.message if isinstance(error, GLib.Error) else str(error)
             self.out({"ev": "error", "cmd": verb, "message": message})
@@ -7303,7 +7388,7 @@ class Sms:
         def attempt():
             tries[0] += 1
             try:
-                self.call("requestAllConversationThreads")
+                self.ask_all_threads(always=True)
                 return False
             except GLib.Error:
                 return tries[0] < self.RESYNC_TRIES
@@ -7320,7 +7405,7 @@ class Sms:
             self.emit_threads()
             # Ask the phone for anything the daemon has not seen yet; updates
             # come back as signals.
-            self.call("requestAllConversationThreads")
+            self.ask_all_threads()
         except GLib.Error as error:
             self.out({"ev": "error", "cmd": "start", "message": error.message})
         self.loop.run()

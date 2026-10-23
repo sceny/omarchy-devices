@@ -155,7 +155,7 @@ class RootPlans(unittest.TestCase):
         plan = bridge.root_plan("ready", run=pacman, rules=[], ifaces=[], fw={"present": True, "active": True, "allowed": False})
         self.assertEqual(len(plan["commands"]), 1, "one prompt")
         script = plan["commands"][0][-1]
-        self.assertEqual(plan["commands"][0][:3], ["pkexec", "/bin/sh", "-c"])
+        self.assertEqual(plan["commands"][0][:3], ["/usr/bin/pkexec", "/bin/sh", "-c"])
         self.assertIn("omarchy-pkg-add kdeconnect sshfs scrcpy android-udev", script)
         self.assertNotIn("android-tools", script, "installed at any version: never passed to pacman")
         self.assertEqual(script.count("ufw allow from 192.168.0.0/16"), 2, "every private network, not only this one")

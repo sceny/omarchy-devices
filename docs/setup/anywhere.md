@@ -20,8 +20,9 @@ you through it, and ticks each step as it sees it done. *Set it up* does what it
 
 The firewall's fix (*Diagnostics › Firewall*, or the first run's card) lets KDE Connect in from
 every private range (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and on the mesh's
-interface, never from everyone. On a public network it adds nothing and the check does not
-fail: the ports stay closed to it.
+interface, never from everyone. It is a rule on the sender's address: a network that hands out
+private addresses reaches the ports, whatever its name, and pairing's key is what keeps others
+out.
 
 **Its address** on the same page takes any IP that reaches the phone (your
 own VPN, another network): KDE Connect tries it as well.

@@ -144,8 +144,11 @@ one only with the owner.
   device when `watch` sees it, starting a loaded plugin again to read it;
   `isAutoShareDisabled` says the result). An `autoShare=true` already in the
   file is the user's choice and stays. The Clipboard shortcut
-  (`sendClipboard`) is the only way a copy leaves; a copy made on the device
+  (`sendClipboard`) is the only way a copy leaves through KDE Connect; a copy made on the device
   still arrives here. Never turn auto-share on from the plugin.
+  The screen window's own clipboard is scrcpy's, and is the user's act too:
+  a paste in the window sends this computer's clipboard to the device, and a
+  copy on the device sets this computer's (`docs/security.md`).
 - **Media comes from MPRIS, not `mprisremote`.** KDE Connect's `mprisremote`
   object shows one "current" player, which goes stale when the phone
   switches apps. The exported `org.mpris.MediaPlayer2.kdeconnect.*` players are live.

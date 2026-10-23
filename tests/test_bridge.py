@@ -202,6 +202,13 @@ class Resync(unittest.TestCase):
         sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: calls are recorded
         sms.calls = []
         sms.fail = 0
+        sms.device_id = "resync"
+        sms.daemon_owner = lambda: ":1.9"
+        cache = tempfile.TemporaryDirectory()
+        self.addCleanup(cache.cleanup)
+        saved = bridge.state_dir
+        bridge.state_dir = lambda: cache.name
+        self.addCleanup(setattr, bridge, "state_dir", saved)
 
         def call(method, args=None, sig=None, timeout=10000):
             if sms.fail > 0:
@@ -2054,7 +2061,7 @@ class Screen(unittest.TestCase):
                 self.assertEqual(bridge.fix("screen", shown["hash"]), bridge.EXIT_OK)
         finally:
             bridge.subprocess.run = saved
-        self.assertEqual(ran, [["pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
+        self.assertEqual(ran, [["/usr/bin/pkexec", "/usr/bin/env", "PATH=%s:/usr/bin:/bin" % bridge.OMARCHY_BIN,
                                 os.path.join(bridge.OMARCHY_BIN, "omarchy-pkg-add"), "scrcpy", "android-tools", "android-udev"]],
                          "Omarchy's pkg add, as root, only what was shown; Avahi is Omarchy's already")
 
@@ -2120,3 +2127,138 @@ class Screen(unittest.TestCase):
                 self.assertTrue(bridge.screen_record("p1")["paired"])
             finally:
                 bridge.state_dir = saved
+
+
+class SaveFileStaysOnTheMount(unittest.TestCase):
+    """Saving a file from the device reads it as opening one does."""
+
+    def save(self, make, name="IMG_1.jpg"):
+        with tempfile.TemporaryDirectory() as d:
+            mount = os.path.join(d, "mount")
+            os.makedirs(mount)
+            outside = os.path.join(d, "outside.txt")
+            open(outside, "w").write("not the device's")
+            path = make(mount, outside, name)
+            saved = bridge.pictures_dir, bridge.storage_root
+            bridge.pictures_dir = lambda: os.path.join(d, "Pictures")
+            bridge.storage_root = lambda p: mount
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    code = bridge.save_file(path, "Pixel 8")
+            finally:
+                bridge.pictures_dir, bridge.storage_root = saved
+            folder = os.path.join(d, "Pictures", "Pixel 8")
+            return code, os.listdir(folder) if os.path.isdir(folder) else []
+
+    def test_a_file_on_the_mount_is_saved(self):
+        def make(mount, outside, name):
+            path = os.path.join(mount, name)
+            open(path, "w").write("x")
+            return path
+        self.assertEqual(self.save(make), (bridge.EXIT_OK, ["IMG_1.jpg"]))
+
+    def test_a_link_to_a_file_outside_is_not_saved(self):
+        def make(mount, outside, name):
+            path = os.path.join(mount, name)
+            os.symlink(outside, path)
+            return path
+        self.assertEqual(self.save(make), (bridge.EXIT_FAILED, []))
+
+    def test_a_file_in_a_linked_folder_is_not_saved(self):
+        def make(mount, outside, name):
+            elsewhere = os.path.join(os.path.dirname(mount), "elsewhere")
+            os.makedirs(elsewhere)
+            open(os.path.join(elsewhere, name), "w").write("x")
+            os.symlink(elsewhere, os.path.join(mount, "DCIM"))
+            return os.path.join(mount, "DCIM", name)
+        self.assertEqual(self.save(make), (bridge.EXIT_FAILED, []))
+
+    def test_a_pipe_is_not_saved_and_does_not_block(self):
+        def make(mount, outside, name):
+            path = os.path.join(mount, name)
+            os.mkfifo(path)
+            return path
+        self.assertEqual(self.save(make), (bridge.EXIT_FAILED, []))
+
+
+class OwnAddressesStayTheUsers(unittest.TestCase):
+    def test_an_address_the_user_had_is_not_recorded_as_the_plugins(self):
+        self.assertEqual(bridge.given_address(["10.0.0.5"], "", "10.0.0.5"), "")
+
+    def test_an_address_the_plugin_added_before_is_still_its_own(self):
+        self.assertEqual(bridge.given_address(["10.0.0.5"], "10.0.0.5", "10.0.0.5"), "10.0.0.5")
+
+    def test_a_new_address_is_the_plugins(self):
+        self.assertEqual(bridge.given_address(["10.0.0.5"], "", "100.64.0.9"), "100.64.0.9")
+
+    def test_no_address_records_nothing(self):
+        self.assertEqual(bridge.given_address([], "", ""), "")
+
+
+class Hardening(unittest.TestCase):
+    def test_root_starts_from_the_absolute_pkexec(self):
+        self.assertEqual(bridge.as_root(["/bin/true"])[0], "/usr/bin/pkexec")
+
+    def test_a_number_that_is_not_finite_is_the_default(self):
+        import struct
+        for bits in (struct.unpack("<I", struct.pack("<f", float(v)))[0] for v in ("inf", "-inf", "nan")):
+            self.assertEqual(bridge.num((bridge.T_FLOAT, bits, None), 7.0), 7.0)
+        self.assertEqual(bridge.num((bridge.T_FLOAT, struct.unpack("<I", struct.pack("<f", 2.5))[0], None)), 2.5)
+
+    def test_the_pairing_wait_ends_on_the_clock_not_on_the_sleeps(self):
+        saved = bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.adb
+        bridge.subprocess.run = lambda *a, **k: subprocess.CompletedProcess(a, 0, "", "")
+        bridge.screen_tools = lambda: {"ok": True}
+        bridge.mdns_services = lambda: []
+        bridge.adb = lambda *a, **k: (0, "")
+        ticks, naps, events = iter(range(0, 10000)), [], []
+        try:
+            code = bridge.screen_pair("p1", wait=30, sleep=naps.append, emit=events.append,
+                                      clock=lambda: next(ticks))
+        finally:
+            bridge.subprocess.run, bridge.screen_tools, bridge.mdns_services, bridge.adb = saved
+        self.assertEqual(code, bridge.EXIT_CANCELLED)
+        self.assertLessEqual(len(naps), 31, "a sleep that returns at once cannot lengthen the wait")
+
+
+class AskingThePhoneForEveryConversation(unittest.TestCase):
+    def make(self, owner=":1.9"):
+        sms = bridge.Sms.__new__(bridge.Sms)
+        sms.device_id = "ask"
+        sms.owner = owner
+        sms.calls = []
+        sms.call = lambda method, *a, **k: sms.calls.append(method)
+        sms.daemon_owner = lambda: sms.owner
+        cache = tempfile.TemporaryDirectory()
+        self.addCleanup(cache.cleanup)
+        saved = bridge.state_dir
+        bridge.state_dir = lambda: cache.name
+        self.addCleanup(setattr, bridge, "state_dir", saved)
+        return sms
+
+    def test_the_second_ask_within_the_window_is_not_made(self):
+        sms = self.make()
+        sms.ask_all_threads()
+        sms.ask_all_threads()
+        sms.ask_all_threads()
+        self.assertEqual(sms.calls, ["requestAllConversationThreads"])
+
+    def test_a_restarted_daemon_is_asked_again(self):
+        sms = self.make()
+        sms.ask_all_threads()
+        sms.owner = ":1.10"
+        sms.ask_all_threads()
+        self.assertEqual(len(sms.calls), 2)
+
+    def test_the_ask_is_made_again_after_the_window(self):
+        self.make().ask_all_threads()
+        bridge.sms_ask_done("ask", ":1.9", now=1000.0)
+        self.assertFalse(bridge.sms_ask_due("ask", ":1.9", now=1000.0 + bridge.SMS_ASK_MIN_SEC - 1))
+        self.assertTrue(bridge.sms_ask_due("ask", ":1.9", now=1000.0 + bridge.SMS_ASK_MIN_SEC))
+
+    def test_each_device_has_its_own_window(self):
+        a, b = self.make(), self.make()
+        b.device_id = "other"
+        a.ask_all_threads()
+        b.ask_all_threads()
+        self.assertEqual((len(a.calls), len(b.calls)), (1, 1))
