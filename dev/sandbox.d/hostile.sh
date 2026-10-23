@@ -28,6 +28,7 @@ hostile_cleanup() {
   if [[ -n $HOSTILE_WORK && $HOSTILE_WORK == "$SB_STATE"/hostile/* ]]; then rm -rf -- "$HOSTILE_WORK"; fi
   HOSTILE_WORK=""
   SB_ID_LOG=""
+  store_lock_release
 }
 
 # A step writes into the work directory; one that finds it gone stops here,
@@ -82,7 +83,7 @@ hostile_left() { # <work dir>
 # Listeners on the host that must never see a connection from the sandbox.
 hostile_listeners() {
   hostile_here
-  python3 - "$HOSTILE_WORK" <<'PY' &
+  python3 - "$HOSTILE_WORK" 9>&- <<'PY' &
 import json, os, selectors, signal, socket, sys, time
 work = sys.argv[1]
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
@@ -197,7 +198,7 @@ hostile_sample_start() {
   (while :; do
     awk '/^MemAvailable:/ {print $2}' /proc/meminfo >>"$HOSTILE_WORK/memavail.log"
     sleep 0.5
-  done) &
+  done) 9>&- &
   HOSTILE_SAMPLER_PID=$!
 }
 hostile_sample_stop() {
@@ -414,6 +415,8 @@ cmd_hostile_test() {
   done
   want() { [[ -z $only || ,$only, == *",$1,"* ]]; }
   require_tools
+  # Held for the whole test: a verify-clean meanwhile waits, and reads the store only once this test is done.
+  store_lock_acquire
   # The runs and the devices session need the devices image, the Paperclip session its own.
   local only_paperclip=0
   [[ $only == dev-paperclipai ]] && only_paperclip=1
