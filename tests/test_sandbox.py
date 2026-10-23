@@ -1025,9 +1025,12 @@ class SandboxLock(unittest.TestCase):
                     time.sleep(0.02)
                 self.fail(f"stand-in process did not start: {argv0}")
 
-            def left(names, state):
-                script = f"SB_UID=$(id -u)\nSB_STATE=\"$STATE\"\npm() {{ printf '%s\\n' \"$PM_NAMES\"; }}\n{func}store_processes_left\n"
-                env = {**os.environ, "STATE": state, "PM_NAMES": "\n".join(names)}
+            def left(names, state, dev=()):
+                script = (
+                    f"SB_UID=$(id -u)\nSB_STATE=\"$STATE\"\npm() {{ printf '%s\\n' \"$PM_NAMES\"; }}\n"
+                    f"dev_names() {{ printf '%s' \"$DEV_NAMES\"; }}\n{func}store_processes_left\n"
+                )
+                env = {**os.environ, "STATE": state, "PM_NAMES": "\n".join(names), "DEV_NAMES": "\n".join(dev)}
                 r = subprocess.run(["bash"], input=script, capture_output=True, text=True, timeout=20, env=env)
                 return r.stdout
 
@@ -1047,6 +1050,9 @@ class SandboxLock(unittest.TestCase):
             self.assertIn(f"holder {store}", left([], store))
             start(f"conmon --name sceny-sandbox-feedbeef --root {store}/storage")
             self.assertEqual(left(["sceny-sandbox-feedbeef"], store).count("conmon --name sceny-sandbox-feedbeef"), 1)
+            start(f"conmon --name sceny-sandbox-dev-0123abcd --root {store}/storage")
+            self.assertIn("0123abcd", left([], store))
+            self.assertNotIn("0123abcd", left([], store, dev=["sceny-sandbox-dev-0123abcd"]))
             for i, odd in enumerate(("c++ (x) {1} y?", "pipe|store")):
                 root = os.path.join(tmp, odd)
                 start(f"podman --root {root}/storage run odd-leak-{i}")
@@ -1309,6 +1315,51 @@ class DevelopRunsNeedACurrentImage(unittest.TestCase):
         r = self.run_cmd(built="b" * 40, harness="pr")
         self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
         self.assertIn("reached", r.stderr)
+
+
+class LiveDevSessionsAreNotLeftovers(unittest.TestCase):
+    def verify_clean(self, all_names, dev_names):
+        state = tempfile.mkdtemp(prefix="sceny-sandbox-devs-")
+        self.addCleanup(shutil.rmtree, state, True)
+        script = (
+            f'source "{SANDBOX}"\n'
+            "require_tools() { :; }\n"
+            "pm() {\n"
+            '  case "$1 $2 $3" in\n'
+            '  "ps --filter "*) printf \'%s\' "$DEV_NAMES" ;;\n'
+            '  "ps -a --format"*) printf \'%s\' "$ALL_NAMES" ;;\n'
+            '  "image exists"*) return 1 ;;\n'
+            "  *) ;;\n"
+            "  esac\n"
+            "}\n"
+            "cmd_verify_clean\n"
+        )
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": tempfile.gettempdir(),
+            "SANDBOX_STATE": state,
+            "ALL_NAMES": all_names,
+            "DEV_NAMES": dev_names,
+        }
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=120, env=env)
+
+    def test_a_live_dev_session_is_kept_and_not_counted(self):
+        dev = "sceny-sandbox-dev-98cb55db"
+        r = self.verify_clean(dev, dev)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"not counted, live dev sessions of their owners: {dev}", r.stderr)
+
+    def test_a_run_left_beside_a_live_dev_session_is_still_counted(self):
+        dev = "sceny-sandbox-dev-98cb55db"
+        r = self.verify_clean(f"{dev}\nsceny-sandbox-1f2e3d4c", dev)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("containers left: sceny-sandbox-1f2e3d4c ", r.stderr)
+        self.assertNotIn("containers left: sceny-sandbox-dev", r.stderr)
+
+    def test_a_stopped_dev_session_is_still_counted(self):
+        r = self.verify_clean("sceny-sandbox-dev-aaaaaaaa", "")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("containers left: sceny-sandbox-dev-aaaaaaaa ", r.stderr)
 
 
 if __name__ == "__main__":

@@ -3487,6 +3487,29 @@ function settingsProblems(checks, ignored, devices) {
 // a change on the device (`wake`), are never in it.
 var AUTO_FIXES = ["device:plugin", "device:remount", "device:renotify", "device:reconnect", "device:reach"]
 
+// KDE Connect stopped on a computer that was set up before (the bridge says
+// so: installed, and a paired device once reached) is started by the panel
+// itself, once per stop: starting asks for no password and changes nothing on
+// a device. The first run (never set up) keeps its card, a restart stays a
+// click (every device reconnects), and a demo runs nothing. `tried`: the
+// service's state for this stop: "" (not yet), "running", "tried" (it did not
+// start; the card shows).
+var AUTO_START = { verb: "fix", what: "start" }
+function daemonStartPending(snapshot, tried) {
+  return !!snapshot && !snapshot.daemon && snapshot.setUp === true && snapshot.demo !== true && tried !== "tried"
+}
+
+// This computer's checks as the panel shows them: "KDE Connect running" read
+// as stopped is left out while the snapshot says the daemon runs (the check
+// is older than the start) or while the automatic start is under way, so a
+// start that worked never shows the Stopped card (#456). The snapshot is the
+// truth for whether the daemon runs.
+function checksHeld(checks, daemon, startPending) {
+  var list = checks || []
+  if (!daemon && !startPending) return list
+  return list.filter(function(c) { return c.key !== "running" || c.ok })
+}
+
 // The leading steps of a problem's remedy that run by themselves.
 function autoSteps(steps) {
   var out = []

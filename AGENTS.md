@@ -362,16 +362,21 @@ one only with the owner.
   **A fix that needs no password and no change on the device runs by
   itself**, with no card: a dead mount mounted again (`remount`),
   notifications read again (`renotify`), KDE Connect pointed at the device
-  again (`reconnect`, `reach`) and a KDE Connect plugin of a device turned on
-  (`plugin`): `Model.AUTO_FIXES`, the problem's leading steps that are no
-  `fallback`. The panel runs them while it is open and has read the device,
+  again (`reconnect`, `reach`), a KDE Connect plugin of a device turned on
+  (`plugin`) and a stopped KDE Connect started (`start`): `Model.AUTO_FIXES`,
+  the problem's leading steps that are no `fallback`; `start` is the one
+  that belongs to this computer, so it has its own rule (`Model.AUTO_START`,
+  `daemonStartPending`): it runs when KDE Connect is installed, a paired
+  device was reached here before (the bridge's `setUp`) and the daemon is
+  stopped, once per stop, with no card; the first run keeps its card and a
+  start that failed shows it. The panel runs them while it is open and has read the device,
   silently, once per problem until the problem is gone (`autoFixes` in the
   service); the problem stays out of the card, the dots and the count
   until its fix has run and the device was read again, and is shown, once, only
   if it is still there. Everything else stays a click and its card: a root
   fix, a permission or any step on the device (`grant`, `wake`, `relisten`),
-  KDE Connect's restart (every device reconnects) and starting KDE Connect
-  (the first run's card). A new fix joins `Model.AUTO_FIXES` only when it
+  KDE Connect's restart (every device reconnects) and the first run's card
+  (KDE Connect missing, or never set up). A new fix joins `Model.AUTO_FIXES` only when it
   asks for no password and changes nothing on the device. The
   diagnostics page holds only this computer; a package installed is all it
   says of the screen or the gallery. *Fix all* runs what its page is

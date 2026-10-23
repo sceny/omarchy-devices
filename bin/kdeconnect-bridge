@@ -707,7 +707,12 @@ def note_seen(seen, devices, now_ms):
 
 
 def with_seen(snap, seen):
-    """An away paired device carries where it was last seen, or None."""
+    """An away paired device carries where it was last seen, or None. A
+    snapshot with the daemon stopped says whether this computer was set up
+    before (KDE Connect installed, a paired device once reached), so the panel
+    may start it without the first run's card."""
+    if not snap.get("daemon"):
+        snap["setUp"] = bool(seen) and shutil.which("kdeconnect-cli") is not None
     for d in snap.get("devices", []):
         s = seen.get(d["id"])
         d["lastSeen"] = {"link": s.get("link", ""), "address": s.get("address", ""), "at": s.get("at", 0)} \
