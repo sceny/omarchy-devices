@@ -268,3 +268,11 @@ class AudioComesHereOnlyOnAClick(unittest.TestCase):
             self.assertIn('key === "%s"' % key, action)
         self.assertIn("markHere(id)", action)
         self.assertIn("markHere(id)", self.block("function placeCall"))
+
+    def test_a_click_is_armed_when_recorded_and_the_lifecycle_is_the_models(self):
+        mark = self.block("function markHere")
+        self.assertIn("Model.hereClickMark(", mark)
+        self.assertIn("settleHereClicks()", mark)
+        self.assertIn("Model.hereClickSettle(", self.block("function settleHereClicks"))
+        self.assertIn("Model.hereClickLapse(", self.block("id: hereLapse"))
+        # The lifecycle itself is checked by behaviour in tests/model.test.js.
