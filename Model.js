@@ -2448,11 +2448,16 @@ function demoBluetooth(deviceName) {
 // Demo: this computer's Bluetooth and the device's match in a state to
 // look at: "" or "ready"; "off" (Bluetooth off here); "adapter" (none here);
 // "unpaired" (the phone not paired); "unkept" (paired, not kept for calls
-// yet); "dropped" (kept, not connected now).
+// yet); "dropped" (kept, not connected now); "missing" (Bluetooth not
+// installed or not running here: its fix asks for the password); "audio"
+// (PipeWire's hands-free service not running here).
+var DEMO_BLUETOOTH_STATES = ["ready", "off", "adapter", "missing", "audio", "unpaired", "unkept", "dropped", "waiting", "failed"]
 function demoBluetoothState(kind, deviceName) {
   var bt = demoBluetooth(deviceName)
   var hf = demoHandsfree(deviceName)
-  if (kind === "off") bt.powered = false
+  if (kind === "missing") { bt.bluez = false; bt.present = false; bt.powered = false; bt.service = false; bt.handsfree = false }
+  else if (kind === "audio") { bt.service = false; bt.handsfree = false }
+  else if (kind === "off") bt.powered = false
   else if (kind === "adapter") { bt.present = false; bt.powered = false }
   else if (kind === "unpaired") { bt.phones = []; hf = null }
   else if (kind === "unkept") hf = null
