@@ -845,6 +845,12 @@ class ReadResult(unittest.TestCase):
         self.assertTrue(os.path.isfile(os.path.join(self.dest, "notes", "a.txt")))
         self.assertEqual(self.skipped, "")
 
+    def test_a_refused_name_ending_in_a_newline_is_listed_as_its_repr_without_the_dot_slash(self):
+        self.read({"./x\n": b"x", "./CLAUDE.md\n": b"x", "./fine/ok.txt": b"ok"})
+        self.assertEqual(self.on_disk(), ["fine", "fine/ok.txt"])
+        self.assertIn("unit-bridge: 'x\\n': name\n", self.skipped)
+        self.assertIn("unit-bridge: 'CLAUDE.md\\n': name\n", self.skipped)
+
     def test_a_result_tree_never_holds_what_git_a_shell_or_an_agent_acts_on(self):
         hostile = {
             ".git/config": b"[core]\n\tfsmonitor = touch /tmp/x\n", ".git/HEAD": b"ref: refs/heads/main\n", ".git": None,

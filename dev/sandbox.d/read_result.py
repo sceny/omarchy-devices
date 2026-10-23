@@ -174,25 +174,25 @@ def main(argv):
                     parts = parts[:-1]
                 why = refusal(parts)
                 if why:
-                    skip(m.name, why)
+                    skip(name, why)
                     continue
                 low = parts[-1].lower()
                 if m.isreg() and low.endswith(OTHER_IMAGES):
-                    skip(m.name, "an image that is not a PNG")
+                    skip(name, "an image that is not a PNG")
                     continue
                 if m.isreg() and low.endswith(OTHER_MEDIA) and not a.only_video:
-                    skip(m.name, "a video or sound that was not made from re-encoded pictures here")
+                    skip(name, "a video or sound that was not made from re-encoded pictures here")
                     continue
                 if a.only_png and m.isreg() and not low.endswith(".png"):
-                    skip(m.name, "not a PNG")
+                    skip(name, "not a PNG")
                     continue
                 if a.only_video and m.isreg() and not low.endswith(".webm"):
-                    skip(m.name, "not a WebM video")
+                    skip(name, "not a WebM video")
                     continue
                 base = a.dest
                 if m.isreg() and low.endswith(".png") and not a.only_png:
                     if not a.png_dir:
-                        skip(m.name, "a PNG with nowhere to be re-encoded")
+                        skip(name, "a PNG with nowhere to be re-encoded")
                         continue
                     base = a.png_dir
                 target = os.path.join(base, *parts)
@@ -200,29 +200,29 @@ def main(argv):
                     os.makedirs(target, mode=0o755, exist_ok=True)
                     continue
                 if not m.isreg():
-                    skip(m.name, "not a regular file")
+                    skip(name, "not a regular file")
                     continue
                 if m.size > PER_FILE or total + m.size > a.limit:
-                    skip(m.name, f"too large ({m.size} bytes)")
+                    skip(name, f"too large ({m.size} bytes)")
                     continue
                 src = tf.extractfile(m)
                 picture = None
                 if a.only_video:
                     if m.size > VIDEO_MAX_BYTES or src.read(4) != EBML_SIGNATURE:
-                        skip(m.name, "not a WebM video within the limits")
+                        skip(name, "not a WebM video within the limits")
                         continue
                     src.seek(0)
                 if a.only_png:
                     try:
                         picture = clean_png(src.read(PNG_MAX_BYTES + 1))
                     except ValueError as e:
-                        skip(m.name, f"the re-encoded picture fails the check: {e}")
+                        skip(name, f"the re-encoded picture fails the check: {e}")
                         continue
                 os.makedirs(os.path.dirname(target), mode=0o755, exist_ok=True)
                 try:
                     fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
                 except OSError as e:
-                    skip(m.name, e.strerror or "cannot be written")
+                    skip(name, e.strerror or "cannot be written")
                     continue
                 with os.fdopen(fd, "wb") as out:
                     if picture is not None:
