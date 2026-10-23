@@ -179,7 +179,7 @@ dev/sandbox dev rig sync                           # dev/rig verbs inside: sync,
 dev/sandbox dev shot name                          # a screenshot of the rig into the session
 dev/sandbox dev record name 8 5 -- /opt/devside.sh rig ipc open   # 8 s at up to 5 frames/s while the command runs, plus 2 s
 dev/sandbox dev pull --out DIR                     # screenshots/ and recordings/ out as data
-dev/sandbox dev stop --all                         # then dev/sandbox verify-clean
+dev/sandbox dev --session <id> stop                # then dev/sandbox verify-clean
 ```
 
 What leaves is read as a run's results are, and frames never leave as a video:

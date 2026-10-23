@@ -20,6 +20,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -1382,6 +1383,72 @@ class StoreLockIsNotInherited(unittest.TestCase):
         pm = "pm() {" + text.split("\npm() {")[1].split("\n}\n")[0] + "\n}\n"
         self.assertEqual(self.probe(pm.replace(" 9>&-", ""))[0], "open")
         self.assertEqual(self.probe(pm)[0], "closed")
+
+
+class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
+    """`dev stop` ends the one session it names: another agent's session is its work in progress."""
+
+    ONE = "sceny-sandbox-dev-0123abcd"
+    TWO = "sceny-sandbox-dev-98cb55db"
+
+    def stop(self, names, *args):
+        state = tempfile.mkdtemp(prefix="sceny-sandbox-stop-")
+        self.addCleanup(shutil.rmtree, state, True)
+        log = os.path.join(state, "pm.log")
+        script = (
+            f'source "{SANDBOX}"\n'
+            "require_tools() { :; }\n"
+            "pm() {\n"
+            '  case "$1" in\n'
+            "  ps) printf '%s' \"$DEV_NAMES\" ;;\n"
+            '  *) echo "$*" >>"$PM_LOG" ;;\n'
+            "  esac\n"
+            "}\n"
+            f"cmd_dev {shlex.join(args)}\n"
+        )
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": tempfile.gettempdir(),
+            "SANDBOX_STATE": state,
+            "DEV_NAMES": "\n".join(names),
+            "PM_LOG": log,
+        }
+        r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+        removed = []
+        if os.path.exists(log):
+            with open(log) as f:
+                removed = f.read().splitlines()
+        return r, removed
+
+    def test_a_bare_stop_refuses_even_with_one_session(self):
+        r, removed = self.stop([self.ONE], "stop")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("dev status", r.stderr)
+        self.assertEqual(removed, [])
+
+    def test_stop_all_is_refused_and_stops_nothing(self):
+        r, removed = self.stop([self.ONE, self.TWO], "--session", "0123abcd", "stop", "--all")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("dev status", r.stderr)
+        self.assertEqual(removed, [])
+
+    def test_stop_ends_its_own_session_and_no_other(self):
+        r, removed = self.stop([self.ONE, self.TWO], "--session", "0123abcd", "stop")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(removed, [f"rm -f -v -t 0 {self.ONE}"])
+
+    def test_a_session_already_gone_is_not_an_error(self):
+        r, removed = self.stop([self.TWO], "--session", "0123abcd", "stop")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no session 0123abcd", r.stdout + r.stderr)
+        self.assertEqual(removed, [])
+
+    def test_the_id_is_eight_hex_digits(self):
+        for bad in ("0123abc", "0123ABCD", "0123abcd-x", "../0123"):
+            with self.subTest(session=bad):
+                r, removed = self.stop([self.ONE], "--session", bad, "stop")
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertEqual(removed, [])
 
 
 if __name__ == "__main__":

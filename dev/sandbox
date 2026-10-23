@@ -19,9 +19,10 @@
 #                                        a session for Sceny's own tree (default sceny/omarchy-devices): a container of
 #                                        that repository's profile, kept until `dev stop` or its TTL
 #   dev/sandbox dev [--session ID] [--timeout S] sync | up | rig ARGS | shot NAME | record NAME SECONDS FPS [-- CMD]
-#                  | exec -- CMD | pull [--out DIR] [--keep-frames] | status | stop [--all]
+#                  | exec -- CMD | pull [--out DIR] [--keep-frames] | status | stop
 #                                        sync streams the tracked files in, up/rig drive dev/rig inside, pull brings
-#                                        screenshots and recordings out as data
+#                                        screenshots and recordings out as data; stop takes no argument and ends only
+#                                        the session that --session ID names
 #   dev/sandbox pins                     fail when an image's Omarchy, Hyprland or Quickshell is behind this machine's
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
 #   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
@@ -1078,22 +1079,21 @@ dev_status() {
   done <<<"$names"
 }
 
+# Stops the one session it is named, never another: a session is someone else's work in progress.
 dev_stop() {
-  local all=0 names n
-  [[ ${1:-} == --all ]] && all=1
-  if ((all)); then
-    names=$(dev_names)
-  else
-    names=$DEV_NAME
-  fi
-  [[ -n $names ]] || {
-    echo "  no session"
+  local session=$1 name
+  shift
+  (($# == 0)) || die "dev stop takes no argument: a session ends by its own id (dev/sandbox dev status lists them)"
+  [[ -n $session ]] || die "dev stop: name the session with --session ID (dev/sandbox dev status lists them)"
+  [[ $session =~ ^[0-9a-f]{8}$ ]] || die "dev: a session is 8 hex digits (dev/sandbox dev status)"
+  require_tools
+  name=sceny-sandbox-dev-$session
+  if ! grep -qx "$name" <<<"$(dev_names)"; then
+    echo "  no session $session"
     return 0
-  }
-  while read -r n; do
-    pm rm -f -v -t 0 "$n" >/dev/null 2>&1
-    ok "session ${n##*-} stopped and removed"
-  done <<<"$names"
+  fi
+  pm rm -f -v -t 0 "$name" >/dev/null 2>&1
+  ok "session $session stopped and removed"
 }
 
 cmd_dev() {
@@ -1115,16 +1115,11 @@ cmd_dev() {
   [[ -z $secs || $secs =~ ^[0-9]+$ ]] || die "dev: --timeout is whole seconds"
   verb=${1:-}
   shift || true
-  [[ $verb == start ]] || require_tools # start checks its options first, then the tools
+  [[ $verb == start || $verb == stop ]] || require_tools # start and stop check their options first, then the tools
   case $verb in
   start) dev_start "$@" ;;
   status) dev_status ;;
-  stop)
-    if [[ ${1:-} == --all ]]; then dev_stop --all; else
-      dev_resolve "$session"
-      dev_stop
-    fi
-    ;;
+  stop) dev_stop "$session" "$@" ;;
   sync | pull | exec | rig | up | shot | record)
     dev_resolve "$session"
     dev_profile

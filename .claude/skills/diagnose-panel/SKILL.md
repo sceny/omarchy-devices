@@ -29,7 +29,7 @@ owner's machine adds (a real phone, a firewall, Samsung's battery
 optimisation) is asked of the owner, never run against their desktop, daemon
 or phone by an agent. A fault that does not reproduce in the sandbox is a fact
 about their setup: say so and ask. Stop the session when done
-(`dev/sandbox dev stop --all`, then `dev/sandbox verify-clean`).
+(`dev/sandbox dev --session <id> stop`, then `dev/sandbox verify-clean`).
 
 ## 1. Is the plugin loaded?
 
