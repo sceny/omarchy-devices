@@ -51,7 +51,9 @@ in_rig() {
 }
 
 shell_json() {
-    in_rig sh -c 'printf %s "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json"'
+    local dir
+    dir=$(in_rig printenv XDG_CONFIG_HOME) || return 1
+    printf '%s/omarchy/shell.json\n' "$dir"
 }
 
 loaded_code() {
@@ -94,8 +96,10 @@ clip_check() {
 }
 
 versions_recorded() {
-    in_rig sh -c 'quickshell --version 2>&1; for t in qtpaths6 qtpaths; do
-        command -v "$t" >/dev/null && "$t" --qt-version; done; true' > "$OUT_DIR/versions.txt" 2>&1
+    {
+        in_rig quickshell --version || true
+        in_rig qtpaths6 --qt-version || in_rig qtpaths --qt-version || true
+    } > "$OUT_DIR/versions.txt" 2>&1
     grep -Eq 'quickshell.*[0-9]+\.[0-9]+' "$OUT_DIR/versions.txt"
 }
 
