@@ -1938,8 +1938,10 @@ def watch():
 
     monitor = start_notify_monitor(on_notify)
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix
     for number in (signal.SIGTERM, signal.SIGINT):
-        GLib.unix_signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
+        GLibUnix.signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
     emit()
     try:
         loop.run()

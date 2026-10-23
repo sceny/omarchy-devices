@@ -799,5 +799,32 @@ class ListenersAndShells(unittest.TestCase):
         self.assertEqual(len(found), 2, found)
 
 
+class WatcherWritesNothingToStderr(unittest.TestCase):
+    """The service shows any line the watcher writes to stderr as `watchError`,
+    so a PyGObject deprecation warning on a healthy start reads as a fault.
+    The bridge calls no deprecated GLib wrapper, and the call that replaces
+    the signal one warns about nothing."""
+
+    DEPRECATED = re.compile(r"\bGLib\.unix_(?:signal|fd)_add(?:_full)?\b")
+
+    def test_the_bridge_calls_no_deprecated_unix_source(self):
+        text = read(BRIDGE)
+        found = [line_of(text, m.start()) for m in self.DEPRECATED.finditer(text)]
+        self.assertEqual(found, [], "use GLibUnix.signal_add / fd_add, bin/kdeconnect-bridge lines %s" % found)
+
+    def test_the_check_finds_the_deprecated_call(self):
+        self.assertTrue(self.DEPRECATED.search("GLib.unix_signal_add(GLib.PRIORITY_HIGH, 15, f)"))
+
+    def test_the_signal_call_the_bridge_uses_warns_about_nothing(self):
+        import warnings
+        import gi
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLib, GLibUnix
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            source = GLibUnix.signal_add(GLib.PRIORITY_HIGH, 15, lambda: False)
+        GLib.source_remove(source)
+
+
 if __name__ == "__main__":
     unittest.main()
