@@ -657,7 +657,7 @@ Panel {
   property bool reachFieldFocused: false
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId),
-                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId))
+                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId), screenStretchFor(screenId))
   // The user pressed Screen while the device could not be reached (off after
   // a restart, away): its page says what to do, and the screen opens by
   // itself the moment it can, with no second click. Leaving the page or
@@ -710,6 +710,18 @@ Panel {
     var next = !screenFitFor(id)
     if (singleDevice) persistSettings({ screenFitTile: next })
     else persistDeviceProfile(String(id), { screenFitTile: next })
+  }
+  function screenStretchFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenStretch
+    return false
+  }
+  // Kept, and its window (if open) opened again in its place with it.
+  function toggleScreenStretch(id) {
+    var next = !screenStretchFor(id)
+    if (singleDevice) persistSettings({ screenStretch: next })
+    else persistDeviceProfile(String(id), { screenStretch: next })
+    phone.setScreenStretch(String(id), next)
   }
   function setAppSound(id, sound) {
     if (appSoundFor(id) === sound) return
@@ -815,7 +827,7 @@ Panel {
     var known = phone.screenOf(String(d.id))
     screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext, known ? known.keys : null), since: Date.now() }
     screenTipNext++
-    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
+    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } }, false, screenStretchFor(String(d.id)))
   }
   function endScreenOpening() {
     if (!screenOpening) return
@@ -858,11 +870,12 @@ Panel {
     }
     else if (key === "open") {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
-      else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
+      else phone.pressScreen(screenId, false, null, screenFitFor(screenId), screenStretchFor(screenId))
     }
     else if (key === "place") toggleScreenDocked(screenId)
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "stretch") toggleScreenStretch(screenId)
     else if (key === "fitTile") toggleScreenFit(screenId)
     else if (key === "appSound") {
       // Enter: the next of the three it can offer.
@@ -2416,7 +2429,7 @@ Panel {
     }
     else if (key === "screen" && device) {
       if (screenDockedFor(String(device.id))) startScreenOpening(device)
-      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)))
+      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)), screenStretchFor(String(device.id)))
     }
   }
 

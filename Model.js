@@ -2471,7 +2471,7 @@ function demoHandsfree(deviceName, calls, ended, audio) {
 // page's actions, which are also its keyboard rows. `status`: the bridge's
 // (`screen <device>`), null while it is read; `pairing`: the QR pairing on
 // this page ({ phase, qr, message }), or null.
-function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound) {
+function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound, stretch) {
   var name = deviceLabel(device)
   var s = status || { state: "checking", tools: {} }
   var tools = s.tools || {}
@@ -2539,6 +2539,10 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound
     actions.push({ key: "place", label: "Opens", docked: docked !== false,
                    hint: docked !== false ? "Under its icon, on top, on every workspace" : "Tiles, moves and resizes like any other window",
                    keys: screenKeyLines(s.keys, docked !== false) })
+    // Stretch is scrcpy's own option, offered whenever this scrcpy has it.
+    if ((s.tools || {}).stretch !== false)
+      actions.push({ key: "stretch", label: "Fill the window with the screen", on: stretch === true,
+                     hint: "The picture stretches to fill its window" })
     if (docked === false)
       actions.push({ key: "fitTile", label: "Fit its tile to it (experimental)", on: fitTile === true,
                      hint: "Beside another window, its tile takes " + name + "'s width" })
@@ -3007,6 +3011,8 @@ var PROFILE_SETTINGS = {
   // Experimental, off unless chosen: a tiled screen's tile takes the
   // device's width (Hyprland has no such thing; the plugin moves the edge).
   screenFitTile: function(v) { return v === true || v === "true" },
+  // scrcpy's --render-fit=stretched: the screen's picture fills its window.
+  screenStretch: function(v) { return v === true || v === "true" },
   collapsed: function(v) { return collapsedState(v) }
 }
 

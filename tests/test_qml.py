@@ -190,7 +190,7 @@ ID_ONLY_VERBS = {
 }
 TEXT_VERBS = {"ping", "text", "url", "dial", "reply"}
 REVIEWED_VERBS = {
-    "fix", "device-fix", "call", "action", "screen-open", "screen-dock", "screen-sound",
+    "fix", "device-fix", "call", "action", "screen-open", "screen-dock", "screen-sound", "screen-stretch",
     "screen-volume", "screen-watch", "app-forget", "open-file", "copy-file", "save-file",
     "safe-art", "received-dismiss", "contact-open", "contacts-app",
 }
