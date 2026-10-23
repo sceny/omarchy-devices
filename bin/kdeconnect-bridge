@@ -1752,7 +1752,7 @@ def watch():
         keep_clipboard_for(snap.get("devices", []), state["clipboard"], conn)
         if note_seen(seen, snap.get("devices", []), GLib.get_real_time() // 1000):
             save_seen(seen_path(), seen)
-        keep.step(snap.get("devices", []), time.monotonic(), bool(net.last))
+        keep.step(snap.get("devices", []), time.monotonic(), net.has_address())
         line = json.dumps(with_seen(snap, seen), sort_keys=True, ensure_ascii=False)
         if line != state["last"]:
             state["last"] = line
@@ -3435,6 +3435,7 @@ class NetWatch:
         self.on_change = on_change
         self.signature = signature
         self.last = signature()
+        self.current = self.last
         self.pending = 0
         self.proc = None
         try:
@@ -3473,8 +3474,14 @@ class NetWatch:
         self.check()
         return False
 
+    def has_address(self):
+        """Whether this computer has an address now, as `check` last read it
+        (`last` keeps the last address for telling a change from a return)."""
+        return bool(self.current)
+
     def check(self):
         now = self.signature()
+        self.current = now
         if now and now != self.last:
             self.last = now
             self.on_change()

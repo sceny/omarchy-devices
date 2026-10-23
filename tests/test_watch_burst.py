@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -64,10 +65,13 @@ class GLibThatKeepsItsLoops:
 
 class NoNetwork:
     proc = None
-    last = "wlan0 192.168.1.5/24"
+    address = True
 
     def __init__(self, on_change, *_args, **_kwargs):
         pass
+
+    def has_address(self):
+        return self.address
 
     def check(self):
         pass
@@ -200,6 +204,38 @@ class WatchBurst(unittest.TestCase):
         self.assertGreater(len(steps), 2)
         self.assertEqual(steps[-1][0][0]["id"], DEVICE)
         self.assertTrue(steps[-1][1])
+
+    def announces_in_a_burst(self, address):
+        """How many times `watch` looks for a dropped paired device (the
+        daemon's announce) over a short burst, a snapshot 25 s apart on a
+        clock the test owns, with or without an address on this computer."""
+        announced = []
+        clock = {"now": 1000.0}
+
+        def monotonic():
+            clock["now"] += 25
+            return clock["now"]
+
+        def call(_conn, _path, iface, member, *_rest):
+            announced.append(member)
+
+        class Clock:
+            def __getattr__(self, name):
+                return getattr(time, name)
+
+        fake_time = Clock()
+        fake_time.monotonic = monotonic
+        net = type("Net", (NoNetwork,), {"address": address})
+        with mock.patch.object(bridge, "NetWatch", net), mock.patch.object(bridge, "call", call), \
+                mock.patch.object(bridge, "time", fake_time):
+            self.burst(lambda i: signal("notification", "device.notifications.notification"), count=3)
+        return announced.count("forceOnNetworkChange")
+
+    def test_a_dropped_device_is_looked_for_while_there_is_an_address(self):
+        self.assertGreater(self.announces_in_a_burst(True), 0)
+
+    def test_no_address_no_search_in_the_background(self):
+        self.assertEqual(self.announces_in_a_burst(False), 0)
 
     def test_the_wait_is_not_tuned_away(self):
         self.assertGreaterEqual(bridge.DEBOUNCE_MS, 100)
