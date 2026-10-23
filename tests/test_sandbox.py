@@ -1125,8 +1125,23 @@ class BuildContext(unittest.TestCase):
     def test_a_failed_build_removes_its_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = os.path.join(tmp, "state")
+            repo = os.path.join(tmp, "repo")
+            os.makedirs(os.path.join(repo, "dev", "sandbox.d"))
+            shutil.copy(SANDBOX, os.path.join(repo, "dev", "sandbox"))
+            shutil.copy(
+                os.path.join(ROOT, "dev", "sandbox.d", "Containerfile"),
+                os.path.join(repo, "dev", "sandbox.d", "Containerfile"),
+            )
+            git_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+            subprocess.run(["git", "-C", repo, "init", "-q"], check=True, env=git_env)
+            subprocess.run(["git", "-C", repo, "add", "dev"], check=True, env=git_env)
+            subprocess.run(
+                ["git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-q", "-m", "build context"],
+                check=True,
+                env=git_env,
+            )
             script = (
-                f'source "{SANDBOX}"\n'
+                f'source "{os.path.join(repo, "dev", "sandbox")}"\n'
                 "require_tools() { :; }\n"
                 "pm() { return 1; }\n"
                 "cmd_build --ref HEAD --profile devices\n"
