@@ -306,6 +306,12 @@ one only with the owner.
   their own (`switch`); every state comes from the items
   (`Model.deviceSetup`). A new source is a gateway with its items, never a
   branch for one feature.
+- **A paired device that drops is looked for in the background**
+  (`KeepConnected`, `docs/internals/how-it-works.md`): after a 20 s grace,
+  then with a back-off to one search every 10 minutes, while this computer
+  has a network address; nothing to click and no banner. The search is
+  `forceOnNetworkChange`, the same call as the panel's own on an away
+  device; a new way to bring a device back joins the same back-off.
 - **A device is here by any gateway.** KDE Connect away while the screen
   link reaches it is not *away*: its screen, apps and the shortcuts that
   need no KDE Connect stay on the main page, and KDE Connect's link is one

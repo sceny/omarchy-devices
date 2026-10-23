@@ -64,6 +64,7 @@ class GLibThatKeepsItsLoops:
 
 class NoNetwork:
     proc = None
+    last = "wlan0 192.168.1.5/24"
 
     def __init__(self, on_change, *_args, **_kwargs):
         pass
@@ -182,6 +183,23 @@ class WatchBurst(unittest.TestCase):
         self.assertLessEqual(len(self.previews), self.snapshots * len(files),
                              "%d picture previews for %d snapshots" % (len(self.previews), self.snapshots))
         self.assertGreater(len(self.previews), 0, "the received pictures were never prepared: the test sees nothing")
+
+    def test_every_snapshot_goes_to_the_background_reconnect(self):
+        steps = []
+
+        class Recorder:
+            def __init__(self, search):
+                steps.append(search)
+
+            def step(self, devices, now, network_up=True):
+                steps.append((devices, network_up))
+
+        with mock.patch.object(bridge, "KeepConnected", Recorder):
+            self.burst(lambda i: signal("notification", "device.notifications.notification"), count=3)
+        self.assertTrue(callable(steps[0]), "the search is the daemon's announce")
+        self.assertGreater(len(steps), 2)
+        self.assertEqual(steps[-1][0][0]["id"], DEVICE)
+        self.assertTrue(steps[-1][1])
 
     def test_the_wait_is_not_tuned_away(self):
         self.assertGreaterEqual(bridge.DEBOUNCE_MS, 100)
