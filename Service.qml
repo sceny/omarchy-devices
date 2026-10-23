@@ -978,37 +978,37 @@ Item {
   // has run and the device was read again; one still there is then shown.
   property var autoFixes: ({})
   property int featuresSeq: 0
-  function autoFixSet(id, state) {
+  function autoFixSet(pid, state) {
     var next = Object.assign({}, autoFixes)
-    if (state) next[id] = state
-    else delete next[id]
+    if (state) next[pid] = state
+    else delete next[pid]
     autoFixes = next
   }
   function autoFixProblems(problems) {
     var kept = Model.autoKeep(autoFixes, problems)
     if (Object.keys(kept).length !== Object.keys(autoFixes).length) autoFixes = kept
     Model.autoDue(problems, autoFixes).forEach(function(p) {
-      var id = Model.problemId(p)
+      var pid = Model.problemId(p)
       var feature = (p.affects || [])[0] || ""
-      var key = "auto:" + id
+      var key = "auto:" + pid
       // A demo is made up: nothing runs, and its problems show.
-      if (demo || !feature || isBusy("feature:" + feature) || isBusy(key)) { autoFixSet(id, { state: "tried", seq: 0 }); return }
-      autoFixSet(id, { state: "running", seq: 0 })
+      if (demo || !feature || isBusy("feature:" + feature) || isBusy(key)) { autoFixSet(pid, { state: "tried", seq: 0 }); return }
+      autoFixSet(pid, { state: "running", seq: 0 })
       runSteps(p.where, p.auto, "feature:" + feature, null, function() {
         // Read again by the run; shown only if that read still has it. The
         // device gone, there is no read to wait for.
-        autoFixSet(id, findDevice(p.where) ? { state: "reading", seq: featuresSeq } : null)
+        autoFixSet(pid, findDevice(p.where) ? { state: "reading", seq: featuresSeq } : null)
       }, true)
     })
   }
   // A read of a device finished: what waited for it is now judged by it.
   function autoFixRead(device, seq) {
     var next = null
-    Object.keys(autoFixes).forEach(function(id) {
-      var t = autoFixes[id]
-      if (t.state !== "reading" || seq < t.seq || id.indexOf(device + ":") !== 0) return
+    Object.keys(autoFixes).forEach(function(pid) {
+      var t = autoFixes[pid]
+      if (t.state !== "reading" || seq < t.seq || pid.indexOf(device + ":") !== 0) return
       if (!next) next = Object.assign({}, autoFixes)
-      next[id] = { state: "tried", seq: t.seq }
+      next[pid] = { state: "tried", seq: t.seq }
     })
     if (next) autoFixes = next
   }
