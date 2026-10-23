@@ -386,14 +386,19 @@ Panel QA runs the whole plugin in the sandbox, on the candidate: the head of
 `develop` after the release pull request is merged, by its full SHA:
 
 ```bash
-dev/sandbox run sceny/omarchy-devices <sha> --steps tests,rig,script --script regression.sh
+dev/regression <sha>
 ```
 
-The tests run, `dev/rig ci` runs its checks, and the script runs with a rig up
-and drives the feature passes of `develop-panel`; it writes its evidence
-(screenshots, recordings, logs) under `$SANDBOX_OUT`, which the run brings out as
-data. While writing or debugging the script, a `dev/sandbox dev` session on a
-checkout of that SHA does the same interactively; the record is the `run`.
+It runs `dev/sandbox run` with the tests, `dev/rig ci` and `dev/regression.sh`,
+and writes `regression-record.md` from what they measured. Each row is a
+measured pass or fail; a row nothing measured is *not yet*, never a pass. Exit
+0 is PASS, 1 is FAIL (a failed row or no evidence), 2 is NOT PASS (no failure,
+but rows not yet checked).
+
+The script runs with a rig up and writes its evidence (screenshots, recordings,
+logs) under `$SANDBOX_OUT`, which the run brings out as data. While writing or
+debugging the script, a `dev/sandbox dev` session on a checkout of that SHA does
+the same interactively; the record is the `run`.
 Every feature gets one pass or fail against its rule in AGENTS.md, not only
 what changed.
 
