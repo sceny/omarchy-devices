@@ -5742,13 +5742,20 @@ class PhoneReader:
         env = adb_env()
         if env is None:
             raise OSError(ADB_NO_PLACE)
+        self.dead = False
         self.proc = popen(["adb", "-s", serial, "shell", self.LOOP], stdin=subprocess.PIPE, env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)
 
     def ask(self, line):
         import selectors
-        self.proc.stdin.write(line + "\n")
-        self.proc.stdin.flush()
+        if self.dead:
+            raise OSError("the reader is closed")
+        try:
+            self.proc.stdin.write(line + "\n")
+            self.proc.stdin.flush()
+        except ValueError as error:
+            self.close()
+            raise OSError("the reader is closed") from error
         with selectors.DefaultSelector() as sel:
             sel.register(self.proc.stdout, selectors.EVENT_READ)
             if not sel.select(APP_READ_SEC):
@@ -5756,6 +5763,7 @@ class PhoneReader:
                 raise OSError("the device did not answer")
         out = self.proc.stdout.readline(APP_LINE_MAX + 1)
         if out == "":
+            self.close()
             raise OSError("adb shell closed")
         if len(out) > APP_LINE_MAX:
             self.close()
@@ -5772,6 +5780,7 @@ class PhoneReader:
         return [p[8:] for p in self.ask("P %s 0 0" % package).split() if p.startswith("package:")]
 
     def close(self):
+        self.dead = True
         try:
             self.proc.stdin.close()
             self.proc.wait(timeout=3)
@@ -6431,9 +6440,9 @@ def read_app_icon(reader, device_id, app):
         budget = ByteBudget()
         apks = [Apk(RemoteFile(reader, p, reader.size(p)), budget) for p in reader.paths(app["package"])]
         doc = icon_document(apks, app.get("activity") or "")
-    except Exception as error:   # whatever a hostile package does, the app gets its mark
-        if isinstance(error, OSError) and "did not answer" in str(error):
-            raise
+    except Exception:   # whatever a hostile package does, the app gets its mark
+        if reader.dead:   # but a reader that is gone marks nothing: the unread apps stay unread
+            raise OSError("the reader is closed")
         doc = None
     if doc:
         src = dst + (".svg" if doc[0] == "svg" else ".src")

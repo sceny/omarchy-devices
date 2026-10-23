@@ -153,7 +153,7 @@ def manifest(icon, launcher_icon=None, alias_icon=None):
 class FakeReader:
     """Ranged reads of files held in memory, as PhoneReader answers them."""
     def __init__(self, files):
-        self.files, self.reads = files, 0
+        self.files, self.reads, self.dead = files, 0, False
 
     def read(self, path, off, n):
         self.reads += 1
@@ -389,7 +389,24 @@ class Bombs(unittest.TestCase):
             with self.assertRaises(OSError) as raised:
                 reader.ask("S x 0 0")
         self.assertNotIn("did not answer", str(raised.exception))
+        self.assertTrue(reader.dead)
         os.close(w)
+
+    def test_a_reader_that_is_gone_marks_no_app(self):
+        """One too-long line from the device ends that worker: the apps it
+        had not read are left unmarked, not marked as having no icon."""
+        r, w = os.pipe()
+        os.write(w, b"A" * 5000 + b"\n")
+        proc = mock.MagicMock()
+        proc.stdout = os.fdopen(r, "r")
+        self.addCleanup(proc.stdout.close)
+        self.addCleanup(os.close, w)
+        with mock.patch.object(bridge, "APP_LINE_MAX", 1000), mock.patch.object(bridge, "adb_env", lambda: {}):
+            reader = bridge.PhoneReader("S1", popen=lambda *a, **k: proc)
+            for app in (self.APP, dict(self.APP, package="com.example.two")):
+                with self.assertRaises(OSError):
+                    bridge.read_app_icon(reader, "dev", app)
+                self.assertFalse(os.path.exists(bridge.app_icon_path("dev", app, "none")), app["package"])
 
 
 class Opens(unittest.TestCase):
