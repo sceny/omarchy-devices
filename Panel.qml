@@ -980,7 +980,7 @@ Panel {
     var v = setting("ignoredChecks", [])
     return Model.asList(v)
   }
-  readonly property var setupChecks: phone ? phone.setupChecks : []
+  readonly property var setupChecks: phone ? Model.checksHeld(phone.setupChecks, phone.daemon, phone.daemonAutoPending) : []
   readonly property int computerIssues: Model.connectionIssues(setupChecks, ignoredChecks)
   // ---- What a device can do (docs/design/setup.md, #128): its gateways,
   //      their setup items, and its features from them; one action each ----

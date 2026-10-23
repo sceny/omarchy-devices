@@ -911,8 +911,12 @@ Item {
   // Sample checks from a demo (demoSetup) stay until live again; otherwise a
   // demo shows this computer's real checks (they hold no device data).
   property bool demoChecks: false
+  // Asked while a read runs (after a fix), it runs once more when that one
+  // ends, so a read made after a fix is never dropped.
+  property bool doctorAgain: false
   function runDoctor() {
-    if (doctorProc.running || demoChecks) return
+    if (demoChecks) return
+    if (doctorProc.running) { doctorAgain = true; return }
     doctorProc.running = true
   }
 
@@ -1208,6 +1212,7 @@ Item {
   Process {
     id: doctorProc
     command: [root.bridge, "doctor"]
+    onExited: if (root.doctorAgain) { root.doctorAgain = false; Qt.callLater(root.runDoctor) }
     stdout: StdioCollector {
       id: doctorOut
       onStreamFinished: {

@@ -3499,6 +3499,17 @@ function daemonStartPending(snapshot, tried) {
   return !!snapshot && !snapshot.daemon && snapshot.setUp === true && snapshot.demo !== true && tried !== "tried"
 }
 
+// This computer's checks as the panel shows them: "KDE Connect running" read
+// as stopped is left out while the snapshot says the daemon runs (the check
+// is older than the start) or while the automatic start is under way, so a
+// start that worked never shows the Stopped card (#456). The snapshot is the
+// truth for whether the daemon runs.
+function checksHeld(checks, daemon, startPending) {
+  var list = checks || []
+  if (!daemon && !startPending) return list
+  return list.filter(function(c) { return c.key !== "running" || c.ok })
+}
+
 // The leading steps of a problem's remedy that run by themselves.
 function autoSteps(steps) {
   var out = []
