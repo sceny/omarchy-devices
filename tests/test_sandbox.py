@@ -1313,5 +1313,27 @@ class LiveDevSessionsAreNotLeftovers(unittest.TestCase):
         self.assertIn("containers left: sceny-sandbox-dev-aaaaaaaa ", r.stderr)
 
 
+class StoreLockIsNotInherited(unittest.TestCase):
+    def probe(self, pm_text):
+        with tempfile.TemporaryDirectory() as state:
+            script = (
+                "SB_UID=$(id -u)\nSB_HOME=$HOME\nSB_RUNTIME=$HOME/runtime\n"
+                f'SB_STATE="{state}"\n'
+                'env() { while [[ $1 != podman ]]; do shift; done; shift; podman "$@"; }\n'
+                'podman() { if [[ -e /proc/$BASHPID/fd/9 ]]; then echo open; else echo closed; fi; }\n'
+                'exec 9>>"$SB_STATE/.lock"\n'
+                f"{pm_text}pm run\n"
+            )
+            r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30)
+            return r.stdout.strip(), r.stderr
+
+    def test_podman_gets_no_store_lock_descriptor(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        pm = "pm() {" + text.split("\npm() {")[1].split("\n}\n")[0] + "\n}\n"
+        self.assertEqual(self.probe(pm.replace(" 9>&-", ""))[0], "open")
+        self.assertEqual(self.probe(pm)[0], "closed")
+
+
 if __name__ == "__main__":
     unittest.main()

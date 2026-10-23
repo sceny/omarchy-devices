@@ -158,8 +158,9 @@ usage() { awk 'NR > 1 { if (/^#/) print; else exit }' "${BASH_SOURCE[0]}" | sed 
 # and settings are never touched, and nothing of this shell's environment
 # (tokens included) reaches podman.
 pm() {
+  # Podman's detached containers outlive it (conmon): they must not inherit the store lock.
   env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" "$@"
+    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" "$@" 9>&-
 }
 
 require_tools() {
@@ -178,20 +179,21 @@ require_tools() {
 # store whole only while no other command holds it. Taken once per command (a
 # second call while held does nothing); the file descriptor closes with the
 # process, so a command that dies lets go of it.
-SB_LOCK_FD=""
+SB_LOCK_HELD=""
 store_lock_acquire() {
-  [[ -z $SB_LOCK_FD ]] || return 0
+  [[ -z $SB_LOCK_HELD ]] || return 0
   mkdir -p -m 700 "$SB_STATE"
-  exec {SB_LOCK_FD}>>"$SB_STATE/.lock" || die "the store lock $SB_STATE/.lock could not be opened"
-  if ! flock -n -x "$SB_LOCK_FD"; then
+  exec 9>>"$SB_STATE/.lock" || die "the store lock $SB_STATE/.lock could not be opened"
+  if ! flock -n -x 9; then
     warn "waiting for the store lock…"
-    flock -x "$SB_LOCK_FD" || die "the store lock could not be taken"
+    flock -x 9 || die "the store lock could not be taken"
   fi
+  SB_LOCK_HELD=1
 }
 store_lock_release() {
-  [[ -n $SB_LOCK_FD ]] || return 0
-  exec {SB_LOCK_FD}>&-
-  SB_LOCK_FD=""
+  [[ -n $SB_LOCK_HELD ]] || return 0
+  exec 9>&-
+  SB_LOCK_HELD=""
 }
 
 # ------------------------------------------------------------------- build ----
@@ -709,7 +711,7 @@ pins_check() { # <profile>
     return 0
   }
   pm image exists "$image" || die "pins: no $profile image; run 'dev/sandbox build --profile $profile' first"
-  local held=$SB_LOCK_FD
+  local held=$SB_LOCK_HELD
   store_lock_acquire
   image_rows=$(
     pm run --rm --pull never --network none --no-hosts --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
