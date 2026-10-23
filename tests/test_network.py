@@ -280,7 +280,17 @@ class Reach(unittest.TestCase):
         self.assertEqual(bridge.reach("p1", conn=object(), meshes=self.meshes), bridge.EXIT_OK)
         self.assertEqual(d.custom, ["10.0.0.5", "100.101.102.103"], "the user's own stays")
         self.assertIn("forceOnNetworkChange", d.calls)
-        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111"})
+        self.assertEqual(bridge.network_record("p1"), {"address": "100.101.102.103", "mesh": "tailscale", "peer": "pixel-8", "peerKey": "n111", "how": "name"})
+
+    def test_a_reach_by_name_alone_is_not_an_adb_address(self):
+        d = self.use(FakeDaemon([], name="Pixel 8"))
+        self.assertEqual(bridge.reach("p1", conn=object(), meshes=self.meshes), bridge.EXIT_OK)
+        record = bridge.network_record("p1")
+        self.assertEqual(record.get("how"), "name")
+        self.assertNotIn(record["address"], bridge.trusted_addresses({"id": "p1", "addresses": []}))
+        self.assertEqual(bridge.reach("p1", record["address"], conn=object(), meshes=self.meshes), bridge.EXIT_OK)
+        self.assertEqual(bridge.network_record("p1")["how"], "picked", "the user's pick")
+        self.assertIn(record["address"], bridge.trusted_addresses({"id": "p1", "addresses": []}))
 
     def test_an_address_that_changed_replaces_the_one_given_before(self):
         d = self.use(FakeDaemon(["10.0.0.5", "100.101.102.99"]))
@@ -322,11 +332,12 @@ class AdbPaths(unittest.TestCase):
     def test_usb_then_wifi_then_the_mesh(self):
         devices = [{"serial": "100.101.102.103:37000", "state": "device", "usb": False, "model": ""},
                    {"serial": "192.168.1.23:37000", "state": "device", "usb": False, "model": ""}]
-        ids = {d["serial"]: "R5CX" for d in devices}
-        self.assertEqual(bridge.match_adb({}, devices, [], serial="R5CX", identities=ids), ("192.168.1.23:37000", "wifi", "device"))
-        self.assertEqual(bridge.match_adb({}, devices[:1], [], serial="R5CX", identities=ids), ("100.101.102.103:37000", "mesh", "device"))
+        phone = {"addresses": ["100.101.102.103", "192.168.1.23"]}
+        self.assertEqual(bridge.match_adb(phone, devices, [], serial="R5CX"), ("192.168.1.23:37000", "wifi", "device"))
+        self.assertEqual(bridge.match_adb(phone, devices[:1], [], serial="R5CX"), ("100.101.102.103:37000", "mesh", "device"))
         usb = devices + [{"serial": "R5CX", "state": "device", "usb": True, "model": ""}]
-        self.assertEqual(bridge.match_adb({}, usb, [], serial="R5CX", identities=ids)[1], "usb")
+        self.assertEqual(bridge.match_adb(phone, usb, [], serial="R5CX")[1], "usb")
+        self.assertEqual(bridge.match_adb({}, devices, [], serial="R5CX"), (None, "", ""), "no verified address: neither")
 
     def test_a_mesh_serial_is_not_its_wifi_address(self):
         ran = []

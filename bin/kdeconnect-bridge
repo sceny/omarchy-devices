@@ -1062,6 +1062,16 @@ ART_BOX = 512
 SAFE_MAX = 64 << 20
 
 
+def own_file(path):
+    """Whether the path is a regular file itself, never a link: what an
+    Image may read from a cache is a file the bridge wrote, never one a
+    device's name could point at the device's own bytes."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def safe_dir():
     path = os.path.join(state_dir(), "safe")
     os.makedirs(path, exist_ok=True)
@@ -1118,7 +1128,7 @@ def safe_full_picture(src, cache=None, limit=None):
     cache = cache or open_cache()
     folder = os.path.join(cache, hashlib.sha1(("%s|%d|%d" % (src, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16])
     target = os.path.join(folder, os.path.splitext(os.path.basename(src))[0] + ".jpg")
-    if os.path.isfile(target):
+    if own_file(target):
         os.utime(folder)
         return target
     os.makedirs(folder, exist_ok=True)
@@ -1251,7 +1261,7 @@ def safe_image(src, box, folder=None, limit=SAFE_MAX):
     folder = folder or safe_dir()
     key = "%s|%d|%d|%d" % (src, st.st_size, int(st.st_mtime), box)
     dst = os.path.join(folder, hashlib.sha1(key.encode()).hexdigest()[:24] + ".png")
-    if os.path.isfile(dst):
+    if own_file(dst):
         os.utime(dst)
         return dst
     if not fit_image(src, dst, box):
@@ -1372,7 +1382,7 @@ def photos(device_id, count=PHOTO_COUNT):
         name = thumb_name(p)
         keep.add(name)
         thumb = os.path.join(cache, name)
-        p["thumb"] = thumb if os.path.isfile(thumb) or make_thumb(p["path"], thumb, p["video"]) else ""
+        p["thumb"] = thumb if own_file(thumb) or make_thumb(p["path"], thumb, p["video"]) else ""
     for old in os.listdir(cache):
         if old not in keep:
             try:
@@ -1399,7 +1409,7 @@ def cached_photos(device_id):
     """The last list, only entries whose thumbnail is still here; {ok: false}
     when there is none."""
     entries = load_received(os.path.join(photos_cache(device_id), PHOTO_LIST))
-    kept = [p for p in entries if isinstance(p, dict) and p.get("thumb") and os.path.isfile(p["thumb"])]
+    kept = [p for p in entries if isinstance(p, dict) and p.get("thumb") and own_file(p["thumb"])]
     return {"ok": True, "cached": True, "photos": kept} if kept else {"ok": False, "none": True}
 
 
@@ -3349,8 +3359,12 @@ def reach(device_id, address="", conn=None, meshes=None):
         return say("Not an IP address: type one such as 192.168.1.20 or 100.101.102.103", EXIT_FAILED)
     peers = [dict(q, mesh=m["mesh"]) for m in meshes for q in m.get("peers", []) if q.get("address")]
     picked = next((q for q in peers if address and q["address"] == address), None)
+    # adb trusts the recorded address only when KDE Connect reached the device
+    # there or the user picked it (trusted_addresses); a name alone does not.
+    trust = "picked" if address else ""
     if not address:
-        peer, _how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
+        peer, how = match_peer({"name": name}, meshes, record, list(p.get("reachableAddresses") or []))
+        trust = how if how == "address" else (record.get("how", "") if how == "remembered" else "name")
         if not peer:
             return say("%s is not on your mesh yet: sign in to it on %s with the same account" % (name, name), EXIT_FAILED, osd="The device is not on your mesh yet: sign in to it with the same account")
         picked, address = peer, peer["address"]
@@ -3363,7 +3377,7 @@ def reach(device_id, address="", conn=None, meshes=None):
             set_custom(conn, wanted)
         update = {kind: address}
         if picked:
-            update.update(mesh=picked["mesh"], peer=picked["name"], peerKey=picked.get("key", ""))
+            update.update(mesh=picked["mesh"], peer=picked["name"], peerKey=picked.get("key", ""), how=trust)
         network_record(device_id, update)
         call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
     except GLib.Error as error:
@@ -3395,7 +3409,7 @@ def unreach(device_id, kind="", conn=None):
         return say(error.message, EXIT_FAILED, osd="")
     clear = {k: "" for k in kinds}
     if "address" in kinds:
-        clear.update(mesh="", peer="", peerKey="")
+        clear.update(mesh="", peer="", peerKey="", how="")
     network_record(device_id, clear)
     return say("KDE Connect forgot that address")
 
@@ -4186,22 +4200,6 @@ def paired_serial(out):
     return serial_of_service(m.group(1)) if m else ""
 
 
-def adb_identity(d, mdns):
-    """The device's own serial for an adb entry, from what adb and mDNS
-    already say: a USB serial is it; a Wi-Fi one names it, or its
-    host:port is an announced service's. "" when only the device knows."""
-    serial = d["serial"]
-    if d["usb"]:
-        return serial
-    if "._adb-tls-" in serial:
-        return serial_of_service(serial)
-    host, _, port = serial.rpartition(":")
-    for s in mdns:
-        if s["kind"] == "connect" and s["host"] == host and str(s["port"]) == port:
-            return serial_of_service(s["name"])
-    return ""
-
-
 def adb_via(d):
     """How adb reaches a device: usb, wifi, or mesh (its serial's address is
     a mesh's: Tailscale, Meshnet)."""
@@ -4211,29 +4209,37 @@ def adb_via(d):
     return "mesh" if re.match(r"^[\d.]+$", host) and inside(host, MESH_RANGE) else "wifi"
 
 
-def match_adb(device, adb_devices, mdns, names=None, serial="", identities=None):
+def wifi_verified(d, hosts, addresses):
+    """Whether a Wi-Fi or mesh adb entry is at an address KDE Connect
+    verified for the device: its serial's host:port, or the hosts that
+    announce its mDNS name (every one of them: adb resolved the name to one
+    of them). What a device announces or answers is not identity on its own."""
+    if re.match(r"^[\d.]+:\d+$", d["serial"]):
+        seen = {d["serial"].rpartition(":")[0]}
+    else:
+        seen = hosts.get(d["serial"].split(".")[0], set())
+    return bool(seen) and seen <= addresses
+
+
+def match_adb(device, adb_devices, mdns, names=None, serial=""):
     """The adb serial for a KDE Connect device, and how it is reached:
-    (serial, "wifi" | "usb", state) or (None, "", ""). The device's own
-    serial (`serial`, remembered from pairing) matches first, USB before
-    Wi-Fi; else over Wi-Fi the device's address (a serial "host:port", or
-    an mDNS name whose host is the device's); else over USB its name
-    (`names`: adb serial to the device's own name). `identities`: adb
-    serial to the device's own serial, where asking the device found it."""
-    ids = identities or {}
-    if serial:
-        mine = [d for d in adb_devices if (ids.get(d["serial"]) or adb_identity(d, mdns)) == serial]
-        # USB first, then Wi-Fi, then the mesh (the slowest path).
-        mine.sort(key=lambda d: (d["state"] != "device", ["usb", "wifi", "mesh"].index(adb_via(d))))
-        if mine:
-            return mine[0]["serial"], adb_via(mine[0]), mine[0]["state"]
-    addresses = set(device.get("addresses") or [])
-    hosts = {s["name"]: s["host"] for s in mdns if s["kind"] == "connect"}
-    for d in adb_devices:
-        if d["usb"]:
-            continue
-        host = d["serial"].rpartition(":")[0] if re.match(r"^[\d.]+:\d+$", d["serial"]) else hosts.get(d["serial"].split(".")[0], "")
-        if host and host in addresses:
-            return d["serial"], adb_via(d), d["state"]
+    (serial, "usb" | "wifi" | "mesh", state) or (None, "", ""). Over Wi-Fi
+    or a mesh the entry must be at one of the device's addresses
+    (`device["addresses"]`: KDE Connect's TLS-verified ones, and the mesh
+    address this plugin recorded), a serial "host:port" or an mDNS name whose
+    announced hosts all are. Over USB the device's own serial (`serial`,
+    remembered from pairing) or, without it, its name (`names`: adb serial to
+    the device's own name). Order: USB, Wi-Fi, mesh (the slowest path)."""
+    addresses = set(a for a in device.get("addresses") or [] if a)
+    hosts = {}
+    for s in mdns:
+        if s["kind"] == "connect":
+            hosts.setdefault(s["name"], set()).add(s["host"])
+    mine = [d for d in adb_devices if (d["usb"] and serial and d["serial"] == serial)
+            or (not d["usb"] and wifi_verified(d, hosts, addresses))]
+    mine.sort(key=lambda d: (d["state"] != "device", ["usb", "wifi", "mesh"].index(adb_via(d))))
+    if mine:
+        return mine[0]["serial"], adb_via(mine[0]), mine[0]["state"]
     name = (device.get("name") or "").strip().lower()
     for d in adb_devices:
         if d["usb"] and name and ((names or {}).get(d["serial"], "").strip().lower() == name
@@ -4354,33 +4360,45 @@ def device_locked(serial, run=None):
     return code == 0 and keyguard_showing(out)
 
 
-def fast_adb_match(device, devices, known, ask=None):
-    """The device among adb's connections now, asked for its own serial
-    directly: (serial, via, state), or (None, "", "") when adb is not
-    connected to it. The usual case, and fast: no network browse (avahi
-    resolving every announced service takes seconds)."""
+def fast_adb_match(device, devices, known):
+    """The device among adb's connections now: (serial, via, state), or
+    (None, "", "") when adb is not connected to it at one of its verified
+    addresses (or over USB, by its own serial). The usual case, and fast: no
+    network browse (avahi resolving every announced service takes seconds)."""
     if not known:
         return None, "", ""
-    ask = ask or (lambda serial: adb(["-s", serial, "shell", "getprop", "ro.serialno"])[1].strip())
-    identities = {d["serial"]: ask(d["serial"]) for d in devices if not d["usb"] and d["state"] == "device"}
-    serial, via, state = match_adb(device, devices, [], serial=known, identities=identities)
+    serial, via, state = match_adb(device, devices, [], serial=known)
     return (serial, via, state) if serial and state == "device" else (None, "", "")
+
+
+MESH_TRUSTED = ("address", "picked")
+
+
+def trusted_addresses(device):
+    """The addresses adb may be taken to be at for a device: the ones KDE
+    Connect reaches it at now (its TLS certificate checked there), and the
+    mesh address this plugin recorded for it when KDE Connect reached it
+    there or the user picked it; never one matched by name alone."""
+    out = [a for a in device.get("addresses") or [] if a]
+    record = network_record(device.get("id", ""))
+    mesh = record.get("address")
+    if mesh and record.get("how") in MESH_TRUSTED and mesh not in out:
+        out.append(mesh)
+    return out
 
 
 def browse_adb_match(device, devices, known, status):
     """The device found on the network (mDNS) or by USB, when adb is not
     connected to it yet: (serial, via, state, mdns, devices). Sets
-    status["seen"]: Wireless debugging announced before pairing."""
+    status["seen"]: Wireless debugging announced before pairing. adb
+    connects only to a host in `device["addresses"]` (trusted_addresses)."""
     mdns = mdns_services()
     addresses = set(device.get("addresses") or [])
-    ours = lambda s: (known and serial_of_service(s["name"]) == known) or s["host"] in addresses
+    ours = lambda s: s["host"] in addresses
     # Wireless debugging on, seen before pairing: the steps on the device
     # before the code are done.
     status["seen"] = any(ours(s) for s in mdns)
-    # A Wi-Fi entry mDNS does not name (its port changed): ask the device.
-    identities = {d["serial"]: adb(["-s", d["serial"], "shell", "getprop", "ro.serialno"])[1].strip()
-                  for d in devices if known and not d["usb"] and d["state"] == "device" and not adb_identity(d, mdns)}
-    serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
+    serial, via, state = match_adb(device, devices, mdns, serial=known)
     if not serial:
         # A device adb trusts with Wireless debugging on shows up in mDNS
         # before adb connects to it by itself: connect now.
@@ -4388,7 +4406,7 @@ def browse_adb_match(device, devices, known, status):
             if s["kind"] == "connect" and ours(s):
                 adb(["connect", "%s:%d" % (s["host"], s["port"])], timeout=CONNECT_WAIT_SEC)
                 devices = parse_adb_devices(adb(["devices", "-l"])[1])
-                serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
+                serial, via, state = match_adb(device, devices, mdns, serial=known)
                 break
     if not serial and known:
         # Away from this Wi-Fi, mDNS does not reach it: its mesh address,
@@ -4396,14 +4414,10 @@ def browse_adb_match(device, devices, known, status):
         # restart of it is found here by mDNS only).
         net = network_record(device.get("id", "")).get("address")
         port = screen_record(device.get("id", "")).get("port")
-        if net and port:
-            target = "%s:%s" % (net, port)
-            adb(["connect", target], timeout=8)
+        if net and port and net in addresses:
+            adb(["connect", "%s:%s" % (net, port)], timeout=8)
             devices = parse_adb_devices(adb(["devices", "-l"])[1])
-            for d in devices:
-                if d["serial"] == target and d["state"] == "device":
-                    identities[target] = adb(["-s", target, "shell", "getprop", "ro.serialno"])[1].strip()
-            serial, via, state = match_adb(device, devices, mdns, serial=known, identities=identities)
+            serial, via, state = match_adb(device, devices, mdns, serial=known)
     if not serial:
         usb = [d for d in devices if d["usb"]]
         names = {d["serial"]: adb(["-s", d["serial"], "shell", "settings", "get", "global", "device_name"])[1].strip()
@@ -4427,6 +4441,7 @@ def screen_status(device_id):
     if not tools["ok"]:
         return status
     device = screen_device(device_id) or {"id": device_id}
+    device = dict(device, addresses=trusted_addresses(device))
     adb(["start-server"], timeout=15)
     known = screen_record(device_id).get("serial", "")
     devices = parse_adb_devices(adb(["devices", "-l"])[1])
@@ -5606,6 +5621,8 @@ APP_ICON_WORKERS = 4
 APP_READ_SEC = 20
 APP_FILE_MAX = 2 << 20      # an icon's file in a package, at most
 APP_TABLE_MAX = 16 << 20    # a compressed resource table read whole, at most
+APP_BYTES_MAX = 32 << 20    # everything inflated for one app, at most
+APP_LINE_MAX = 1 << 20      # one answer line from the device, at most (a page is 175 KB of base64)
 
 
 def apps_dir(device_id):
@@ -5707,9 +5724,9 @@ def apps_list(device_id, refresh=False, clock=time.time, status=None, read=None)
     shown, opened = [], apps_opened(device_id)
     for a in sorted(apps, key=lambda a: (a.get("system", False), a.get("name", "").lower())):
         icon = app_icon_path(device_id, a)
-        mark = "" if os.path.isfile(icon) else "none" if os.path.isfile(app_icon_path(device_id, a, "none")) else ""
+        mark = "" if own_file(icon) else "none" if own_file(app_icon_path(device_id, a, "none")) else ""
         shown.append({"package": a["package"], "name": a.get("name") or a["package"], "system": bool(a.get("system")),
-                      "icon": icon if os.path.isfile(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
+                      "icon": icon if own_file(icon) else mark, "opened": int(opened.get(a["package"], 0) * 1000)})
     return {"state": state if not shown else "ready", "at": at, "apps": shown, "sounds": window_sounds(device_id)}
 
 
@@ -5737,9 +5754,12 @@ class PhoneReader:
             if not sel.select(APP_READ_SEC):
                 self.close()
                 raise OSError("the device did not answer")
-        out = self.proc.stdout.readline()
+        out = self.proc.stdout.readline(APP_LINE_MAX + 1)
         if out == "":
             raise OSError("adb shell closed")
+        if len(out) > APP_LINE_MAX:
+            self.close()
+            raise OSError("the device answered with a line that is too long")
         return out.strip()
 
     def read(self, path, off, n):
@@ -6065,19 +6085,49 @@ def css(argb):
     return "#%06x" % (argb & 0xFFFFFF), ((argb >> 24) & 0xFF) / 255.0
 
 
+class ByteBudget:
+    """What one app may inflate in all: every read of its packages draws on it."""
+    def __init__(self, total=APP_BYTES_MAX):
+        self.left = total
+
+    def take(self, n):
+        if n > self.left:
+            raise ValueError("an app inflates more than it may")
+        self.left -= n
+
+
 class Apk:
-    """One installed package of an app, a zip read through ranged reads."""
-    def __init__(self, src):
+    """One installed package of an app, a zip read through ranged reads.
+    An entry is inflated in chunks and stops at its limit, whatever size the
+    zip claims for it."""
+    CHUNK = 1 << 16
+
+    def __init__(self, src, budget=None):
         import zipfile
         self.src = src
+        self.budget = budget or ByteBudget()
         self.zip = zipfile.ZipFile(src)
         self.names = set(self.zip.namelist())
         self._arsc = False
 
+    def inflate(self, name, limit):
+        """The entry's bytes, or ValueError past `limit` or the app's budget."""
+        out = bytearray()
+        with self.zip.open(name) as f:
+            while True:
+                chunk = f.read(min(self.CHUNK, limit + 1 - len(out)))
+                if not chunk:
+                    break
+                self.budget.take(len(chunk))
+                out += chunk
+                if len(out) > limit:
+                    raise ValueError("an entry is larger than it may be")
+        return bytes(out)
+
     def read(self, name, limit=APP_FILE_MAX):
         if name not in self.names or self.zip.getinfo(name).file_size > limit:
             return None
-        return self.zip.read(name)
+        return self.inflate(name, limit)
 
     def arsc(self):
         import zipfile
@@ -6090,9 +6140,9 @@ class Apk:
                         lh = self.src.at(info.header_offset, 30)
                         self._arsc = Arsc(self.src, info.header_offset + 30 + _u16(lh, 26) + _u16(lh, 28))
                     elif info.file_size <= APP_TABLE_MAX:
-                        self._arsc = Arsc(BytesAt(self.zip.read("resources.arsc")))
+                        self._arsc = Arsc(BytesAt(self.inflate("resources.arsc", APP_TABLE_MAX)))
                 except ValueError:
-                    self._arsc = None   # a split without resources of its own
+                    self._arsc = None   # a split without resources of its own, or one too large
         return self._arsc
 
 
@@ -6378,9 +6428,10 @@ def read_app_icon(reader, device_id, app):
     none): the path, or "none"."""
     dst = app_icon_path(device_id, app)
     try:
-        apks = [Apk(RemoteFile(reader, p, reader.size(p))) for p in reader.paths(app["package"])]
+        budget = ByteBudget()
+        apks = [Apk(RemoteFile(reader, p, reader.size(p)), budget) for p in reader.paths(app["package"])]
         doc = icon_document(apks, app.get("activity") or "")
-    except (OSError, ValueError, KeyError, IndexError, EOFError, RuntimeError) as error:
+    except Exception as error:   # whatever a hostile package does, the app gets its mark
         if isinstance(error, OSError) and "did not answer" in str(error):
             raise
         doc = None
@@ -6721,7 +6772,7 @@ def contact_photo(device_id, data, folder=None, fresh=None):
         return ""
     folder = folder or contacts_dir(device_id)
     dst = os.path.join(folder, hashlib.sha1(data).hexdigest()[:24] + ".png")
-    if os.path.isfile(dst):
+    if own_file(dst):
         os.utime(dst)
         return dst
     if fresh is not None:
@@ -6947,6 +6998,14 @@ def contacts_list(device_id, sync=False, conn=None):
     return {"state": "ready" if out else "empty", "contacts": out, "app": omarchy_contacts_app()}
 
 
+ATTACHMENT_EXT = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/gif": "gif",
+                  "video/3gpp": "3gp", "video/mp4": "mp4", "audio/amr": "amr", "audio/mpeg": "mp3",
+                  "application/pdf": "pdf", "text/plain": "txt", "text/x-vcard": "vcf", "text/vcard": "vcf",
+                  # A type a viewer would take as an image under another name: the link's
+                  # extension makes open_file's gate see it as the picture it may be.
+                  "application/svg": "svg"}
+
+
 class Sms:
     def __init__(self, device_id):
         self.device_id = device_id
@@ -6962,10 +7021,13 @@ class Sms:
         self.file_mimes = {}   # attachment id -> mime, for naming the fetched file
         self.requested = set() # attachment ids asked for here and not yet arrived
         self.thumbs = cache_dir()
+        self.links = os.path.join(self.thumbs, "links")   # typed names for opened files, apart from the previews an Image reads
+        os.makedirs(self.links, exist_ok=True)
         # Earlier versions kept the phone's previews as they came (thumb_*):
         # gone, so nothing shows them again.
         for name in os.listdir(self.thumbs):
-            if name.startswith("thumb_") and name.endswith(".png"):
+            # Links of earlier versions sat beside the previews: gone too.
+            if (name.startswith("thumb_") and name.endswith(".png")) or os.path.islink(os.path.join(self.thumbs, name)):
                 try:
                     os.remove(os.path.join(self.thumbs, name))
                 except OSError:
@@ -6991,7 +7053,9 @@ class Sms:
             # copy decoded in the sandbox (fit_image), never as it came.
             safe = re.sub(r"[^A-Za-z0-9_.-]", "_", "%s_%s" % (part, uid))[:120]
             path = os.path.join(self.thumbs, "preview_%s.png" % safe)
-            if not os.path.exists(path):
+            if not own_file(path):
+                if os.path.islink(path):
+                    os.remove(path)
                 raw = path + ".raw"
                 try:
                     with open(raw, "wb") as f:
@@ -7144,17 +7208,17 @@ class Sms:
 
     def named(self, path, name):
         """The daemon saves attachments without an extension, which some
-        viewers refuse. Link it under a name that carries its type."""
-        mime = self.file_mimes.get(name, "")
-        ext = {"image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/gif": "gif",
-               "video/3gpp": "3gp", "video/mp4": "mp4", "audio/amr": "amr", "audio/mpeg": "mp3"}.get(
-            mime, mime.split("/")[-1] if "/" in mime else "")
+        viewers refuse. Link it under a name that carries its type, from the
+        fixed table (never the device's own words), in a folder of its own."""
+        ext = ATTACHMENT_EXT.get(self.file_mimes.get(name, ""), "")
         if not ext or path.lower().endswith("." + ext):
             return path
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:120]
-        link = os.path.join(self.thumbs, "%s.%s" % (safe, ext))
+        link = os.path.join(self.links, "%s.%s" % (safe, ext))
         try:
-            if os.path.islink(link) or os.path.exists(link):
+            if os.path.lexists(link):
+                if not os.path.islink(link):
+                    return path
                 os.remove(link)
             os.symlink(path, link)
             return link

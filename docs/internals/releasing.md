@@ -219,6 +219,31 @@ finding blocks the pull request.
   file:line until a reviewer has read what feeds it.
   Tests: `tests/test_lints.py` (`ImagesOnlyFromSafePaths`),
   `tests/test_device_limits.py` (`ArtOnlyFromTheArtCache`).
+- A path or address that identifies the device is taken from a source the
+  device cannot write. Over Wi-Fi or a mesh, `adb connect` and a match go only
+  to a host in KDE Connect's TLS-verified addresses or the mesh address the
+  plugin recorded as given by one of them (`how`: `address` or `picked`); a
+  serial in an mDNS name, in `getprop ro.serialno` or in a name on the mesh
+  identifies nothing, and USB alone is matched by serial. A hostile mDNS
+  service with the right name on a foreign host gets no `adb connect`, and a
+  connected foreign host answering the right serial is not the device.
+  Tests: `tests/test_bridge.py` (`Screen`), `tests/test_network.py`
+  (`AdbPaths`, `Reach`).
+- A cache path a QML `Image` reads is a regular file the bridge wrote, never
+  a name the device chose: typed links to an opened attachment live in their
+  own folder (`links/`), their extension comes from the fixed type table
+  (`ATTACHMENT_EXT`), `named()` removes only links it made, and every
+  function that hands the shell an image path checks `os.lstat` through
+  `own_file` (`safe/`, gallery thumbnails, `apps-<device>/`, contact photos,
+  notification icons, picture previews).
+  Tests: `tests/test_bridge.py` (`ImageCachesAreOwnFiles`, `AttachmentNames`).
+- No decompressor or reader is bounded by a size the input claims. A zip entry
+  is inflated through `zip.open()` in chunks that stop at the caller's limit,
+  all of one app's reads draw on one byte budget (`ByteBudget`), a line read
+  from the device has a length cap (`APP_LINE_MAX`), and an app whose package
+  fails to read in any way gets its "none" mark, so it is not read again at
+  every view.
+  Tests: `tests/test_app_icons.py` (`Bombs`).
 - Text a device sent is shown as text, never as markup: every `Text` and
   `Label` in the shipped QML writes `textFormat: Text.PlainText` itself, glyph
   items included, since Qt's default (`AutoText`) renders a string that looks

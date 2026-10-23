@@ -12,6 +12,7 @@ import os
 import shutil
 import struct
 import tempfile
+import threading
 import unittest
 from unittest import mock
 import zipfile
@@ -315,6 +316,80 @@ class Cache(unittest.TestCase):
                          [0, 0, 0], "taken out of the recent ones")
         open(bridge.app_icon_path("dev", apps[2], "none"), "w").close()
         self.assertEqual(bridge.apps_list("dev", status=ready, read=read, clock=lambda: 1000)["apps"][0]["icon"], "none")
+
+
+class Bombs(unittest.TestCase):
+    """A package that claims less than it inflates, or more entries than an
+    app has: the read stops at its caps and the app gets its mark."""
+    def setUp(self):
+        cache = tempfile.mkdtemp()
+        patch = mock.patch.dict(os.environ, {"XDG_CACHE_HOME": cache})
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(shutil.rmtree, cache, True)
+        os.makedirs(bridge.apps_dir("dev"), exist_ok=True)
+
+    APP = {"package": "com.example.app", "name": "Bomb", "system": False, "version": "1", "activity": ""}
+
+    def lying(self, name, size):
+        """A zip of one entry whose headers claim `size` bytes for it."""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(name, bytes(size))
+        data = bytearray(buf.getvalue())
+        for sig, at in ((b"PK\x03\x04", 22), (b"PK\x01\x02", 24)):
+            i = data.index(sig)
+            data[i + at:i + at + 4] = struct.pack("<I", 1000)
+        return bytes(data)
+
+    def read(self, data):
+        taken = []
+        real = bridge.ByteBudget.take
+        with mock.patch.object(bridge.ByteBudget, "take", lambda b, n: taken.append(n) or real(b, n)):
+            icon = bridge.read_app_icon(FakeReader({"/data/app/base.apk": data}), "dev", self.APP)
+        return icon, sum(taken)
+
+    def test_an_entry_inflating_past_its_claim_leaves_a_mark(self):
+        icon, inflated = self.read(self.lying("AndroidManifest.xml", 40 << 20))
+        self.assertEqual(icon, "none")
+        self.assertTrue(os.path.isfile(bridge.app_icon_path("dev", self.APP, "none")))
+        self.assertLess(inflated, bridge.APP_BYTES_MAX)
+
+    def test_a_table_larger_than_it_may_be_is_not_inflated(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("AndroidManifest.xml", manifest(ICON))
+            z.writestr("resources.arsc", bytes(bridge.APP_TABLE_MAX + 1))
+        icon, inflated = self.read(buf.getvalue())
+        self.assertEqual(icon, "none")
+        self.assertLess(inflated, bridge.APP_TABLE_MAX)
+
+    def test_a_package_that_is_not_a_zip_leaves_a_mark(self):
+        icon, _ = self.read(b"PK\x03\x04" + os.urandom(2000))
+        self.assertEqual(icon, "none")
+
+    def test_one_app_inflates_no_more_than_its_budget(self):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+            for i in range(8):
+                z.writestr("res/%d" % i, bytes(1 << 20))
+        apk = bridge.Apk(io.BytesIO(buf.getvalue()), bridge.ByteBudget(3 << 20))
+        self.assertEqual([len(apk.read("res/%d" % i)) for i in range(3)], [1 << 20] * 3)
+        with self.assertRaises(ValueError):
+            apk.read("res/3")
+
+    def test_an_answer_line_has_a_length_cap(self):
+        r, w = os.pipe()
+        threading.Thread(target=lambda: os.write(w, b"A" * 5000 + b"\n"), daemon=True).start()
+        proc = mock.MagicMock()
+        proc.stdout = os.fdopen(r, "r")
+        self.addCleanup(proc.stdout.close)
+        with mock.patch.object(bridge, "APP_LINE_MAX", 1000), mock.patch.object(bridge, "adb_env", lambda: {}):
+            reader = bridge.PhoneReader("S1", popen=lambda *a, **k: proc)
+            with self.assertRaises(OSError) as raised:
+                reader.ask("S x 0 0")
+        self.assertNotIn("did not answer", str(raised.exception))
+        os.close(w)
 
 
 class Opens(unittest.TestCase):
