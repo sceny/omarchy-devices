@@ -6,9 +6,12 @@
 
 - KDE Connect pairs the two with a key you compare on both, and encrypts
   what they send, on your own network. The firewall rule the plugin adds
-  opens KDE Connect's ports to the private ranges (home and office networks)
-  and to a mesh's interface (Tailscale, NordVPN Meshnet), never to everyone
-  and never to a public network, whichever network this computer is on.
+  opens KDE Connect's ports to the private address ranges (`10.0.0.0/8`,
+  `172.16.0.0/12`, `192.168.0.0/16`) and to a mesh's interface (Tailscale,
+  NordVPN Meshnet), never to everyone. It is a rule on the sender's address,
+  not on the network: a public Wi-Fi that hands out private addresses
+  reaches those ports too, and pairing, which needs the key you compare on
+  both screens, is what keeps others out.
 - No account, no telemetry, no cloud. It never sends a text, rings or
   plays anything on its own. It keeps caches only
   (`~/.cache/sceny.devices/`); drafts stay in memory.
@@ -18,6 +21,9 @@
   still arrives here. Turn automatic sharing back on in KDE Connect's own
   settings and the plugin leaves it on, but passwords still never go unless
   you also turn on sending passwords there.
+  In the phone's screen window the clipboard is scrcpy's own: Ctrl+V there
+  sends this computer's clipboard to the phone, and a copy made on the
+  phone sets this computer's clipboard.
 - A notification's buttons come from the notice KDE Connect itself posts
   on this computer for it. The plugin listens for that one notice, from KDE
   Connect only, holds its text in memory just long enough to match it, and
@@ -25,11 +31,21 @@
   under a digest of its key, never its text or key.
 - A contact's website, address or email that you open goes on the command
   line of the browser or app that opens it, and stays there while that
-  program runs, where another program on this computer can read it.
+  program runs, where another program on this computer can read it So does a
+  contact's name when you choose *Find in contacts app*: it is in the
+  address given to the contacts app's launcher.
 - A picture from the phone is decoded in a sandbox, and you see a copy made
   from its pixels, never the phone's file. A picture is recognised by what
   the file holds, not its name, and a message attachment opens only when you
   clicked it.
+
+- The panel's commands (`omarchy-shell` IPC) are for the user who runs the
+  shell: another program running as the same user can use them to do what a
+  click does, such as sending this computer's clipboard to a device, sending
+  files or answering a call. The plugin does not tell that program from
+  you. It never focuses a text field for it, so no message is typed or sent
+  that way; what the same user can already do on this computer (read the
+  clipboard, run `kdeconnect-cli`) is not made harder here.
 
 ## The screen and apps: what Wireless debugging allows
 

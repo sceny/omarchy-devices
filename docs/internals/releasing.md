@@ -225,6 +225,16 @@ finding blocks the pull request.
   like HTML as rich text. A new one without the line fails the build naming
   file:line.
   Tests: `tests/test_qml.py` (`QmlTextIsPlain`).
+- Nothing scripted focuses a text field, by any route: not only the IPC
+  target's functions but the state handlers they change (`onXChanged`
+  reaches a focus only through the `typeHere` gate) and the keys `pressKey`
+  turns into a focus (it refuses each of them).
+  Tests: `tests/test_panel_rules.py`
+  (`NothingScriptedFocusesAFieldThroughAHandlerOrAKey`).
+- A file read from the device's storage is opened through one door
+  (`open_in_storage`: never through a link, only inside the mount, a regular
+  file), by the saving of a copy as by the opening of one.
+  Tests: `tests/test_bridge.py` (`SaveFileStaysOnTheMount`, `OpenFromDevice`).
 - A file from the device reaches `open-file` / `gio open` only through one
   gate (`open_file`, `--from-device` or `--local`): what the file holds
   decides whether it is a picture (then only the sandbox's copy opens, and

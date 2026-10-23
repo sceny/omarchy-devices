@@ -2805,8 +2805,12 @@ Panel {
     if (phone && p && p.positionSupported) phone.seek(p, p.position + seconds)
   }
 
-  function openReply(n) {
+  // Only the user's click, Enter or r opens the reply field focused
+  // (typeHere); scripted, it opens unfocused.
+  property bool replyTypeHere: false
+  function openReply(n, typeHere) {
     if (!n || !n.replyId) return
+    replyTypeHere = typeHere === true
     replyingTo = n.id
   }
 
@@ -2933,7 +2937,7 @@ Panel {
     } else if (focusSection === "notifications") {
       var cur = notifRows[notifIndex]
       if (cur && cur.kind === "header") toggleGroup(cur.group)
-      else if (cur) openReply(cur.note)
+      else if (cur) openReply(cur.note, true)
     } else if (focusSection === "apps") {
       if (appIndex < sectionApps.length) openApp(sectionApps[appIndex], pop === true)
       else openAppsView()
@@ -3406,7 +3410,18 @@ Panel {
     // check cannot open anything into a text field.
     function move(dx: int, dy: int): string { keyCatcher.moveRequested(dx, dy); return JSON.stringify({ section: root.focusSection, settingsIndex: root.settingsIndex }) }
     function pressEscape(): string { keyCatcher.closeRequested(); return JSON.stringify({ messages: root.messagesOpen, contacts: root.contactsOpen, apps: root.appsOpen, open: root.opened }) }
-    function pressKey(t: string): string { keyCatcher.textKey(t); return root.appsInfo() }
+    // Never a key that focuses a text field on the page shown (the
+    // composer, To, a search, a reply): as pressEnter, it would put
+    // keystrokes meant for another window into it.
+    function pressKey(t: string): string {
+      var focusesField = root.contactsOpen ? t === "/"
+        : root.messagesOpen ? t === "i" || t === "n" || t === "/"
+        : root.appsOpen ? t === "/"
+        : !root.settingsOpen && t === "r" && root.cursorActive && root.focusSection === "notifications"
+      if (focusesField) return "refused: the key would focus a text field here"
+      keyCatcher.textKey(t)
+      return root.appsInfo()
+    }
     // Never where Enter would focus a text field (a reply, the composer, a
     // setting): keystrokes meant for another window would land in it.
     function pressEnter(): string {
@@ -3890,7 +3905,7 @@ Panel {
           return
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
-          root.openReply(root.cursorNote)
+          root.openReply(root.cursorNote, true)
       }
 
       // ---- The page menu (right-click): Edit page, Settings ----
@@ -7980,7 +7995,7 @@ Panel {
     foreground: root.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(14)
 
-    onReplyingChanged: if (replying) Qt.callLater(function() { replyField.forceActiveFocus() })
+    onReplyingChanged: if (replying && root.replyTypeHere) Qt.callLater(function() { replyField.forceActiveFocus() })
 
     MouseArea {
       anchors.fill: parent
@@ -8289,7 +8304,7 @@ Panel {
           foreground: root.foreground
           fontFamily: root.fontFamily
           enabled: !sending
-          onClicked: row.replying ? root.closeReply() : root.openReply(row.note)
+          onClicked: row.replying ? root.closeReply() : root.openReply(row.note, true)
         }
         // The X turns into the ring until the phone has let it go.
         WaitButton {

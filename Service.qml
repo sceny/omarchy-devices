@@ -173,6 +173,38 @@ Item {
     var d = findDevice(id)
     return !!d && !!d.handsfree && d.handsfree.connected === true && callsHereOn(id)
   }
+  // The user's click that brings a call's audio here (Answer here, Audio
+  // here, a call placed here), per device. Without one nothing routes a
+  // call's audio or the microphone here, whatever the device does: a click
+  // is armed once its call shows, spent when the calls are over, and lapses
+  // when no call shows within 30 s.
+  property var hereClicks: ({})
+  function hereClicked(id) { return !!hereClicks[String(id)] }
+  function markHere(id) {
+    var m = Object.assign({}, hereClicks)
+    m[String(id)] = { at: Date.now(), armed: false }
+    hereClicks = m
+    hereLapse.restart()
+  }
+  function settleHereClicks() {
+    var m = Object.assign({}, hereClicks), changed = false
+    for (var id in m) {
+      var d = findDevice(id), n = d && d.handsfree ? (d.handsfree.calls || []).length : 0
+      if (n > 0 && !m[id].armed) { m[id] = { at: m[id].at, armed: true }; changed = true }
+      else if (n === 0 && m[id].armed) { delete m[id]; changed = true }
+    }
+    if (changed) hereClicks = m
+  }
+  Timer {
+    id: hereLapse
+    interval: 30000
+    onTriggered: {
+      var m = Object.assign({}, root.hereClicks), changed = false
+      for (var id in m) if (!m[id].armed && Date.now() - m[id].at >= 29000) { delete m[id]; changed = true }
+      if (changed) root.hereClicks = m
+      for (var k in m) if (!m[k].armed) { hereLapse.restart(); break }
+    }
+  }
   // The microphone off for the call, per device; back on once its calls end.
   property var callMuted: ({})
   function isCallMuted(id) { return callMuted[String(id)] === true }
@@ -192,6 +224,7 @@ Item {
     var v = verbs[key]
     if (!v) return
     if (key === "mute") { var m = Object.assign({}, callMuted); m[id] = !isCallMuted(id); callMuted = m }
+    if (key === "answer" || key === "holdAnswer" || key === "endAnswer" || key === "audioHere") markHere(id)
     if (demo) { demoCallClick(id, key); return }
     // The keypad's digits go over stdin, never in the arguments.
     var proc = actionComponent.createObject(root, { key: "call:" + key, quietSuccess: true,
@@ -215,19 +248,22 @@ Item {
     var n = String(number || "").trim()
     if (!id || n === "") return
     if (!callsReady(id)) { callBack({ device: String(id), number: n }); return }
+    markHere(id)
     if (demo) { demoCallClick(String(id), "dial"); return }
     var proc = actionComponent.createObject(root, { key: "call:dial", quietSuccess: true,
       hasInput: true, input: n, command: [bridge, "call", "dial", String(id)] })
     proc.running = true
   }
-  // Between calls the audio stays on the device: a call answered there is
-  // not taken over by this computer (Answer here and calls placed here bring
-  // it). Set again whenever a device's calls are over.
+  // The audio stays on the device until the user brings it: a call answered
+  // there, or one a device is already in when it connects, is not taken over
+  // by this computer (Answer here and calls placed here bring it). Set for
+  // every connected device that has no click of the user's for it, whether
+  // or not Calls here is on.
   readonly property var callsToKeep: {
     var out = []
     for (var i = 0; i < ordered.length; i++) {
       var hf = ordered[i].handsfree
-      if (hf && hf.connected && hf.keepOnPhone === false && (hf.calls || []).length === 0 && callsHereOn(ordered[i].id)) out.push(String(ordered[i].id))
+      if (hf && hf.connected && hf.keepOnPhone === false && !hereClicked(ordered[i].id)) out.push(String(ordered[i].id))
     }
     return out
   }
@@ -238,7 +274,7 @@ Item {
   // would open to a call nobody answered.
   readonly property string callAudioDevice: {
     if (demo) return ""
-    for (var id in calls) if (calls[id].here && calls[id].audio === "here" && (calls[id].state === "active" || calls[id].state === "held" || calls[id].state === "dialing")) return id
+    for (var id in calls) if (calls[id].here && hereClicked(id) && calls[id].audio === "here" && (calls[id].state === "active" || calls[id].state === "held" || calls[id].state === "dialing")) return id
     return ""
   }
   onCallAudioDeviceChanged: {
@@ -250,6 +286,7 @@ Item {
     var m = Object.assign({}, callMuted), changed = false
     for (var id in m) if (!calls[id] || calls[id].state === "ended" || calls[id].state === "missed") { delete m[id]; changed = true }
     if (changed) callMuted = m
+    settleHereClicks()
     pauseForCalls()
   }
   Timer {

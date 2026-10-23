@@ -146,6 +146,110 @@ class NothingScriptedFocusesAField(unittest.TestCase):
 
 
 
+def function_spans(text):
+    """The spans of every `function` body in blanked QML text."""
+    return [(m.end() - 1, match_close(text, m.end() - 1))
+            for m in re.finditer(r"\bfunction\s+\w+\s*\([^)]*\)[^{;]*\{", text)]
+
+
+def handler_focus(paths):
+    """A focus on a text field in a state handler (onXChanged, a Timer's
+    onTriggered, Component.onCompleted: not inside a `function`, and not a
+    key or click of the user's own) that does not read a `typeHere` gate. IPC reaches such a handler by changing the state
+    it watches, which the function walk above does not follow."""
+    found = []
+    for path in paths:
+        with open(path) as f:
+            text = code_only(f.read())
+        spans = function_spans(text)
+        for m in FOCUS.finditer(text):
+            if m.group(1) in NOT_A_FIELD or any(a < m.start() < b for a, b in spans):
+                continue
+            owner = None
+            for owner in re.finditer(r"\b(on[A-Z]\w*)\s*:", text[:m.start()]):
+                pass
+            if not owner or not re.search(r"Changed$|Triggered$|Completed$", owner.group(1)):
+                continue
+            line_start = text.rfind("\n", 0, m.start()) + 1
+            if "ypeHere" not in text[line_start:m.end()]:
+                found.append("%s:%d: %s focused in a handler with no typeHere gate"
+                             % (rel(path), line_of(text, m.start()), m.group(1)))
+    return found
+
+
+FOCUSING_KEY = re.compile(r"focusComposer|focusSearch|startNew\(true|openReply\(")
+
+
+def key_focus_problems(path):
+    """A key onTextKey turns into a focus on a text field (the composer, To,
+    a search, a reply) that the IPC `pressKey` does not refuse."""
+    with open(path) as f:
+        raw = f.read()
+    text = code_only(raw)
+    handler = re.search(r"\bonTextKey\s*:\s*function\s*\(t\)\s*\{", text)
+    gate = re.search(r"\bfunction\s+pressKey\s*\([^)]*\)[^{;]*\{", text)
+    if not handler or not gate:
+        return ["%s:1: onTextKey or pressKey is gone" % rel(path)]
+    body = text[handler.end():match_close(text, handler.end() - 1)]
+    offset = handler.end()
+    refused = raw[gate.end():match_close(text, gate.end() - 1)]
+    found = []
+    for line in body.splitlines(keepends=True):
+        start = offset + len(line) - len(line.lstrip("\n"))
+        if FOCUSING_KEY.search(line) and "t ===" in line:
+            for m in re.finditer(r't === "', line):
+                key = raw[offset + m.end():offset + m.end() + 1]
+                if '"%s"' % key not in refused:
+                    found.append("%s:%d: the key %s focuses a text field and pressKey does not refuse it"
+                                 % (rel(path), line_of(text, offset), key))
+        offset += len(line)
+    return found
+
+
+class NothingScriptedFocusesAFieldThroughAHandlerOrAKey(unittest.TestCase):
+    def test_no_handler_focuses_a_field_without_the_gate(self):
+        found = handler_focus(sorted(glob.glob(os.path.join(ROOT, "*.qml"))))
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_pressKey_refuses_every_key_that_focuses_a_field(self):
+        found = key_focus_problems(os.path.join(ROOT, "Panel.qml"))
+        self.assertEqual(found, [], "\n".join(found))
+
+    def test_the_checks_find_a_planted_handler_and_key(self):
+        src = (
+            "Item {\n"
+            "  property bool replyTypeHere: false\n"
+            "  Item { onAChanged: if (a) field.forceActiveFocus() }\n"
+            "  Item { onBChanged: if (b && root.replyTypeHere) field.forceActiveFocus() }\n"
+            "  function f() { other.forceActiveFocus() }\n"
+            "  Item { Keys.onPressed: { onTextKey: function(t) { } } }\n"
+            "}\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write(src)
+        try:
+            found = handler_focus([f.name])
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("field focused in a handler", found[0])
+        finally:
+            os.remove(f.name)
+        planted = (
+            "Item {\n"
+            "  onTextKey: function(t) {\n"
+            "    if (t === \"i\") view.focusComposer()\n"
+            "    else if (t === \"z\") view.focusSearch()\n"
+            "  }\n"
+            "  IpcHandler { function pressKey(t: string): string { var x = t === \"i\"; return \"\" } }\n"
+            "}\n")
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write(planted)
+        try:
+            found = key_focus_problems(f.name)
+            self.assertEqual(len(found), 1, found)
+            self.assertIn("the key z", found[0])
+        finally:
+            os.remove(f.name)
+
+
 class ClosingHandsTheKeyboardBack(unittest.TestCase):
     def test_the_close_branch_focuses_the_key_catcher(self):
         with open(os.path.join(ROOT, "Panel.qml")) as f:
