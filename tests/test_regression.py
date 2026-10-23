@@ -66,7 +66,9 @@ class RegressionTest(unittest.TestCase):
 
     def write_features(self, rows):
         text = FEATURES_HEADER + "".join("\t".join(row) + "\n" for row in rows)
-        (self.output / "features.tsv").write_text(text)
+        script = self.output / "script"
+        script.mkdir(exist_ok=True)
+        (script / "features.tsv").write_text(text)
 
     def run_regression(self, *extra, sha=None):
         return subprocess.run(
@@ -129,7 +131,7 @@ class RegressionTest(unittest.TestCase):
         self.assertIn("no summary.json", self.record())
 
     def test_missing_script_features_exits_one(self):
-        (self.output / "features.tsv").unlink()
+        (self.output / "script" / "features.tsv").unlink()
         done = self.run_regression()
         self.assertEqual(done.returncode, 1, done.stderr)
 
