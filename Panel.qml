@@ -657,7 +657,7 @@ Panel {
   property bool reachFieldFocused: false
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId),
-                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId))
+                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId), screenStretchFor(screenId))
   // The user pressed Screen while the device could not be reached (off after
   // a restart, away): its page says what to do, and the screen opens by
   // itself the moment it can, with no second click. Leaving the page or
@@ -711,6 +711,18 @@ Panel {
     if (singleDevice) persistSettings({ screenFitTile: next })
     else persistDeviceProfile(String(id), { screenFitTile: next })
   }
+  function screenStretchFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenStretch
+    return false
+  }
+  // Kept, and its window (if open) opened again in its place with it.
+  function toggleScreenStretch(id) {
+    var next = !screenStretchFor(id)
+    if (singleDevice) persistSettings({ screenStretch: next })
+    else persistDeviceProfile(String(id), { screenStretch: next })
+    phone.setScreenStretch(String(id), next)
+  }
   function setAppSound(id, sound) {
     if (appSoundFor(id) === sound) return
     if (singleDevice) persistSettings({ appSound: sound })
@@ -750,6 +762,30 @@ Panel {
     if (!settingsOpen) openSettings()
     openScope("screen:" + id)
     if (phone) phone.readScreen(id)
+  }
+  // Screen and apps is on for the viewed device: its options page (where it
+  // opens, its sound) is one step away, whatever the page the user is on.
+  function screenOptionsFor(d) {
+    if (!d) return false
+    var row = (featureRowsById[String(d.id)] || []).filter(function(r) { return r.key === "screen" })[0]
+    return !!row && row.on !== false && row.state !== "unavailable"
+  }
+  // Settings' feature row (its index): the page of that row's device.
+  function openScreenOptionsRow(index) {
+    var row = settingsRows[index]
+    var d = featureDevice()
+    if (row && d && row.opens === "screen") openScreenSetup(String(d.id))
+  }
+  // The key o on the Screen shortcut or in the Apps section.
+  function screenOptionsKey() {
+    var onScreen = focusSection === "actions" && (actions[actionIndex] || {}).key === "screen"
+    if (!onScreen && focusSection !== "apps") return false
+    if (!screenOptionsFor(device)) return false
+    openScreenOptions()
+    return true
+  }
+  function openScreenOptions() {
+    if (device && screenOptionsFor(device)) openScreenSetup(String(device.id))
   }
   // A This computer row's button: its fix (a card first when it needs a
   // password).
@@ -815,7 +851,7 @@ Panel {
     var known = phone.screenOf(String(d.id))
     screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext, known ? known.keys : null), since: Date.now() }
     screenTipNext++
-    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
+    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } }, false, screenStretchFor(String(d.id)))
   }
   function endScreenOpening() {
     if (!screenOpening) return
@@ -858,11 +894,12 @@ Panel {
     }
     else if (key === "open") {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
-      else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
+      else phone.pressScreen(screenId, false, null, screenFitFor(screenId), screenStretchFor(screenId))
     }
     else if (key === "place") toggleScreenDocked(screenId)
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "stretch") toggleScreenStretch(screenId)
     else if (key === "fitTile") toggleScreenFit(screenId)
     else if (key === "appSound") {
       // Enter: the next of the three it can offer.
@@ -2416,7 +2453,7 @@ Panel {
     }
     else if (key === "screen" && device) {
       if (screenDockedFor(String(device.id))) startScreenOpening(device)
-      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)))
+      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)), screenStretchFor(String(device.id)))
     }
   }
 
@@ -3062,13 +3099,15 @@ Panel {
       return JSON.stringify({ notifications: root.sectionNotes.notifications, contacts: root.sectionNotes.contacts ? root.sectionNotes.contacts.kind : "", card: root.problemCard ? root.problemCard.problem.key : "", marks: root.marks })
     }
     // Demo: this computer's Bluetooth and the viewed device's match in a
-    // state (ready, off, adapter, unpaired, unkept, dropped), for Calls here's
-    // row and the missed-call card. "waiting" (the phone not paired, the plugin
+    // state (ready, off, adapter, missing, audio, unpaired, unkept, dropped),
+    // for Calls here's row, the problems it counts, what its Fix would run
+    // and the missed-call card. "waiting" (the phone not paired, the plugin
     // waiting for it) and "failed" (a step did not work) also set the row's
-    // pending state; nothing real runs. Kept until `live`.
+    // pending state; nothing real runs, and a demo's Fix shows no password
+    // card: the answer's plan is what the Fix would run. Kept until `live`.
     function demoBluetooth(kind: string): string {
       if (!root.phone || !root.phone.demo) return "demo only"
-      if (["ready", "off", "adapter", "unpaired", "unkept", "dropped", "waiting", "failed"].indexOf(kind) < 0) return "no state " + kind
+      if (Model.DEMO_BLUETOOTH_STATES.indexOf(kind) < 0) return "no state " + kind
       var base = kind === "waiting" ? "unpaired" : kind === "failed" ? "unkept" : kind
       root.phone.showDemoBluetooth(base)
       if (root.device) {
@@ -3079,7 +3118,10 @@ Panel {
         root.phone.setPending(id, "callsHere", pend)
       }
       var row = root.device ? root.featureRowsFor(root.device).filter(function(r) { return r.key === "callsHere" })[0] : null
-      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null, offer: root.callOffer })
+      var mine = root.allProblems.filter(function(p) { return !!row && p.affects.indexOf(row.key) >= 0 })
+      return JSON.stringify({ state: row ? row.state : "", detail: row ? row.detail : "", steps: row ? row.steps.map(function(s) { return s.label }) : [], pending: row ? row.pending : null,
+                              plan: row ? Model.featurePlan(row).map(function(s) { return s.fix.verb + " " + s.fix.what + (s.fix.arg ? " " + s.fix.arg : "") }) : [],
+                              problems: mine.map(function(p) { return p.key }), problemCount: root.settingsIssues, offer: root.callOffer })
     }
     // Demo: sample failing checks on this computer, to look at the fixes and
     // the gear's dot (kept until `live`; a demo starts if none runs).
@@ -3780,12 +3822,15 @@ Panel {
         if (t === "m") { root.openMessagesView(-1); return }
         if (t === "a" && root.mainView && root.allApps.length > 0) { root.openAppsView(); return }
         if (t === "v" && root.soundKey()) return
+        if (t === "o" && root.mainView && root.cursorActive && root.screenOptionsKey()) return
         if (root.settingsOpen) {
           var row = root.settingsRows[root.settingsIndex]
           // Shift+K / Shift+J glide the row like its arrows (Reorder).
           if (root.cursorActive && row && (t === "K" || t === "J")
               && (row.kind === "device" || row.kind === "layout" || ((row.kind === "shortcut" || row.kind === "bar") && row.on)))
             settingsView.glideMove(row.kind, row.pos, t === "K" ? -1 : 1)
+          // Screen and apps: its options page.
+          else if (root.cursorActive && row && t === "o" && row.kind === "feature" && row.opens === "screen" && row.on !== false) root.openScreenOptionsRow(root.settingsIndex)
           // A device's page: its tabs, as on the main page.
           else if (root.manyDevices && root.tabsOnSettings && t >= "1" && t <= "9") root.tabAt(Number(t) - 1)
           else if (root.manyDevices && root.tabsOnSettings && (t === "H" || t === "L")) root.tabStep(t === "H" ? -1 : 1)
@@ -3859,7 +3904,7 @@ Panel {
           id: menuColumn
           anchors.centerIn: parent
           // As wide as its widest entry (the entries fill it).
-          width: Math.max(menuEdit.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
+          width: Math.max(menuEdit.implicitWidth, menuScreen.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
           Button {
             id: menuEdit
             width: menuColumn.width
@@ -3870,6 +3915,19 @@ Panel {
             fontFamily: root.fontFamily
             fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.startEditing() }
+          }
+          Button {
+            id: menuScreen
+            visible: root.screenOptionsFor(root.device)
+            width: menuColumn.width
+            height: visible ? implicitHeight : 0
+            leftAlign: true
+            iconText: Model.GLYPH.screen
+            text: "Screen and apps"
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.bodySmall
+            onClicked: { root.closePageMenu(); root.openScreenOptions() }
           }
           Button {
             id: menuSettings
@@ -6709,6 +6767,7 @@ Panel {
                 onFixRequested: function(what) { root.fixRequested(what) }
                 onFeatureRequested: function(i) { root.featureAction(root.settingsRows[i]) }
                 onFeatureSwitched: function(i, on) { root.featureSwitch(root.settingsRows[i], on) }
+                onFeatureOpened: function(i) { root.openScreenOptionsRow(i) }
                 onFixAllRequested: root.fixAll()
                 onFixWithAiRequested: function(what, index) { root.fixWithAi(what, index) }
                 onCheckAgainRequested: if (root.phone && root.featureDevice()) root.phone.readFeatures(String(root.featureDevice().id), true)

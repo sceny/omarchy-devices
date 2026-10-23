@@ -1137,7 +1137,7 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([off.only, acts(off)], ["Turn it on: Developer options › Wireless debugging", ["check"]], "off: trusted before; Wireless debugging is the one step")
   assert.match(off.line, /Wireless debugging is off on Pixel 8/)
   const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
-  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "appSound"]])
+  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "stretch", "appSound"]])
   const sound = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "phone").actions.find(a => a.key === "appSound")
   assert.deepEqual([sound.sound, sound.device], ["phone", "Pixel 8"])
   assert.match(sound.hint, /^Its sound stays on Pixel 8\. An open app's tile changes its own/)
@@ -1158,6 +1158,14 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.equal(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].docked, false)
   assert.equal(M.readSettings({}).defaults.screenDocked, true)
   assert.equal(M.readSettings({}).defaults.screenFitTile, false, "experimental: off unless chosen")
+  assert.equal(M.readSettings({}).defaults.screenStretch, false, "a stretched picture is distorted: off unless chosen")
+  assert.equal(M.readSettings({ screenStretch: "true" }).defaults.screenStretch, true)
+  const stretchRow = m => M.screenRows(m).find(r => r.key === "stretch")
+  assert.deepEqual([stretchRow(ready).label, stretchRow(ready).on], ["Fill the window with the screen", false], "shown whenever the screen is set up, docked or not")
+  assert.equal(stretchRow(M.screenSetup(M.demoScreen("ready"), phone, null, false, false, false, "here", true)).on, true)
+  const noStretch = M.demoScreen("ready")
+  noStretch.tools = Object.assign({}, noStretch.tools, { stretch: false })
+  assert.ok(!M.screenRows(M.screenSetup(noStretch, phone, null)).some(r => r.key === "stretch"), "a scrcpy without --render-fit offers nothing it cannot do")
   assert.ok(!M.screenRows(ready).some(r => r.key === "fitTile"), "docked: no tile to fit")
   const tiled = M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false, true))
   assert.deepEqual(tiled.filter(r => r.key === "fitTile").map(r => [r.label, r.on]), [["Fit its tile to it (experimental)", true]])
@@ -1300,6 +1308,16 @@ test("apps: the section's pinned and recent apps, the page's search, a notificat
   const demo = M.demoApps(10 * 3600000)
   assert.ok(demo.every(a => a.package.startsWith("com.example.") && a.glyph && a.icon === ""), "made up, drawn with glyphs")
   assert.ok(demo.some(a => a.system) && demo.some(a => a.opened > 0))
+})
+
+
+test("Screen and apps keeps a way to its options page beside its switch; no other feature has one", () => {
+  const rows = M.featureRows(M.demoFeatures(), M.demoScreen("ready"), "Pixel 8", [], { screenFeature: true })
+  assert.equal(rows.find(r => r.key === "screen").opens, "screen")
+  assert.deepEqual(rows.filter(r => r.opens).map(r => r.key), ["screen"])
+  const off = M.featureRows(M.demoFeatures(), M.demoScreen("ready"), "Pixel 8", [], { screenFeature: false }).find(r => r.key === "screen")
+  assert.equal(off.on, false)
+  assert.equal(off.opens, "screen")
 })
 
 test("features: a switch turned on from off runs the permission and the package too (#189)", () => {
@@ -2203,4 +2221,31 @@ test("an open group that is gone or down to one notification is forgotten", () =
 test("the demo has a group of three", () => {
   const groups = M.groupNotifications(M.demoSnapshot(null, "").devices[0].notifications)
   assert.deepEqual(groups.map(g => g.count), [1, 1, 3])
+})
+
+test("every demo Bluetooth state shows its row, counts at most one problem and plans the right fix (#261)", () => {
+  const expected = {
+    ready: { state: "on", problems: [], plan: [] },
+    off: { state: "setup", problems: [], plan: ["fix:bluetooth-on"] },
+    adapter: { state: "unavailable", problems: [], plan: [] },
+    missing: { state: "setup", problems: [], plan: ["fix:bluetooth"] },
+    audio: { state: "setup", problems: [], plan: ["fix:audio"] },
+    unpaired: { state: "setup", problems: [], plan: [] },
+    unkept: { state: "setup", problems: [], plan: ["device:bluetooth"] },
+    dropped: { state: "attention", problems: ["bt:phone"], plan: ["device:bluetooth"] }
+  }
+  assert.deepEqual(Object.keys(expected).concat(["waiting", "failed"]).sort(), M.DEMO_BLUETOOTH_STATES.slice().sort())
+  Object.keys(expected).forEach(kind => {
+    const st = M.demoBluetoothState(kind, "Pixel 8")
+    const setup = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "ready", line: "" }, name: "Pixel 8", checks: [],
+      own: { callsHere: true }, bluetooth: st.bluetooth, handsfree: st.handsfree, matched: [], reachable: true, deviceName: "Pixel 8" })
+    const row = setup.features.find(r => r.key === "callsHere")
+    assert.equal(row.state, expected[kind].state, kind)
+    const problems = M.settingsProblems([], [], [{ id: "d1", title: "Pixel 8", noun: "phone", rows: setup.features, setup }])
+    assert.deepEqual(problems.map(p => p.key), expected[kind].problems, kind + ": counted once, only when it worked and stopped")
+    assert.deepEqual(M.featurePlan(row).map(s => s.fix.verb + ":" + s.fix.what), expected[kind].plan, kind)
+  })
+  const missing = M.demoBluetoothState("missing", "Pixel 8")
+  assert.equal(missing.bluetooth.bluez, false)
+  assert.equal(M.demoBluetoothState("ready", "Pixel 8").handsfree.connected, true)
 })

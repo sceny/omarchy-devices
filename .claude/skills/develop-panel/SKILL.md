@@ -117,7 +117,7 @@ function names.
 "${IPC[@]}" pressSetting <index> ; "${IPC[@]}" nickname <text> ; "${IPC[@]}" pickIcon <hex> ; "${IPC[@]}" moveDevice <device> -1
                                     # as a click would; anything changed in a demo (defaults too) is put back by `live`
 "${IPC[@]}" demoCall ringing        # demo only: a call on the viewed device (replaces the last); missed, none
-"${IPC[@]}" demoBluetooth off       # demo only: the missed-call card per Bluetooth state; ready, off, adapter, unpaired, unkept, dropped, waiting (waiting for the phone to pair), failed (a step did not work)
+"${IPC[@]}" demoBluetooth off       # demo only: Calls here's row, the problems it counts, what its Fix runs and the missed-call card per Bluetooth state; ready, off, adapter, missing (its Fix plan: the answer's plan field; a demo runs no step and shows no password card), audio, unpaired, unkept, dropped, waiting (waiting for the phone to pair), failed (a step did not work)
 "${IPC[@]}" pressCallOffer none     # demo only: the offer's No thanks (or open: Open Calls here)
 "${IPC[@]}" pressTextBack ; "${IPC[@]}" closeCall   # the call card; never Call back in a test (it opens the phone's dialer)
 "${IPC[@]}" demoTextTo 555-0199 ; "${IPC[@]}" pressEscape   # demo only: Text back to any number; Esc as the key; smsStatus shows newMessage
