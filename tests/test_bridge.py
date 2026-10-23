@@ -593,6 +593,8 @@ class AttachmentNames(unittest.TestCase):
     def make(self, folder):
         sms = bridge.Sms.__new__(bridge.Sms)   # no D-Bus: only the naming state
         sms.thumbs = folder
+        sms.links = os.path.join(folder, "links")
+        os.makedirs(sms.links, exist_ok=True)
         sms.file_mimes = {}
         return sms
 
@@ -610,6 +612,58 @@ class AttachmentNames(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             sms = self.make(tmp)
             self.assertEqual(sms.named("/x/file", "file"), "/x/file")
+
+    def test_the_extension_comes_from_the_table_never_the_devices_words(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "PART_2")
+            open(target, "wb").close()
+            sms = self.make(tmp)
+            for mime in ("x/png.raw", "application/x-evil", "text/../../x", "image/svg+xml"):
+                sms.file_mimes["PART_2"] = mime
+                self.assertEqual(sms.named(target, "PART_2"), target, mime)
+            self.assertEqual(os.listdir(sms.links), [])
+
+    def test_a_name_that_looks_like_a_preview_cannot_replace_one(self):
+        """An attachment whose uid names another's preview and whose type is
+        one Gio does not know as an image: its link is apart, and the preview
+        stays a file the bridge wrote."""
+        with tempfile.TemporaryDirectory() as tmp:
+            preview = os.path.join(tmp, "preview_1_x.png")
+            open(preview, "wb").write(b"decoded here")
+            raw = os.path.join(tmp, "daemon-file")
+            open(raw, "wb").write(b"#define a_width 8\n")
+            sms = self.make(tmp)
+            sms.file_mimes["preview_1_x"] = "application/pdf"
+            link = sms.named(raw, "preview_1_x")
+            self.assertEqual(os.path.dirname(link), sms.links)
+            self.assertTrue(bridge.own_file(preview))
+            self.assertEqual(open(preview, "rb").read(), b"decoded here")
+            sms.file_mimes["preview_1_x.png"] = "image/png"
+            self.assertEqual(os.path.dirname(sms.named(raw, "preview_1_x.png")), sms.links)
+            self.assertTrue(bridge.own_file(preview))
+
+    def test_named_removes_only_a_link_and_a_preview_link_is_replaced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = os.path.join(tmp, "daemon-file")
+            open(raw, "wb").write(b"#define a_width 8\n")
+            sms = self.make(tmp)
+            sms.file_mimes["u"] = "application/pdf"
+            keep = os.path.join(sms.links, "u.pdf")
+            open(keep, "wb").write(b"a file, not a link")
+            self.assertEqual(sms.named(raw, "u"), raw, "a file of someone else's is left")
+            self.assertEqual(open(keep, "rb").read(), b"a file, not a link")
+            os.remove(keep)
+            os.symlink("/nonexistent", keep)
+            self.assertEqual(sms.named(raw, "u"), keep, "a link it made goes and is made again")
+            self.assertEqual(os.path.realpath(keep), os.path.realpath(raw))
+            # An earlier version's link in the previews' folder is not trusted
+            old = os.path.join(tmp, "preview_1_x.png")
+            os.symlink(raw, old)
+            import base64
+            entry = sms.attachment((1, "image/png", base64.b64encode(b"not an image").decode(), "x"))
+            self.assertFalse(os.path.islink(old), "the link is gone")
+            self.assertEqual(entry["thumb"], "")
+            self.assertEqual(open(raw, "rb").read(), b"#define a_width 8\n", "the device's file is untouched")
 
 
 if __name__ == "__main__":
@@ -1061,6 +1115,75 @@ class SafeImages(unittest.TestCase):
             self.assertEqual(junk["thumb"], "", "no preview: the view shows the attachment's kind")
 
 
+class ImageCachesAreOwnFiles(unittest.TestCase):
+    """A path an Image reads from a cache is a regular file the bridge wrote:
+    a link at the name (to the device's own bytes) is never returned."""
+
+    def link(self, folder, name, target):
+        path = os.path.join(folder, name)
+        os.symlink(target, path)
+        return path
+
+    def test_own_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            real = os.path.join(d, "real")
+            open(real, "wb").write(b"x")
+            self.assertTrue(bridge.own_file(real))
+            self.assertFalse(bridge.own_file(self.link(d, "link", real)))
+            self.assertFalse(bridge.own_file(os.path.join(d, "missing")))
+            self.assertFalse(bridge.own_file(d))
+
+    def test_safe_copies_and_the_full_picture(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = os.path.join(d, "device-file")
+            open(raw, "wb").write(b"#define a_width 8\n")
+            st = os.stat(raw)
+            folder = os.path.join(d, "safe")
+            os.makedirs(folder)
+            key = "%s|%d|%d|%d" % (raw, st.st_size, int(st.st_mtime), 128)
+            dst = self.link(folder, bridge.hashlib.sha1(key.encode()).hexdigest()[:24] + ".png", raw)
+            self.assertNotEqual(bridge.safe_image(raw, 128, folder=folder), dst)
+            cache = os.path.join(d, "open")
+            os.makedirs(cache)
+            key = bridge.hashlib.sha1(("%s|%d|%d" % (raw, st.st_size, int(st.st_mtime))).encode()).hexdigest()[:16]
+            os.makedirs(os.path.join(cache, key))
+            target = self.link(os.path.join(cache, key), "device-file.jpg", raw)
+            self.assertNotEqual(bridge.safe_full_picture(raw, cache=cache), target)
+
+    def test_a_contact_photo(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = os.path.join(d, "device-file")
+            data = b"#define a_width 8\n"
+            open(raw, "wb").write(data)
+            dst = self.link(d, bridge.hashlib.sha1(data).hexdigest()[:24] + ".png", raw)
+            self.assertNotEqual(bridge.contact_photo("p1", data, folder=d), dst)
+
+    def test_the_gallery_and_the_apps(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = os.path.join(d, "device-file")
+            open(raw, "wb").write(b"#define a_width 8\n")
+            thumb = self.link(d, "t.jpg", raw)
+            saved = bridge.photos_cache
+            bridge.photos_cache = lambda device_id: d
+            try:
+                bridge.save_received(os.path.join(d, bridge.PHOTO_LIST), [{"thumb": thumb, "path": raw}])
+                self.assertEqual(bridge.cached_photos("p1"), {"ok": False, "none": True})
+            finally:
+                bridge.photos_cache = saved
+
+    def test_a_previews_link_is_not_a_cached_preview(self):
+        with tempfile.TemporaryDirectory() as d:
+            raw = os.path.join(d, "device-file")
+            open(raw, "wb").write(b"#define a_width 8\n")
+            reader = bridge.Sms.__new__(bridge.Sms)
+            reader.thumbs = d
+            import base64
+            path = self.link(d, "preview_1_u.png", raw)
+            entry = reader.attachment((1, "image/png", base64.b64encode(b"not an image").decode(), "u"))
+            self.assertNotEqual(entry["thumb"], path)
+            self.assertFalse(os.path.islink(path))
+
+
 class FetchedAttachments(unittest.TestCase):
     """A picture message's picture opens from a copy made in the sandbox,
     never as the phone's bytes; anything else opens as itself."""
@@ -1068,6 +1191,8 @@ class FetchedAttachments(unittest.TestCase):
     def reader(self, d):
         r = bridge.Sms.__new__(bridge.Sms)
         r.thumbs, r.file_mimes, r.requested = d, {}, set()
+        r.links = os.path.join(d, "links")
+        os.makedirs(r.links, exist_ok=True)
         r.sent = []
         r.out = r.sent.append
         return r
@@ -1426,6 +1551,8 @@ class OpenPicturesSafely(unittest.TestCase):
             try:
                 r = bridge.Sms.__new__(bridge.Sms)
                 r.thumbs, r.file_mimes, r.requested = d, {"PART_7_file": "application/svg"}, {"PART_7_file"}
+                r.links = os.path.join(d, "links")
+                os.makedirs(r.links)
                 src = os.path.join(d, "PART_7_file")
                 open(src, "wb").write(prolog)
                 ev = r.arrived(src, "PART_7_file")
@@ -1789,13 +1916,11 @@ class Screen(unittest.TestCase):
     def test_a_connected_device_is_found_without_browsing_the_network(self):
         devices = [{"serial": "192.168.1.30:5555", "state": "device", "usb": False, "model": ""},
                    {"serial": "192.168.1.20:41234", "state": "device", "usb": False, "model": ""}]
-        asked = []
-        ask = lambda serial: asked.append(serial) or ("0A1B2C3D" if serial.endswith(":41234") else "OTHER")
-        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "0A1B2C3D", ask=ask), ("192.168.1.20:41234", "wifi", "device"),
-                         "its own serial, asked directly: a new port is still it")
-        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "", ask=ask), (None, "", ""), "never set up: the browse finds it")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, "0A1B2C3D"), ("192.168.1.20:41234", "wifi", "device"),
+                         "at its verified address: a new port is still it")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, devices, ""), (None, "", ""), "never set up: the browse finds it")
         offline = [dict(devices[1], state="offline")]
-        self.assertEqual(bridge.fast_adb_match(self.PHONE, offline, "0A1B2C3D", ask=ask), (None, "", ""), "not connected: the browse")
+        self.assertEqual(bridge.fast_adb_match(self.PHONE, offline, "0A1B2C3D"), (None, "", ""), "not connected: the browse")
 
     def test_usb_matches_by_name_and_another_device_does_not(self):
         devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
@@ -1809,20 +1934,72 @@ class Screen(unittest.TestCase):
         self.assertEqual(bridge.paired_serial("Successfully paired to 192.168.1.20:41011 [guid=adb-0A1B2C3D-xYz]"), "0A1B2C3D")
         self.assertEqual(bridge.paired_serial("Failed: wrong password"), "")
 
-    def test_its_own_serial_wins_over_another_address(self):
-        """KDE Connect reaches it over a VPN; Wireless debugging is on its Wi-Fi."""
+    def test_a_wifi_entry_is_the_device_only_at_its_verified_address(self):
+        """An identity anyone on the network can announce or answer (an mDNS
+        name, getprop) is not the device: only KDE Connect's addresses are."""
         vpn = dict(self.PHONE, addresses=["100.70.1.2"], name="Galaxy")
         mdns = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.168.1.20", "port": 37099}]
         wifi = {"serial": "192.168.1.20:37099", "state": "device", "usb": False, "model": "SM S918W"}
+        named = {"serial": "adb-0A1B2C3D-xYz._adb-tls-connect._tcp", "state": "device", "usb": False, "model": ""}
         usb = {"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "SM S918W"}
-        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns), (None, "", ""), "unknown: no match by address or name")
-        self.assertEqual(bridge.match_adb(vpn, [wifi], mdns, serial="0A1B2C3D"), ("192.168.1.20:37099", "wifi", "device"))
+        for serial in ("", "0A1B2C3D"):
+            self.assertEqual(bridge.match_adb(vpn, [wifi, named], mdns, serial=serial), (None, "", ""),
+                             "its serial, announced or answered, at an address KDE Connect did not verify")
         self.assertEqual(bridge.match_adb(vpn, [wifi, usb], mdns, serial="0A1B2C3D")[1], "usb", "the cable first")
-        moved = dict(wifi, serial="192.168.1.20:40001")
-        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D"), (None, "", ""))
-        self.assertEqual(bridge.match_adb(vpn, [moved], mdns, serial="0A1B2C3D", identities={"192.168.1.20:40001": "0A1B2C3D"})[0],
-                         "192.168.1.20:40001", "asked the device")
         self.assertEqual(bridge.match_adb(vpn, [usb], [], serial="FFFF")[0], None, "another phone on the cable")
+        here = dict(vpn, addresses=["100.70.1.2", "192.168.1.20"])
+        moved = dict(wifi, serial="192.168.1.20:40001")
+        self.assertEqual(bridge.match_adb(here, [moved], mdns, serial="0A1B2C3D")[0], "192.168.1.20:40001",
+                         "a new port at the verified address is still it")
+        self.assertEqual(bridge.match_adb(here, [named], mdns)[0], named["serial"], "an mDNS serial through its host")
+        liar = mdns + [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.0.2.66", "port": 37000}]
+        self.assertEqual(bridge.match_adb(here, [named], liar), (None, "", ""),
+                         "the same name announced from a foreign host too: adb may have resolved either")
+
+    def test_hostile_announcements_get_no_adb_connect(self):
+        """B1: the device's serial announced from a host KDE Connect never
+        verified is not connected to, and a connected foreign host answering
+        the right serial is not the device."""
+        ran = []
+        hostile = [{"name": "adb-0A1B2C3D-xYz", "kind": "connect", "host": "192.0.2.66", "port": 37000}]
+        foreign = {"serial": "192.0.2.66:37000", "state": "device", "usb": False, "model": "Pixel_8"}
+        saved = (bridge.mdns_services, bridge.adb, bridge.network_record, bridge.screen_record)
+        bridge.mdns_services = lambda: hostile
+        bridge.network_record = lambda *a, **k: {}
+        bridge.screen_record = lambda *a, **k: {"port": "37000"}
+
+        def adb(args, **kwargs):
+            ran.append(args)
+            return 0, "192.0.2.66:37000 device" if args[:1] == ["devices"] else "0A1B2C3D"
+        bridge.adb = adb
+        try:
+            status = {}
+            result = bridge.browse_adb_match(self.PHONE, [], "0A1B2C3D", status)
+            self.assertIsNone(result[0])
+            self.assertFalse(status["seen"])
+            self.assertFalse([a for a in ran if a[:1] == ["connect"]], "no adb connect to the foreign host: %r" % ran)
+            self.assertEqual(bridge.fast_adb_match(self.PHONE, [foreign], "0A1B2C3D"), (None, "", ""),
+                             "connected already, and it answers the serial: not the device")
+            ran.clear()
+            ok = [dict(hostile[0], host="192.168.1.20", port=37099)]
+            bridge.mdns_services = lambda: ok
+            bridge.browse_adb_match(self.PHONE, [], "0A1B2C3D", {})
+            self.assertEqual([a for a in ran if a[:1] == ["connect"]], [["connect", "192.168.1.20:37099"]])
+        finally:
+            bridge.mdns_services, bridge.adb, bridge.network_record, bridge.screen_record = saved
+
+    def test_the_mesh_address_is_trusted_by_how_it_was_found(self):
+        """B1: a mesh peer matched by name alone is not an adb address."""
+        phone = dict(self.PHONE, addresses=["192.168.1.20"])
+        saved = bridge.network_record
+        try:
+            for how, trusted in (("address", True), ("picked", True), ("name", False), ("", False)):
+                bridge.network_record = lambda *a, how=how, **k: {"address": "100.64.0.9", "how": how}
+                self.assertEqual("100.64.0.9" in bridge.trusted_addresses(phone), trusted, how)
+            bridge.network_record = lambda *a, **k: {"address": "100.64.0.9"}
+            self.assertEqual(bridge.trusted_addresses(dict(phone, addresses=["100.64.0.9"])), ["100.64.0.9"])
+        finally:
+            bridge.network_record = saved
 
     def test_docking_rule(self):
         self.assertEqual(bridge.title_regex("Pixel (8) · Screen"), "^Pixel \\(8\\) · Screen$")
