@@ -82,9 +82,10 @@ settings_persist() {
         { echo "the fold was not written to shell.json"; return 1; }
 
     dev/rig restart-shell || return 1
-    again=$(dev/rig ipc fold apps) || return 1
-    echo "after a restart, the next fold apps -> $again"
-    [[ $(jq -c '.apps // false' <<<"$again") != "$(jq -c '.apps // false' <<<"$toggled")" ]] ||
+    in_rig cat "$sj" > "$OUT_DIR/shell-after-second-restart.json" || return 1
+    jq -e --argjson v "$(jq -c '.apps // false' <<<"$toggled")" \
+        '[.. | objects | select(has("collapsed")) | .collapsed.apps // false] | any(. == $v)' \
+        "$OUT_DIR/shell-after-second-restart.json" >/dev/null ||
         { echo "the fold did not survive the restart"; return 1; }
 }
 
@@ -100,7 +101,8 @@ versions_recorded() {
         in_rig quickshell --version || true
         in_rig pacman -Q qt6-base || true
     } > "$OUT_DIR/versions.txt" 2>&1
-    grep -Eq 'quickshell.*[0-9]+\.[0-9]+' "$OUT_DIR/versions.txt"
+    grep -Eiq 'quickshell.*[0-9]+\.[0-9]+' "$OUT_DIR/versions.txt" &&
+        grep -Eq '^qt6-base [0-9]' "$OUT_DIR/versions.txt"
 }
 
 header_shots() {
