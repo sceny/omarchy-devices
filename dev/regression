@@ -1,43 +1,49 @@
 #!/usr/bin/env python3
-"""Run R3, the regression on the emulator, for one commit, and write its record.
+"""Run R3, the release regression, for one commit of a plugin, and write its record.
 
-  dev/regression <sha> [--out DIR] [--timeout SECONDS] [--harness develop|pr]
-  dev/regression <sha> --from-output DIR [--out DIR]
+  dev/regression <sha> [--repo OWNER/NAME] [--out DIR] [--timeout SECONDS] [--harness develop|pr]
+  dev/regression <sha> [--repo OWNER/NAME] --from-output DIR [--out DIR] [--owner-issues FILE]
 
-The run goes through `dev/sandbox run` with the rig steps and dev/regression.sh.
+The plugin is configured by dev/regression.json at the candidate commit: the
+checks script (run by the sandbox after `dev/rig up`), the sandbox steps,
+whether the marketplace check runs, and the rows only its owner can judge.
+The configuration and the script are read from the candidate itself. This
+harness is shared: each plugin runs the same code with its own configuration.
+
 The record (regression-record.md) is built only from what the run measured:
-the sandbox's summary.json, the rig's summary.txt and the script's features.tsv.
-A row nothing measured is "not yet", never a pass. A "look" row is a screenshot
-a person judges; it is counted in the record and does not change the status.
+the sandbox's summary.json, the rig's summary.txt, the script's features.tsv
+and, when configured, the marketplace check's reports. A row nothing measured
+is "not yet", never a pass. A "look" row is a screenshot a person judges; it is
+counted in the record and does not change the status. Open issues labelled
+needs-owner-setup are listed for the owner and do not change the status.
 
 Exit status: 0 when every row passes; 1 when a row fails or the run left no
 evidence; 2 when no row fails but some are not yet checked.
 
 --from-output reads a finished run's output (the same layout) and writes the
-record without starting a sandbox.
+record without starting a sandbox. --owner-issues reads the owner-setup issues
+from a JSON file (as `gh issue list --json number,title,url` prints them)
+instead of GitHub.
 """
 
 import argparse
 import datetime
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SANDBOX = HERE / "sandbox"
-SCRIPT = HERE / "regression.sh"
-REPO = "sceny/omarchy-devices"
+MARKETPLACE_CHECK = HERE / "marketplace-check.mjs"
+MARKETPLACE_REPO = "https://github.com/omacom/omarchy-plugin-marketplace"
+DEFAULT_REPO = "sceny/omarchy-devices"
+CONFIG = "dev/regression.json"
+OWNER_LABEL = "needs-owner-setup"
 PASS, FAIL, NOT_YET, LOOK = "pass", "fail", "not yet", "look"
-
-NEEDS_REAL_DEVICE = [
-    ("Bluetooth audio", "The emulator has no Bluetooth stack"),
-    ("A real call", "The emulator has no cellular network or call audio"),
-    ("A carrier's messages", "The emulator has no carrier network"),
-    ("A vendor's battery settings", "The emulator has no vendor battery manager"),
-    ("A phone's permission screens", "The emulator does not show the phone's own prompts"),
-]
 
 
 def fail(message):
@@ -49,6 +55,51 @@ def git(*args):
     if done.returncode != 0:
         fail(f"git {' '.join(args)} failed: {done.stderr.strip()}")
     return done.stdout.strip()
+
+
+def local_commit(sha):
+    return subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"],
+                          capture_output=True).returncode == 0
+
+
+def gh(*args):
+    return subprocess.run(["gh", *args], capture_output=True, text=True)
+
+
+def candidate_file(repo, sha, path):
+    """The file at the candidate commit, or None when the commit has no such file."""
+    if local_commit(sha):
+        done = subprocess.run(["git", "show", f"{sha}:{path}"], capture_output=True, text=True)
+        return done.stdout if done.returncode == 0 else None
+    done = gh("api", f"repos/{repo}/contents/{path}?ref={sha}", "-H", "Accept: application/vnd.github.raw")
+    if done.returncode == 0:
+        return done.stdout
+    if "HTTP 404" in done.stderr:
+        return None
+    fail(f"could not read {path} at {sha[:12]} from {repo}: {done.stderr.strip()}")
+
+
+def candidate_tree(repo, sha):
+    if local_commit(sha):
+        return git("rev-parse", f"{sha}^{{tree}}")
+    done = gh("api", f"repos/{repo}/commits/{sha}", "--jq", ".commit.tree.sha")
+    if done.returncode != 0 or not done.stdout.strip():
+        fail(f"{sha} is not a commit of {repo}: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def load_config(repo, sha):
+    text = candidate_file(repo, sha, CONFIG)
+    if text is None:
+        fail(f"{repo} at {sha[:12]} has no {CONFIG}")
+    try:
+        config = json.loads(text)
+    except ValueError as error:
+        fail(f"{CONFIG} is not JSON: {error}")
+    for key, kind in (("script", str), ("steps", str), ("marketplace", bool), ("owner_only", list)):
+        if not isinstance(config.get(key), kind):
+            fail(f"{CONFIG} needs {key}, a {kind.__name__}")
+    return config
 
 
 def read_summary(output):
@@ -116,6 +167,51 @@ def script_rows(output):
     return rows
 
 
+def owner_issues(repo, path):
+    """The open owner-setup issues, or (None, reason) when they cannot be listed."""
+    if path:
+        return json.loads(path.read_text()), None
+    done = gh("issue", "list", "--repo", repo, "--label", OWNER_LABEL,
+              "--state", "open", "--json", "number,title,url")
+    if done.returncode != 0:
+        return None, done.stderr.strip()
+    return json.loads(done.stdout), None
+
+
+def marketplace_rows(repo, sha, out):
+    name = "Marketplace check"
+    rule = "The marketplace's validation and security baseline pass on the candidate"
+    how = "dev/marketplace-check.mjs"
+    source, reports = out / "marketplace-src", out / "marketplace"
+    shutil.rmtree(source, ignore_errors=True)
+    shutil.rmtree(reports, ignore_errors=True)
+    token = gh("auth", "token")
+    if token.returncode != 0:
+        return [(name, rule, how, FAIL, "gh auth token failed")]
+    clone = subprocess.run(["git", "clone", "-q", "--depth", "1", MARKETPLACE_REPO, str(source)],
+                           capture_output=True, text=True)
+    if clone.returncode != 0:
+        return [(name, rule, how, FAIL, "clone of the marketplace failed")]
+    install = subprocess.run(["npm", "ci", "--ignore-scripts"], cwd=source, capture_output=True, text=True)
+    if install.returncode != 0:
+        return [(name, rule, how, FAIL, "npm ci in the marketplace clone failed")]
+    env = {**os.environ, "GITHUB_TOKEN": token.stdout.strip(), "MARKETPLACE_DIR": str(source),
+           "CHECK_REPO_URL": f"https://github.com/{repo}"}
+    check = subprocess.run(["node", str(MARKETPLACE_CHECK), sha, str(reports)],
+                           env=env, capture_output=True, text=True)
+    result = PASS if check.returncode == 0 else FAIL
+    return [(name, rule, how, result, f"marketplace/ (exit {check.returncode})")]
+
+
+def owner_rows(config, issues):
+    rows = [(entry["what"], entry["why"], entry["owner"]) for entry in config["owner_only"]]
+    rows += [(f"[#{issue['number']} {issue['title']}]({issue['url']})",
+              "Only a real Omarchy session can run it",
+              "Runs the check on the issue and comments the result")
+             for issue in issues]
+    return rows
+
+
 def verdict(rows):
     if any(row[3] == FAIL for row in rows) or not rows:
         return 1
@@ -128,13 +224,13 @@ def cell(text):
     return str(text).replace("|", "\\|").replace("\n", " ")
 
 
-def render(sha, tree, when, summary, rows, code):
+def render(repo, sha, tree, when, summary, rows, owner, code):
     verdict_text = {0: "PASS", 1: "FAIL", 2: "NOT PASS (rows not yet checked)"}[code]
     counts = {status: sum(1 for row in rows if row[3] == status) for status in (PASS, FAIL, NOT_YET, LOOK)}
     lines = [
         f"# Regression record for {sha[:12]}",
         "",
-        f"- Candidate: [{sha[:7]}](https://github.com/{REPO}/commit/{sha}), tree `{tree}`",
+        f"- Candidate: [{sha[:7]}](https://github.com/{repo}/commit/{sha}), tree `{tree}`",
         f"- Run: {when}" + (f", {summary['seconds']} s in the sandbox" if summary else ", no sandbox summary"),
         f"- Verdict: **{verdict_text}**: {counts[PASS]} pass, {counts[FAIL]} fail, {counts[NOT_YET]} not yet, {counts[LOOK]} to look at",
         "",
@@ -144,19 +240,19 @@ def render(sha, tree, when, summary, rows, code):
     lines += [f"| {' | '.join(cell(c) for c in row[:4])} | {cell(row[4])} |" for row in rows]
     lines += [
         "",
-        "## Needs a real device",
+        "## Needs the owner's setup",
         "",
-        "| What | Why the emulator cannot | What the owner does | Result |",
+        "| What | Why the rig cannot | What the owner does | Result |",
         "|---|---|---|---|",
     ]
-    lines += [f"| {cell(what)} | {cell(why)} | Checks it on a real phone before the go | |"
-              for what, why in NEEDS_REAL_DEVICE]
+    lines += [f"| {cell(what)} | {cell(why)} | {cell(owner_does)} | |" for what, why, owner_does in owner]
     return "\n".join(lines) + "\n"
 
 
 def main(argv):
     parser = argparse.ArgumentParser(description="Run R3 for one commit and write its record.")
     parser.add_argument("sha", help="full 40-hex SHA of the candidate commit")
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="the plugin's repository, OWNER/NAME")
     parser.add_argument("--out", type=Path,
                         help="record directory (default: under $XDG_STATE_HOME, outside any repository)")
     parser.add_argument("--timeout", type=int, default=3000, help="sandbox run timeout in seconds")
@@ -164,24 +260,32 @@ def main(argv):
                         help="dev/ the sandbox runs: develop's (a release candidate) or the commit's own")
     parser.add_argument("--from-output", type=Path, metavar="DIR",
                         help="write the record from a finished run's output, without a sandbox")
+    parser.add_argument("--owner-issues", type=Path, metavar="FILE",
+                        help="the owner-setup issues as JSON, instead of listing them on GitHub")
     args = parser.parse_args(argv)
 
     if not re.fullmatch(r"[0-9a-f]{40}", args.sha):
         fail(f"SHA must be 40 lowercase hex characters, got: {args.sha}")
-    if git("cat-file", "-t", args.sha) != "commit":
-        fail(f"{args.sha} is not a commit in this repository")
-    tree = git("rev-parse", f"{args.sha}^{{tree}}")
+    if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo):
+        fail(f"--repo must be OWNER/NAME, got: {args.repo}")
+    tree = candidate_tree(args.repo, args.sha)
+    config = load_config(args.repo, args.sha)
 
-    state = Path.home() / ".local" / "state"
-    out = args.out or Path(state, "omarchy-devices", "regression", args.sha[:12])
+    name = args.repo.split("/")[1]
+    out = args.out or Path(Path.home(), ".local", "state", name, "regression", args.sha[:12])
     out.mkdir(parents=True, exist_ok=True)
 
     if args.from_output:
         output = args.from_output
     else:
+        script_text = candidate_file(args.repo, args.sha, config["script"])
+        if script_text is None:
+            fail(f"{config['script']} is missing at {args.sha[:12]}")
+        script = out / "checks.sh"
+        script.write_text(script_text)
         output = out / "sandbox-output"
-        command = [str(SANDBOX), "run", REPO, args.sha, "--out", str(output),
-                   "--steps", "tests,rig,script", "--script", str(SCRIPT),
+        command = [str(SANDBOX), "run", args.repo, args.sha, "--out", str(output),
+                   "--steps", config["steps"], "--script", str(script),
                    "--timeout", str(args.timeout), "--harness", args.harness]
         print(f"regression: {' '.join(command)}", file=sys.stderr)
         subprocess.run(command)
@@ -190,11 +294,20 @@ def main(argv):
     rows = sandbox_rows(summary) if summary else [
         ("Sandbox: run", "The run leaves its summary", "dev/sandbox run", FAIL, "no summary.json")]
     rows += rig_rows(output) + script_rows(output)
-    code = verdict(rows)
+    if config["marketplace"]:
+        rows += marketplace_rows(args.repo, args.sha, out)
 
+    issues, reason = owner_issues(args.repo, args.owner_issues)
+    if issues is None:
+        rows.append(("Owner setup issues", "The open owner-setup issues are listed",
+                     f"gh issue list --label {OWNER_LABEL}", FAIL, reason))
+        issues = []
+    owner = owner_rows(config, issues)
+
+    code = verdict(rows)
     when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     record = out / "regression-record.md"
-    record.write_text(render(args.sha, tree, when, summary, rows, code))
+    record.write_text(render(args.repo, args.sha, tree, when, summary, rows, owner, code))
     print(f"regression: record written to {record}", file=sys.stderr)
     return code
 
