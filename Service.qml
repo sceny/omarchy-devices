@@ -1013,6 +1013,27 @@ Item {
     if (next) autoFixes = next
   }
 
+  // KDE Connect stopped on a computer set up before is started here, once
+  // per stop (Model.daemonStartPending); "" not yet, "running", "tried" (it
+  // did not start). The first run's card shows only after a try failed.
+  property string daemonAuto: ""
+  readonly property bool daemonAutoPending: !demo && Model.daemonStartPending(snapshot, daemonAuto)
+  onDaemonChanged: if (daemon) daemonAuto = ""
+  function autoStartDaemon() {
+    if (!daemonAutoPending || daemonAuto !== "") return
+    daemonAuto = "running"
+    runSteps("computer", [{ kind: "auto", label: "Start KDE Connect", fix: Model.AUTO_START }], "daemonStart", null, function(ok) {
+      if (!ok) daemonAuto = "tried"
+      else daemonStartGuard.restart()
+    }, true)
+  }
+  // Started, but the snapshot has not shown it yet: given a moment, then the card.
+  Timer {
+    id: daemonStartGuard
+    interval: 8000
+    onTriggered: if (!root.daemon && root.daemonAuto === "running") root.daemonAuto = "tried"
+  }
+
   // Root, only for what was shown: a fix that needs the password is
   // described first (rootAsk, the panel's card: why and every action), and
   // runs only on Continue, only that plan (its hash).

@@ -2291,3 +2291,16 @@ test("only a fix that asks for no password and changes nothing on the device may
     assert.ok(!touchesDevice.includes(what), f + " changes the device or the user's own choice")
   })
 })
+
+test("KDE Connect stopped on a computer set up before starts by itself, once; the first run keeps its card (#456)", () => {
+  const down = { daemon: false, setUp: true, devices: [] }
+  assert.equal(M.daemonStartPending(down, ""), true, "set up before: started by itself")
+  assert.equal(M.daemonStartPending(down, "running"), true, "and kept out of the card while it starts")
+  assert.equal(M.daemonStartPending(down, "tried"), false, "a start that failed shows the card")
+  assert.equal(M.daemonStartPending({ daemon: false, setUp: false, devices: [] }, ""), false, "never set up, or not installed: the first run's card")
+  assert.equal(M.daemonStartPending({ daemon: false, devices: [] }, ""), false, "the bridge did not say: the card")
+  assert.equal(M.daemonStartPending({ daemon: true, setUp: true, devices: [] }, ""), false, "running: nothing to start")
+  assert.equal(M.daemonStartPending({ daemon: false, setUp: true, demo: true, devices: [] }, ""), false, "a demo runs nothing")
+  assert.equal(M.daemonStartPending(null, ""), false, "no snapshot yet")
+  assert.deepEqual(M.AUTO_START, { verb: "fix", what: "start" }, "the start, not the restart (every device reconnects)")
+})

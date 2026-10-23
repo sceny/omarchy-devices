@@ -1302,7 +1302,13 @@ Panel {
   // Nothing to show on the main page without them: KDE Connect missing or
   // down (the panel opens on the first run's card: this computer made ready
   // in one step), or nothing paired (it opens on Add a device).
-  readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? "ready" : (pairedDevices.length === 0 ? "addDevice" : ""))
+  readonly property string openingScope: !phone || !snapshot ? "" : (!phone.daemon ? (phone.daemonAutoPending ? "" : "ready") : (pairedDevices.length === 0 ? "addDevice" : ""))
+  // KDE Connect stopped on a computer set up before: started here while the
+  // panel is open (Service.autoStartDaemon); the card comes only if that failed.
+  readonly property bool autoStartDue: opened && !!phone && phone.daemonAutoPending && phone.daemonAuto === ""
+  onAutoStartDueChanged: if (autoStartDue) phone.autoStartDaemon()
+  readonly property bool autoStartFailed: opened && !!phone && !phone.daemon && phone.daemonAuto === "tried"
+  onAutoStartFailedChanged: if (autoStartFailed && !showSettings) openReady()
   // The first run's one step: everything any feature needs here, under one
   // password after its card (bridge `fix ready`), KDE Connect started, then
   // on to pairing.

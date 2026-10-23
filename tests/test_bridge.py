@@ -812,6 +812,16 @@ class LastSeen(unittest.TestCase):
         self.assertIsNone(bridge.with_seen({"devices": [self.dev(True)]}, seen)["devices"][0]["lastSeen"])
         self.assertIsNone(bridge.with_seen({"devices": [dict(self.dev(False), id="other")]}, seen)["devices"][0]["lastSeen"])
 
+    def test_a_stopped_daemon_says_whether_this_computer_was_set_up_before(self):
+        seen = {}
+        bridge.note_seen(seen, [self.dev(True)], 0)
+        with mock.patch.object(bridge.shutil, "which", return_value="/usr/bin/kdeconnect-cli"):
+            self.assertTrue(bridge.with_seen({"daemon": False, "devices": []}, seen)["setUp"])
+            self.assertFalse(bridge.with_seen({"daemon": False, "devices": []}, {})["setUp"], "no device ever reached: the first run")
+            self.assertNotIn("setUp", bridge.with_seen({"daemon": True, "devices": []}, seen))
+        with mock.patch.object(bridge.shutil, "which", return_value=None):
+            self.assertFalse(bridge.with_seen({"daemon": False, "devices": []}, seen)["setUp"], "not installed: the first run")
+
     def test_the_file_round_trips(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "last-seen.json")
