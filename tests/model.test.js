@@ -257,6 +257,16 @@ test("messages: thread times and day headers", () => {
     ["Today", "Yesterday", "May 2, 2024"])
 })
 
+test("a read conversation's notification goes by the phone's Mark as read, else a dismiss", () => {
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: ["Call", "Mark as read"] }), { action: "Mark as read" })
+  assert.deepEqual(M.readClearing({ dismissable: false, actions: ["Mark read"] }), { action: "Mark read" })
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: [] }), { action: "" }, "released KDE Connect lists no buttons")
+  assert.deepEqual(M.readClearing({ dismissable: true }), { action: "" })
+  assert.deepEqual(M.readClearing({ dismissable: true, actions: ["Mark as unread", "Reply"] }), { action: "" })
+  assert.equal(M.readClearing({ dismissable: false, actions: [] }), null, "an ongoing notification stays")
+  assert.equal(M.readClearing(null), null)
+})
+
 test("a text-message notification finds its thread by name or number", () => {
   const threads = [{ tid: 1, title: "Alex", addressKeys: "5145550123" }, { tid: 2, title: "55555", addressKeys: "55555" }]
   assert.equal(M.threadForNotification({ app: "Messages", title: "Alex" }, threads), 1)
@@ -281,7 +291,7 @@ test("demo snapshots cover every state the panel draws", () => {
   assert.equal(demoDev.id, "demo")
   assert.equal(M.deviceTitle(demoDev, M.resolveProfile(settings, demoDev, true)), "Pixel 8")
   assert.equal(M.deviceIcon(demoDev, M.resolveProfile(settings, demoDev, true)), M.deviceIcon(demoDev, null))
-  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 2, "a text message (reply, actions, a long text) and a group chat")
+  assert.equal(M.demoSnapshot(null, "").devices[0].notifications.length, 5, "a text message (reply, actions, a long text), a group chat and three from one app")
   assert.equal(M.demoSnapshot(snap(device({ name: "Real Name" })), "").devices[0].name, "Pixel 8", "demo never shows the real device name")
   const away = M.demoSnapshot(snap(device({ reachable: false, can: { sms: false, ring: false } })), "").devices[0]
   assert.equal(away.reachable, true, "the demo device is here even when the real one is away")
@@ -1127,7 +1137,7 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([off.only, acts(off)], ["Turn it on: Developer options › Wireless debugging", ["check"]], "off: trusted before; Wireless debugging is the one step")
   assert.match(off.line, /Wireless debugging is off on Pixel 8/)
   const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
-  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "appSound"]])
+  assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "stretch", "appSound"]])
   const sound = M.screenSetup(M.demoScreen("ready"), { name: "Pixel 8" }, null, true, false, false, "phone").actions.find(a => a.key === "appSound")
   assert.deepEqual([sound.sound, sound.device], ["phone", "Pixel 8"])
   assert.match(sound.hint, /^Its sound stays on Pixel 8\. An open app's tile changes its own/)
@@ -1148,6 +1158,14 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.equal(M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false))[1].docked, false)
   assert.equal(M.readSettings({}).defaults.screenDocked, true)
   assert.equal(M.readSettings({}).defaults.screenFitTile, false, "experimental: off unless chosen")
+  assert.equal(M.readSettings({}).defaults.screenStretch, false, "a stretched picture is distorted: off unless chosen")
+  assert.equal(M.readSettings({ screenStretch: "true" }).defaults.screenStretch, true)
+  const stretchRow = m => M.screenRows(m).find(r => r.key === "stretch")
+  assert.deepEqual([stretchRow(ready).label, stretchRow(ready).on], ["Fill the window with the screen", false], "shown whenever the screen is set up, docked or not")
+  assert.equal(stretchRow(M.screenSetup(M.demoScreen("ready"), phone, null, false, false, false, "here", true)).on, true)
+  const noStretch = M.demoScreen("ready")
+  noStretch.tools = Object.assign({}, noStretch.tools, { stretch: false })
+  assert.ok(!M.screenRows(M.screenSetup(noStretch, phone, null)).some(r => r.key === "stretch"), "a scrcpy without --render-fit offers nothing it cannot do")
   assert.ok(!M.screenRows(ready).some(r => r.key === "fitTile"), "docked: no tile to fit")
   const tiled = M.screenRows(M.screenSetup(M.demoScreen("ready"), phone, null, false, true))
   assert.deepEqual(tiled.filter(r => r.key === "fitTile").map(r => [r.label, r.on]), [["Fit its tile to it (experimental)", true]])
@@ -2088,4 +2106,109 @@ test("dismissAllResult: a press with no failure confirms once", () => {
   assert.deepEqual(M.dismissAllResult(0, 4, "Pixel 8", "", "", "Dismissed", "Dismissed"),
     { text: "Dismissed", osd: "Dismissed", failed: false })
   assert.equal(M.dismissAllResult(0, 4, "Pixel 8", "", "", "", "").text, "")
+})
+
+test("a device reached only over Bluetooth hands-free is here for calls (#374)", () => {
+  const phoneAway = () => phone({ reachable: false })
+  const tabletAway = () => tablet({ reachable: false })
+  const prof = { barIndicators: ["messages"] }
+  const st = { bluetooth: true, call: { state: "ringing" } }
+  const a = M.attention(phoneAway(), prof, st)
+  assert.equal(a.ringing, true, "a ring over Bluetooth counts with KDE Connect away")
+  assert.equal(M.attention(phoneAway(), prof, { bluetooth: false, call: { state: "ringing" } }).any, false, "no gateway: nothing counts")
+  assert.equal(M.attention(phoneAway(), prof, { bluetooth: true, notifications: 4 }).notifications, 0, "what KDE Connect carries stays out")
+  const parts = M.barParts(phoneAway(), ["connection", "battery"], st)
+  assert.deepEqual(parts.map(p => p.key), ["glyph", "call", "connection"])
+  assert.equal(parts.find(p => p.key === "connection").text, M.GLYPH.bluetooth)
+  const away = M.barParts(phoneAway(), ["connection"], { call: { state: "ringing" } })
+  assert.deepEqual(away.map(p => p.key), ["glyph", "connection"], "away on every gateway: no call part")
+  assert.equal(away.find(p => p.key === "connection").text, M.GLYPH.wifiOff)
+  const chip = M.chips(snap(phoneAway()), M.readSettings({}), { p1: { bluetooth: true } }).chips[0]
+  assert.equal(chip.dimmed, false, "here over Bluetooth: not dimmed")
+  assert.equal(M.chips(snap(phoneAway()), M.readSettings({}), {}).chips[0].dimmed, true)
+  const s = M.readSettings({})
+  assert.equal(M.openingDevice(snap(phoneAway(), tabletAway()), s, { t1: { bluetooth: true } }).id, "t1", "the one reached for calls opens first")
+  assert.equal(M.openingDevice(snap(phoneAway(), tabletAway()), s, { p1: { bluetooth: true, call: { state: "ringing" } } }).id, "p1")
+})
+
+test("hereOnlyLine names what reaches a device KDE Connect does not", () => {
+  const phoneAway = () => phone({ reachable: false })
+  assert.equal(M.hereOnlyLine(true, false), "Screen and apps only")
+  assert.equal(M.hereOnlyLine(false, true), "Calls only")
+  assert.equal(M.hereOnlyLine(true, true), "Screen, apps and calls only")
+  assert.equal(M.hereOnlyLine(false, false), "")
+  const rows = M.devicesListRows(snap(phoneAway()), M.readSettings({}), 15, { p1: "Calls only" })
+  assert.equal(rows[0].status, "Calls only")
+  assert.equal(M.devicesListRows(snap(phoneAway()), M.readSettings({}), 15, {})[0].status, "Away")
+})
+
+test("the demo's awayCalls: KDE Connect away, Bluetooth connected", () => {
+  const d = M.demoSnapshot(null, "awayCalls").devices[0]
+  assert.equal(d.reachable, false)
+  assert.equal(d.handsfree.connected, true)
+  assert.equal(M.demoSnapshot(null, "away").devices[0].handsfree.connected, false)
+})
+
+// ---- Notification groups (#435) ----
+const note = (id, app, over = {}) => ({ id: String(id), key: `0|com.example.${app.toLowerCase()}|${id}|null|10006`, app, title: `${app} ${id}`, text: "text", dismissable: true, replyId: "", conversation: [], ...over })
+
+test("notifications from one app are one group, at its newest member's place", () => {
+  const list = [note(1, "Calendar"), note(2, "Mail"), note(3, "Calendar"), note(4, "Calendar")]
+  const groups = M.groupNotifications(list)
+  assert.deepEqual(groups.map(g => [g.app, g.count]), [["Calendar", 3], ["Mail", 1]])
+  assert.deepEqual(groups[0].notes.map(n => n.id), ["1", "3", "4"], "the phone's order, newest first")
+  assert.equal(M.groupTitle(groups[0]), "3 from Calendar")
+})
+
+test("two chats of one app are two groups; a chat's own notifications are one", () => {
+  const chat = (id, title) => note(id, "Chat", { replyId: "r" + id, title, conversation: [{ sender: "A", text: "hi" }] })
+  const groups = M.groupNotifications([chat(1, "Book club (3 messages)"), chat(2, "Alex"), chat(3, "Book club (5 messages)"), note(4, "Chat")])
+  assert.deepEqual(groups.map(g => g.count), [2, 1, 1], "the count in a title does not split a chat; a non-chat notification of the app is its own group")
+  assert.deepEqual(groups[0].notes.map(n => n.id), ["1", "3"])
+  const texts = M.groupNotifications([note(1, "Messages", { replyId: "r1", title: "Alex" }), note(2, "Messages", { replyId: "r2", title: "alex" })])
+  assert.equal(texts.length, 1, "a sender's texts are one group, whatever the case")
+})
+
+test("an app with no package falls back to its name; with neither, a notification stands alone", () => {
+  const bare = (id, app) => ({ id: String(id), app, title: "t", text: "x", dismissable: true })
+  assert.deepEqual(M.groupNotifications([bare(1, "Clock"), bare(2, " clock ")]).map(g => g.count), [2])
+  assert.deepEqual(M.groupNotifications([bare(1, ""), bare(2, "")]).map(g => g.count), [1, 1])
+  assert.deepEqual(M.groupNotifications([]), [])
+  assert.deepEqual(M.groupNotifications(null), [])
+})
+
+test("a group counts the notifications that can be dismissed", () => {
+  const g = M.groupNotifications([note(1, "Clock"), note(2, "Clock", { dismissable: false }), note(3, "Clock")])[0]
+  assert.equal(g.count, 3)
+  assert.equal(g.dismissable, 2)
+})
+
+test("rows: a group of one is its notification; a group shows its header and newest, and open, the rest", () => {
+  const groups = M.groupNotifications([note(1, "Calendar"), note(2, "Mail"), note(3, "Calendar"), note(4, "Calendar")])
+  const shape = rows => rows.map(r => r.kind === "header" ? "H" : r.note.id + (r.member ? "m" : ""))
+  assert.deepEqual(shape(M.notificationRows(groups, {})), ["H", "1", "2"])
+  assert.deepEqual(shape(M.notificationRows(groups, { Calendar: false })), ["H", "1", "2"])
+  assert.deepEqual(M.groupBases(groups, {}), [0, 2])
+  const open = { "com.example.calendar": true }
+  assert.deepEqual(shape(M.notificationRows(groups, open)), ["H", "1", "3m", "4m", "2"])
+  assert.deepEqual(M.groupBases(groups, open), [0, 4])
+  const key = groups[0].key
+  assert.equal(M.notificationRows(groups, { [key]: true }).length, 5)
+  assert.deepEqual(M.groupBases(groups, { [key]: true }), [0, 4])
+  assert.equal(M.notificationRows(groups, { [key]: true }).filter(r => r.kind === "header").length, 1, "a group of one never has a header")
+})
+
+test("an open group that is gone or down to one notification is forgotten", () => {
+  const groups = M.groupNotifications([note(1, "Calendar"), note(2, "Calendar"), note(3, "Mail")])
+  const key = groups[0].key
+  const same = { [key]: true }
+  assert.equal(M.pruneExpanded(same, groups), same, "nothing changed: the same object")
+  assert.deepEqual(M.pruneExpanded({ [key]: true, gone: true }, groups), { [key]: true })
+  assert.deepEqual(M.pruneExpanded({ [key]: true }, M.groupNotifications([note(1, "Calendar")])), {})
+  assert.deepEqual(M.pruneExpanded({}, groups), {})
+})
+
+test("the demo has a group of three", () => {
+  const groups = M.groupNotifications(M.demoSnapshot(null, "").devices[0].notifications)
+  assert.deepEqual(groups.map(g => g.count), [1, 1, 3])
 })

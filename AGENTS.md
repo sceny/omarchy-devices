@@ -37,6 +37,17 @@ clipboard settings in KDE Connect's config (*Rules*).
   per device, the phone's permissions over adb, the mount) and asks only for
   what it cannot, one step at a time, then carries on by itself. KDE
   Connect's daemon and command line are enough: its own app is never needed.
+- **A notification's buttons come from KDE Connect's own notice.** Released
+  KDE Connect lists no `actions` on D-Bus (#436); the bridge reads the
+  daemon's `Notify` calls to the notification server with a bus monitor
+  limited to that sender and method, matches each to its notification by
+  text, and keeps only the button labels of a notification that has some, per
+  digest of its Android key (the key can carry an app's conversation or
+  contact id, so it is never written), in the cache; a notification missing
+  from the list for ten minutes is forgotten, one missing while the list is
+  still partial after a reconnect is not. The monitor never sends or logs,
+  holds a notice's text in memory only, and what D-Bus lists wins when a KDE
+  Connect has it.
 - **A feature no source offers is not faked.** Ongoing notifications never
   leave the phone; messages cannot be marked read on the phone; RCS is not
   in the SMS store. Say so in the UI or the docs (`docs/setup/limits.md`).
@@ -301,8 +312,12 @@ one only with the owner.
   problem whose fix uses what adb knows (`device-fix reconnect`: KDE
   Connect pointed at the device's address, kept with the user's own custom
   devices; else `wake`: KDE Connect on the device let run in the
-  background and opened). The away card shows only when no gateway reaches
-  it.
+  background and opened). A device Bluetooth hands-free reaches (Calls here
+  on, connected for calls) is here too, for calls only: its call card, the
+  call and Bluetooth marks on its chip and the Calls here controls stay,
+  nothing KDE Connect carries shows, and its status says *Calls only*
+  (*Screen, apps and calls only* with the screen link). The away card shows
+  only when no gateway reaches it.
 - **Using a feature gets it working.** What a feature needs is asked where
   it is used, once, never ahead: notification access in Notifications,
   SMS on the Messages page, contacts on the Contacts page (an ask belongs to
@@ -638,6 +653,15 @@ one only with the owner.
   opens and as the device turns (`fit_tile`, `--fit`; the layout moves a
   shared edge from either side, so the change is measured and corrected).
   Alone on its workspace, a tile fills it.
+- **The screen's picture can fill its window** (`screenStretch`, per device,
+  off by default, not experimental: scrcpy's `--render-fit=stretched`, asked
+  only when this scrcpy lists the option, `tools.stretch`). It is a row of
+  the Screen and apps page whenever the screen is set up, docked or not.
+  The screen's own window only: an app's follows its window's size
+  already. scrcpy cannot change it running, so the panel gives it on every
+  opening (`--stretch`) and, the screen open, `screen-stretch` opens the
+  window again in its place (as a sound change does, `reopen_open_window`);
+  a sound change keeps it.
 - **Keys the panel tells are this machine's,** read from Hyprland
   (`hyprctl binds`: Omarchy's pop-out and full screen, found by their
   description or command; `bound_keys`), never assumed. An action with no
