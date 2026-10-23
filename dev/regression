@@ -152,10 +152,10 @@ def rig_rows(output):
 
 
 def script_rows(output):
-    path = output / "script" / "features.tsv"
+    path = output / "features.tsv"
     if not path.is_file():
         return [("Script checks", "The script's checks run", "dev/regression.sh", FAIL,
-                 "the script wrote no script/features.tsv")]
+                 "the script wrote no features.tsv")]
     rows = []
     for line in path.read_text().splitlines()[1:]:
         if not line.strip():
