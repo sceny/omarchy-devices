@@ -1969,6 +1969,8 @@ var PERMISSION_NAMES = { notifications: "notification access", sms: "SMS", conta
 // its own page (Fix all leaves it to the user unless it broke). shared:
 // false: nothing it shares with this computer, so no row among what the
 // device shares; it is asked on the away card. onDetail: the item whose detail its row shows when on.
+// opens: the page of its options once it is on (its row's arrow, the page
+// menu, the key o), kept beside its switch.
 // ask: the page or section that asks for what it needs (an ask shows only
 // there, a problem on every entry); none: on every entry.
 var FEATURES = [
@@ -2004,7 +2006,7 @@ var FEATURES = [
   { key: "battery", label: "Battery", glyph: GLYPH.bolt, hint: "Its battery in the bar", needs: ["link", "plugin:battery"], switch: ["plugin:battery"],
     entries: { sections: [], shortcuts: [], pages: [] } },
   { key: "screen", label: "Screen and apps", glyph: GLYPH.screen, hint: "Its screen and apps in windows here",
-    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"], onDetail: "screen",
+    needs: ["own:screen", "package:screen", "screen"], switch: ["own:screen"], onDetail: "screen", opens: "screen",
     entries: { sections: ["apps"], shortcuts: ["screen"], pages: ["apps", "screen"] } },
   { key: "reach", label: "From anywhere", glyph: GLYPH.anywhere, hint: "Reach it on any network, through a mesh such as Tailscale",
     needs: ["mesh", "reach:mesh"], switch: [], page: "reach", shared: false, onDetail: "reach:mesh",
@@ -2307,7 +2309,7 @@ function featureState(f, items, ctx) {
   var by = {}
   items.forEach(function(it) { by[it.key] = it })
   var mine = f.needs.map(function(k) { return by[k] })
-  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true, page: f.page || "", shared: f.shared !== false,
+  var row = { key: f.key, label: f.label, glyph: f.glyph, hint: f.hint, steps: [], detail: "", on: true, page: f.page || "", opens: f.opens || "", shared: f.shared !== false,
               switchable: f.switch.length > 0, needs: f.needs.slice(),
               gateways: mine.map(function(it) { return it.gateway }).filter(function(g, i, a) { return g && a.indexOf(g) === i }) }
   function done(state, detail) { row.state = state; row.stateLabel = FEATURE_STATES[state]; row.detail = detail || ""; return row }
@@ -3340,7 +3342,8 @@ var KEYS = [
     ["p", "Pin or unpin"],
     ["Shift+H Shift+L", "Move a pinned app"],
     ["x", "Forget from Recent"],
-    ["v", "Where its sound plays"]] },
+    ["v", "Where its sound plays"],
+    ["o", "Screen and apps options"]] },
   { group: "Messages", place: { page: "messages", section: "" }, summary: "Search, new, reply", keys: [
     ["/ · u", "Search · unread"],
     ["n · i", "New · reply"],
