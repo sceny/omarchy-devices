@@ -1069,10 +1069,16 @@ Panel {
   // computer's, then every connected device's (Model.settingsProblems).
   // Settings' status lists them; the gear's dot and the main page's line
   // count them.
-  readonly property var allProblems: Model.settingsProblems(setupChecks, ignoredChecks,
+  readonly property var rawProblems: Model.settingsProblems(setupChecks, ignoredChecks,
     pairedDevices.filter(function(d) { return d.reachable === true || screenReaches(d.id) }).map(function(d) {
       return { id: String(d.id), title: Model.deviceLabel(d), noun: Model.deviceNoun(d), setup: setupById[String(d.id)] || null, rows: featureRowsFor(d) }
     }))
+  // A problem whose fix needs no password and no change on the device is
+  // fixed by the plugin and shown only if that did not work (Model.AUTO_FIXES).
+  readonly property var allProblems: Model.problemsShown(rawProblems, phone ? phone.autoFixes : null)
+  // Run on a read made with a panel open, never on the report left from the last opening.
+  onRawProblemsChanged: runAutoFixes()
+  function runAutoFixes() { if (opened && phone) phone.autoFixProblems(rawProblems) }
   readonly property int settingsIssues: allProblems.length
   // The card at the top of the main page, closed: the problems it showed
   // then stay out of it, and a new one brings it back. The gear's dot, the
