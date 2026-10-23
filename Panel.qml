@@ -1047,8 +1047,9 @@ Panel {
     })
   }
   // Only while the panel is open: nothing carries on by itself unseen, and
-  // opening resolves what changed meanwhile.
-  onFeatureRowsByIdChanged: resolvePendingFeatures()
+  // opening resolves what changed meanwhile. Later, never inside the change:
+  // it writes what setupById reads.
+  onFeatureRowsByIdChanged: Qt.callLater(resolvePendingFeatures)
   // Fix with AI: what is wrong, and what the plugin's own fix did.
   function aiProblem(r) { return { label: r.label, where: viewedKind(), detail: r.detail || (r.pending ? r.pending.text : ""), tried: r.pending ? r.pending.tried : "" } }
   function aiProblemOf(p) { return { label: p.label + (p.gateway ? " via " + p.gateway : ""), where: p.whereKind || "", detail: p.detail, tried: p.tried || "" } }
@@ -1077,7 +1078,7 @@ Panel {
   // fixed by the plugin and shown only if that did not work (Model.AUTO_FIXES).
   readonly property var allProblems: Model.problemsShown(rawProblems, phone ? phone.autoFixes : null)
   // Run on a read made with a panel open, never on the report left from the last opening.
-  onRawProblemsChanged: runAutoFixes()
+  onRawProblemsChanged: Qt.callLater(runAutoFixes)
   function runAutoFixes() { if (opened && phone) phone.autoFixProblems(rawProblems) }
   readonly property int settingsIssues: allProblems.length
   // The card at the top of the main page, closed: the problems it showed

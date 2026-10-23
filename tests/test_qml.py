@@ -286,6 +286,37 @@ def handler_body(text, start):
     return text[start:]
 
 
+SETUP_CHAIN_HANDLER = re.compile(r"\bon(?:SetupById|FeatureRowsById|RawProblems|AllProblems)Changed\s*:")
+
+
+def setup_chain_handlers_that_act_inside_the_change(path):
+    """A handler on a property of the setup chain (setupById, what is derived
+    from it) that does not defer: it runs inside setupById's own change, and
+    what it writes (a pending step, an auto fix) is what setupById reads."""
+    text = code_only(open(path).read())
+    out = []
+    for m in SETUP_CHAIN_HANDLER.finditer(text):
+        if "Qt.callLater" not in handler_body(text, m.end()):
+            out.append("%s:%d: %s" % (os.path.basename(path), text.count("\n", 0, m.start()) + 1, m.group(0).strip()))
+    return out
+
+
+class SetupChainHandlersDefer(unittest.TestCase):
+    def test_none_acts_inside_the_change(self):
+        found = setup_chain_handlers_that_act_inside_the_change(os.path.join(ROOT, "Panel.qml"))
+        self.assertEqual(found, [], "a handler on the setup chain writes what setupById reads, inside its change (Binding loop): Qt.callLater it\n" + "\n".join(found))
+
+    def test_the_check_finds_it(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".qml", delete=False) as f:
+            f.write("Item {\n  onRawProblemsChanged: runAutoFixes()\n  onFeatureRowsByIdChanged: Qt.callLater(resolve)\n"
+                    "  onAllProblemsChanged: {\n    a()\n  }\n  onOpenedChanged: b()\n}\n")
+        try:
+            self.assertEqual(len(setup_chain_handlers_that_act_inside_the_change(f.name)), 2)
+        finally:
+            os.remove(f.name)
+
+
 def hover_that_takes_the_cursor_unasked(path):
     """A hover handler that moves a keyboard cursor without asking whether
     the pointer moved. Content that scrolls or folds under a resting pointer
