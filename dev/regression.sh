@@ -69,7 +69,7 @@ settings_persist() {
     dev/rig restart-shell || return 1
     after="$OUT_DIR/shell-after-restart.json"
     in_rig cat "$sj" > "$after" 2>/dev/null || printf '{}' > "$after"
-    cmp -s "$before" "$after" ||
+    [[ $(sha256sum < "$before") == "$(sha256sum < "$after")" ]] ||
         { echo "shell.json changed across a restart with no change made"; return 1; }
 
     toggled=$(dev/rig ipc fold apps) || return 1
@@ -98,7 +98,7 @@ clip_check() {
 versions_recorded() {
     {
         in_rig quickshell --version || true
-        in_rig qtpaths6 --qt-version || in_rig qtpaths --qt-version || true
+        in_rig pacman -Q qt6-base || true
     } > "$OUT_DIR/versions.txt" 2>&1
     grep -Eq 'quickshell.*[0-9]+\.[0-9]+' "$OUT_DIR/versions.txt"
 }
@@ -143,7 +143,7 @@ measured "Clipboard" \
 
 measured "Versions recorded" \
     "The run records the Quickshell and Qt versions it tested" \
-    "quickshell --version, qtpaths --qt-version" "versions.txt" \
+    "quickshell --version, pacman -Q qt6-base" "versions.txt" \
     versions_recorded
 
 if header_shots > "$OUT_DIR/headers.log" 2>&1; then
