@@ -3476,6 +3476,56 @@ function settingsPageRows(ctx) {
 // The status at the top of Settings, the gear's dot and the main page's
 // line all count these.
 function settingsProblems(checks, ignored, devices) {
+  var out = settingsProblemsRaw(checks, ignored, devices)
+  out.forEach(function(p) { p.auto = p.where === "computer" || String(p.key).indexOf("feature:") === 0 ? [] : autoSteps(p.steps) })
+  return out
+}
+
+// The fixes the plugin runs by itself when it sees the problem: no password
+// (nothing through pkexec) and no change on the device. A fix that needs
+// either stays a click: the step after them, and a step that falls back to
+// a change on the device (`wake`), are never in it.
+var AUTO_FIXES = ["device:plugin", "device:remount", "device:renotify", "device:reconnect", "device:reach"]
+
+// The leading steps of a problem's remedy that run by themselves.
+function autoSteps(steps) {
+  var out = []
+  for (var i = 0; i < (steps || []).length; i++) {
+    var s = steps[i]
+    if (s.kind !== "auto" || s.fallback || AUTO_FIXES.indexOf(s.fix.verb + ":" + s.fix.what) < 0) break
+    out.push(s)
+  }
+  return out
+}
+
+// The problems to run by themselves now: each has steps that run alone and
+// has not been tried since it appeared. `tried`: problem id -> a state (the
+// service's), kept while the problem stays.
+function autoDue(problems, tried) {
+  return (problems || []).filter(function(p) { return (p.auto || []).length > 0 && !(tried && tried[problemId(p)]) })
+}
+
+// What the user sees of the problems: a problem whose own fix has not run
+// yet, or has run and is being read again, is not shown (no banner, no dot,
+// no count). One tried and still there is shown once, as any other.
+function problemsShown(problems, tried) {
+  return (problems || []).filter(function(p) {
+    if ((p.auto || []).length === 0) return true
+    var t = tried ? tried[problemId(p)] : null
+    return !!t && t.state === "tried"
+  })
+}
+
+// The states of the problems tried: those gone are forgotten, so a problem
+// that comes back is tried again, once.
+function autoKeep(tried, problems) {
+  var ids = {}, next = {}
+  ;(problems || []).forEach(function(p) { ids[problemId(p)] = true })
+  Object.keys(tried || {}).forEach(function(k) { if (ids[k]) next[k] = tried[k] })
+  return next
+}
+
+function settingsProblemsRaw(checks, ignored, devices) {
   var out = []
   connectionRows(checks, ignored).forEach(function(c) {
     if (c.ok || c.optional || c.ignored) return

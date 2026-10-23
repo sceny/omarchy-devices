@@ -2249,3 +2249,45 @@ test("every demo Bluetooth state shows its row, counts at most one problem and p
   assert.equal(missing.bluetooth.bluez, false)
   assert.equal(M.demoBluetoothState("ready", "Pixel 8").handsfree.connected, true)
 })
+
+test("a fix with no password and no change on the device runs by itself; the rest stays a click", () => {
+  const base = M.demoFeatures()
+  const problems = report => {
+    const setup = M.deviceSetup({ report, screen: { state: "ready", line: "" }, name: "Pixel 8", checks: [] })
+    return M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup, rows: setup.features }])
+  }
+  const verbs = p => p.auto.map(s => s.fix.verb + ":" + s.fix.what)
+  const mount = problems(Object.assign({}, base, { files: { sshfs: true, mounted: false, error: "gone" } }))[0]
+  assert.deepEqual(verbs(mount), ["device:remount"], "a dead mount is mounted again; the KDE Connect restart after it is a click")
+  const quiet = problems(Object.assign({}, base, { notifications: { here: 0, device: 5 } }))[0]
+  assert.deepEqual(verbs(quiet), ["device:renotify"], "notifications are read again; the listener on the device is a click")
+  const lost = problems(Object.assign({}, base, { reachable: false }))
+  assert.deepEqual(lost.map(p => verbs(p)), [["device:reconnect"]], "KDE Connect is pointed at the device again; waking the device is a click")
+  const perm = problems(Object.assign({}, base, { permissions: Object.assign({}, base.permissions, { contacts: false }) }))
+  assert.deepEqual(perm.map(p => p.auto.length), [], "a permission was never a problem before it broke, and a grant changes the device")
+  const asks = M.settingsProblems([{ key: "firewall", ok: false, status: "Closed", fix: "firewall" }], [], [])
+  assert.deepEqual(asks.map(p => p.auto), [[]], "a fix through the password never runs by itself")
+})
+
+test("a problem with a fix of its own stays out of sight until the fix ran and the device was read again", () => {
+  const p = { where: "p1", key: "health:mount", auto: [{ kind: "auto", fix: { verb: "device", what: "remount" } }] }
+  const other = { where: "computer", key: "firewall", auto: [] }
+  const id = M.problemId(p)
+  assert.deepEqual(M.autoDue([p, other], {}), [p], "due once it is seen")
+  assert.deepEqual(M.autoDue([p, other], { [id]: { state: "running" } }), [], "not again while it runs")
+  assert.deepEqual(M.problemsShown([p, other], {}), [other], "not shown before it ran")
+  assert.deepEqual(M.problemsShown([p, other], { [id]: { state: "running" } }), [other], "nor while it runs")
+  assert.deepEqual(M.problemsShown([p, other], { [id]: { state: "reading" } }), [other], "nor while the device is read again")
+  assert.deepEqual(M.problemsShown([p, other], { [id]: { state: "tried" } }), [p, other], "tried and still there: shown, once")
+  assert.deepEqual(M.autoDue([p], { [id]: { state: "tried" } }), [], "and never run again while it stays")
+  assert.deepEqual(M.autoKeep({ [id]: { state: "tried" }, "p1:gone": { state: "tried" } }, [p]), { [id]: { state: "tried" } }, "gone: forgotten, so a return is tried once more")
+})
+
+test("only a fix that asks for no password and changes nothing on the device may run by itself (#454)", () => {
+  const touchesDevice = ["grant", "open-permission", "wake", "relisten", "wireless", "bluetooth", "unreach"]
+  M.AUTO_FIXES.forEach(f => {
+    const [verb, what] = f.split(":")
+    assert.equal(verb, "device", f + " goes through the bridge's device fixes, never the password's `fix`")
+    assert.ok(!touchesDevice.includes(what), f + " changes the device or the user's own choice")
+  })
+})

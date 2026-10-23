@@ -935,7 +935,8 @@ Item {
     // A demo's report follows its device (away in the away demo).
     if (demo) { var d = Object.assign({}, featureReports); var dev = findDevice(id); d[String(id)] = Object.assign(Model.demoFeatures(demoFeature), { reachable: !!dev && dev.reachable === true, network: Model.demoNetwork(demoNetworkKind) }); featureReports = d; return }
     var st = screenOf(String(id))
-    var proc = featuresComponent.createObject(root, { device: String(id),
+    featuresSeq++
+    var proc = featuresComponent.createObject(root, { device: String(id), seq: featuresSeq,
       command: [bridge, "features", String(id)].concat(st && st.state === "ready" ? ["--adb"] : []) })
     proc.running = true
   }
@@ -952,6 +953,7 @@ Item {
     Process {
       id: featuresProc
       property string device: ""
+      property int seq: 0
       readonly property real startedAt: Date.now()
       stdout: StdioCollector {
         onStreamFinished: {
@@ -961,11 +963,54 @@ Item {
             var next = Object.assign({}, root.featureReports); next[featuresProc.device] = r; root.featureReports = next
             root.storageGranted(featuresProc.device, r)
           }
+          root.autoFixRead(featuresProc.device, featuresProc.seq)
           root.askedClear(featuresProc.device, featuresProc.startedAt)
           featuresProc.destroy()
         }
       }
     }
+  }
+
+  // The fixes that need no password and no change on the device run by
+  // themselves when a panel is open and shows the problem (Model.autoSteps),
+  // once per problem until it is gone. problem id -> { state: "running" |
+  // "reading" | "tried", seq }: the problem stays out of sight until its fix
+  // has run and the device was read again; one still there is then shown.
+  property var autoFixes: ({})
+  property int featuresSeq: 0
+  function autoFixSet(id, state) {
+    var next = Object.assign({}, autoFixes)
+    if (state) next[id] = state
+    else delete next[id]
+    autoFixes = next
+  }
+  function autoFixProblems(problems) {
+    var kept = Model.autoKeep(autoFixes, problems)
+    if (Object.keys(kept).length !== Object.keys(autoFixes).length) autoFixes = kept
+    Model.autoDue(problems, autoFixes).forEach(function(p) {
+      var id = Model.problemId(p)
+      var feature = (p.affects || [])[0] || ""
+      var key = "auto:" + id
+      // A demo is made up: nothing runs, and its problems show.
+      if (demo || !feature || isBusy("feature:" + feature) || isBusy(key)) { autoFixSet(id, { state: "tried", seq: 0 }); return }
+      autoFixSet(id, { state: "running", seq: 0 })
+      runSteps(p.where, p.auto, "feature:" + feature, null, function() {
+        // Read again by the run; shown only if that read still has it. The
+        // device gone, there is no read to wait for.
+        autoFixSet(id, findDevice(p.where) ? { state: "reading", seq: featuresSeq } : null)
+      }, true)
+    })
+  }
+  // A read of a device finished: what waited for it is now judged by it.
+  function autoFixRead(device, seq) {
+    var next = null
+    Object.keys(autoFixes).forEach(function(id) {
+      var t = autoFixes[id]
+      if (t.state !== "reading" || seq < t.seq || id.indexOf(device + ":") !== 0) return
+      if (!next) next = Object.assign({}, autoFixes)
+      next[id] = { state: "tried", seq: t.seq }
+    })
+    if (next) autoFixes = next
   }
 
   // Root, only for what was shown: a fix that needs the password is
@@ -1054,7 +1099,8 @@ Item {
   // `then(ok)`: called when it is done, ok when every step ran (Fix all
   // chains its devices so).
   // A step marked `fallback` runs only when the one before it failed.
-  function runSteps(id, steps, key, left, then) {
+  // `quiet`: a run the plugin made by itself says nothing when it works.
+  function runSteps(id, steps, key, left, then, quiet) {
     if (!id || !steps || steps.length === 0 || isBusy(key)) { if (then) then(); return }
     // A demo device is made up: nothing reaches the system or a device.
     if (demo) { report("Demo: nothing is changed", false); if (then) then(true); return }
@@ -1097,7 +1143,7 @@ Item {
       var s = q.step
       var cmd = s.fix.verb === "device" ? [bridge, "device-fix", s.fix.what, String(id)].concat(s.fix.arg ? [s.fix.arg] : [])
                                         : [bridge, "fix", s.fix.what]
-      var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: i < queue.length - 1 })
+      var proc = actionComponent.createObject(root, { key: key + ":" + i, command: cmd, quietSuccess: quiet === true || i < queue.length - 1 })
       proc.exited.connect(function(code) {
         var after = i + 1
         // Failed with a fallback after it: that one next. Done: past them.
