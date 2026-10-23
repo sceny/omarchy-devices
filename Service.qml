@@ -911,8 +911,12 @@ Item {
   // Sample checks from a demo (demoSetup) stay until live again; otherwise a
   // demo shows this computer's real checks (they hold no device data).
   property bool demoChecks: false
+  // Asked while a read runs (after a fix), it runs once more when that one
+  // ends, so a read made after a fix is never dropped.
+  property bool doctorAgain: false
   function runDoctor() {
-    if (doctorProc.running || demoChecks) return
+    if (demoChecks) return
+    if (doctorProc.running) { doctorAgain = true; return }
     doctorProc.running = true
   }
 
@@ -1011,6 +1015,27 @@ Item {
       next[pid] = { state: "tried", seq: t.seq }
     })
     if (next) autoFixes = next
+  }
+
+  // KDE Connect stopped on a computer set up before is started here, once
+  // per stop (Model.daemonStartPending); "" not yet, "running", "tried" (it
+  // did not start). The first run's card shows only after a try failed.
+  property string daemonAuto: ""
+  readonly property bool daemonAutoPending: !demo && Model.daemonStartPending(snapshot, daemonAuto)
+  onDaemonChanged: if (daemon) daemonAuto = ""
+  function autoStartDaemon() {
+    if (!daemonAutoPending || daemonAuto !== "") return
+    daemonAuto = "running"
+    runSteps("computer", [{ kind: "auto", label: "Start KDE Connect", fix: Model.AUTO_START }], "daemonStart", null, function(ok) {
+      if (!ok) daemonAuto = "tried"
+      else daemonStartGuard.restart()
+    }, true)
+  }
+  // Started, but the snapshot has not shown it yet: given a moment, then the card.
+  Timer {
+    id: daemonStartGuard
+    interval: 8000
+    onTriggered: if (!root.daemon && root.daemonAuto === "running") root.daemonAuto = "tried"
   }
 
   // Root, only for what was shown: a fix that needs the password is
@@ -1187,6 +1212,7 @@ Item {
   Process {
     id: doctorProc
     command: [root.bridge, "doctor"]
+    onExited: if (root.doctorAgain) { root.doctorAgain = false; Qt.callLater(root.runDoctor) }
     stdout: StdioCollector {
       id: doctorOut
       onStreamFinished: {

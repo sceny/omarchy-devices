@@ -2291,3 +2291,29 @@ test("only a fix that asks for no password and changes nothing on the device may
     assert.ok(!touchesDevice.includes(what), f + " changes the device or the user's own choice")
   })
 })
+
+test("KDE Connect stopped on a computer set up before starts by itself, once; the first run keeps its card (#456)", () => {
+  const down = { daemon: false, setUp: true, devices: [] }
+  assert.equal(M.daemonStartPending(down, ""), true, "set up before: started by itself")
+  assert.equal(M.daemonStartPending(down, "running"), true, "and kept out of the card while it starts")
+  assert.equal(M.daemonStartPending(down, "tried"), false, "a start that failed shows the card")
+  assert.equal(M.daemonStartPending({ daemon: false, setUp: false, devices: [] }, ""), false, "never set up, or not installed: the first run's card")
+  assert.equal(M.daemonStartPending({ daemon: false, devices: [] }, ""), false, "the bridge did not say: the card")
+  assert.equal(M.daemonStartPending({ daemon: true, setUp: true, devices: [] }, ""), false, "running: nothing to start")
+  assert.equal(M.daemonStartPending({ daemon: false, setUp: true, demo: true, devices: [] }, ""), false, "a demo runs nothing")
+  assert.equal(M.daemonStartPending(null, ""), false, "no snapshot yet")
+  assert.deepEqual(M.AUTO_START, { verb: "fix", what: "start" }, "the start, not the restart (every device reconnects)")
+})
+
+test("a stale 'KDE Connect running' check never shows the Stopped card around the automatic start (#456)", () => {
+  const checks = [{ key: "running", ok: false, label: "KDE Connect running" }, { key: "sshfs", ok: true, label: "sshfs" }]
+  const keys = list => list.map(c => c.key)
+  assert.deepEqual(keys(M.checksHeld(checks, false, true)), ["sshfs"], "the start is under way")
+  assert.deepEqual(keys(M.checksHeld(checks, true, false)), ["sshfs"], "started, the check not read again yet: the snapshot wins")
+  assert.deepEqual(keys(M.checksHeld(checks, false, false)), ["running", "sshfs"], "first run or a failed start: the card")
+  const read = [{ key: "running", ok: true }]
+  assert.deepEqual(keys(M.checksHeld(read, true, false)), ["running"], "a passing check stays")
+  assert.deepEqual(M.checksHeld(null, true, true), [], "no checks yet")
+  const stale = M.settingsProblems(M.checksHeld(checks, true, false), [], [])
+  assert.equal(stale.length, 0, "no problem, no card, no dot, no count")
+})
