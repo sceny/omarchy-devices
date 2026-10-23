@@ -360,6 +360,17 @@ class NetworkChanges(unittest.TestCase):
         self.assertFalse(watch.check())
         self.assertEqual(len(changes), 1)
 
+    def test_the_address_is_read_as_it_is_now(self):
+        sigs = iter(["wlan0 192.168.1.5/24", "", "wlan0 192.168.1.5/24"])
+        watch = bridge.NetWatch.__new__(bridge.NetWatch)
+        watch.on_change, watch.signature, watch.pending, watch.proc = (lambda: None), (lambda: next(sigs)), 0, None
+        watch.last = watch.current = watch.signature()
+        self.assertTrue(watch.has_address())
+        self.assertFalse(watch.check())
+        self.assertFalse(watch.has_address(), "the network is gone and the last address is still said to be here")
+        self.assertFalse(watch.check(), "the same address coming back is not a change")
+        self.assertTrue(watch.has_address())
+
     def test_stop_ends_the_child(self):
         watch = bridge.NetWatch.__new__(bridge.NetWatch)
         watch.proc = subprocess.Popen(["sleep", "60"], stdout=subprocess.PIPE, text=True)
