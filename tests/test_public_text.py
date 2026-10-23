@@ -317,7 +317,7 @@ class Sources(unittest.TestCase):
     TITLE = "Sandbox: one image per repository on a common base; omarchy-paperclipai and dev/soak run in it (SCE-741)"
     SQUASH = "All 94 tests pass. HUP signal now fires immediately when caught in any backgrounded pipeline."
     COMMIT_URL = "https://github.com/sceny/omarchy-devices/commit/da23a05"
-    PR = {"html_url": URL, "title": TITLE, "body": "Clean body.", "number": 258, "updated_at": "2026-10-17T00:19:37Z"}
+    PR = {"html_url": URL, "title": TITLE, "body": "Clean body.", "number": 258, "state": "open", "updated_at": "2026-10-17T00:19:37Z"}
 
     def fake_api(self, responses):
         def api(path, token):
@@ -342,6 +342,16 @@ class Sources(unittest.TestCase):
         doc = self.read(responses)
         self.assertIn({"url": self.COMMIT_URL, "body": self.SQUASH}, doc["texts"])
         self.assertIn((ENV, "test-count"), checks_of(doc))
+
+    def test_a_comment_on_a_closed_pull_request_does_not_reread_its_commits(self):
+        responses = {
+            "/repos/%s/pulls/258" % self.REPO: dict(self.PR, state="closed"),
+            "/repos/%s/pulls/258/commits" % self.REPO: [{"html_url": self.COMMIT_URL, "commit": {"message": self.SQUASH}}],
+        }
+        doc = self.read(responses)
+        self.assertIn({"url": self.URL, "body": self.TITLE}, doc["texts"])
+        self.assertNotIn(self.COMMIT_URL, [text["url"] for text in doc["texts"]])
+        self.assertNotIn((ENV, "test-count"), checks_of(doc))
 
     def test_a_push_to_develop_reads_the_commit_message_that_lands(self):
         responses = {
