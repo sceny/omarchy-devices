@@ -181,28 +181,24 @@ Item {
   property var hereClicks: ({})
   function hereClicked(id) { return !!hereClicks[String(id)] }
   function markHere(id) {
-    var m = Object.assign({}, hereClicks)
-    m[String(id)] = { at: Date.now(), armed: false }
-    hereClicks = m
+    hereClicks = Model.hereClickMark(hereClicks, id, Date.now())
+    settleHereClicks()
     hereLapse.restart()
   }
   function settleHereClicks() {
-    var m = Object.assign({}, hereClicks), changed = false
-    for (var id in m) {
-      var d = findDevice(id), n = d && d.handsfree ? (d.handsfree.calls || []).length : 0
-      if (n > 0 && !m[id].armed) { m[id] = { at: m[id].at, armed: true }; changed = true }
-      else if (n === 0 && m[id].armed) { delete m[id]; changed = true }
+    var counts = {}
+    for (var k in hereClicks) {
+      var d = findDevice(k)
+      counts[k] = d && d.handsfree ? (d.handsfree.calls || []).length : 0
     }
-    if (changed) hereClicks = m
+    hereClicks = Model.hereClickSettle(hereClicks, counts)
   }
   Timer {
     id: hereLapse
-    interval: 30000
+    interval: Model.HERE_LAPSE_MS
     onTriggered: {
-      var m = Object.assign({}, root.hereClicks), changed = false
-      for (var id in m) if (!m[id].armed && Date.now() - m[id].at >= 29000) { delete m[id]; changed = true }
-      if (changed) root.hereClicks = m
-      for (var k in m) if (!m[k].armed) { hereLapse.restart(); break }
+      root.hereClicks = Model.hereClickLapse(root.hereClicks, Date.now())
+      if (Model.hereClickWaiting(root.hereClicks)) hereLapse.restart()
     }
   }
   // The microphone off for the call, per device; back on once its calls end.

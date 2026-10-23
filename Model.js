@@ -940,6 +940,35 @@ function demoCallSet(kind, nowMs, deviceName) {
   return { call: kde, handsfree: demoHandsfree(deviceName, calls, ended, audio) }
 }
 
+// The user's click that brings a call's audio here, per device: recorded at
+// the click, armed once the device shows a call, spent when its calls are
+// over, lapsed when no call shows within HERE_LAPSE_MS. Each step returns the
+// map it was given when nothing changed.
+var HERE_LAPSE_MS = 30000
+function hereClickMark(clicks, id, nowMs) {
+  var m = Object.assign({}, clicks)
+  m[String(id)] = { at: nowMs, armed: false }
+  return m
+}
+function hereClickSettle(clicks, callCounts) {
+  var m = Object.assign({}, clicks), changed = false
+  for (var id in m) {
+    var n = callCounts[id] || 0
+    if (n > 0 && !m[id].armed) { m[id] = { at: m[id].at, armed: true }; changed = true }
+    else if (n === 0 && m[id].armed) { delete m[id]; changed = true }
+  }
+  return changed ? m : clicks
+}
+function hereClickLapse(clicks, nowMs) {
+  var m = Object.assign({}, clicks), changed = false
+  for (var id in m) if (!m[id].armed && nowMs - m[id].at >= HERE_LAPSE_MS - 1000) { delete m[id]; changed = true }
+  return changed ? m : clicks
+}
+function hereClickWaiting(clicks) {
+  for (var id in clicks) if (!clicks[id].armed) return true
+  return false
+}
+
 // Demo: what a click on the card does to the demo's calls (no device).
 function demoCallAfter(hf, verb, nowMs) {
   var h = JSON.parse(JSON.stringify(hf))

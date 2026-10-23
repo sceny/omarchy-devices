@@ -1707,6 +1707,31 @@ test("demo calls: the card's clicks move the flow along", () => {
   assert.deepEqual([w.calls.length, w.audio], [0, "idle"], "a conference ends whole")
 })
 
+test("a click that brings a call's audio here: armed with a call, spent when calls end, lapsed with none", () => {
+  const t0 = 1_000_000
+  let c = M.hereClickMark({}, "dev1", t0)
+  assert.deepEqual(c, { dev1: { at: t0, armed: false } })
+  assert.equal(M.hereClickSettle(c, { dev1: 0 }), c, "no call yet: nothing changes")
+  assert.ok(M.hereClickWaiting(c))
+  // A call already showing arms the click at once, with no later tick.
+  c = M.hereClickSettle(c, { dev1: 1 })
+  assert.equal(c.dev1.armed, true)
+  assert.equal(c.dev1.at, t0)
+  assert.equal(M.hereClickLapse(c, t0 + 10 * M.HERE_LAPSE_MS), c, "an armed click never lapses mid-call")
+  assert.ok(!M.hereClickWaiting(c))
+  assert.equal(M.hereClickSettle(c, { dev1: 2 }), c)
+  assert.deepEqual(M.hereClickSettle(c, { dev1: 0 }), {}, "spent when the calls are over")
+  // Another device's click is left alone.
+  const two = M.hereClickSettle(M.hereClickMark(c, "dev2", t0), { dev1: 0, dev2: 0 })
+  assert.deepEqual(Object.keys(two), ["dev2"])
+  // No call within the lapse: the click goes.
+  const w = M.hereClickMark({}, "dev1", t0)
+  assert.equal(M.hereClickLapse(w, t0 + 20_000), w, "not yet")
+  assert.deepEqual(M.hereClickLapse(w, t0 + M.HERE_LAPSE_MS), {})
+  // A click made again restarts its lapse.
+  assert.equal(M.hereClickMark(w, "dev1", t0 + 25_000).dev1.at, t0 + 25_000)
+})
+
 test("calls here as a feature: Bluetooth here, then the device paired, confirmed by the click, connected", () => {
   const report = M.demoFeatures()
   const row = (bluetooth, handsfree, more = {}) => M.featureRows(report, null, "Pixel 8", [], more.own || {},
