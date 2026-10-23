@@ -5686,6 +5686,8 @@ APP_READ_SEC = 20
 APP_FILE_MAX = 2 << 20      # an icon's file in a package, at most
 APP_TABLE_MAX = 16 << 20    # a compressed resource table read whole, at most
 APP_BYTES_MAX = 32 << 20    # everything inflated for one app, at most
+APP_RAW_MAX = 32 << 20      # everything read raw from the device for one app, at most
+APP_PACKAGE_MAX = 2 << 30   # a package larger than this is not opened
 APP_LINE_MAX = 1 << 20      # one answer line from the device, at most (a page is 175 KB of base64)
 
 
@@ -5854,11 +5856,15 @@ class PhoneReader:
 
 class RemoteFile:
     """A file on the device as a seekable Python file (zipfile reads it),
-    read in pages as needed."""
+    read in pages as needed. Every page read draws on the app's raw budget,
+    whatever size the package or its zip headers claim."""
     PAGE = 1 << 17
 
-    def __init__(self, reader, path, size):
+    def __init__(self, reader, path, size, budget=None):
+        if size > APP_PACKAGE_MAX:
+            raise ValueError("a package is larger than it may be")
         self.reader, self.path, self.length, self.pos, self.pages = reader, path, size, 0, {}
+        self.budget = budget or ByteBudget(APP_RAW_MAX)
 
     def readable(self): return True
     def seekable(self): return True
@@ -5873,7 +5879,9 @@ class RemoteFile:
         while n > 0 and 0 <= off < self.length:
             p, o = divmod(off, self.PAGE)
             if p not in self.pages:
-                self.pages[p] = self.reader.read(self.path, p * self.PAGE, self.PAGE)
+                page = self.reader.read(self.path, p * self.PAGE, self.PAGE)
+                self.budget.take(len(page))
+                self.pages[p] = page
             chunk = self.pages[p][o:o + n]
             if not chunk:
                 break
@@ -6164,7 +6172,7 @@ def css(argb):
 
 
 class ByteBudget:
-    """What one app may inflate in all: every read of its packages draws on it."""
+    """What one app may read in all, inflated or raw: every read of its packages draws on one."""
     def __init__(self, total=APP_BYTES_MAX):
         self.left = total
 
@@ -6506,8 +6514,8 @@ def read_app_icon(reader, device_id, app):
     none): the path, or "none"."""
     dst = app_icon_path(device_id, app)
     try:
-        budget = ByteBudget()
-        apks = [Apk(RemoteFile(reader, p, reader.size(p)), budget) for p in reader.paths(app["package"])]
+        budget, raw = ByteBudget(), ByteBudget(APP_RAW_MAX)
+        apks = [Apk(RemoteFile(reader, p, reader.size(p), raw), budget) for p in reader.paths(app["package"])]
         doc = icon_document(apks, app.get("activity") or "")
     except Exception:   # whatever a hostile package does, the app gets its mark
         if reader.dead:   # but a reader that is gone marks nothing: the unread apps stay unread

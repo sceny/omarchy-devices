@@ -244,6 +244,11 @@ finding blocks the pull request.
   fails to read in any way gets its "none" mark, so it is not read again at
   every view.
   Tests: `tests/test_app_icons.py` (`Bombs`).
+- A read of device bytes, raw or inflated, draws on a hard cap, not on a size
+  the device claims: every page `RemoteFile` reads draws on the app's raw
+  budget (`APP_RAW_MAX`), and a package claimed above `APP_PACKAGE_MAX` is
+  refused before any read.
+  Tests: `tests/test_app_icons.py` (`Bombs`).
 - Text a device sent is shown as text, never as markup: every `Text` and
   `Label` in the shipped QML writes `textFormat: Text.PlainText` itself, glyph
   items included, since Qt's default (`AutoText`) renders a string that looks

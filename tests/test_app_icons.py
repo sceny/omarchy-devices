@@ -378,6 +378,49 @@ class Bombs(unittest.TestCase):
         with self.assertRaises(ValueError):
             apk.read("res/3")
 
+    def test_a_central_directory_claimed_past_the_budget_is_not_read(self):
+        """A package whose end record claims a huge central directory: the
+        raw pages read stop at the app's raw budget, and the app gets its mark."""
+        claimed = 600 << 20
+        size = claimed + 22
+        eocd = b"PK\x05\x06" + struct.pack("<HHHHIIH", 0, 0, 1, 1, claimed, 0, 0)
+
+        class Sparse:
+            dead = False
+            returned = 0
+
+            def read(self, path, off, n):
+                data = bytes(max(0, min(n, size - off)))
+                if off + n >= size:
+                    data = data[:size - 22 - off] + eocd
+                self.returned += len(data)
+                return data
+
+            def size(self, path):
+                return size
+
+            def paths(self, package):
+                return ["/data/app/base.apk"]
+
+        reader = Sparse()
+        self.assertEqual(bridge.read_app_icon(reader, "dev", self.APP), "none")
+        self.assertTrue(os.path.isfile(bridge.app_icon_path("dev", self.APP, "none")))
+        self.assertLessEqual(reader.returned, bridge.APP_RAW_MAX + bridge.RemoteFile.PAGE)
+
+    def test_a_package_claimed_past_the_package_cap_is_not_opened(self):
+        reader = FakeReader({"/data/app/base.apk": b""})
+        reader.size = lambda path: bridge.APP_PACKAGE_MAX + 1
+        self.assertEqual(bridge.read_app_icon(reader, "dev", self.APP), "none")
+        self.assertEqual(reader.reads, 0)
+
+    def test_raw_pages_draw_on_the_budget(self):
+        reader = FakeReader({"/p": bytes(1 << 20)})
+        file = bridge.RemoteFile(reader, "/p", 1 << 20, bridge.ByteBudget(3 * bridge.RemoteFile.PAGE))
+        file.at(0, 3 * bridge.RemoteFile.PAGE)
+        file.at(0, 3 * bridge.RemoteFile.PAGE)   # pages already held cost nothing
+        with self.assertRaises(ValueError):
+            file.at(3 * bridge.RemoteFile.PAGE, 1)
+
     def test_an_answer_line_has_a_length_cap(self):
         r, w = os.pipe()
         threading.Thread(target=lambda: os.write(w, b"A" * 5000 + b"\n"), daemon=True).start()
