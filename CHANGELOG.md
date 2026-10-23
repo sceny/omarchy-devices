@@ -6,7 +6,7 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
-## Unreleased
+## 1.0.0 — 2026-10-23
 
 ### Highlights
 
