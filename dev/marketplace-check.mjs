@@ -6,6 +6,14 @@
 // the one given here, not the head of the default branch, because a pull
 // request into main is not the head yet. Nothing of the marketplace is copied.
 //
+// A plugin the marketplace does not list yet has no listing to update, so the
+// update path (which reads the listing) cannot run. Then this runs the
+// validation of the commit's manifest and files, the same function a listed
+// update uses, on a listing made up for the occasion, adds the root README,
+// license and single root manifest the first listing asks for, and runs the
+// security baseline as a submission. Once the plugin is listed, the same file
+// takes the update path with no change.
+//
 //   MARKETPLACE_DIR=<checkout> node dev/marketplace-check.mjs <commit-sha> [out-dir]
 //
 // Reads GITHUB_TOKEN (the bots' token; without it GitHub's rate limit applies).
@@ -71,14 +79,15 @@ async function main() {
   ]);
   const manifest = JSON.parse(await readFile(join(repoRoot, "manifest.json"), "utf8"));
   const registry = JSON.parse(await readFile(join(marketplace, "registry.json"), "utf8"));
-  const parsed = subject.canonicalRepositoryRequest(
-    registry,
-    update.parsePluginUpdateRequest(await requestBody(manifest.id, request.pluginVerificationAcknowledgment)),
-  );
-  const source = update.sourceForPluginUpdate(registry, parsed);
-  let inspection;
+  const listed = registry.sources.some((source) => source.plugins?.[manifest.id]);
+  return listed
+    ? validateListed({ manifest, registry, update, subject, request, inspectListedPluginSource, CatalogCheckError })
+    : validateUnlisted({ manifest, update, inspectListedPluginSource, CatalogCheckError });
+}
+
+async function inspect(inspectListedPluginSource, CatalogCheckError, update, source) {
   try {
-    inspection = await inspectListedPluginSource({ ...source, snapshotCommit: commit });
+    return await inspectListedPluginSource({ ...source, snapshotCommit: commit });
   } catch (error) {
     if (!(error instanceof CatalogCheckError)) throw error;
     console.error(`::error::marketplace compatibility check: ${error.message}`);
@@ -87,6 +96,15 @@ async function main() {
       "The update commit did not pass marketplace compatibility validation",
     );
   }
+}
+
+async function validateListed({ manifest, registry, update, subject, request, inspectListedPluginSource, CatalogCheckError }) {
+  const parsed = subject.canonicalRepositoryRequest(
+    registry,
+    update.parsePluginUpdateRequest(await requestBody(manifest.id, request.pluginVerificationAcknowledgment)),
+  );
+  const source = update.sourceForPluginUpdate(registry, parsed);
+  const inspection = await inspect(inspectListedPluginSource, CatalogCheckError, update, source);
   // The listed snapshot itself is a valid candidate here, unlike on an update.
   const result = update.resolvePluginUpdate(registry, parsed, inspection, { allowCurrentCommit: true });
   const metadataPath = join(outDir, "update-validation-metadata.json");
@@ -105,6 +123,55 @@ async function main() {
     join(outDir, "update-validation-report.md"),
     update.buildPluginUpdateValidationReport({ ...result, request: parsed }),
   );
+  return metadataPath;
+}
+
+// What the first listing asks of the repository root (the marketplace's
+// validate-submission step): a README, a license file, one manifest.
+async function rootProblems() {
+  const headers = { Accept: "application/vnd.github+json", "User-Agent": "marketplace-check" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const slug = new URL(repoUrl).pathname.replace(/^\/+|\/+$/g, "");
+  const response = await fetch(`https://api.github.com/repos/${slug}/git/trees/${commit}`, { headers });
+  if (!response.ok) throw new Error(`GitHub answered ${response.status} for the root tree of ${commit}`);
+  const names = (await response.json()).tree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
+  const problems = [];
+  if (!names.some((name) => /^readme(?:\.[^/]+)?$/i.test(name))) problems.push("a root README is required");
+  if (!names.some((name) => /^(?:licen[cs]e|copying)(?:\.[^/]+)?$/i.test(name))) problems.push("a root license file is required");
+  return problems;
+}
+
+async function validateUnlisted({ manifest, update, inspectListedPluginSource, CatalogCheckError }) {
+  console.error(`::notice::${manifest.id} is not listed on the marketplace: validating the commit's manifest and files and running the security baseline; listing-specific checks cannot run`);
+  const inspection = await inspect(inspectListedPluginSource, CatalogCheckError, update, { repo: repoUrl, type: "plugin-source" });
+  const problems = await rootProblems();
+  if (inspection.manifests.length !== 1 || inspection.manifests[0].path !== "manifest.json") {
+    problems.push("exactly one plugin manifest, at the repository root, is required");
+  }
+  if (problems.length) {
+    console.error(`::error::marketplace submission layout: ${problems.join("; ")}`);
+    throw new update.PluginUpdateError("update-compatibility-invalid", problems.join("; "));
+  }
+  const metadataPath = join(outDir, "update-validation-metadata.json");
+  await writeFile(metadataPath, `${JSON.stringify({
+    schemaVersion: 1,
+    repoUrl,
+    repository: inspection.repository,
+    defaultBranch: inspection.defaultBranch,
+    commitSha: inspection.commitSha,
+    pluginIds: inspection.manifests.map((m) => m.id).sort(),
+    listedPlugins: inspection.manifests.map((m) => ({ pluginId: m.id, manifestPathHint: m.path })),
+    entryPoints: [...new Set(inspection.manifests.flatMap((m) => m.entryPoints || []))].sort(),
+  }, null, 2)}\n`);
+  await writeFile(join(outDir, "update-validation-report.md"), `<!-- marketplace-update-validation -->
+## Plugin validation (not listed yet)
+
+\`${manifest.id}\` is not on the marketplace, so there is no listing to update. Run on \`${commit.slice(0, 7)}\`:
+
+- ✅ Manifest and entry points pass the marketplace's compatibility validation
+- ✅ Root README, license file and a single root manifest
+- ➖ Not run: the listing-specific update checks (they read the listing)
+`);
   return metadataPath;
 }
 

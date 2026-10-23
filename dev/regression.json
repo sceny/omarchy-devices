@@ -1,0 +1,12 @@
+{
+  "script": "dev/regression.sh",
+  "steps": "tests,rig,script",
+  "marketplace": false,
+  "owner_only": [
+    {"what": "Bluetooth audio", "why": "The emulator has no Bluetooth stack", "owner": "Checks it on a real phone before the go"},
+    {"what": "A real call", "why": "The emulator has no cellular network or call audio", "owner": "Checks it on a real phone before the go"},
+    {"what": "A carrier's messages", "why": "The emulator has no carrier network", "owner": "Checks it on a real phone before the go"},
+    {"what": "A vendor's battery settings", "why": "The emulator has no vendor battery manager", "owner": "Checks it on a real phone before the go"},
+    {"what": "A phone's permission screens", "why": "The emulator does not show the phone's own prompts", "owner": "Checks it on a real phone before the go"}
+  ]
+}

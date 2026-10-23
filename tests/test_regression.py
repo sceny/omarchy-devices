@@ -8,6 +8,12 @@ ROOT = Path(__file__).resolve().parent.parent
 REGRESSION = ROOT / "dev" / "regression"
 
 FEATURES_HEADER = "feature\trule\thow\tresult\tevidence\n"
+CONFIG = {
+    "script": "dev/regression.sh",
+    "steps": "tests,rig,script",
+    "marketplace": False,
+    "owner_only": [{"what": "Bluetooth audio", "why": "No Bluetooth stack", "owner": "Checks it on a phone"}],
+}
 
 
 def git(cwd, *args):
@@ -24,11 +30,15 @@ class RegressionTest(unittest.TestCase):
         self.repo.mkdir()
         git(self.repo, "init", "-q")
         (self.repo / "README").write_text("x\n")
-        git(self.repo, "add", "README")
+        (self.repo / "dev").mkdir()
+        (self.repo / "dev" / "regression.json").write_text(json.dumps(CONFIG))
+        git(self.repo, "add", "README", "dev/regression.json")
         git(self.repo, "commit", "-q", "-m", "init")
         self.sha = git(self.repo, "rev-parse", "HEAD")
         self.output = self.tmp / "output"
         self.out = self.tmp / "record"
+        self.issues = self.tmp / "issues.json"
+        self.issues.write_text("[]")
         self.output.mkdir()
         self.write_sandbox()
         self.write_rig()
@@ -60,10 +70,10 @@ class RegressionTest(unittest.TestCase):
         script.mkdir(exist_ok=True)
         (script / "features.tsv").write_text(text)
 
-    def run_regression(self, *extra):
+    def run_regression(self, *extra, sha=None):
         return subprocess.run(
-            ["python3", str(REGRESSION), self.sha, "--from-output", str(self.output),
-             "--out", str(self.out), *extra],
+            ["python3", str(REGRESSION), sha or self.sha, "--from-output", str(self.output),
+             "--out", str(self.out), "--owner-issues", str(self.issues), *extra],
             cwd=self.repo, capture_output=True, text=True,
         )
 
@@ -136,6 +146,29 @@ class RegressionTest(unittest.TestCase):
         rig.write_text(rig.read_text() + "cold-install  FAIL exit=1\n")
         done = self.run_regression()
         self.assertEqual(done.returncode, 1, done.stderr)
+
+    def test_a_commit_without_config_exits_one(self):
+        git(self.repo, "rm", "-q", "dev/regression.json")
+        git(self.repo, "commit", "-q", "-m", "drop config")
+        done = self.run_regression(sha=git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("has no dev/regression.json", done.stderr)
+
+    def test_a_config_with_a_wrong_type_exits_one(self):
+        (self.repo / "dev" / "regression.json").write_text(json.dumps({**CONFIG, "marketplace": "no"}))
+        git(self.repo, "commit", "-q", "-am", "bad type")
+        done = self.run_regression(sha=git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("needs marketplace, a bool", done.stderr)
+
+    def test_an_owner_issue_is_listed_without_changing_the_status(self):
+        self.write_features([("Panel answers over IPC", "answers", "dev/rig ipc status", "pass", "ipc-status.log")])
+        self.issues.write_text(json.dumps([
+            {"number": 7, "title": "Check the bar", "url": "https://github.com/sceny/omarchy-devices/issues/7"}]))
+        done = self.run_regression()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("[#7 Check the bar](https://github.com/sceny/omarchy-devices/issues/7)", self.record())
+        self.assertIn("| Bluetooth audio | No Bluetooth stack | Checks it on a phone |", self.record())
 
     def test_bad_sha_exits_one(self):
         done = subprocess.run(

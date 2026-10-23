@@ -389,11 +389,16 @@ Panel QA runs the whole plugin in the sandbox, on the candidate: the head of
 dev/regression <sha>
 ```
 
-It runs `dev/sandbox run` with the tests, `dev/rig ci` and `dev/regression.sh`,
-and writes `regression-record.md` from what they measured. Each row is a
-measured pass or fail; a row nothing measured is *not yet*, never a pass. Exit
-0 is PASS, 1 is FAIL (a failed row or no evidence), 2 is NOT PASS (no failure,
-but rows not yet checked).
+The command is shared by the Omarchy plugins. `--repo OWNER/NAME` names another
+plugin (`sceny/omarchy-paperclipai`), and its `dev/regression.json` at that
+commit sets its checks script, its sandbox steps, whether the marketplace check
+runs and the rows only its owner can judge.
+
+It runs `dev/sandbox run` with the configured steps (here the tests, `dev/rig ci`
+and `dev/regression.sh`), and writes `regression-record.md` from what they
+measured. Each row is a measured pass or fail; a row nothing measured is *not
+yet*, never a pass. Exit 0 is PASS, 1 is FAIL (a failed row or no evidence), 2
+is NOT PASS (no failure, but rows not yet checked).
 
 The script runs with a rig up and writes its evidence (screenshots, recordings,
 logs) under `$SANDBOX_OUT`, which the run brings out as data. While writing or
