@@ -1107,6 +1107,7 @@ Item {
           spacing: Style.space(6)
 
           WaitButton {
+            Layout.alignment: Qt.AlignBottom
             glyph: Model.GLYPH.attach
             waiting: !!view.sms && view.sms.choosingPicture
             motion: view.motion
