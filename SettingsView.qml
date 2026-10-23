@@ -39,6 +39,7 @@ Column {
   // What it can do: a feature's one action, its switch; Fix all.
   signal featureRequested(int index)
   signal featureSwitched(int index, bool on)
+  signal featureOpened(int index)
   signal fixAllRequested()
   // Fix with AI (#101): the person's coding agent, with what went wrong.
   // what: "features" (the section's), "feature" or "check" (a row's).
@@ -1744,6 +1745,15 @@ Column {
         running: featureRow.working
         color: root.dim
         size: Math.round(Style.font.caption * 1.2)
+      }
+      PanelActionButton {
+        visible: featureRow.row.opens === "screen" && featureRow.row.on !== false
+        Layout.alignment: Qt.AlignVCenter
+        iconText: Model.GLYPH.chevronRight
+        tooltipText: Model.keyTip("Where it opens, its sound", "open")
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        onClicked: root.featureOpened(featureRow.rowIndex)
       }
       ToggleSwitch {
         visible: featureRow.switchable
