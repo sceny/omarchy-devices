@@ -105,11 +105,52 @@ versions_recorded() {
         grep -Eq '^qt6-base [0-9]' "$OUT_DIR/versions.txt"
 }
 
+main_page() {
+    local info depth shown tries
+    for tries in 1 2 3 4 5 6; do
+        info=$(dev/rig ipc navInfo) || return 1
+        depth=$(jq -r '.depth' <<<"$info") || return 1
+        shown=$(jq -r '.shown' <<<"$info") || return 1
+        if [[ $depth -gt 0 ]]; then
+            dev/rig ipc goBack >/dev/null || return 1
+        elif [[ $shown != main ]]; then
+            dev/rig ipc page main >/dev/null || return 1
+        else
+            return 0
+        fi
+    done
+    return 1
+}
+
+notifications_on_main() {
+    local st
+    st=$(dev/rig ipc status) || return 1
+    jq -e '.notifications > 0 and (.sections | index("notifications") != null)' <<<"$st" >/dev/null
+}
+
+fold_notifications() {
+    local want="$1" state tries
+    for tries in 1 2; do
+        state=$(dev/rig ipc fold notifications) || return 1
+        [[ $(jq -r '.notifications // false' <<<"$state") == "$want" ]] && return 0
+    done
+    return 1
+}
+
 header_shots() {
-    dev/rig ipc fold notifications >/dev/null || return 1
+    local tries
+    dev/rig ipc open >/dev/null || return 1
+    main_page || { echo "the panel did not return to its main page"; return 1; }
+    dev/rig phone notify "Rig check" "Section header check" || return 1
+    for tries in $(seq 1 40); do
+        notifications_on_main && break
+        sleep 0.5
+    done
+    notifications_on_main || { echo "Notifications is not on the main page"; return 1; }
+    fold_notifications true || { echo "Notifications did not fold"; return 1; }
     sleep 1
     dev/rig screenshot "$OUT_DIR/headers-folded.png" || return 1
-    dev/rig ipc fold notifications >/dev/null || return 1
+    fold_notifications false || { echo "Notifications did not open"; return 1; }
     sleep 1
     dev/rig screenshot "$OUT_DIR/headers-open.png" || return 1
 }
