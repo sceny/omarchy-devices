@@ -1940,8 +1940,9 @@ def watch():
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
     gi.require_version("GLibUnix", "2.0")
     from gi.repository import GLibUnix
+    signal_add = getattr(GLibUnix, "signal_add", None) or GLibUnix.signal_add_full
     for number in (signal.SIGTERM, signal.SIGINT):
-        GLibUnix.signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
+        signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
     emit()
     try:
         loop.run()

@@ -822,7 +822,8 @@ class WatcherWritesNothingToStderr(unittest.TestCase):
         from gi.repository import GLib, GLibUnix
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            source = GLibUnix.signal_add(GLib.PRIORITY_HIGH, 15, lambda: False)
+            signal_add = getattr(GLibUnix, "signal_add", None) or GLibUnix.signal_add_full
+            source = signal_add(GLib.PRIORITY_HIGH, 15, lambda: False)
         GLib.source_remove(source)
 
 
