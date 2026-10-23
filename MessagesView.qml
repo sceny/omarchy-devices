@@ -1119,6 +1119,9 @@ Item {
           PanelField {
             id: composer
             Layout.fillWidth: true
+            Layout.alignment: Qt.AlignBottom
+            multiline: true
+            motion: view.motion
             placeholderText: !view.sms || !view.sms.reachable ? "The device is away"
               : (view.newMode && view.recipients.length === 0 ? "Pick who to send to first" : "Text message")
             enabled: !!view.sms && view.sms.reachable
@@ -1131,6 +1134,7 @@ Item {
           // A new conversation waits for its thread to show up; the button
           // is the ring meanwhile.
           WaitButton {
+            Layout.alignment: Qt.AlignBottom
             glyph: Model.GLYPH.send
             waiting: view.newMode && view.sendingNew
             motion: view.motion
