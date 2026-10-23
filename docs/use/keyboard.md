@@ -9,12 +9,12 @@ field, so a stray keystroke never becomes a sent text.
 | Key | Action |
 |---|---|
 | `j` `k` / arrows · PgUp PgDn · `g` `G` | Move · a page · first, last |
-| `h` `l` | Sideways: shortcuts, players, into a conversation |
+| `h` `l` | Sideways: shortcuts, players, into a conversation, open · fold a stack of notifications |
 | Enter or Space · Shift+Enter | Activate · an app popped out |
 | Tab · Shift+Tab | The next · previous panel in the bar |
 | Esc · `0` | Back to where you came from, one step at a time; then close · Home (the main page, from two pages deep) |
 | `c` | Fold the section under the cursor |
-| `r` · `x` · `e` · `o` | Reply · dismiss (a notification or a received file) · show all · open its app |
+| `r` · `x` · `e` · `o` | Reply · dismiss (a notification, a stack on its title, or a received file) · show all · open its app |
 | `Shift+Delete` | Dismiss all notifications (cursor in Notifications) |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
 | `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |

@@ -42,7 +42,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge screen <device>                where its screen and apps stand, as JSON
   kdeconnect-bridge screen-pair <device>           pair adb over Wi-Fi with a QR code:
                                               JSON lines (qr, found, paired, connected, error)
-  kdeconnect-bridge screen-open <device> [package] [label] [--tiled]   its screen,
+  kdeconnect-bridge screen-open <device> [package] [label] [--tiled] [--stretch]   its screen,
                                               or one app, in a window here (scrcpy),
                                               the screen docked by the bar unless
                                               --tiled (--at x,y,w,h: the panel's card),
@@ -50,7 +50,11 @@ not re-printed, so the shell only wakes when something moved.
                                               on-screen keyboard (--sound here|phone|both:
                                               where its sound plays); returns once the
                                               window is there
-  kdeconnect-bridge screen-sound <device> here|phone|both [package] [label]
+  kdeconnect-bridge screen-stretch <device> on|off
+                                              the screen's picture fills its window (a
+                                              setting given on every opening); its open
+                                              window opened again in its place with it
+  kdeconnect-bridge screen-sound <device> here|phone|both [package] [label] [--stretch]
                                               where a window's sound plays: kept for
                                               next time, and its open window opened
                                               again in its place with it
@@ -239,14 +243,14 @@ def cap_text(value, limit):
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
-def read_notifications(conn, dpath):
+def read_notifications(conn, dpath, registry=None, device_id="", device_name=""):
     npath = dpath + "/notifications"
     try:
         ids = call(conn, npath, IFACE + ".device.notifications",
                    "activeNotifications")[0]
     except GLib.Error:
         return None
-    out = []
+    out, keys = [], []
     for nid in list(ids)[-CAP_NOTIFICATIONS:]:
         p = props(conn, "%s/%s" % (npath, nid),
                   IFACE + ".device.notifications.notification")
@@ -259,9 +263,14 @@ def read_notifications(conn, dpath):
                         for m in conversation[-CAP_CONVERSATION:]]
         if conversation:
             text = conversation_text(conversation)
+        key = cap_text(p.get("internalId", ""), CAP_KEY)
+        actions = [cap_text(a, CAP_SHORT) for a in list(p.get("actions", []) or [])[:CAP_ACTIONS]]
+        if not actions and registry is not None:
+            actions = registry.actions_for(device_id, device_name, key, p)
+        keys.append(key)
         out.append({
             "id": nid,
-            "key": cap_text(p.get("internalId", ""), CAP_KEY),
+            "key": key,
             "app": cap_text(p.get("appName", ""), CAP_SHORT),
             "title": cap_text(p.get("title", ""), CAP_SHORT),
             "text": cap_text(text, CAP_TEXT),
@@ -269,13 +278,214 @@ def read_notifications(conn, dpath):
             "ticker": cap_text(p.get("ticker", ""), CAP_SHORT),
             "dismissable": bool(p.get("dismissable", False)),
             "replyId": cap_text(p.get("replyId", ""), CAP_SHORT),
-            "actions": [cap_text(a, CAP_SHORT) for a in list(p.get("actions", []) or [])[:CAP_ACTIONS]],
+            "actions": actions,
             "icon": safe_image(icon, NOTE_ICON_BOX) if icon else "",
             "silent": bool(p.get("silent", False)),
         })
+    if registry is not None:
+        registry.keep(device_id, keys)
     # activeNotifications is in arrival order; newest first reads better.
     out.reverse()
     return out
+
+
+# ---- A notification's own buttons -------------------------------------------
+#
+# Released KDE Connect keeps a notification's actions to itself: the packet
+# carries them, the daemon sends them back with sendAction, and no D-Bus
+# property tells them (#29, #436). The daemon does show each phone
+# notification through freedesktop notifications, with the actions in the
+# Notify call and its device's name in the hint x-kdeconnect-source-device.
+# The bridge reads those calls from a bus monitor limited to this one
+# sender and method (the bus delivers no other message), keeps the device's
+# latest few in memory, and gives a notification the actions of the call
+# that carries its text. A notification that comes with its actions on D-Bus
+# (a KDE Connect that has them) keeps those.
+#
+# The daemon makes no call for a notification already on the phone when it
+# connects (it is silent), so what was matched is also kept in the cache,
+# by the notification's Android key, until the notification goes.
+
+NOTIFY_MATCH = ("type='method_call',sender='%s',interface='org.freedesktop.Notifications',"
+                "member='Notify'" % BUS_NAME)
+SOURCE_DEVICE_HINT = "x-kdeconnect-source-device"
+NOT_PHONE_ACTIONS = ("default", "inline-reply")   # the daemon's own, not the phone's
+CAP_NOTIFY_RECORDS = 200                          # per device (the newest)
+
+
+def match_key(value):
+    """Text as the daemon's call and its D-Bus object both have it: the
+    entities read, markup tags gone, only letters and digits kept. The daemon
+    shows a text as markup or not, with the title before it or not."""
+    plain = re.sub(r"<[^>]*>", "", html.unescape(str(value or "")))
+    return "".join(c for c in plain.casefold() if c.isalnum())
+
+
+def notify_record(args):
+    """What a Notify call from the daemon says about a phone notification:
+    {device, summary, body, actions}; None for any other call (the daemon's
+    own notifications carry no source device)."""
+    try:
+        _app, _replaces, _icon, summary, body, actions, hints, _timeout = args
+    except (TypeError, ValueError):
+        return None
+    device = hints.get(SOURCE_DEVICE_HINT) if isinstance(hints, dict) else None
+    if not isinstance(device, str) or not device or not isinstance(actions, (list, tuple)):
+        return None
+    labels = [cap_text(label, CAP_SHORT) for ident, label in zip(actions[0::2], actions[1::2])
+              if ident not in NOT_PHONE_ACTIONS and isinstance(label, str)]
+    return {"device": device, "summary": match_key(summary), "body": match_key(body),
+            "actions": labels[:CAP_ACTIONS]}
+
+
+def notification_texts(p):
+    """The (summary, body) pairs the daemon shows `p`'s notification with:
+    the phone's app name in the title and "title: text" in the body, or the
+    title and the text when the server takes the app name as a hint."""
+    app, title, text, ticker = (match_key(p.get(k)) for k in ("appName", "title", "text", "ticker"))
+    pairs = {(title, text)}
+    for body in (title + text, text, title, ticker):
+        pairs.add((app, body))
+    return pairs
+
+
+class NotificationActions:
+    """The actions of each device's notifications, from the daemon's own
+    Notify calls (`note`), by the notification's Android key. The key can
+    carry what the app chose (a conversation, a contact), so the file holds
+    only its digest, and only for a notification that has buttons."""
+
+    FORGET_AFTER_S = 600   # a notification absent this long is gone, not unlisted
+
+    def __init__(self, bound=None):
+        self.records = {}      # device name -> its calls, newest last
+        self.bound = bound if bound is not None else {}   # device id -> {digest: [actions]}
+        self.absent = {}       # (device id, digest) -> when it was first missing from the list
+        self.changed = False
+
+    @staticmethod
+    def digest(key):
+        return hashlib.sha256(key.encode("utf-8", "replace")).hexdigest()[:16]
+
+    def note(self, record):
+        calls = self.records.setdefault(record["device"], [])
+        calls.append(record)
+        del calls[:-CAP_NOTIFY_RECORDS]
+
+    def actions_for(self, device_id, device_name, key, p):
+        if not key:
+            return []
+        digest = self.digest(key)
+        bound = self.bound.setdefault(device_id, {})
+        pairs = notification_texts(p)
+        for record in reversed(self.records.get(device_name, [])):
+            if (record["summary"], record["body"]) in pairs:
+                if record["actions"]:
+                    if bound.get(digest) != record["actions"]:
+                        bound[digest] = record["actions"]
+                        self.changed = True
+                elif bound.pop(digest, None) is not None:
+                    self.changed = True
+                break
+        found = list(bound.get(digest, []))
+        if not bound:
+            del self.bound[device_id]
+        return found
+
+    def keep(self, device_id, keys, now=None):
+        # A device that just reconnected lists only some of its notifications
+        # for a while, so one missing from the list is forgotten only after
+        # it has stayed missing for FORGET_AFTER_S.
+        now = time.monotonic() if now is None else now
+        bound = self.bound.get(device_id)
+        if not bound:
+            return
+        listed = {self.digest(k) for k in keys if k}
+        for digest in list(bound):
+            slot = (device_id, digest)
+            if digest in listed:
+                self.absent.pop(slot, None)
+            elif now - self.absent.setdefault(slot, now) >= self.FORGET_AFTER_S:
+                del bound[digest]
+                del self.absent[slot]
+                self.changed = True
+        if not bound:
+            del self.bound[device_id]
+
+
+def actions_path():
+    return os.path.join(state_dir(), "notification-actions.json")
+
+
+def load_actions(path):
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {device: {key: [a for a in labels if isinstance(a, str)] for key, labels in keys.items()
+                     if isinstance(labels, list)}
+            for device, keys in data.items() if isinstance(keys, dict)}
+
+
+def save_actions(path, bound):
+    tmp = path + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(bound, f, sort_keys=True, ensure_ascii=False)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+class NotifyMonitor:
+    """A bus connection of its own that only listens: the bus sends it the
+    daemon's Notify calls and nothing else, and it can send nothing. The
+    calls reach `on_record` on the main loop."""
+
+    def __init__(self, on_record):
+        self.on_record = on_record
+        self.conn = None
+
+    def start(self):
+        """Whether the bus took the monitor; without one the notifications
+        simply show no buttons."""
+        try:
+            address = Gio.dbus_address_get_for_bus_sync(Gio.BusType.SESSION, None)
+            conn = Gio.DBusConnection.new_for_address_sync(
+                address, Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+                | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION, None, None)
+            conn.add_filter(self.filtered)
+            conn.call_sync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+                           "org.freedesktop.DBus.Monitoring", "BecomeMonitor",
+                           GLib.Variant("(asu)", ([NOTIFY_MATCH], 0)), None,
+                           Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None)
+        except GLib.Error:
+            return False
+        self.conn = conn
+        return True
+
+    def filtered(self, _conn, message, incoming, _data=None):
+        # Runs on the connection's own thread. An incoming method call is
+        # taken here and dropped: left to the connection, it would be answered
+        # "unknown method", and a monitor sends nothing. Everything else
+        # passes (our own BecomeMonitor, its reply).
+        if not incoming or message.get_message_type() != Gio.DBusMessageType.METHOD_CALL:
+            return message
+        try:
+            if message.get_member() == "Notify":
+                record = notify_record(message.get_body().unpack())
+                if record:
+                    GLib.idle_add(self.deliver, record)
+        except (GLib.Error, TypeError, ValueError, AttributeError):
+            pass
+        return None
+
+    def deliver(self, record):
+        self.on_record(record)
+        return False
 
 
 # Calls: KDE Connect's telephony plugin signals `callReceived(event, number,
@@ -297,7 +507,7 @@ def call_event(event, number, name, at_ms):
             "name": "" if name == number else name, "at": int(at_ms)}
 
 
-def read_device(conn, device_id, calls=None):
+def read_device(conn, device_id, calls=None, actions=None):
     dpath = device_path(device_id)
     d = props(conn, dpath, IFACE + ".device")
     if d is None:
@@ -364,14 +574,14 @@ def read_device(conn, device_id, calls=None):
     # stale when the phone switched apps.
 
     if has("notifications"):
-        n = read_notifications(conn, dpath)
+        n = read_notifications(conn, dpath, actions, device_id, dev["name"])
         dev["notifications"] = n if n is not None else []
 
     dev["call"] = (calls or {}).get(device_id)
     return dev
 
 
-def snapshot(conn, calls=None):
+def snapshot(conn, calls=None, actions=None):
     try:
         if not daemon_running(conn):
             return {"daemon": False, "devices": []}
@@ -384,7 +594,7 @@ def snapshot(conn, calls=None):
     devices = []
     for device_id in ids:
         try:
-            dev = read_device(conn, device_id, calls)
+            dev = read_device(conn, device_id, calls, actions)
         except GLib.Error:
             dev = None
         if dev:
@@ -1337,11 +1547,17 @@ def copy_file(path, local=False, run=None):
     return say("Copied")
 
 
+def start_notify_monitor(on_record):
+    monitor = NotifyMonitor(on_record)
+    return monitor if monitor.start() else None
+
+
 def watch():
     conn = bus()
     loop = GLib.MainLoop()
     state = {"pending": 0, "last": None, "clipboard": set()}
     calls = {}
+    actions = NotificationActions(load_actions(actions_path()))
     seen = load_seen(seen_path())
     # Known here only while connected: a device away at start keeps the time
     # it left, not "now".
@@ -1357,7 +1573,10 @@ def watch():
 
     def emit():
         state["pending"] = 0
-        snap = snapshot(conn, calls)
+        snap = snapshot(conn, calls, actions)
+        if actions.changed:
+            actions.changed = False
+            save_actions(actions_path(), actions.bound)
         try:
             bt = bluetooth_state(sysconn, conn) if sysconn else None
         except GLib.Error:
@@ -1489,6 +1708,11 @@ def watch():
         schedule()
     if sysconn:
         sysconn.signal_subscribe(BLUEZ, None, None, None, None, Gio.DBusSignalFlags.NONE, on_bluez)
+    def on_notify(record):
+        actions.note(record)
+        schedule()
+
+    monitor = start_notify_monitor(on_notify)
     GLib.timeout_add_seconds(HEARTBEAT_SEC, heartbeat)
     for number in (signal.SIGTERM, signal.SIGINT):
         GLib.unix_signal_add(GLib.PRIORITY_HIGH, number, lambda: loop.quit() or False)
@@ -1899,20 +2123,30 @@ def bluetooth_checks(bt):
     return out
 
 
-def omarchy_bin(env=None, stat=os.stat):
+def omarchy_bin(env=None, stat=os.stat, realpath=os.path.realpath):
     """Omarchy's bin folder. Its helpers run as root through pkexec, so
-    OMARCHY_PATH counts only when that folder is owned by root and nobody
-    else can write to it; otherwise the packaged one."""
+    OMARCHY_PATH counts only when the folder it resolves to, and every folder
+    above that, is owned by root and nobody else can write to it (a symlink
+    or a writable parent would let another user swap what root runs);
+    otherwise the packaged one."""
     default = "/usr/share/omarchy/bin"
     env = os.environ if env is None else env
     path = os.path.join(env.get("OMARCHY_PATH") or "/usr/share/omarchy", "bin")
     if path == default:
         return default
-    try:
-        st = stat(path)
-    except OSError:
-        return default
-    return path if st.st_uid == 0 and not st.st_mode & 0o022 else default
+    resolved = realpath(path)
+    here = resolved
+    while True:
+        try:
+            st = stat(here)
+        except OSError:
+            return default
+        if st.st_uid != 0 or st.st_mode & 0o022:
+            return default
+        up = os.path.dirname(here)
+        if up == here:
+            return resolved
+        here = up
 
 
 OMARCHY_BIN = omarchy_bin()
@@ -2990,7 +3224,7 @@ def unreach(device_id, kind="", conn=None):
         return say(error.message, EXIT_FAILED, osd="")
     clear = {k: "" for k in kinds}
     if "address" in kinds:
-        clear.update(mesh="", peer="")
+        clear.update(mesh="", peer="", peerKey="")
     network_record(device_id, clear)
     return say("KDE Connect forgot that address")
 
@@ -3678,15 +3912,18 @@ def scrcpy_version(text):
 def screen_tools(run=subprocess.run):
     """Whether scrcpy and adb are here, and what this scrcpy can do."""
     scrcpy, adb = shutil.which("scrcpy"), shutil.which("adb")
-    version = ()
+    version, stretch = (), False
     if scrcpy:
         try:
             version = scrcpy_version(run([scrcpy, "--version"], capture_output=True, text=True, timeout=10).stdout)
+            # --render-fit came after the versions above: asked of this scrcpy.
+            stretch = "--render-fit" in (run([scrcpy, "--help"], capture_output=True, text=True, timeout=10).stdout or "")
         except (OSError, subprocess.TimeoutExpired):
             pass
     return {"scrcpy": bool(scrcpy), "adb": bool(adb), "ok": bool(scrcpy and adb),
             "version": "%d.%d" % version if version else "",
-            "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX}
+            "apps": bool(version) and version >= SCRCPY_APPS, "flex": bool(version) and version >= SCRCPY_FLEX,
+            "stretch": stretch}
 
 
 def parse_adb_devices(text):
@@ -4787,12 +5024,14 @@ def parse_texture(line):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def screen_command(serial, title, package="", tools=None, log="", sound="here"):
+def screen_command(serial, title, package="", tools=None, log="", sound="here", stretch=False):
     """The scrcpy command for the device's screen, or for one app in a
     window of its own (a virtual display on the device, so its own screen
     stays free; it follows the window's size with scrcpy 4, and the
     device's on-screen keyboard never shows: typing is this keyboard's). `log`: where its output goes. `sound`
-    (SOUND_PLACES): where its sound plays."""
+    (SOUND_PLACES): where its sound plays. `stretch`: the screen's picture
+    fills its window whatever the window's shape (an app's window follows
+    its size already)."""
     # Line-buffered (stdbuf, grep --line-buffered): through a file, scrcpy's
     # own lines were held back and came in a late batch, after the turn they
     # told of. Only the watcher's two lines are kept (SCREEN_LOG_LINES).
@@ -4812,6 +5051,8 @@ def screen_command(serial, title, package="", tools=None, log="", sound="here"):
         cmd += ["--new-display", "--start-app=" + package, "--no-vd-system-decorations"]
         if (tools or {}).get("flex"):
             cmd += ["--flex-display", "--display-ime-policy=hide"]
+    elif stretch and (tools or {}).get("stretch"):
+        cmd += ["--render-fit=stretched"]
     return cmd + sound_args(sound)
 
 
@@ -4873,7 +5114,7 @@ def launch_or_focus(title, cmd):
 
 
 def screen_open(device_id, package="", label="", docked=True, launch=None, sleep=time.sleep, rect=None, ctx=None, fit=False,
-                sound="here", popout=False):
+                sound="here", popout=False, stretch=False):
     """Opens the device's screen, docked or tiled, or one of its apps,
     tiled (or, `popout`, Omarchy's pop-out: floating and pinned at the top
     right, the device's shape), in a window here, and returns once the
@@ -4915,7 +5156,7 @@ def screen_open(device_id, package="", label="", docked=True, launch=None, sleep
     log = screen_log(title) if not package else ""
     if log:
         os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for this window
-    launch(screen_command(status["serial"], title, package, status["tools"], log, sound))
+    launch(screen_command(status["serial"], title, package, status["tools"], log, sound, stretch))
     if package:
         apps_opened(device_id, package)
     for _ in range(WINDOW_WAIT_SEC * 4):
@@ -5041,7 +5282,7 @@ def reopen_window(win, launch, look, run=hypr_dispatch, sleep=time.sleep, mons=N
     return tile_back(place, look() or new, run, look, sleep)
 
 
-def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep):
+def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time.sleep, stretch=False):
     """Where a window's sound plays: kept as its next default (the screen's,
     or that app's), and, its window open, opened again in its place with
     it."""
@@ -5061,13 +5302,21 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     status = screen_status(device_id)
     if status["state"] != "ready":
         return say("%s is out of reach: its sound changes when it opens again" % name, EXIT_FAILED, osd="The device is out of reach: its sound changes when it opens again")
+    if not reopen_open_window(device_id, package, title, win, status, lambda log: screen_command(status["serial"], title, package, status["tools"], log, sound, stretch), launch, sleep):
+        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED, osd="The window did not open again: open it from the panel")
+    return say("%s plays its sound %s" % (what, where), osd="The window's sound changed")
+
+
+def reopen_open_window(device_id, package, title, win, status, command, launch=None, sleep=time.sleep):
+    """An open window of the device closed and opened again where it was,
+    with the command `command(log)` gives. True once it is back. A floating
+    window (docked, popped out) comes back exactly where it is now, by the
+    rule; a tiled one goes where the layout puts it, then back."""
     border = border_size()
     mons = hypr_json("monitors")
     disp = status.get("display") or device_display(status["serial"])
     aspect = disp[0] / disp[1] if disp and disp[1] else 9 / 19.5
     top = next(((m.get("reserved") or [0, 0])[1] for m in mons if m.get("focused")), 0)
-    # A floating window (docked, popped out) comes back exactly where it is
-    # now, by the rule; a tiled one goes where the layout puts it, then back.
     floating = bool(win.get("floating"))
     subprocess.run(["hyprctl", "eval", dock_rule_lua("screen:" + device_id + ":" + package, title, aspect, top, floating,
                                                      resting(win, mons, border) if floating else None, border)],
@@ -5077,12 +5326,30 @@ def screen_sound(device_id, sound, package="", label="", launch=None, sleep=time
     def start():
         if log:
             os.close(os.open(log, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600))   # a fresh log for the watcher
-        cmd = screen_command(status["serial"], title, package, status["tools"], log, sound)
-        (launch or (lambda c: launch_or_focus(title, c)))(cmd)
+        (launch or (lambda c: launch_or_focus(title, c)))(command(log))
 
-    if not reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border):
-        return say("%s did not open again: open it from the panel" % what, EXIT_FAILED, osd="The window did not open again: open it from the panel")
-    return say("%s plays its sound %s" % (what, where), osd="The window's sound changed")
+    return reopen_window(win, start, lambda: find_window(title), sleep=sleep, mons=mons, border=border)
+
+
+def screen_stretch(device_id, stretch, launch=None, sleep=time.sleep):
+    """Whether the screen's picture fills its window: the choice is the
+    panel's (a setting, given on every opening); its window open, it is
+    opened again in its place with it (scrcpy cannot change it running)."""
+    device = screen_device(device_id) or {}
+    name = device.get("name") or "Device"
+    title = screen_title(name)
+    win = find_window(title)
+    if not win:
+        return EXIT_OK
+    status = screen_status(device_id)
+    if status["state"] != "ready":
+        return say("%s is out of reach: its screen changes when it opens again" % name, EXIT_FAILED, osd="The device is out of reach: the screen changes when it opens again")
+    if not status["tools"].get("stretch"):
+        return say("This version of scrcpy cannot stretch the picture", EXIT_FAILED, osd="This version of scrcpy cannot stretch the picture")
+    sound = window_sounds(device_id).get(SCREEN_SOUND, "here")
+    if not reopen_open_window(device_id, "", title, win, status, lambda log: screen_command(status["serial"], title, "", status["tools"], log, sound, stretch), launch, sleep):
+        return say("The screen did not open again: open it from the panel", EXIT_FAILED, osd="The window did not open again: open it from the panel")
+    return say("The picture %s" % ("fills its window" if stretch else "keeps its shape"), osd="The picture fills its window" if stretch else "The picture keeps its shape")
 
 
 # Its sound here: scrcpy's PipeWire stream, found by the window's process
@@ -6982,7 +7249,12 @@ def main(argv):
     if argv[0] == "screen-sound":
         if len(argv) < 3:
             return say("screen-sound needs a device id and here, phone or both", EXIT_FAILED)
-        return screen_sound(argv[1], argv[2], argv[3] if len(argv) > 3 else "", argv[4] if len(argv) > 4 else "")
+        rest = [a for a in argv if a != "--stretch"]
+        return screen_sound(rest[1], rest[2], rest[3] if len(rest) > 3 else "", rest[4] if len(rest) > 4 else "", stretch="--stretch" in argv)
+    if argv[0] == "screen-stretch":
+        if len(argv) < 3 or argv[2] not in ("on", "off"):
+            return say("screen-stretch needs a device id and on or off", EXIT_FAILED)
+        return screen_stretch(argv[1], argv[2] == "on")
     if argv[0] == "screen-volume":
         if len(argv) < 2:
             return say("screen-volume needs a device id", EXIT_FAILED)
@@ -7048,10 +7320,10 @@ def main(argv):
                 skip = False
             elif a in ("--at", "--ctx", "--sound"):
                 skip = True
-            elif a not in ("--tiled", "--docked", "--fit", "--pop"):
+            elif a not in ("--tiled", "--docked", "--fit", "--pop", "--stretch"):
                 rest.append(a)
         return screen_open(argv[1], rest[0] if rest else "", rest[1] if len(rest) > 1 else "",
-                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv,
+                           docked="--tiled" not in argv, rect=at, ctx=ctx, fit="--fit" in argv, popout="--pop" in argv, stretch="--stretch" in argv,
                            sound=next((argv[i + 1] for i, a in enumerate(argv) if a == "--sound" and i + 1 < len(argv)), "here"))
     if argv[0] == "call":
         if len(argv) < 3:

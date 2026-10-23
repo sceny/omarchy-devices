@@ -9,6 +9,11 @@ buttons, from your keyboard.
 ![Notifications open, the other sections folded (demo data)](../images/notifications.png)
 
 - **A chat** shows who said what, and *Show all* opens the rest.
+- **Many from one app** stack under a title (*3 from Calendar*) with the
+  newest shown. Click it, or press `l`, to open the rest; `h` folds it.
+  A chat keeps its own stack per conversation. The button on the title
+  dismisses the whole stack on the phone; a notification's own ✕ dismisses
+  just that one.
 - **Reply** right there (`r`), with the app's own *Mark as read* or *Mute*
   beside it. **Dismiss** here dismisses on the phone too (`x`), and the
   button by the section's title dismisses them all.
@@ -22,6 +27,7 @@ buttons, from your keyboard.
 | Key | Action |
 |---|---|
 | `r` · `x` · `e` | Reply · dismiss · show all |
+| `l` · `h` | Open · fold a stack |
 | `Shift+Delete` | Dismiss all |
 | `o` | Open its app in a window |
 

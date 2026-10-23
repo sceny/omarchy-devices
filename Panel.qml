@@ -42,8 +42,17 @@ Panel {
   property bool notesFading: false
   property bool notesClosing: false
   readonly property var shownNotes: notifications.length > 0 || heldNotes.length === 0 ? notifications : heldNotes
+  // The notifications as the phone stacks them (#435): the groups, which of
+  // them are open (memory only), and the rows the keyboard walks.
+  readonly property var notifGroups: Model.groupNotifications(shownNotes)
+  property var openGroups: ({})
+  readonly property var notifRows: Model.notificationRows(notifGroups, openGroups)
+  readonly property var notifBases: Model.groupBases(notifGroups, openGroups)
+  onNotifRowsChanged: ensureCursor()
   onNotificationsChanged: {
+    if (notifications.length > 0) openGroups = Model.pruneExpanded(openGroups, Model.groupNotifications(notifications))
     ensureCursor()
+    clearReadNotifications()
     var id = device ? String(device.id) : ""
     if (notifications.length > 0) {
       notesLeave.stop(); notesClose.stop()
@@ -648,7 +657,7 @@ Panel {
   property bool reachFieldFocused: false
   readonly property var screenSetup: screenId === "" ? null
     : Model.screenSetup(phone ? phone.screenOf(screenId) : null, screenDevice, screenPairing, screenDockedFor(screenId), screenFitFor(screenId),
-                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId))
+                        screenWaitOpen !== "" && screenWaitOpen === screenId, appSoundFor(screenId), screenStretchFor(screenId))
   // The user pressed Screen while the device could not be reached (off after
   // a restart, away): its page says what to do, and the screen opens by
   // itself the moment it can, with no second click. Leaving the page or
@@ -702,6 +711,18 @@ Panel {
     if (singleDevice) persistSettings({ screenFitTile: next })
     else persistDeviceProfile(String(id), { screenFitTile: next })
   }
+  function screenStretchFor(id) {
+    for (var i = 0; i < pairedDevices.length; i++)
+      if (String(pairedDevices[i].id) === String(id)) return Model.resolveProfile(profilesRead, pairedDevices[i], i === 0).screenStretch
+    return false
+  }
+  // Kept, and its window (if open) opened again in its place with it.
+  function toggleScreenStretch(id) {
+    var next = !screenStretchFor(id)
+    if (singleDevice) persistSettings({ screenStretch: next })
+    else persistDeviceProfile(String(id), { screenStretch: next })
+    phone.setScreenStretch(String(id), next)
+  }
   function setAppSound(id, sound) {
     if (appSoundFor(id) === sound) return
     if (singleDevice) persistSettings({ appSound: sound })
@@ -721,10 +742,18 @@ Panel {
   // Here by one gateway or another: KDE Connect, or the screen link alone
   // (its screen and apps work; what KDE Connect carries waits for it).
   readonly property bool screenHere: !!device && !reachable && screenReaches(device.id)
-  readonly property bool deviceHere: reachable || screenHere
-  readonly property var screenOnlyIds: {
+  // Calls reach it over Bluetooth hands-free while KDE Connect is away.
+  function callsReach(id) { return !!phone && phone.callsReady(String(id)) }
+  readonly property bool callsHere: !!device && !reachable && callsReach(device.id)
+  readonly property bool deviceHere: reachable || screenHere || callsHere
+  // What reaches each device KDE Connect does not (Model.hereOnlyLine).
+  readonly property var hereOnlyLines: {
     var out = {}
-    pairedDevices.forEach(function(d) { if (d.reachable !== true && screenReaches(d.id)) out[String(d.id)] = true })
+    pairedDevices.forEach(function(d) {
+      if (d.reachable === true) return
+      var line = Model.hereOnlyLine(screenReaches(d.id), callsReach(d.id))
+      if (line !== "") out[String(d.id)] = line
+    })
     return out
   }
   readonly property bool screenInstalled: setupChecks.some(function(c) { return c.key === "screen" && c.ok })
@@ -822,7 +851,7 @@ Panel {
     var known = phone.screenOf(String(d.id))
     screenOpening = { id: String(d.id), name: Model.deviceLabel(d), tip: Model.screenTip(screenTipNext, known ? known.keys : null), since: Date.now() }
     screenTipNext++
-    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } })
+    phone.pressScreen(String(d.id), true, function() { return { rect: root.screenOpeningRect, ctx: root.dockCtx() } }, false, screenStretchFor(String(d.id)))
   }
   function endScreenOpening() {
     if (!screenOpening) return
@@ -865,11 +894,12 @@ Panel {
     }
     else if (key === "open") {
       if (screenDockedFor(screenId) && screenDevice) startScreenOpening(screenDevice)
-      else phone.pressScreen(screenId, false, null, screenFitFor(screenId))
+      else phone.pressScreen(screenId, false, null, screenFitFor(screenId), screenStretchFor(screenId))
     }
     else if (key === "place") toggleScreenDocked(screenId)
     else if (key === "dockOn" && !screenDockedFor(screenId)) toggleScreenDocked(screenId)
     else if (key === "dockOff" && screenDockedFor(screenId)) toggleScreenDocked(screenId)
+    else if (key === "stretch") toggleScreenStretch(screenId)
     else if (key === "fitTile") toggleScreenFit(screenId)
     else if (key === "appSound") {
       // Enter: the next of the three it can offer.
@@ -1483,7 +1513,7 @@ Panel {
     scope: editingDevice ? "device" : (settingsScope === "defaults" ? "defaults" : "root"),
     single: singleDevice,
     problems: allProblems,
-    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, screenOnlyIds),
+    devices: Model.devicesListRows(snapshot, profilesRead, lowPercent, hereOnlyLines),
     identity: scopeProfile ? { nickname: scopeProfile.nickname, icon: scopeProfile.icon, glyph: Model.deviceIcon(scopeDevice, scopeProfile),
                                bar: scopeProfile.bar, showInPanel: scopeProfile.showInPanel } : null,
     edit: editProfile,
@@ -2077,7 +2107,7 @@ Panel {
   readonly property bool screenOn: !device || screenOnFor(device.id)
   readonly property var shownShortcutOrder: Model.shortcutsShown(shortcutOrder, screenOn)
   readonly property var actions: Model.shortcutTiles(shownShortcutOrder, can)
-    .filter(function(t) { return root.reachable || Model.shortcutByKey(t.key).needs === "" })
+    .filter(function(t) { return root.reachable || (Model.shortcutByKey(t.key).needs === "" && (t.key !== "screen" || root.screenHere)) })
   readonly property int actionColumns: Math.max(1, Math.min(4, actions.length))
 
   // What a section says about the viewed device's features
@@ -2101,7 +2131,7 @@ Panel {
       // The Devices section is gone: tabs switch, the pairing card and
       // Settings' device list pair and unpair.
       if (key === "devices") continue
-      else if (!reachable && !(screenHere && (key === "actions" || key === "apps"))) continue
+      else if (!reachable && !((screenHere || callsHere) && key === "actions") && !(screenHere && key === "apps")) continue
       else if (key === "actions" && showShortcuts && actions.length > 0) s.push(key)
       else if (key === "apps" && showApps && screenOn && (allApps.length > 0 || !!sectionNotes.apps)) s.push(key)
       else if (key === "media" && showMedia && players.length > 0) s.push(key)
@@ -2423,7 +2453,7 @@ Panel {
     }
     else if (key === "screen" && device) {
       if (screenDockedFor(String(device.id))) startScreenOpening(device)
-      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)))
+      else phone.pressScreen(String(device.id), false, null, screenFitFor(String(device.id)), screenStretchFor(String(device.id)))
     }
   }
 
@@ -2588,6 +2618,35 @@ Panel {
     expandedNotes = next
   }
 
+  // A group opens to every notification in it, or folds back to the newest
+  // (#435). The cursor never stays on a row that folded away.
+  function groupOf(key) { return notifGroups.filter(function(x) { return x.key === key })[0] || null }
+  function groupBase(key) {
+    for (var i = 0; i < notifGroups.length; i++) if (notifGroups[i].key === key) return notifBases[i]
+    return -1
+  }
+  function setGroupOpen(key, open) {
+    var g = groupOf(key)
+    if (!g || g.count < 2 || (openGroups[key] === true) === open) return
+    if (!open) {
+      var base = groupBase(key)
+      if (notifIndex > base + 1 && notifIndex <= base + g.count) notifIndex = base + 1
+    }
+    var next = Object.assign({}, openGroups)
+    if (open) next[key] = true
+    else delete next[key]
+    openGroups = next
+    ensureCursor()
+  }
+  function toggleGroup(key) { setGroupOpen(key, openGroups[key] !== true) }
+  // Where a notification stands among the rows, or -1 (folded away).
+  function rowOfNote(id) {
+    for (var i = 0; i < notifRows.length; i++) if (notifRows[i].note && String(notifRows[i].note.id) === String(id)) return i
+    return -1
+  }
+  // The notification the cursor is on; a group's header is not one.
+  readonly property var cursorNote: notifRows[notifIndex] ? notifRows[notifIndex].note : null
+
   // A text-message notification opens its conversation; with no thread to
   // match, the messages view opens on the list, searched for who sent it,
   // with no conversation open (never the one left open before).
@@ -2599,6 +2658,29 @@ Panel {
     openMessagesView(-1, false, true)
     Qt.callLater(function() { if (messagesView) messagesView.setSearch(Model.notificationTitle(n)) })
   }
+
+  // The conversation on screen is read: its text notifications go, by the
+  // phone's own Mark as read when KDE Connect lists it, else a dismiss (the
+  // phone drops the notification either way). One try for each notification,
+  // so one the phone keeps is not asked again at every change. The threads
+  // may load after the conversation opens, so a new thread list asks again.
+  property var clearedNotes: ({})
+  readonly property int readThreadId: opened && messagesOpen && sms && sms.openThreadId >= 0 ? sms.openThreadId : -1
+  function clearReadNotifications() {
+    if (readThreadId < 0 || !phone) return
+    var list = notifications
+    for (var i = 0; i < list.length; i++) {
+      var n = list[i]
+      if (clearedNotes[n.id] === true || threadForNotification(n) !== readThreadId) continue
+      var how = Model.readClearing(n)
+      if (!how) continue
+      clearedNotes[n.id] = true
+      if (how.action !== "") phone.notificationAction(n, how.action)
+      else phone.dismiss(n)
+    }
+  }
+  onReadThreadIdChanged: clearReadNotifications()
+  Connections { target: root.sms; function onModelRevisionChanged() { root.clearReadNotifications() } }
 
   function isTextNotification(n) {
     return !!n && (Model.isMessagingApp(n.app) || threadForNotification(n) >= 0)
@@ -2749,7 +2831,7 @@ Panel {
     var s = sections
     if (s.length === 0) return
     if (s.indexOf(focusSection) < 0) focusSection = s[0]
-    if (notifIndex >= notifications.length) notifIndex = Math.max(0, notifications.length - 1)
+    if (notifIndex >= notifRows.length) notifIndex = Math.max(0, notifRows.length - 1)
     if (photoIndex >= photos.length) photoIndex = Math.max(0, photos.length - 1)
     if (receivedIndex >= received.length) receivedIndex = Math.max(0, received.length - 1)
     if (appIndex > sectionApps.length) appIndex = sectionApps.length
@@ -2769,6 +2851,16 @@ Panel {
         appIndex = foldedStops[Math.max(0, Math.min(foldedStops.length - 1, (at < 0 ? 0 : at) + dx))]
       }
       else if (focusSection === "apps") appIndex = Math.max(0, Model.cursorStep(appCursorRows, appIndex, dx, 0))
+      // Notifications: right opens the group under the cursor, left folds it
+      // and lands on its header.
+      else if (focusSection === "notifications" && !isCollapsed("notifications") && notifRows[notifIndex]) {
+        var gr = notifRows[notifIndex]
+        var gg = groupOf(gr.group)
+        if (gg && gg.count > 1) {
+          if (dx > 0) setGroupOpen(gr.group, true)
+          else { var gb = groupBase(gr.group); setGroupOpen(gr.group, false); notifIndex = gb; scrollToCursor() }
+        }
+      }
       return
     }
     // Apps: PINNED rows, then RECENT, before leaving the section.
@@ -2797,13 +2889,13 @@ Panel {
     }
     if (focusSection === "notifications" && !isCollapsed("notifications")) {
       var next = notifIndex + dy
-      if (next >= 0 && next < notifications.length) { notifIndex = next; scrollToCursor(); return }
-      if (next >= notifications.length) return
+      if (next >= 0 && next < notifRows.length) { notifIndex = next; scrollToCursor(); return }
+      if (next >= notifRows.length) return
     }
     var at = s.indexOf(focusSection) + dy
     if (at < 0 || at >= s.length) return
     focusSection = s[at]
-    if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : notifications.length - 1
+    if (focusSection === "notifications") notifIndex = dy > 0 ? 0 : Math.max(0, notifRows.length - 1)
     if (focusSection === "photos") photoIndex = dy > 0 ? 0 : Math.max(0, photos.length - 1)
     if (focusSection === "received") receivedIndex = dy > 0 ? 0 : Math.max(0, received.length - 1)
     scrollToCursor()
@@ -2827,7 +2919,9 @@ Panel {
       var shownCard = cardRepeater.itemAt(shownPlayer)
       if (shownCard) shownCard.togglePlaying()
     } else if (focusSection === "notifications") {
-      openReply(notifications[notifIndex])
+      var cur = notifRows[notifIndex]
+      if (cur && cur.kind === "header") toggleGroup(cur.group)
+      else if (cur) openReply(cur.note)
     } else if (focusSection === "apps") {
       if (appIndex < sectionApps.length) openApp(sectionApps[appIndex], pop === true)
       else openAppsView()
@@ -3175,6 +3269,27 @@ Panel {
       return "ok"
     }
     function expandNotification(index: int): string { root.toggleExpanded(root.notifications[index]); return JSON.stringify(root.expandedNotes) }
+    // Groups (#435): what the section draws, a group opened or folded as its
+    // header's click, and its dismiss all as a click (demo only).
+    function groupsInfo(): string {
+      return JSON.stringify({
+        groups: root.notifGroups.map(function(g) { return { key: g.key, app: g.app, count: g.count, dismissable: g.dismissable, open: root.openGroups[g.key] === true, ids: g.notes.map(function(n) { return n.id }) } }),
+        rows: root.notifRows.map(function(r) { return r.kind === "header" ? "header:" + r.group : r.note.id + (r.member ? ":member" : "") }),
+        cursor: root.notifIndex })
+    }
+    function toggleGroup(index: int): string {
+      var g = root.notifGroups[index]
+      if (!g || g.count < 2) return "no group at " + index
+      root.toggleGroup(g.key)
+      return root.openGroups[g.key] === true ? "open" : "folded"
+    }
+    function pressDismissGroup(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var g = root.notifGroups[index]
+      if (!g || g.dismissable === 0) return "nothing to dismiss at " + index
+      root.phone.dismissGroup(g)
+      return "ok"
+    }
     function toast(text: string): string { if (root.phone) root.phone.report(text, false); return "ok" }
     // Many devices. A device is its id, nickname or name. Every verb acts on
     // the viewed device; `view` picks it, `openOn` opens the panel on it.
@@ -3424,7 +3539,7 @@ Panel {
     function openReply(index: int): string {
       var n = root.notifications[index]
       if (!n || !n.replyId) return "no replyable notification at " + index
-      root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = index
+      root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = Math.max(0, root.rowOfNote(n.id))
       root.openReply(n)
       return "ok"
     }
@@ -3479,6 +3594,8 @@ Panel {
         daemon: root.phone ? root.phone.daemon : false,
         device: root.device ? root.device.name : null,
         reachable: root.reachable,
+        here: root.deviceHere,
+        hereOnly: root.device ? root.hereOnlyLines[String(root.device.id)] || "" : "",
         bar: Model.barText(root.device, root.barIndicators, { lowPercent: root.lowPercent, lowOnly: root.batteryLowOnly,
           notifications: root.notifications.length, messages: root.sms ? root.sms.unreadCount : 0,
           playing: !!root.phone && root.phone.nowPlaying !== "" }),
@@ -3606,8 +3723,9 @@ Panel {
           return
         }
         if (root.mainView && root.cursorActive && root.focusSection === "notifications") {
-          var n = root.notifications[root.notifIndex]
-          if (n && n.dismissable) root.phone.dismiss(n)
+          var row = root.notifRows[root.notifIndex]
+          if (row && row.kind === "header") { var hg = root.groupOf(row.group); if (hg && hg.dismissable > 0) root.phone.dismissGroup(hg) }
+          else if (row && row.note && row.note.dismissable) root.phone.dismiss(row.note)
         }
       }
       onCloseRequested: {
@@ -3741,15 +3859,21 @@ Panel {
         if (t === ".") { root.nudgePosition(10); return }
         if (t === "[" && root.phone) { root.phone.mediaAction("Previous", root.shownPlayerObject); return }
         if (t === "]" && root.phone) { root.phone.mediaAction("Next", root.shownPlayerObject); return }
-        if (t === "e" && root.cursorActive && root.focusSection === "notifications") { root.toggleExpanded(root.notifications[root.notifIndex]); return }
+        if (t === "e" && root.cursorActive && root.focusSection === "notifications") {
+          var er = root.notifRows[root.notifIndex]
+          if (er && er.kind === "header") root.toggleGroup(er.group)
+          else root.toggleExpanded(root.cursorNote)
+          return
+        }
         if (t === "o" && root.cursorActive && root.focusSection === "notifications") {
-          var tn = root.notifications[root.notifIndex]
+          var tn = root.cursorNote
+          if (!tn) return
           if (root.isTextNotification(tn)) root.openNotificationConversation(tn)
           else if (root.notificationApp(tn)) root.openApp(root.notificationApp(tn))
           return
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
-          root.openReply(root.notifications[root.notifIndex])
+          root.openReply(root.cursorNote)
       }
 
       // ---- The page menu (right-click): Edit page, Settings ----
@@ -4831,13 +4955,13 @@ Panel {
                   // Dimmed while away, and on the Messages page for a device
                   // without text messages (switchDevice says why).
                   readonly property bool textless: (root.showMessages && !root.hasTexts(modelData)) || (root.showContacts && !root.hasCards(modelData))
-                  opacity: modelData.reachable === true && !textless ? 1 : 0.5
+                  opacity: (modelData.reachable === true || !!root.hereOnlyLines[String(modelData.id)]) && !textless ? 1 : 0.5
                   foreground: root.foreground
                   fontFamily: root.fontFamily
                   fontSize: Style.font.bodySmall
                   iconSize: Style.font.body
                   tooltipText: tab.moving ? "" : textless ? Model.deviceLabel(modelData) + (root.showContacts ? " does not share its contacts" : " has no text messages")
-                    : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : "Away")
+                    : Model.deviceLabel(modelData) + " · " + (modelData.reachable === true ? Model.metaLine(root.snapshot, modelData, root.lowPercent) : (root.hereOnlyLines[String(modelData.id)] || "Away"))
                   onClicked: tabBox.onSettings ? root.openScope(String(modelData.id)) : root.switchDevice(modelData.id)
                   onCurrentChanged: if (current) tabStrip.showTab(tab)
 
@@ -4945,11 +5069,11 @@ Panel {
               : root.showAppsPage ? (root.allApps.length > 0 ? "All apps · " + root.allApps.length : "All apps")
               : root.showContacts ? (root.contacts && root.contacts.ready ? "Contacts · " + root.contacts.cards.length : "Contacts")
               : (root.showMessages ? (root.sms && root.sms.ready ? "Messages · " + root.sms.threads.count + " conversations" : "Messages")
-              : root.screenHere ? "Screen and apps only"
+              : !root.reachable && root.device && root.hereOnlyLines[String(root.device.id)] ? root.hereOnlyLines[String(root.device.id)]
               : Model.metaLine(root.snapshot, root.device, root.lowPercent))
             foreground: root.foreground
             fontFamily: root.fontFamily
-            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || root.screenReaches(root.heroDevice.id))) ? 1.0 : 0.45
+            iconOpacity: root.heroNeutral || (root.heroDevice && (root.heroDevice.reachable === true || !!root.hereOnlyLines[String(root.heroDevice.id)])) ? 1.0 : 0.45
             iconComponent: Component {
               Text {
                 textFormat: Text.PlainText
@@ -6071,13 +6195,13 @@ Panel {
                       Behavior on opacity { NumberAnimation { duration: Model.MOTION.outMs * root.motion; easing.type: Easing.OutCubic } }
 
                       Repeater {
-                        model: root.shownNotes
-                        NotificationRow {
+                        model: root.notifGroups
+                        NotificationGroup {
                           required property var modelData
                           required property int index
                           width: notifColumn.width
-                          note: modelData
-                          rowIndex: index
+                          group: modelData
+                          base: root.notifBases[index] || 0
                         }
                       }
                     }
@@ -6376,7 +6500,7 @@ Panel {
               // Connect missing or down: the first run's card.
               Column {
                 id: awayColumn
-                visible: root.showMain && !root.deviceHere
+                visible: root.showMain && (!root.deviceHere || (root.callsHere && !root.screenHere))
                 width: parent.width
                 spacing: Style.space(8)
                 readonly property bool away: !!root.device && root.device.paired === true && !!root.phone && root.phone.daemon
@@ -6392,6 +6516,7 @@ Panel {
                     if (!root.phone || !root.snapshot) return "Looking for your devices…"
                     if (!root.phone.daemon) return "This computer is not ready for your devices yet."
                     if (!root.device) return "No device is paired yet."
+                    if (root.callsHere) return "KDE Connect is away from " + Model.deviceLabel(root.device) + ". Its calls still reach this computer over Bluetooth."
                     return Model.deviceLabel(root.device) + " is away"
                   }
                 }
@@ -7698,6 +7823,116 @@ Panel {
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
         }
+      }
+    }
+  }
+
+  // One group of notifications (#435): its header and the newest one, and
+  // open, the rest, which fold in and out as a section does. A group of one
+  // is its notification alone.
+  component NotificationGroup: Column {
+    id: grp
+    property var group: ({ key: "", notes: [], count: 0, dismissable: 0 })
+    property int base: 0
+    readonly property bool multi: group.count > 1
+    readonly property bool open: multi && root.openGroups[group.key] === true
+    readonly property real indent: multi ? Style.space(10) : 0
+    spacing: Style.space(4)
+
+    NotificationGroupHeader {
+      visible: grp.multi
+      width: grp.width
+      group: grp.group
+      rowIndex: grp.base
+      open: grp.open
+    }
+    NotificationRow {
+      x: grp.indent
+      width: grp.width - grp.indent
+      note: grp.group.notes[0]
+      rowIndex: grp.base + (grp.multi ? 1 : 0)
+    }
+    FoldBody {
+      width: grp.width
+      open: grp.open
+      motion: root.motion
+      animate: root.settled
+      spacing: Style.space(4)
+      Repeater {
+        model: grp.group.notes.slice(1)
+        NotificationRow {
+          required property var modelData
+          required property int index
+          x: grp.indent
+          width: grp.width - grp.indent
+          note: modelData
+          rowIndex: grp.base + 2 + index
+        }
+      }
+    }
+  }
+
+  // A group's header: how many and from which app, a click to open or fold
+  // it, and the button that dismisses every one of them on the device.
+  component NotificationGroupHeader: CursorSurface {
+    id: gh
+    property var group: ({ key: "", app: "", notes: [], count: 0, dismissable: 0 })
+    property int rowIndex: 0
+    property bool open: false
+    readonly property bool dismissing: !!root.phone && group.notes.some(function(n) { return root.phone.isBusy("dismiss:" + n.id) })
+
+    hasCursor: false
+    CursorStop { here: root.cursorActive && root.focusSection === "notifications" && root.notifIndex === gh.rowIndex; glide: root.cursorGlide }
+    foreground: root.foreground
+    implicitHeight: Style.space(26)
+
+    MouseArea {
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onEntered: root.hoverTake(function() { root.cursorActive = true; root.focusSection = "notifications"; root.notifIndex = gh.rowIndex })
+      onClicked: root.toggleGroup(gh.group.key)
+    }
+
+    RowLayout {
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(10)
+      anchors.rightMargin: Style.space(6)
+      spacing: Style.space(6)
+
+      Text {
+        textFormat: Text.PlainText
+        Layout.alignment: Qt.AlignVCenter
+        text: Model.GLYPH.chevronRight
+        rotation: gh.open ? 90 : 0
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        Behavior on rotation { enabled: root.settled; NumberAnimation { duration: Model.MOTION.inMs * root.motion; easing.type: Easing.OutCubic } }
+      }
+      Text {
+        textFormat: Text.PlainText
+        Layout.fillWidth: true
+        text: Model.groupTitle(gh.group)
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        elide: Text.ElideRight
+      }
+      WaitButton {
+        visible: gh.group.dismissable > 0
+        glyph: Model.GLYPH.clearAll
+        waiting: gh.dismissing
+        motion: root.motion
+        tooltipText: gh.dismissing ? "Dismissing on " + Model.deviceLabel(root.device) : Model.keyTip("Dismiss all " + gh.group.dismissable + " on " + Model.deviceLabel(root.device), "dismiss")
+        foreground: root.foreground
+        hoverColor: root.urgent
+        fontFamily: root.fontFamily
+        enabled: !!root.phone && !gh.dismissing
+        onClicked: root.phone.dismissGroup(gh.group)
       }
     }
   }

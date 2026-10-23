@@ -101,7 +101,7 @@ function names.
 "${IPC[@]}" status                  # what the panel shows
 "${IPC[@]}" open ; "${IPC[@]}" close
 "${IPC[@]}" page settings           # also: main, messages, connection (diagnostics), ready (the first run's card)
-"${IPC[@]}" demo ""                 # sample notifications; also demo away|down|none; then live
+"${IPC[@]}" demo ""                 # sample notifications; also demo away|awayCalls|down|none (awayCalls: KDE Connect away, Bluetooth hands-free connected); then live
 "${IPC[@]}" demo many               # several devices: tabs, chips; many-pair adds a pairing request
 "${IPC[@]}" demo charging           # the demo phone charging (its battery glyph and % in the pill)
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received; never open a real phone's photos in a check (they are private)

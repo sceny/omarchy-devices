@@ -89,7 +89,7 @@ class WatchBurst(unittest.TestCase):
         self.previews = []
         self.loops = []
 
-        def snapshot(conn, calls=None):
+        def snapshot(conn, calls=None, actions=None):
             self.snapshots += 1
             return {"daemon": True, "devices": [{"id": DEVICE, "paired": True, "level": self.level}]}
 
@@ -103,6 +103,7 @@ class WatchBurst(unittest.TestCase):
                 mock.patch.object(bridge, "system_bus", mock.Mock(side_effect=GLib.Error("no system bus"))),
                 mock.patch.object(bridge, "snapshot", snapshot),
                 mock.patch.object(bridge, "NetWatch", NoNetwork),
+                mock.patch.object(bridge, "start_notify_monitor", lambda on_record: None),
                 mock.patch.object(bridge, "keep_clipboard_for", lambda *a, **k: None),
                 mock.patch.object(bridge, "safe_image", preview),
                 mock.patch.object(bridge, "GLib", GLibThatKeepsItsLoops(self.loops))):

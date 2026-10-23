@@ -117,8 +117,8 @@ dev/sandbox verify-clean                           # nothing left behind
   `pc-tests` (`test/run_all.sh`), `pc-selftest` (`dev/rig selftest`),
   `qml-parse`, `manifest`. Both: `rig-ci`, `script`. Any other repository is
   refused. Paperclip's image holds its own `dev/` from the branch `develop` of
-  its mirror (`dev/sandbox build --paperclip-ref REV` picks another branch),
-  so a Paperclip run is never judged by Devices' checks. Its rig finds the CLI
+  its mirror (`dev/sandbox build` takes only that `develop`), so a Paperclip
+  run is never judged by Devices' checks. Its rig finds the CLI
   in the image (`paperclipai`, installed from a lockfile,
   `dev/sandbox.d/paperclipai-cli/`) and `psql`; no `/dev/kvm` is passed in.
 - **The sha is the PR's head, in full.** A branch, a short sha or another
@@ -310,7 +310,7 @@ the host: it reaches the owner's shell.
 ```bash
 IPC=(dev/sandbox dev rig ipc)
 "${IPC[@]}" status                 # what the panel shows
-"${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|down|none
+"${IPC[@]}" demo ""                # made-up notifications and conversations; demo away|awayCalls|down|none
 "${IPC[@]}" demo many              # several devices (tabs, chips); many-pair adds a pairing request
 "${IPC[@]}" demo charging          # the demo phone charging
 "${IPC[@]}" filesInfo ; "${IPC[@]}" dismissReceived 0   # Photos and Received: what they hold; forget a received file (demo: made-up files)
