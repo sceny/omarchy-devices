@@ -305,6 +305,10 @@ rig_check_devices() {
     rig_bridge_sees_battery
   rig_assert_eventually devices-ipc-status 30 "the panel does not answer over IPC" \
     rig_ipc_status_ok
+  rig_assert devices-panel-opens "the panel does not open after the shell starts again" \
+    rig_panel_opens_after_a_restart
+  rig_assert devices-panel-no-binding-loop "the shell log has a binding loop from the panel's first opening" \
+    rig_shell_log_has_no_binding_loop_since_start
   rig_phone_battery_set 63
   rig_assert_eventually devices-battery-follows 40 "the bridge does not follow a battery change" \
     rig_bridge_battery_is 63

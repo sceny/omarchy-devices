@@ -592,6 +592,27 @@ rig_shell_log_has_no_binding_loop_since() {
   ! tail -n +"$(($1 + 1))" "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
 }
 
+# From the shell's latest start: a panel is made on its first opening, and a
+# binding loop in it is logged once, then.
+rig_shell_log_has_no_binding_loop_since_start() {
+  ! awk '/^--- shell start/ { buf = "" } { buf = buf "\n" $0 } END { print buf }' "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
+}
+
+# A shell started again, its panel opened while the first data is still
+# arriving (where a handler that writes what a binding reads is caught).
+rig_panel_opens_after_a_restart() {
+  (cmd_restart_shell) >/dev/null 2>&1 || return 1
+  local deadline=$((SECONDS + 60))
+  until rig_ipc status >/dev/null 2>&1; do
+    ((SECONDS < deadline)) || return 1
+    sleep 1
+  done
+  sleep 8
+  rig_ipc open >/dev/null || return 1
+  sleep 4
+  rig_ipc close >/dev/null
+}
+
 rig_bridge_ns() { timeout 90 "${RIG_IN_NS[@]}" "$RIG_PLUGIN_SRC_ABS/bin/kdeconnect-bridge" "$@"; }
 
 rig_phone_id() { rig_bridge_snapshot | jq -r '.devices[0].id'; }
