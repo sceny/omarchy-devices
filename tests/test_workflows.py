@@ -287,8 +287,8 @@ class DevelopNotice(unittest.TestCase):
     """The notice's issue names each failing rule and where it is, never the text
     it matched: that text is the private data the check keeps out of public text."""
 
-    PLANTED = "/home/alice/.paperclip/instances/default/workspaces/0b1c2d3e-4f5a-6b7c-8d9e-0a1b2c3d4e5f"
-    SECRETS = ("/home/alice", "alice", "0b1c2d3e", "SCE-999")
+    PLANTED = "/home/alice/.paperclip/instances/default/workspaces/aaaaaaaa-0000-0000-0000-000000000001"
+    SECRETS = ("/home/alice", "alice", "aaaaaaaa-0000", "SCE-999")
 
     def body(self, check_output):
         with open(os.path.join(WORKFLOWS, "develop-notice.yml")) as handle:
