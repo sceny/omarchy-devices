@@ -43,14 +43,7 @@ jobs:
             echo
             echo "Check output:"
             echo
-            awk '
-              /^FAIL / {
-                if (match($0, /^FAIL [^ ]+ \[[^]]+\] [^ ]+: /)) print substr($0, 1, RLENGTH - 2)
-                else print "FAIL (the matched text is left out; the run log has it)"
-                next
-              }
-              /^[0-9]+ problem|^public-text-check:/
-            ' "$RUNNER_TEMP/public-text.txt" | sed 's/^/    /'
+            sed 's/^/    /' "$RUNNER_TEMP/public-text.txt"
             echo
             echo "Edit the text that failed, or record here why it stays."
           } > "$body"
