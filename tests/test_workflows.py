@@ -285,7 +285,8 @@ class ShippedWorkflows(unittest.TestCase):
 
 class DevelopNotice(unittest.TestCase):
     """The notice's issue names each failing rule and where it is, never the text
-    it matched: that text is the private data the check keeps out of public text."""
+    it matched: the checker's output in CI does not print the match, and the
+    notice passes that output on as it is."""
 
     PLANTED = "/home/alice/.paperclip/instances/default/workspaces/aaaaaaaa-0000-0000-0000-000000000001"
     SECRETS = ("/home/alice", "alice", "aaaaaaaa-0000", "SCE-999")
@@ -329,23 +330,14 @@ class DevelopNotice(unittest.TestCase):
             fixture = os.path.join(tmp, "doc.json")
             with open(fixture, "w") as handle:
                 json.dump(doc, handle)
-            checked = subprocess.run([sys.executable, CHECKER, "--fixture", fixture], capture_output=True, text=True)
+            checked = subprocess.run([sys.executable, CHECKER, "--fixture", fixture], capture_output=True, text=True,
+                                     env=dict(os.environ, GITHUB_ACTIONS="true"))
         self.assertEqual(checked.returncode, 1, checked.stdout)
         body = self.body(checked.stdout)
         for secret in self.SECRETS:
             self.assertNotIn(secret, body)
         self.assertIn("FAIL public-text-environment [home-path] https://example.test/c/1", body)
         self.assertIn("problem(s) in the public text", body)
-
-    def test_a_failing_line_that_cannot_be_cut_is_left_out_whole(self):
-        output = ("FAIL public-text-environment [home-path] a place: %s\n"
-                  "a stray line with %s\n"
-                  "1 problem(s) in the public text.\n") % (self.PLANTED, self.PLANTED)
-        body = self.body(output)
-        for secret in self.SECRETS:
-            self.assertNotIn(secret, body)
-        self.assertIn("FAIL (the matched text is left out", body)
-        self.assertIn("1 problem(s) in the public text.", body)
 
 
 GOOD = """\
