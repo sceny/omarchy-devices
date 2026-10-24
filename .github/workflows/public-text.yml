@@ -34,10 +34,6 @@ jobs:
     if: github.event_name != 'issue_comment' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -45,25 +41,4 @@ jobs:
       - name: Public text against the rules
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -o pipefail
-          python3 dev/public-text-check 2>&1 | tee "$RUNNER_TEMP/public-text.txt"
-      - name: Tell a person that a push to develop broke the rules
-        if: failure() && github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ACTOR: ${{ github.actor }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          body="$RUNNER_TEMP/public-text-notice.md"
-          {
-            echo "The \`public-text\` check failed on a push to \`develop\`. The commit is ${COMMIT_URL} and the run is ${RUN_URL}."
-            echo
-            echo "Check output:"
-            echo
-            sed 's/^/    /' "$RUNNER_TEMP/public-text.txt"
-            echo
-            echo "Edit the text that failed, or record here why it stays."
-          } > "$body"
-          gh issue create --repo "$GITHUB_REPOSITORY" --title "public-text failed on develop" --body-file "$body" --assignee "$ACTOR"
+        run: python3 dev/public-text-check

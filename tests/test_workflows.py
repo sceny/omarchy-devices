@@ -32,6 +32,9 @@ WRITE_ALLOWED = {
         "contents": "tags the merge commit, publishes the release and brings develop level with main; the only job that writes",
         "statuses": "marks the release commit's status after it publishes",
     },
+    ("develop-notice.yml", "notice"): {
+        "issues": "opens an issue, assigned to the pusher, when the public-text check fails on a push to develop",
+    },
 }
 
 # An expression in a run line is shell the author of its value writes, unless
