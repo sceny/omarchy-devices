@@ -45,7 +45,9 @@ jobs:
       - name: Public text against the rules
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: python3 dev/public-text-check 2>&1 | tee "$RUNNER_TEMP/public-text.txt"
+        run: |
+          set -o pipefail
+          python3 dev/public-text-check 2>&1 | tee "$RUNNER_TEMP/public-text.txt"
       - name: Tell a person that a push to develop broke the rules
         if: failure() && github.event_name == 'push'
         env:
