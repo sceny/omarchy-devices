@@ -17,12 +17,17 @@ Python has no YAML module; a construct it does not know raises, so a
 workflow that leaves it fails the build instead of passing unread."""
 
 import glob
+import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
+CHECKER = os.path.join(ROOT, "dev", "public-text-check")
 
 FORBIDDEN_TRIGGERS = {"pull_request_target", "workflow_run"}
 
@@ -276,6 +281,71 @@ class ShippedWorkflows(unittest.TestCase):
             self.assertEqual(granted, set(scopes), "%s: the list and the file differ" % job)
             for scope, reason in scopes.items():
                 self.assertGreater(len(reason.split()), 4, "%s %s: say why" % (job, scope))
+
+
+class DevelopNotice(unittest.TestCase):
+    """The notice's issue names each failing rule and where it is, never the text
+    it matched: that text is the private data the check keeps out of public text."""
+
+    PLANTED = "/home/alice/.paperclip/instances/default/workspaces/0b1c2d3e-4f5a-6b7c-8d9e-0a1b2c3d4e5f"
+    SECRETS = ("/home/alice", "alice", "0b1c2d3e", "SCE-999")
+
+    def body(self, check_output):
+        with open(os.path.join(WORKFLOWS, "develop-notice.yml")) as handle:
+            tree = load(handle.read(), "develop-notice.yml")
+        run = next(step["run"][2] for step in tree["jobs"]["notice"]["steps"]
+                   if step.get("name", "").startswith("Tell a person"))
+        with tempfile.TemporaryDirectory() as tmp:
+            bin_dir = os.path.join(tmp, "bin")
+            os.mkdir(bin_dir)
+            gh = os.path.join(bin_dir, "gh")
+            with open(gh, "w") as handle:
+                handle.write("#!/bin/sh\nexit 0\n")
+            os.chmod(gh, 0o755)
+            script = os.path.join(tmp, "step.sh")
+            with open(script, "w") as handle:
+                handle.write(run)
+            with open(os.path.join(tmp, "public-text.txt"), "w") as handle:
+                handle.write(check_output)
+            env = dict(
+                os.environ,
+                PATH=bin_dir + os.pathsep + os.environ["PATH"],
+                RUNNER_TEMP=tmp,
+                GH_TOKEN="x",
+                ACTOR="someone",
+                GITHUB_REPOSITORY="sceny/omarchy-devices",
+                COMMIT_URL="https://github.com/sceny/omarchy-devices/commit/0000000",
+                RUN_URL="https://github.com/sceny/omarchy-devices/actions/runs/1",
+            )
+            result = subprocess.run(["bash", "-e", "-o", "pipefail", script], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(os.path.join(tmp, "public-text-notice.md")) as handle:
+                return handle.read()
+
+    def test_the_issue_names_the_rule_and_its_place_never_the_matched_text(self):
+        doc = {"changed_files": [], "texts": [
+            {"url": "https://example.test/c/1", "body": "Ran in %s for SCE-999." % self.PLANTED}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = os.path.join(tmp, "doc.json")
+            with open(fixture, "w") as handle:
+                json.dump(doc, handle)
+            checked = subprocess.run([sys.executable, CHECKER, "--fixture", fixture], capture_output=True, text=True)
+        self.assertEqual(checked.returncode, 1, checked.stdout)
+        body = self.body(checked.stdout)
+        for secret in self.SECRETS:
+            self.assertNotIn(secret, body)
+        self.assertIn("FAIL public-text-environment [home-path] https://example.test/c/1", body)
+        self.assertIn("problem(s) in the public text", body)
+
+    def test_a_failing_line_that_cannot_be_cut_is_left_out_whole(self):
+        output = ("FAIL public-text-environment [home-path] a place: %s\n"
+                  "a stray line with %s\n"
+                  "1 problem(s) in the public text.\n") % (self.PLANTED, self.PLANTED)
+        body = self.body(output)
+        for secret in self.SECRETS:
+            self.assertNotIn(secret, body)
+        self.assertIn("FAIL (the matched text is left out", body)
+        self.assertIn("1 problem(s) in the public text.", body)
 
 
 GOOD = """\
