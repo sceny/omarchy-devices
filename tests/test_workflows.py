@@ -307,8 +307,8 @@ class DevelopNotice(unittest.TestCase):
                 handle.write(run)
             with open(os.path.join(tmp, "public-text.txt"), "w") as handle:
                 handle.write(check_output)
-            env = dict(
-                os.environ,
+            env = {key: value for key, value in os.environ.items() if key not in ("BASH_ENV", "ENV")}
+            env.update(
                 PATH=bin_dir + os.pathsep + os.environ["PATH"],
                 RUNNER_TEMP=tmp,
                 GH_TOKEN="x",
