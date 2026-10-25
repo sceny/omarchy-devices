@@ -125,4 +125,6 @@ and `dev/sandbox dev up`; screenshots and recordings come out as data. Needs
 
 The panel installs and sets up what it needs of them.
 
+Made by [Sceny](https://sceny.github.io/?from=devices): AI that makes you more able. Also from Sceny: [Learning Sceny](https://sceny.github.io/?from=devices#beta), a study app whose memory links fade as you learn.
+
 MIT, © Sceny. Not affiliated with KDE, Genymobile or Omarchy.
