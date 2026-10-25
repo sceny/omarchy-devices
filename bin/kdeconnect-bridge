@@ -1382,7 +1382,19 @@ def mount_up(path, run=None):
     mounted while sshfs failed (no FUSE device, a stale mount), which leaves
     the plain, empty mount point folder that answers a stat and lists as an
     empty gallery."""
-    return mount_alive(path, run) and os.path.ismount(path)
+    return mount_alive(path, run) and is_mount_point(path, run)
+
+
+def is_mount_point(path, run=None):
+    """Whether the path is a mount point, asked in a child with a limit as
+    `mount_alive` is: `os.path.ismount` would stat it in this process, and a
+    mount that stopped answering since the last check hangs the caller."""
+    run = run or subprocess.run
+    try:
+        return run(["timeout", "3", "findmnt", "-n", "--mountpoint", path],
+                   capture_output=True, timeout=5).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def photos(device_id, count=PHOTO_COUNT):
