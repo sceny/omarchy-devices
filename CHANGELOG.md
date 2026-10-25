@@ -181,6 +181,12 @@ GitHub release with these notes.
 - **Dismiss all**: a button in the Notifications header, and Shift+Delete, dismiss every notification at once; the section's summary no longer jumps as it folds ([#194](https://github.com/sceny/omarchy-devices/issues/194), [#252](https://github.com/sceny/omarchy-devices/issues/252), [#246](https://github.com/sceny/omarchy-devices/issues/246)).
 - **The plugin's own adb server**: adb and scrcpy talk to a server of the plugin's own, on a private socket in the runtime folder, so an adb server you run yourself is left alone and nothing listens on adb's default port ([#320](https://github.com/sceny/omarchy-devices/pull/320)).
 - **A device reached only over Bluetooth counts as here for calls**: its call shows in the bar and the panel although KDE Connect is away ([#374](https://github.com/sceny/omarchy-devices/issues/374)).
+- **The gallery does not retry a mount that is not one**: when KDE Connect said the storage was mounted but sshfs had failed (no FUSE device, a stale mount), the gallery read an empty folder as an empty gallery, asked again every 20 seconds and KDE Connect raised its error each time. Such a mount is now mounted again once and, if that fails, shown as a failed mount: the ten-minute wait and *Try again* apply ([#478](https://github.com/sceny/omarchy-devices/issues/478)).
+- **The panel opens without a binding loop**: a loop on the setup state was logged once at every shell start; the setup handlers now run a moment later and a check fails on the line ([#479](https://github.com/sceny/omarchy-devices/issues/479)).
+- **Hardening of apps, icons and attachments**: an app's package is read in bounded pieces, one app draws on one byte budget, a package that claims to be huge is refused before it is read, and an app that cannot be read safely shows no icon and is not tried again. A file opened from a message is linked in a folder of its own, with an extension from a fixed list of types, and only links the plugin made are removed. A picture is shown only from a file the plugin wrote itself ([#469](https://github.com/sceny/omarchy-devices/pull/469), [#473](https://github.com/sceny/omarchy-devices/pull/473)).
+- **Hardening of what a click does**: saving a file from the device goes through the same checks as opening one and keeps its date; an address you already had in KDE Connect stays yours when the plugin records its own; the ask to the phone for every conversation is made at most once in ten minutes per device; root starts from `/usr/bin/pkexec`; the wait for a pairing ends on a clock; and the panel's commands never focus a text field when scripted ([#471](https://github.com/sceny/omarchy-devices/pull/471)).
+- **A call's audio follows your click**: *Audio here* and keeping the audio on the phone are decided by your own click, and the click that brings a call's audio here is armed as soon as it is made, so a quiet stretch of the call cannot drop it ([#471](https://github.com/sceny/omarchy-devices/pull/471), [#472](https://github.com/sceny/omarchy-devices/pull/472)).
+- **A quiet start**: the background watcher no longer prints a deprecation warning to the panel's error line at every start ([#474](https://github.com/sceny/omarchy-devices/pull/474)).
 
 ### Issues
 
@@ -299,6 +305,9 @@ GitHub release with these notes.
 - [#456](https://github.com/sceny/omarchy-devices/issues/456) Problems: a stopped KDE Connect starts by itself on a computer that was set up before
 - [#459](https://github.com/sceny/omarchy-devices/issues/459) Sandbox: hostile-test takes no store lock, so verify-clean can run between its runs
 - [#460](https://github.com/sceny/omarchy-devices/issues/460) Tests: test_regression.py cannot find dev/regression in the sandbox (develop 46703e8)
+- [#478](https://github.com/sceny/omarchy-devices/issues/478) Gallery: a mount that is reported up but cannot be read is retried every 20 s
+- [#479](https://github.com/sceny/omarchy-devices/issues/479) Panel: binding loop on setupById at startup
+- [#483](https://github.com/sceny/omarchy-devices/issues/483) public-text: a red run on develop reaches nobody ([#485](https://github.com/sceny/omarchy-devices/pull/485))
 
 ### Pull requests without an issue
 
@@ -366,6 +375,16 @@ GitHub release with these notes.
 - [#428](https://github.com/sceny/omarchy-devices/pull/428) Public-text check: decoding sentences pass the sandbox exemption
 - [#446](https://github.com/sceny/omarchy-devices/pull/446) Tests: the build-context test makes its own repository
 - [#450](https://github.com/sceny/omarchy-devices/pull/450) Sandbox: list refused names in SKIPPED.txt without the archive's ./ prefix
+- [#468](https://github.com/sceny/omarchy-devices/pull/468) Regression: the record shows the harness can fail on a known-bad input
+- [#469](https://github.com/sceny/omarchy-devices/pull/469) Bridge: verified adb identity, separate cache links, bounded package reads
+- [#471](https://github.com/sceny/omarchy-devices/pull/471) Hardening: scripted focus, saved files, call audio, thread ask, docs
+- [#472](https://github.com/sceny/omarchy-devices/pull/472) Calls here: arm the click at once; test its lifecycle
+- [#473](https://github.com/sceny/omarchy-devices/pull/473) Bridge: raw package reads draw on the app's byte budget
+- [#474](https://github.com/sceny/omarchy-devices/pull/474) Bridge: stop signals through GLibUnix, no warning on the watcher's stderr
+- [#476](https://github.com/sceny/omarchy-devices/pull/476) dev/sandbox: dev stop ends only the session it names
+- [#477](https://github.com/sceny/omarchy-devices/pull/477) Public-text check reads titles, commit messages and develop pushes
+- [#508](https://github.com/sceny/omarchy-devices/pull/508) Tests: DevelopNotice cannot reach the real gh
+- [#510](https://github.com/sceny/omarchy-devices/pull/510) Public-text check: a CI run log names the rule, not the matched text
 
 ### Upgrading
 
@@ -381,6 +400,7 @@ GitHub release with these notes.
 - **Sound has a third place**, *Both* (`appSound` accepts `both`; Android 13). Your stored `here` and `phone` are unchanged.
 - **Notifications are stacked per app and conversation**: with several from one app the panel shows the newest with a count; the rest open on a click.
 - **Problems that need nothing from you are fixed by themselves**: a dead mount, lost notifications or link, a stopped KDE Connect on a set-up computer. The *Fix* card shows only if the problem remains.
+- **A Wi-Fi or mesh adb connection is matched only at an address KDE Connect reports for the device** (or the mesh address you picked or confirmed on *From anywhere*). Before, an adb entry could be matched by what it announced or answered; that is no longer identity. USB is matched by the device's own serial, as before. With Wi-Fi adb and KDE Connect away, the screen and apps no longer find the device by themselves: connect it by USB, or pick the device on *From anywhere*. A mesh address found only by the device's name is not used until you pick it.
 - Nothing else in your settings is rewritten; new keys (`closedProblems`)
   appear on your next change.
 
