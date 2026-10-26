@@ -220,6 +220,12 @@ class Isolation(unittest.TestCase):
         self.assertIn('mkdir -p -m 755 "$out/$unit"', self.script)
         self.assertIn('read_result "$tarfile" "$out/$unit" "$out" "$unit"', self.script)
 
+    def test_each_step_and_unit_gets_a_share_of_the_limit_not_all_of_it(self):
+        loop = self.script.split("local steps_left=")[1].split("write_verdict ")[0]
+        self.assertIn("step_end=$((SECONDS + (timeout - (SECONDS - started)) / steps_left))", loop)
+        self.assertIn("left=$(((step_end - SECONDS) / (${#step_units[@]} - i)))", loop)
+        self.assertNotIn("left=$((timeout - (SECONDS - started)))", self.script)
+
     def test_the_tests_step_runs_with_the_seccomp_profile_without_user_namespaces(self):
         self.assertIn('seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")', self.script)
         self.assertIn('"${seccomp[@]}"', self.run_cmd)
