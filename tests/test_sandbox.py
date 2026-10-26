@@ -49,6 +49,17 @@ def sandbox(*args):
     )
 
 
+def path_with_slice_loaded(directory):
+    """PATH whose systemctl says the slice is loaded, so a test never depends on the machine's own systemd."""
+    bin_dir = os.path.join(directory, "bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    path = os.path.join(bin_dir, "systemctl")
+    with open(path, "w") as f:
+        f.write("#!/bin/sh\necho loaded\n")
+    os.chmod(path, 0o755)
+    return bin_dir + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")
+
+
 class Refusals(unittest.TestCase):
     def refused(self, *args, message):
         r = sandbox("run", *args)
@@ -1230,7 +1241,7 @@ class StaleRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state = os.path.join(tmp, "state")
             runs = os.path.join(state, "runs")
-            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state}
+            env = {"PATH": path_with_slice_loaded(tmp), "HOME": tmp, "SANDBOX_STATE": state}
             killed = subprocess.Popen(
                 ["bash", "-c", self.script("sleep 60")],
                 env=env,
@@ -1320,7 +1331,7 @@ class DevelopRunsNeedACurrentImage(unittest.TestCase):
         repo = os.path.join(tmp, "repo")
         os.makedirs(repo)
         env = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": path_with_slice_loaded(tmp),
             "HOME": tmp,
             "SANDBOX_STATE": os.path.join(tmp, "state"),
             "GIT_AUTHOR_NAME": "t",
