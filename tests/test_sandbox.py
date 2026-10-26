@@ -1221,6 +1221,7 @@ class StaleRuns(unittest.TestCase):
         return (
             f'source "{SANDBOX}"\n'
             "require_tools() { :; }\n"
+            "slice_check() { :; }\n"
             "pm() { return 0; }\n"
             f"make_archive() {{ {make_archive}; }}\n"
             f"cmd_run {REPO} {GOOD_SHA} --steps tests --harness pr\n"
@@ -1339,6 +1340,7 @@ class DevelopRunsNeedACurrentImage(unittest.TestCase):
             f'source "{SANDBOX}"\n'
             f'SB_REPO_ROOT="{repo}"\n'
             "require_tools() { :; }\n"
+            "slice_check() { :; }\n"
             f"pm() {{ case \"$1 $2\" in 'image inspect') printf '%s' '{built or develop}' ;; esac; }}\n"
             "make_archive() { echo reached >&2; exit 5; }\n"
             f"cmd_run {REPO} {GOOD_SHA} --steps tests --harness {harness}\n"
