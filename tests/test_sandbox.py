@@ -803,7 +803,9 @@ def png(width, height, text=None):
     def chunk(kind, body):
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
 
-    raw = zlib.compress(b"".join(b"\x00" + b"\x10\x20\x30" * width for _ in range(height)))
+    row = b"\x00" + b"\x10\x20\x30" * width
+    deflate = zlib.compressobj()
+    raw = b"".join([deflate.compress(row) for _ in range(height)] + [deflate.flush()])
     out = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
     if text:
         out += chunk(b"tEXt", text)
