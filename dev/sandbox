@@ -79,6 +79,9 @@
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
 # SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
 # SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
+# Every container runs in the sandbox.slice unit of the user's systemd, which
+# holds the memory cap shared by all sandboxes; the run refuses to start while
+# that unit is not loaded.
 # SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox); a
 # store moved this way keeps its podman runroot inside itself.
 
@@ -113,6 +116,7 @@ SB_CPUS=${SANDBOX_CPUS:-8}
 SB_PIDS=${SANDBOX_PIDS:-2048}
 SB_TIMEOUT=${SANDBOX_TIMEOUT:-2700}
 SB_TMP_SIZE=${SANDBOX_TMP_SIZE:-12g}
+SB_CGROUP=sandbox.slice
 SB_MAX_ARCHIVE=$((256 * 1024 * 1024))
 SB_MAX_RESULT=${SANDBOX_MAX_RESULT:-$((1024 * 1024 * 1024))}
 SB_MAX_MEMBERS=20000
@@ -173,6 +177,13 @@ require_tools() {
   [[ $SB_MAX_RESULT =~ ^[0-9]+$ ]] && ((SB_MAX_RESULT >= 1)) || die "SANDBOX_MAX_RESULT must be a number of bytes"
   mkdir -p "$SB_STATE/storage" "$SB_STATE/runs" "$SB_STATE/mirrors" "$SB_STATE/results" "$SB_RUNTIME"
   chmod 700 "$SB_STATE"
+}
+
+# Without the unit, a container is in no slice and the shared memory cap bounds nothing.
+slice_check() {
+  local state
+  state=$(env XDG_RUNTIME_DIR="/run/user/$SB_UID" systemctl --user show -p LoadState --value "$SB_CGROUP" 2>/dev/null)
+  [[ $state == loaded ]] || die "$SB_CGROUP is not loaded in the user's systemd (LoadState '$state'): containers would not be capped by it"
 }
 
 # The store lock: one command at a time writes to the store (a run's
@@ -413,6 +424,7 @@ run_unit() {
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
       "${seccomp[@]}" \
       "${devices[@]}" \
+      --cgroup-parent "$SB_CGROUP" \
       --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
       --ulimit core=0 --ulimit nofile=65536:65536 \
       --init --hostname sandbox --timeout "$timeout" --stop-timeout 5 \
@@ -498,6 +510,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      --cgroup-parent "$SB_CGROUP" \
       --memory 2g --memory-swap 2g --cpus 2 --pids-limit 256 \
       --ulimit core=0 --ulimit nofile=4096:4096 \
       --init --hostname sandbox --timeout "$secs" --stop-timeout 5 \
@@ -631,6 +644,7 @@ cmd_run() {
     [[ -d $from ]] || die "run: --from $from is not a directory"
   fi
   require_tools
+  slice_check
   local profile
   profile=$(profile_of "$repo")
   SB_RUN_IMAGE=$(image_of "$profile")
@@ -740,7 +754,7 @@ pins_check() { # <profile>
   image_rows=$(
     pm run --rm --pull never --network none --no-hosts --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-      --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
+      --cgroup-parent "$SB_CGROUP" --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
       "$image" bash -c 'pacman -Q hyprland quickshell; printf "omarchy %s\n" "$(sed -n "s/^ARG OMARCHY_VERSION=//p" /opt/harness/dev/sandbox.d/Containerfile | head -1)"' 2>/dev/null
   )
   [[ -n $held ]] || store_lock_release
@@ -850,6 +864,7 @@ dev_start() {
   [[ $ttl =~ ^[0-9]+$ ]] && ((ttl >= 60 && ttl <= SB_DEV_TTL_MAX)) || die "dev start: --ttl is 60 to $SB_DEV_TTL_MAX seconds"
   valid_repo "$repo" || die "dev start: $repo is not a repository this sandbox runs (${SB_REPOS[*]})"
   require_tools
+  slice_check
   profile=$(profile_of "$repo")
   pm image exists "$(image_of "$profile")" || die "dev start: no $profile image; run 'dev/sandbox build --profile $profile' first"
   # The emulator needs /dev/kvm; Paperclip's rig has none.
@@ -876,6 +891,7 @@ dev_start() {
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
     --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
     "${devices[@]}" \
+    --cgroup-parent "$SB_CGROUP" \
     --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
     --ulimit core=0 --ulimit nofile=65536:65536 \
     --init --hostname sandbox --timeout "$ttl" --stop-timeout 5 \
@@ -1038,6 +1054,7 @@ dev_assemble() {
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
+      --cgroup-parent "$SB_CGROUP" \
       --memory 4g --memory-swap 4g --cpus 4 --pids-limit 256 \
       --ulimit core=0 --ulimit nofile=4096:4096 \
       --init --hostname sandbox --timeout 300 --stop-timeout 5 \
