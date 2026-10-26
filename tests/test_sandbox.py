@@ -1288,6 +1288,58 @@ class StaleRuns(unittest.TestCase):
             self.assertIn("store_lock_acquire\n  clear_stale_runs\n", body.group(1), name)
 
 
+class StaleRunsKeptWhileMounted(unittest.TestCase):
+    """clear_stale_runs against a fake pm: a run a container mounts is kept, and nothing is removed when podman cannot say."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            cls.function = function_text(f.read(), "clear_stale_runs")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.state = os.path.join(self.tmp, "state")
+        self.runs = os.path.join(self.state, "runs")
+        self.live = os.path.join(self.runs, "aaaa0001")
+        self.gone = os.path.join(self.runs, "aaaa0002")
+        os.makedirs(self.live)
+        os.makedirs(self.gone)
+
+    def clear(self, ps, inspect):
+        script = (
+            "set -uo pipefail\n"
+            'warn() { echo "WARN: $*"; }\n'
+            f"SB_STATE={shlex.quote(self.state)}\n"
+            "pm() {\n"
+            '  case "$1" in\n'
+            f"    ps) {ps} ;;\n"
+            f"    inspect) {inspect} ;;\n"
+            "  esac\n"
+            "}\n"
+            f"{self.function}\n"
+            "clear_stale_runs\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60)
+
+    def test_a_run_a_container_mounts_is_kept_and_the_others_are_cleared(self):
+        mount = os.path.join(self.live, "src.tar")
+        r = self.clear(ps="echo sceny-sandbox-1", inspect=f"echo {shlex.quote(mount)}")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(os.listdir(self.runs), ["aaaa0001"], r.stdout)
+        self.assertIn("removed the directory of a run that did not finish: aaaa0002", r.stdout)
+
+    def test_nothing_is_removed_when_podman_cannot_list_containers(self):
+        r = self.clear(ps="exit 1", inspect="exit 0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sorted(os.listdir(self.runs)), ["aaaa0001", "aaaa0002"], r.stdout)
+
+    def test_nothing_is_removed_when_a_container_cannot_be_inspected(self):
+        r = self.clear(ps="echo sceny-sandbox-1", inspect="exit 1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sorted(os.listdir(self.runs)), ["aaaa0001", "aaaa0002"], r.stdout)
+
+
 def sandbox_runroot(state=None):
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir()}
     if state is not None:

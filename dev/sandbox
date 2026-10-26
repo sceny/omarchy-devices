@@ -369,13 +369,24 @@ run_cleanup() {
   store_lock_release
 }
 
-# A run killed by a signal its traps do not catch never reaches run_cleanup. Every
-# run holds the store lock to its end, so once this command holds it, nothing
-# under runs/ is live.
+# A run killed by a signal its traps do not catch never reaches run_cleanup. A run
+# holds the store lock to its end, but a run from another checkout of this script
+# may not, so a directory is removed only when no container mounts it. If podman
+# cannot list them, nothing is removed.
 clear_stale_runs() {
-  local dir
+  local dir src ids mounts used
+  ids=$(pm ps -aq) || return 0
+  mounts=""
+  if [[ -n $ids ]]; then
+    mounts=$(pm inspect --format '{{range .Mounts}}{{.Source}}{{"\n"}}{{end}}' $ids) || return 0
+  fi
   for dir in "$SB_STATE"/runs/*; do
     [[ -e $dir ]] || continue
+    used=0
+    while IFS= read -r src; do
+      if [[ $src == "$dir"/* ]]; then used=1; fi
+    done <<<"$mounts"
+    if ((used)); then continue; fi
     warn "removed the directory of a run that did not finish: ${dir##*/}"
     rm -rf -- "$dir"
   done
