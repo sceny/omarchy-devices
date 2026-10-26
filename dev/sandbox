@@ -78,7 +78,9 @@
 #
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
 # SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
-# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
+# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB),
+# SANDBOX_CGROUP_PARENT (sandbox.slice: every container's memory shares its cap),
+# SANDBOX_DEV_MAX (2: rigs, dev sessions and run units with devices, at once).
 # SANDBOX_STATE moves the image store (default ~/.local/share/sceny-sandbox); a
 # store moved this way keeps its podman runroot inside itself.
 
@@ -109,6 +111,9 @@ new_id() {
 }
 
 SB_MEMORY=${SANDBOX_MEMORY:-10g}
+# Every container sits in this slice, so its memory cap bounds all of them together.
+SB_CGROUP_PARENT=${SANDBOX_CGROUP_PARENT:-sandbox.slice}
+SB_RIG_LABEL=org.sceny.sandbox.rig
 SB_CPUS=${SANDBOX_CPUS:-8}
 SB_PIDS=${SANDBOX_PIDS:-2048}
 SB_TIMEOUT=${SANDBOX_TIMEOUT:-2700}
@@ -164,6 +169,32 @@ pm() {
     podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" "$@" 9>&-
 }
 
+# Podman makes an uncapped transient slice for a name it cannot find, so the
+# default slice's unit is installed when it is missing. An existing unit is
+# never overwritten: its owner sets its numbers.
+slice_ensure() {
+  [[ $SB_CGROUP_PARENT == sandbox.slice ]] || return 0
+  local dir=${XDG_CONFIG_HOME:-$SB_HOME/.config}/systemd/user unit
+  unit=$dir/sandbox.slice
+  if [[ ! -f $unit ]]; then
+    mkdir -p -- "$dir"
+    cat >"$unit" <<'EOF'
+[Unit]
+Description=Plugin sandboxes and rigs: one shared memory cap
+
+[Slice]
+MemoryHigh=12G
+MemoryMax=14G
+MemorySwapMax=4G
+EOF
+    warn "sandbox.slice was missing: installed $unit"
+    systemctl --user daemon-reload 2>/dev/null || warn "systemctl --user daemon-reload failed: the slice is not loaded"
+  fi
+  [[ $(systemctl --user show -p MemoryMax --value sandbox.slice 2>/dev/null) == infinity ]] &&
+    warn "sandbox.slice has no memory cap: its containers share no limit"
+  return 0
+}
+
 require_tools() {
   local missing=() tool
   for tool in podman git python3 tar timeout getent flock; do
@@ -173,6 +204,7 @@ require_tools() {
   [[ $SB_MAX_RESULT =~ ^[0-9]+$ ]] && ((SB_MAX_RESULT >= 1)) || die "SANDBOX_MAX_RESULT must be a number of bytes"
   mkdir -p "$SB_STATE/storage" "$SB_STATE/runs" "$SB_STATE/mirrors" "$SB_STATE/results" "$SB_RUNTIME"
   chmod 700 "$SB_STATE"
+  slice_ensure
 }
 
 # The store lock: one command at a time writes to the store (a run's
@@ -394,11 +426,19 @@ run_unit() {
   SB_RUN_NAME="sceny-sandbox-$id"
   rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
 
-  local seccomp=()
+  local seccomp=() rig=()
   ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
   local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
   [[ -f $SB_RUN_DIR/script.sh ]] &&
     mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
+  if ((${#devices[@]} > 0)); then
+    rig=(--label "$SB_RIG_LABEL=1")
+    if ! rig_wait "$timeout"; then
+      UNIT_EXIT=$E_SANDBOX UNIT_NOTE="no rig slot free within ${timeout} s (SANDBOX_DEV_MAX=$SB_DEV_MAX)"
+      fail "$unit: $UNIT_NOTE"
+      return 0
+    fi
+  fi
 
   step "unit $unit (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
   # The container's stdout is the result tar, cut at the cap by head; its
@@ -407,12 +447,13 @@ run_unit() {
     timeout --signal=KILL $((timeout + 90)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" "${rig[@]}" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
       "${seccomp[@]}" \
       "${devices[@]}" \
+      --cgroup-parent "$SB_CGROUP_PARENT" \
       --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
       --ulimit core=0 --ulimit nofile=65536:65536 \
       --init --hostname sandbox --timeout "$timeout" --stop-timeout 5 \
@@ -498,7 +539,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-      --memory 2g --memory-swap 2g --cpus 2 --pids-limit 256 \
+      --cgroup-parent "$SB_CGROUP_PARENT" --memory 2g --memory-swap 2g --cpus 2 --pids-limit 256 \
       --ulimit core=0 --ulimit nofile=4096:4096 \
       --init --hostname sandbox --timeout "$secs" --stop-timeout 5 \
       --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=512m,mode=1777" \
@@ -740,7 +781,7 @@ pins_check() { # <profile>
   image_rows=$(
     pm run --rm --pull never --network none --no-hosts --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-      --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
+      --cgroup-parent "$SB_CGROUP_PARENT" --memory 256m --pids-limit 64 --timeout 60 --tmpfs /tmp:rw,noexec,size=16m \
       "$image" bash -c 'pacman -Q hyprland quickshell; printf "omarchy %s\n" "$(sed -n "s/^ARG OMARCHY_VERSION=//p" /opt/harness/dev/sandbox.d/Containerfile | head -1)"' 2>/dev/null
   )
   [[ -n $held ]] || store_lock_release
@@ -791,6 +832,32 @@ DEV_NAME=""
 DEV_PROFILE=""
 
 dev_names() { pm ps --filter "label=$SB_DEV_LABEL" --format '{{.Names}}' 2>/dev/null; }
+
+# The rigs' count and each rig's start share one lock, so two starts cannot both pass
+# the count. A run's rig holds no lock while it runs; it counts as running by its label.
+rig_lock() {
+  exec 8>>"$SB_STATE/.rigs.lock" || die "the rig lock $SB_STATE/.rigs.lock could not be opened"
+  flock -x 8 || die "the rig lock could not be taken"
+}
+rig_unlock() { exec 8>&-; }
+rig_running() {
+  {
+    pm ps --filter "label=$SB_DEV_LABEL=1" --format '{{.Names}}'
+    pm ps --filter "label=$SB_RIG_LABEL=1" --format '{{.Names}}'
+  } 2>/dev/null | sort -u | grep -c .
+}
+rig_wait() { # <seconds>: waits for a free rig slot, for at most that long
+  local until=$((SECONDS + $1)) running
+  while :; do
+    rig_lock
+    running=$(rig_running)
+    rig_unlock
+    ((running < SB_DEV_MAX)) && return 0
+    ((SECONDS < until)) || return 1
+    warn "waiting for a rig slot ($running of $SB_DEV_MAX running)"
+    sleep 15
+  done
+}
 
 # DEV_NAME from --session ID, else the one session there is.
 dev_resolve() {
@@ -865,17 +932,19 @@ dev_start() {
   fi
   [[ -c $node && $node == /dev/dri/renderD* ]] ||
     die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
-  (($(dev_names | grep -c .) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX sessions are running already (dev/sandbox dev status); stop one"
   pins_check "$profile" || die "dev start: the $profile image is behind this machine"
+  rig_lock
+  (($(rig_running) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX rigs are running already (SANDBOX_DEV_MAX); stop a session (dev/sandbox dev status)"
   id=$(new_id)
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
-  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
+  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_RIG_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
     --pull never --log-driver none \
     --network none --no-hosts \
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
     --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
     "${devices[@]}" \
+    --cgroup-parent "$SB_CGROUP_PARENT" \
     --memory "$SB_MEMORY" --memory-swap "$SB_MEMORY" --cpus "$SB_CPUS" --pids-limit "$SB_PIDS" \
     --ulimit core=0 --ulimit nofile=65536:65536 \
     --init --hostname sandbox --timeout "$ttl" --stop-timeout 5 \
@@ -889,7 +958,8 @@ dev_start() {
     --mount "type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro" \
     --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
     --workdir /work \
-    "$(image_of "$profile")" sleep infinity >/dev/null || die "dev start: the container did not start"
+    "$(image_of "$profile")" sleep infinity 8>&- >/dev/null || die "dev start: the container did not start"
+  rig_unlock
   ok "session $id ($profile) started; it ends by itself after $((ttl / 60)) minutes"
   printf '%s\n' "$id"
 }
@@ -1038,7 +1108,7 @@ dev_assemble() {
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
-      --memory 4g --memory-swap 4g --cpus 4 --pids-limit 256 \
+      --cgroup-parent "$SB_CGROUP_PARENT" --memory 4g --memory-swap 4g --cpus 4 --pids-limit 256 \
       --ulimit core=0 --ulimit nofile=4096:4096 \
       --init --hostname sandbox --timeout 300 --stop-timeout 5 \
       --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777" \
