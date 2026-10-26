@@ -1,6 +1,7 @@
 """What a device can do (kdeconnect-bridge features) and the fixes that act on
 one device. The device and adb are replaced; every dump here is made up."""
 
+import ast
 import importlib.machinery
 import importlib.util
 import os
@@ -201,6 +202,31 @@ class Mounts(unittest.TestCase):
         self.assertFalse(bridge.mount_alive("/run/user/1/x", run=lambda cmd, **kw: ran.append(cmd) or Out()))
         self.assertEqual(ran[0][:2], ["timeout", "3"])
         self.assertFalse(bridge.mount_alive(""), "no mount point")
+
+    def test_a_mount_point_is_asked_in_a_child_never_by_this_process(self):
+        ran = []
+        class Out:
+            returncode = 0
+        def run(cmd, **kw):
+            ran.append(cmd)
+            return Out()
+        def hung(path):
+            raise AssertionError("os.path.ismount stats in this process: a mount that stopped answering hangs it")
+        with mock.patch.object(bridge.os.path, "ismount", hung):
+            self.assertTrue(bridge.mount_up("/run/user/1/x", run=run))
+        self.assertEqual([c[:2] for c in ran], [["timeout", "3"]] * 2, "the answer and the mount test each in a limited child")
+        self.assertIn("findmnt", ran[1])
+
+    def test_a_mount_point_that_does_not_answer_is_not_one(self):
+        def run(cmd, **kw):
+            raise bridge.subprocess.TimeoutExpired(cmd, 5)
+        self.assertFalse(bridge.is_mount_point("/run/user/1/x", run=run))
+
+    def test_mount_up_never_uses_ismount(self):
+        tree = ast.parse(open(BRIDGE).read())
+        up = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "mount_up")
+        used = [n.lineno for n in ast.walk(up) if isinstance(n, ast.Attribute) and n.attr == "ismount"]
+        self.assertEqual(used, [], "os.path.ismount stats the path in this process (line %s)" % used)
 
 
 class Renotify(unittest.TestCase):

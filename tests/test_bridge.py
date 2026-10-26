@@ -864,7 +864,7 @@ class Photos(unittest.TestCase):
                  mock.patch.object(bridge, "bus", return_value=mock.Mock(call_sync=lambda *a: mock.Mock(unpack=lambda: (True,)))), \
                  mock.patch.object(bridge, "call", side_effect=lambda conn, path, iface, method, *rest: replies[method]), \
                  mock.patch.object(bridge, "state_dir", return_value=point), \
-                 mock.patch.object(bridge.os.path, "ismount", return_value=True), \
+                 mock.patch.object(bridge, "is_mount_point", return_value=True), \
                  mock.patch.object(bridge, "mount_alive", return_value=True):
                 got = bridge.photos("p1")
         self.assertIs(got["ok"], True)
