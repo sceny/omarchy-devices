@@ -725,7 +725,9 @@ one only with the owner.
   GitHub default branch.
 - **Develop and test in the sandbox, never on the owner's desktop or phone.**
   `dev/sandbox` is a rootless podman container with no home, no credentials,
-  no network and no host socket, in two modes. `dev/sandbox dev` is a
+  no network and no host socket, in two modes. It needs the user unit
+  `sandbox.slice` loaded on the host (`docs/internals/development.md`, *Host
+  prerequisites*). `dev/sandbox dev` is a
   session for Sceny's own working tree, kept until `dev stop` or its TTL:
   `dev start`, `dev sync` (the tracked files, after every edit), `dev up`
   (the hidden rig: a second shell with the tree installed as the plugin and a

@@ -14,8 +14,9 @@ rootless container with no home, no credentials, no network and no host
 socket, holding the hidden rig (`dev/rig`): a second shell in its own
 compositor, the working tree installed as the plugin, and a small Android
 emulator as the phone. `dev/rig` is not run on the host. The owner's shell,
-desktop and phone are never used. Commands in this skill that start with
-`RIG` or `IPC` go through the session:
+desktop and phone are never used. The sandbox refuses to start until the host's user unit
+`sandbox.slice` is loaded; its install is in `docs/internals/development.md` (*Host
+prerequisites*). Commands in this skill that start with `RIG` or `IPC` go through the session:
 
 ```bash
 RIG=(dev/sandbox dev rig)          # dev/rig's verbs, on the session's rig

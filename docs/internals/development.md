@@ -64,6 +64,28 @@ software fallback exists). Everything else (`labwc`, `wtype`, `scrcpy`, the
 Android SDK parts, Omarchy's shell, the KDE Connect APK) is in the image that needs it.
 Installing a host package is the owner's go.
 
+**The user unit `sandbox.slice`.** Every container runs in it, and it holds the memory cap
+shared by all sandboxes. `run` and `dev start` refuse to start unless
+`systemctl --user show -p LoadState --value sandbox.slice` prints `loaded`. It is a user unit,
+so no root is needed:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/sandbox.slice <<'EOF'
+[Unit]
+Description=Memory cap shared by every dev/sandbox container
+
+[Slice]
+MemoryMax=10G
+EOF
+systemctl --user daemon-reload
+systemctl --user show -p LoadState --value sandbox.slice   # prints: loaded
+```
+
+`MemoryMax` is the total the sandboxes on the host may use together. Set it to the share of
+memory the host gives the sandbox, and never below one container's `SANDBOX_MEMORY` (10g by
+default).
+
 ### One exact commit: `dev/sandbox run`
 
 A commit not written by Sceny runs only in `dev/sandbox run`, never in `dev`,
