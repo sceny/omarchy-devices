@@ -104,6 +104,42 @@ class Refusals(unittest.TestCase):
         self.assertIn("unknown command", r.stderr)
 
 
+class SliceUnit(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.bin = os.path.join(self.tmp.name, "bin")
+        self.state = os.path.join(self.tmp.name, "state")
+        os.mkdir(self.bin)
+        self.stub("podman", "exit 0")
+        self.env = {
+            "PATH": self.bin + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
+            "HOME": self.tmp.name,
+            "SANDBOX_STATE": self.state,
+        }
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def stub(self, name, body):
+        path = os.path.join(self.bin, name)
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\n" + body + "\n")
+        os.chmod(path, 0o755)
+
+    def refused_by_systemctl(self, output, status, *args):
+        self.stub("systemctl", f"printf '%s\\n' '{output}'\nexit {status}")
+        return subprocess.run(["bash", SANDBOX, *args], capture_output=True, text=True, timeout=60, env=self.env)
+
+    def test_run_and_dev_start_refuse_unless_the_unit_is_loaded(self):
+        for output, status in (("not-found", 1), ("masked", 0), ("", 1)):
+            for verb, args in (("run", (REPO, GOOD_SHA)), ("dev start", ("--repo", REPO))):
+                with self.subTest(verb=verb, output=output):
+                    r = self.refused_by_systemctl(output, status, *verb.split(), *args)
+                    self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                    self.assertIn("sandbox.slice is not loaded", r.stderr)
+                    self.assertFalse(os.path.exists(os.path.join(self.state, ".lock")))
+
+
 class Isolation(unittest.TestCase):
     """The text of the podman invocation in cmd_run."""
 
