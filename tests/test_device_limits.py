@@ -233,8 +233,10 @@ class DeviceTextCaps(unittest.TestCase):
         self.assertLess(len(str(out)), 100 * 40 * 6000)
 
     def test_an_oversized_conversation_is_cut(self):
-        big = "y" * (1 << 20)
-        markup = "<br/>".join("<b>%s</b>\n%s" % ("s" * 5000, big) for _ in range(500))
+        # Past both caps (more messages than CAP_CONVERSATION, each far over CAP_TEXT),
+        # but small: the bridge holds a few copies of the markup while it cuts it.
+        count, big = 2 * bridge.CAP_CONVERSATION, "y" * (256 << 10)
+        markup = "<br/>".join("<b>%s</b>\n%d%s" % ("s" * 5000, i, big) for i in range(count))
         saved = bridge.call, bridge.props
         bridge.call = lambda *a, **k: (["c1"],)
         bridge.props = lambda *a: {"text": markup, "isConversation": True}
@@ -243,6 +245,7 @@ class DeviceTextCaps(unittest.TestCase):
         finally:
             bridge.call, bridge.props = saved
         self.assertEqual(len(n["conversation"]), bridge.CAP_CONVERSATION)
+        self.assertTrue(n["conversation"][-1]["text"].startswith(str(count - 1)), "the newest are kept")
         self.assertTrue(all(len(m["sender"]) <= bridge.CAP_SHORT and len(m["text"]) <= bridge.CAP_TEXT for m in n["conversation"]))
         self.assertLessEqual(len(n["text"]), bridge.CAP_TEXT)
 
