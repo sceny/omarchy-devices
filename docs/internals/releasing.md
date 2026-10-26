@@ -42,6 +42,15 @@ On R0, Omar then files or edits the marketplace issue and opens the
 check. A step only the owner's account can do on the marketplace issue is a
 named step for the chief of staff, once, in this chain.
 
+- **A step waits on another agent's task, never on its own agent's.** A task
+  is `blocked` on the tasks in its *After* column that another agent holds. A
+  task in *After* held by the same agent is no blocker: that agent starts the
+  step when it closes the earlier one, since nobody else would wake it.
+- **A step is blocked only on an active or `blocked` task.** While the task
+  it waits on is still in `backlog`, the step stays in `backlog` with no
+  blocker, and its text names who starts it and when. The agent who starts a
+  step sets each later step another agent holds `blocked` on it. A task
+  blocked on a `backlog` task shows as needing a person's attention.
 - **The candidate is the head of R1's pull request when R2 passes.** R3 and R4
   start only then. A new commit on it voids R2 to R6: each runs again on the
   new head, and no task is created.
