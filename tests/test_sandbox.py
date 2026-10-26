@@ -1582,7 +1582,7 @@ class SliceAndRigs(unittest.TestCase):
 
     def test_the_lock_is_released_once_the_container_exists(self):
         r = self.bash(
-            'rig_lock; (sleep 30) 8>&- & SB_RUN_NAME=x; rig_release_when_started $!; kill $! 2>/dev/null; '
+            'rig_lock; SB_RUN_NAME=x; rig_release_when_started $$; '
             'flock -n "$SB_STATE/.rigs.lock" true; echo "free=$?"',
             self.base_env(FAKE_EXISTS="0"),
         )
