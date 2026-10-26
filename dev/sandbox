@@ -683,17 +683,24 @@ cmd_run() {
   make_seccomp
   [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
 
-  # One container per unit; the time limit is for all of them together.
-  local started=$SECONDS unit step_name left unit_devices
+  # One container per unit. The limit is shared out: each step gets an equal
+  # part of what is left, and its units share that part the same way, so one
+  # unit that runs long is cut at its share and cannot take the others' time.
+  local started=$SECONDS unit step_name left unit_devices step_units step_end i
   : >"$SB_RUN_DIR/rows.tsv"
   local IFS_SAVE=$IFS
   IFS=, read -ra wanted <<<"$steps"
   IFS=$IFS_SAVE
+  local steps_left=${#wanted[@]}
   for step_name in "${wanted[@]}"; do
-    for unit in $(units_of_step "$repo" "$step_name"); do
-      left=$((timeout - (SECONDS - started)))
+    step_end=$((SECONDS + (timeout - (SECONDS - started)) / steps_left))
+    steps_left=$((steps_left - 1))
+    read -ra step_units <<<"$(units_of_step "$repo" "$step_name")"
+    for ((i = 0; i < ${#step_units[@]}; i++)); do
+      unit=${step_units[i]}
+      left=$(((step_end - SECONDS) / (${#step_units[@]} - i)))
       if ((left < 5)); then
-        UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
+        UNIT_EXIT=$E_SANDBOX UNIT_SECONDS=0 UNIT_NOTE="no time left in its share of the run's limit" UNIT_STDOUT=0 UNIT_OOM=false UNIT_TIMED_OUT=true
         fail "$unit: $UNIT_NOTE"
       else
         unit_devices=()
