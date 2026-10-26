@@ -1181,6 +1181,17 @@ class BuildContext(unittest.TestCase):
             self.assertEqual(left, [], "a failed build leaves its context behind")
 
 
+def loaded_slice_path(tmp):
+    """A PATH prefix whose systemctl reports sandbox.slice loaded: no user bus is needed to run cmd_run."""
+    bin_dir = os.path.join(tmp, "slice-bin")
+    os.makedirs(bin_dir, exist_ok=True)
+    fake = os.path.join(bin_dir, "systemctl")
+    with open(fake, "w") as f:
+        f.write("#!/bin/sh\necho loaded\n")
+    os.chmod(fake, 0o755)
+    return f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}"
+
+
 class StaleRuns(unittest.TestCase):
     def script(self, make_archive):
         return (
@@ -1195,7 +1206,7 @@ class StaleRuns(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state = os.path.join(tmp, "state")
             runs = os.path.join(state, "runs")
-            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state}
+            env = {"PATH": loaded_slice_path(tmp), "HOME": tmp, "SANDBOX_STATE": state}
             killed = subprocess.Popen(
                 ["bash", "-c", self.script("sleep 60")],
                 env=env,
@@ -1285,7 +1296,7 @@ class DevelopRunsNeedACurrentImage(unittest.TestCase):
         repo = os.path.join(tmp, "repo")
         os.makedirs(repo)
         env = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": loaded_slice_path(tmp),
             "HOME": tmp,
             "SANDBOX_STATE": os.path.join(tmp, "state"),
             "GIT_AUTHOR_NAME": "t",
