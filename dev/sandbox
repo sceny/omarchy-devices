@@ -78,7 +78,8 @@
 #
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
 # SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
-# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB).
+# SANDBOX_TMP_SIZE (12g), SANDBOX_MAX_RESULT (bytes a unit may send out, 1 GiB),
+# SANDBOX_DEV_MAX (2: rigs, dev sessions and run units with devices, at once).
 # Every container runs in the sandbox.slice unit of the user's systemd, which
 # holds the memory cap shared by all sandboxes; the run refuses to start while
 # that unit is not loaded.
@@ -405,20 +406,30 @@ run_unit() {
   SB_RUN_NAME="sceny-sandbox-$id"
   rm -f -- "$tarfile" "$SB_RUN_DIR/rc"
 
-  local seccomp=()
+  local seccomp=() rig=() held=0
   ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
   local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
   [[ -f $SB_RUN_DIR/script.sh ]] &&
     mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
+  if ((${#devices[@]} > 0)); then
+    rig=(--label "$SB_RIG_LABEL=1")
+    if ! rig_wait "$timeout"; then
+      UNIT_EXIT=$E_SANDBOX UNIT_NOTE="no rig slot free within ${timeout} s (SANDBOX_DEV_MAX=$SB_DEV_MAX)"
+      fail "$unit: $UNIT_NOTE"
+      return 0
+    fi
+    held=1
+  fi
 
   step "unit $unit (no network; $SB_MEMORY, $SB_CPUS cpus, $SB_PIDS processes, ${timeout}s)"
   # The container's stdout is the result tar, cut at the cap by head; its
   # stderr is filtered text. Both pass through the host, so neither is trusted.
+  # 8>&- keeps the rig lock out of the container's processes, which outlive this call.
   (
     timeout --signal=KILL $((timeout + 90)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
       podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
-      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
+      --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" "${rig[@]}" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
       --read-only --cap-drop all --security-opt no-new-privileges --security-opt label=disable \
@@ -442,8 +453,9 @@ run_unit() {
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
     { echo "${PIPESTATUS[0]}" >"$SB_RUN_DIR/rc"; } 2>/dev/null
-  ) 4>&1 | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
+  ) 4>&1 8>&- | head -c $((SB_MAX_RESULT + 1)) 8>&- >"$tarfile" &
   unit_pid=$!
+  ((held)) && rig_release_when_started "$unit_pid"
   wait $unit_pid
   rc=$(cat "$SB_RUN_DIR/rc" 2>/dev/null)
   [[ $rc =~ ^[0-9]+$ ]] || rc=125
@@ -797,6 +809,7 @@ cmd_pins() {
 # data, pictures decoded again in a container of their own (pull).
 
 SB_DEV_LABEL=org.sceny.sandbox.dev
+SB_RIG_LABEL=org.sceny.sandbox.rig
 SB_PROFILE_LABEL=org.sceny.sandbox.profile
 SB_DEV_MAX=${SANDBOX_DEV_MAX:-2}
 SB_DEV_TTL_MAX=14400
@@ -805,6 +818,37 @@ DEV_NAME=""
 DEV_PROFILE=""
 
 dev_names() { pm ps --filter "label=$SB_DEV_LABEL" --format '{{.Names}}' 2>/dev/null; }
+
+# A rig's count and its start share the rig lock, so two starts cannot both pass
+# the count. A run's rig holds the lock only until its container exists; after
+# that it counts as running by its label.
+rig_lock() {
+  exec 8>>"$SB_STATE/.rigs.lock" || die "the rig lock $SB_STATE/.rigs.lock could not be opened"
+  flock -x 8 || die "the rig lock could not be taken"
+}
+rig_unlock() { exec 8>&-; }
+rig_running() {
+  {
+    pm ps --filter "label=$SB_DEV_LABEL=1" --format '{{.Names}}'
+    pm ps --filter "label=$SB_RIG_LABEL=1" --format '{{.Names}}'
+  } 8>&- 2>/dev/null | sort -u | grep -c .
+}
+rig_wait() { # <seconds>: on success the caller holds the rig lock and calls rig_unlock
+  local deadline=$((SECONDS + $1)) running
+  while :; do
+    rig_lock
+    running=$(rig_running)
+    ((running < SB_DEV_MAX)) && return 0
+    rig_unlock
+    ((SECONDS < deadline)) || return 1
+    warn "waiting for a rig slot ($running of $SB_DEV_MAX running)"
+    sleep 15
+  done
+}
+rig_release_when_started() { # <pid of the unit's pipeline>: once its container exists, or the pipeline ended
+  until pm container exists "$SB_RUN_NAME" 8>&- 2>/dev/null || ! kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+  rig_unlock
+}
 
 # DEV_NAME from --session ID, else the one session there is.
 dev_resolve() {
@@ -880,12 +924,13 @@ dev_start() {
   fi
   [[ -c $node && $node == /dev/dri/renderD* ]] ||
     die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
-  (($(dev_names | grep -c .) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX sessions are running already (dev/sandbox dev status); stop one"
   pins_check "$profile" || die "dev start: the $profile image is behind this machine"
+  rig_lock
+  (($(rig_running) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX rigs are running already (SANDBOX_DEV_MAX); stop a session (dev/sandbox dev status)"
   id=$(new_id)
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
-  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
+  pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_RIG_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
     --pull never --log-driver none \
     --network none --no-hosts \
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
@@ -905,7 +950,8 @@ dev_start() {
     --mount "type=bind,src=$SB_DIR/sandbox.d/devside.sh,dst=/opt/devside.sh,ro" \
     --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
     --workdir /work \
-    "$(image_of "$profile")" sleep infinity >/dev/null || die "dev start: the container did not start"
+    "$(image_of "$profile")" sleep infinity 8>&- >/dev/null || die "dev start: the container did not start"
+  rig_unlock
   ok "session $id ($profile) started; it ends by itself after $((ttl / 60)) minutes"
   printf '%s\n' "$id"
 }

@@ -178,6 +178,7 @@ class Isolation(unittest.TestCase):
             "--cpus",
             "--timeout",
             "--no-hosts",
+            '--cgroup-parent "$SB_CGROUP"',
         ):
             with self.subTest(flag=flag):
                 self.assertIn(flag, self.run_cmd)
@@ -1504,6 +1505,124 @@ class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
                 r, removed = self.stop([self.ONE], "--session", bad, "stop")
                 self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
                 self.assertEqual(removed, [])
+
+
+def function_text(text, name):
+    start = text.index(f"\n{name}() {{") + 1
+    line_end = text.index("\n", start)
+    if text[start:line_end].endswith("}"):
+        return text[start:line_end]
+    return text[start:text.index("\n}\n", start) + 3]
+
+
+class CgroupParent(unittest.TestCase):
+    def test_every_podman_launch_with_a_memory_cap_is_in_the_slice(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        launches = re.findall(r"--memory [^ ]+", text)
+        self.assertGreaterEqual(len(launches), 5)
+        self.assertEqual(text.count('--cgroup-parent "$SB_CGROUP"'), len(launches))
+
+
+class SliceAndRigs(unittest.TestCase):
+    """slice_check, the rig count and the rig lock, against a fake systemctl and a fake pm."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            text = f.read()
+        cls.functions = "\n".join(
+            function_text(text, name)
+            for name in ("slice_check", "rig_lock", "rig_unlock", "rig_running", "rig_wait", "rig_release_when_started")
+        )
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+        self.log = os.path.join(self.tmp, "systemctl.log")
+        self.state = os.path.join(self.tmp, "state")
+        os.makedirs(self.state)
+        fake = os.path.join(self.bin, "systemctl")
+        with open(fake, "w") as f:
+            f.write(
+                "#!/bin/bash\n"
+                f'echo "XDG=${{XDG_RUNTIME_DIR:-unset}} $*" >>{shlex.quote(self.log)}\n'
+                'case "$*" in *LoadState*) echo "$FAKE_LOADSTATE" ;; esac\n'
+                "exit 0\n"
+            )
+        os.chmod(fake, 0o755)
+
+    def base_env(self, **extra):
+        env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": self.tmp, "SB_UID": "4242", "SB_CGROUP": "sandbox.slice"}
+        env.update(extra)
+        return env
+
+    def bash(self, body, env):
+        script = (
+            "set -uo pipefail\n"
+            'die() { echo "DIE: $*"; exit 1; }\n'
+            'warn() { echo "WARN: $*"; }\n'
+            f"SB_STATE={shlex.quote(self.state)}\n"
+            "SB_DEV_LABEL=org.sceny.sandbox.dev SB_RIG_LABEL=org.sceny.sandbox.rig SB_DEV_MAX=2\n"
+            'pm() {\n'
+            '  case "$*" in\n'
+            '    *"container exists"*) return "${FAKE_EXISTS:-0}" ;;\n'
+            '    *sandbox.dev=1*) printf "%s\\n" $FAKE_DEV ;;\n'
+            '    *sandbox.rig=1*) printf "%s\\n" $FAKE_RIG ;;\n'
+            "  esac\n"
+            "}\n"
+            f"{self.functions}\n{body}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=120)
+
+    def test_a_loaded_slice_passes_and_is_asked_on_the_user_bus_of_this_uid(self):
+        r = self.bash("slice_check; echo OK", self.base_env(FAKE_LOADSTATE="loaded"))
+        self.assertEqual(r.stdout.strip(), "OK")
+        with open(self.log) as f:
+            self.assertIn("XDG=/run/user/4242 --user show -p LoadState --value sandbox.slice", f.read())
+
+    def test_a_slice_that_is_not_loaded_refuses_and_writes_nothing(self):
+        r = self.bash("slice_check; echo OK", self.base_env(FAKE_LOADSTATE="not-found"))
+        self.assertIn("DIE: sandbox.slice is not loaded", r.stdout)
+        self.assertNotIn("OK", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".config")))
+
+    def test_no_user_bus_reads_as_not_loaded(self):
+        r = self.bash("slice_check", self.base_env(FAKE_LOADSTATE=""))
+        self.assertIn("DIE: sandbox.slice is not loaded", r.stdout)
+
+    def test_a_rig_counts_dev_sessions_and_run_rigs_once_each(self):
+        r = self.bash(
+            "rig_running",
+            self.base_env(FAKE_DEV="a b", FAKE_RIG="b c"),
+        )
+        self.assertEqual(r.stdout.strip(), "3")
+
+    def test_a_rig_wait_with_a_free_slot_returns_holding_the_lock(self):
+        r = self.bash(
+            'rig_wait 60 && echo HELD && flock -n "$SB_STATE/.rigs.lock" true; echo "free=$?"',
+            self.base_env(FAKE_DEV="a", FAKE_RIG=""),
+        )
+        self.assertIn("HELD", r.stdout)
+        self.assertIn("free=1", r.stdout)
+
+    def test_a_rig_wait_with_no_free_slot_gives_up_without_the_lock(self):
+        r = self.bash(
+            'rig_wait 0; echo "rc=$?"; flock -n "$SB_STATE/.rigs.lock" true; echo "free=$?"',
+            self.base_env(FAKE_DEV="a b", FAKE_RIG=""),
+        )
+        self.assertIn("rc=1", r.stdout)
+        self.assertIn("free=0", r.stdout)
+
+    def test_the_lock_is_released_once_the_container_exists(self):
+        r = self.bash(
+            'rig_lock; SB_RUN_NAME=x; rig_release_when_started $$; '
+            'flock -n "$SB_STATE/.rigs.lock" true; echo "free=$?"',
+            self.base_env(FAKE_EXISTS="0"),
+        )
+        self.assertIn("free=0", r.stdout)
 
 
 if __name__ == "__main__":
