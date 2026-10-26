@@ -1459,5 +1459,86 @@ class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
                 self.assertEqual(removed, [])
 
 
+class SliceEnsure(unittest.TestCase):
+    """slice_ensure against a fake systemctl: the real user manager is never touched."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(SANDBOX) as f:
+            text = f.read()
+        start = text.index("slice_ensure() {")
+        end = text.index("\n}\n", start) + 3
+        cls.function = text[start:end]
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.config = os.path.join(self.tmp, "config")
+        self.bin = os.path.join(self.tmp, "bin")
+        os.makedirs(self.bin)
+        self.log = os.path.join(self.tmp, "systemctl.log")
+        fake = os.path.join(self.bin, "systemctl")
+        with open(fake, "w") as f:
+            f.write(
+                "#!/bin/bash\n"
+                f'echo "$*" >>{shlex.quote(self.log)}\n'
+                'case "$*" in\n'
+                '  *LoadState*) echo "${FAKE_LOADSTATE}" ;;\n'
+                '  *MemoryMax*) echo "${FAKE_MEMORYMAX}" ;;\n'
+                "esac\n"
+                "exit 0\n"
+            )
+        os.chmod(fake, 0o755)
+        self.unit = os.path.join(self.config, "systemd", "user", "sandbox.slice")
+
+    def ensure(self, loadstate, memorymax="16106127360"):
+        script = (
+            "set -u\n"
+            "warn() { echo \"WARN: $*\"; }\n"
+            f"{self.function}\n"
+            "SB_CGROUP_PARENT=sandbox.slice slice_ensure\n"
+        )
+        env = {
+            "PATH": f"{self.bin}:/usr/bin:/bin",
+            "HOME": self.tmp,
+            "XDG_CONFIG_HOME": self.config,
+            "FAKE_LOADSTATE": loadstate,
+            "FAKE_MEMORYMAX": memorymax,
+        }
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=60)
+
+    def calls(self):
+        if not os.path.exists(self.log):
+            return ""
+        with open(self.log) as f:
+            return f.read()
+
+    def test_a_loaded_slice_is_left_alone(self):
+        r = self.ensure("loaded")
+        self.assertEqual(r.stdout.strip(), "")
+        self.assertFalse(os.path.exists(self.unit))
+        self.assertNotIn("daemon-reload", self.calls())
+
+    def test_a_missing_slice_is_installed_and_loaded(self):
+        r = self.ensure("not-found")
+        self.assertIn("sandbox.slice was not loaded: installed", r.stdout)
+        with open(self.unit) as f:
+            unit = f.read()
+        self.assertIn("MemoryMax=14G", unit)
+        self.assertIn("daemon-reload", self.calls())
+
+    def test_an_existing_unit_is_never_overwritten(self):
+        os.makedirs(os.path.dirname(self.unit))
+        with open(self.unit, "w") as f:
+            f.write("[Slice]\nMemoryMax=16G\n")
+        self.ensure("not-found")
+        with open(self.unit) as f:
+            self.assertEqual(f.read(), "[Slice]\nMemoryMax=16G\n")
+
+    def test_an_uncapped_slice_is_said_out_loud(self):
+        r = self.ensure("loaded", memorymax="infinity")
+        self.assertIn("sandbox.slice has no memory cap", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
