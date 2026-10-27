@@ -222,10 +222,36 @@ class Mounts(unittest.TestCase):
             raise bridge.subprocess.TimeoutExpired(cmd, 5)
         self.assertFalse(bridge.is_mount_point("/run/user/1/x", run=run))
 
-    def test_mount_up_never_uses_ismount(self):
+    def test_the_storage_root_is_asked_in_a_child_never_by_this_process(self):
+        ran = []
+        class Out:
+            returncode = 0
+            stdout = "/run/user/1/kdeconnect/dev\n"
+        def run(cmd, **kw):
+            ran.append(cmd)
+            return Out()
+        def hung(path):
+            raise AssertionError("os.path.ismount stats in this process: a mount that stopped answering hangs it")
+        with mock.patch.object(bridge.os.path, "ismount", hung):
+            self.assertEqual(bridge.storage_root("/run/user/1/kdeconnect/dev/DCIM/a.jpg", run=run), "/run/user/1/kdeconnect/dev")
+        self.assertEqual(ran[0][:2], ["timeout", "3"])
+        self.assertIn("findmnt", ran[0])
+        self.assertEqual(ran[0][-1], "/run/user/1/kdeconnect/dev/DCIM")
+
+    def test_a_storage_root_that_does_not_answer_is_an_error_not_a_guess(self):
+        def hung(cmd, **kw):
+            raise bridge.subprocess.TimeoutExpired(cmd, 5)
+        class Fail:
+            returncode = 1
+            stdout = ""
+        with self.assertRaises(OSError):
+            bridge.storage_root("/run/user/1/x/a.jpg", run=hung)
+        with self.assertRaises(OSError):
+            bridge.storage_root("/run/user/1/x/a.jpg", run=lambda cmd, **kw: Fail())
+
+    def test_the_bridge_never_uses_ismount(self):
         tree = ast.parse(open(BRIDGE).read())
-        up = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "mount_up")
-        used = [n.lineno for n in ast.walk(up) if isinstance(n, ast.Attribute) and n.attr == "ismount"]
+        used = [n.lineno for n in ast.walk(tree) if isinstance(n, ast.Attribute) and n.attr == "ismount"]
         self.assertEqual(used, [], "os.path.ismount stats the path in this process (line %s)" % used)
 
 
