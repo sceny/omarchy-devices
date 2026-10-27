@@ -1553,13 +1553,26 @@ def open_cache():
     return path
 
 
-def storage_root(path):
-    """The mount the file is on: the nearest folder above it that is a mount
-    point, where the device's storage link begins."""
+def storage_root(path, run=None):
+    """The mount the file is on, where the device's storage link begins: asked
+    of `findmnt` in a child with a limit, as `is_mount_point` is, since
+    `os.path.ismount` stats each folder in this process and a mount that
+    stopped answering hangs the caller. A mount that does not answer is an
+    error, never a guess. `-C` keeps `findmnt` from resolving a link in the
+    folder: the device decides what is in its storage, and a folder it linked
+    out of the mount would otherwise give the mount of the link's target as
+    the root, which the containment check in `open_in_storage` relies on."""
+    run = run or subprocess.run
     folder = os.path.dirname(os.path.abspath(path))
-    while not os.path.ismount(folder) and folder != os.path.dirname(folder):
-        folder = os.path.dirname(folder)
-    return folder
+    try:
+        found = run(["timeout", "3", "findmnt", "-C", "-n", "-o", "TARGET", "--target", folder],
+                    capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise OSError(errno.ETIMEDOUT, "The device's storage does not answer") from error
+    lines = found.stdout.splitlines() if found.returncode == 0 else []
+    if not lines or not lines[0].startswith("/"):
+        raise OSError(errno.EIO, "The device's storage does not answer")
+    return lines[0]
 
 
 def open_in_storage(path, root=None):
