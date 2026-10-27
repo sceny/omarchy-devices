@@ -236,7 +236,17 @@ class Mounts(unittest.TestCase):
             self.assertEqual(bridge.storage_root("/run/user/1/kdeconnect/dev/DCIM/a.jpg", run=run), "/run/user/1/kdeconnect/dev")
         self.assertEqual(ran[0][:2], ["timeout", "3"])
         self.assertIn("findmnt", ran[0])
+        self.assertIn("-C", ran[0], "findmnt must not resolve a link the device planted in its storage")
         self.assertEqual(ran[0][-1], "/run/user/1/kdeconnect/dev/DCIM")
+
+    @unittest.skipUnless(shutil.which("findmnt") and os.path.isdir("/proc/self"), "needs findmnt and /proc")
+    def test_a_folder_linked_out_of_its_mount_does_not_move_the_root(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.symlink("/proc", os.path.join(d, "out"))
+            plain = bridge.storage_root(os.path.join(d, "a.jpg"))
+            linked = bridge.storage_root(os.path.join(d, "out", "a.jpg"))
+        self.assertEqual(linked, plain)
+        self.assertNotEqual(linked, "/proc")
 
     def test_a_storage_root_that_does_not_answer_is_an_error_not_a_guess(self):
         def hung(cmd, **kw):

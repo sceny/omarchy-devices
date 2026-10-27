@@ -1558,11 +1558,14 @@ def storage_root(path, run=None):
     of `findmnt` in a child with a limit, as `is_mount_point` is, since
     `os.path.ismount` stats each folder in this process and a mount that
     stopped answering hangs the caller. A mount that does not answer is an
-    error, never a guess."""
+    error, never a guess. `-C` keeps `findmnt` from resolving a link in the
+    folder: the device decides what is in its storage, and a folder it linked
+    out of the mount would otherwise give the mount of the link's target as
+    the root, which the containment check in `open_in_storage` relies on."""
     run = run or subprocess.run
     folder = os.path.dirname(os.path.abspath(path))
     try:
-        found = run(["timeout", "3", "findmnt", "-n", "-o", "TARGET", "--target", folder],
+        found = run(["timeout", "3", "findmnt", "-C", "-n", "-o", "TARGET", "--target", folder],
                     capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OSError(errno.ETIMEDOUT, "The device's storage does not answer") from error
