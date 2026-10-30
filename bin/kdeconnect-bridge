@@ -4328,8 +4328,9 @@ def match_adb(device, adb_devices, mdns, names=None, serial=""):
     (`device["addresses"]`: KDE Connect's TLS-verified ones, and the mesh
     address this plugin recorded), a serial "host:port" or an mDNS name whose
     announced hosts all are. Over USB the device's own serial (`serial`,
-    remembered from pairing) or, without it, its name (`names`: adb serial to
-    the device's own name). Order: USB, Wi-Fi, mesh (the slowest path)."""
+    remembered from pairing), else, with no entry matched that way, its name
+    (`names`: adb serial to the device's own name), a serial remembered or
+    not. Order: USB, Wi-Fi, mesh (the slowest path)."""
     addresses = set(a for a in device.get("addresses") or [] if a)
     hosts = {}
     for s in mdns:
