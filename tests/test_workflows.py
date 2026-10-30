@@ -292,6 +292,12 @@ class DevelopNotice(unittest.TestCase):
     SECRETS = ("/home/alice", "alice", "aaaaaaaa-0000", "SCE-999")
 
     def body(self, check_output):
+        """The step's notice, after asserting the stub gh, and nothing else, ran it.
+
+        The step's environment is built from nothing: bash takes functions from
+        the environment (`BASH_FUNC_gh%%`) and runs `BASH_ENV` first, and either
+        wins over the stub on PATH, so a caller's own gh with a real token would
+        run instead. The stub writes down its call and its environment."""
         with open(os.path.join(WORKFLOWS, "develop-notice.yml")) as handle:
             tree = load(handle.read(), "develop-notice.yml")
         run = next(step["run"][2] for step in tree["jobs"]["notice"]["steps"]
@@ -299,29 +305,71 @@ class DevelopNotice(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             bin_dir = os.path.join(tmp, "bin")
             os.mkdir(bin_dir)
+            calls = os.path.join(tmp, "gh-calls")
+            seen_env = os.path.join(tmp, "gh-env")
             gh = os.path.join(bin_dir, "gh")
             with open(gh, "w") as handle:
-                handle.write("#!/bin/sh\nexit 0\n")
+                handle.write("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\nenv > '%s'\nexit 0\n" % (calls, seen_env))
             os.chmod(gh, 0o755)
             script = os.path.join(tmp, "step.sh")
             with open(script, "w") as handle:
                 handle.write(run)
             with open(os.path.join(tmp, "public-text.txt"), "w") as handle:
                 handle.write(check_output)
-            env = {key: value for key, value in os.environ.items() if key not in ("BASH_ENV", "ENV")}
-            env.update(
-                PATH=bin_dir + os.pathsep + os.environ["PATH"],
-                RUNNER_TEMP=tmp,
-                GH_TOKEN="x",
-                ACTOR="someone",
-                GITHUB_REPOSITORY="sceny/omarchy-devices",
-                COMMIT_URL="https://github.com/sceny/omarchy-devices/commit/0000000",
-                RUN_URL="https://github.com/sceny/omarchy-devices/actions/runs/1",
-            )
-            result = subprocess.run(["bash", "-e", "-o", "pipefail", script], env=env, capture_output=True, text=True)
+            env = {
+                "PATH": bin_dir + os.pathsep + "/usr/bin:/bin",
+                "HOME": tmp,
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "RUNNER_TEMP": tmp,
+                "GH_TOKEN": "x",
+                "ACTOR": "someone",
+                "GITHUB_REPOSITORY": "sceny/omarchy-devices",
+                "COMMIT_URL": "https://github.com/sceny/omarchy-devices/commit/0000000",
+                "RUN_URL": "https://github.com/sceny/omarchy-devices/actions/runs/1",
+            }
+            result = subprocess.run(["/bin/bash", "-e", "-o", "pipefail", script], env=env, capture_output=True,
+                                    text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(os.path.exists(calls), "the stub gh never ran")
+            with open(calls) as handle:
+                ran = handle.read().splitlines()
+            self.assertEqual(len(ran), 1, ran)
+            self.assertTrue(ran[0].startswith("issue create "), ran)
+            with open(seen_env) as handle:
+                names = {line.split("=", 1)[0] for line in handle.read().splitlines() if "=" in line}
+            leaked = {name for name in names if name.startswith(("BASH_FUNC_", "GH_", "GITHUB_"))
+                      or name in ("BASH_ENV", "ENV", "SHELLOPTS")} - {"GH_TOKEN", "GITHUB_REPOSITORY"}
+            self.assertEqual(leaked, set())
             with open(os.path.join(tmp, "public-text-notice.md")) as handle:
                 return handle.read()
+
+    def test_the_callers_gh_never_runs_in_place_of_the_stub(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = os.path.join(tmp, "fake-gh-ran")
+            bash_env = os.path.join(tmp, "bash_env")
+            with open(bash_env, "w") as handle:
+                handle.write("gh() { echo bash_env >> '%s'; }\n" % marker)
+            planted = {
+                "BASH_ENV": bash_env,
+                "ENV": bash_env,
+                "BASH_FUNC_gh%%": "() {  echo function >> '%s'\n}" % marker,
+                "GH_CONFIG_DIR": tmp,
+                "GH_HOST": "example.test",
+                "GITHUB_TOKEN": "y",
+                "SHELLOPTS": "xtrace",
+            }
+            saved = {key: os.environ.get(key) for key in planted}
+            os.environ.update(planted)
+            try:
+                self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n")
+            finally:
+                for key, value in saved.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
+            self.assertFalse(os.path.exists(marker), "the caller's gh ran instead of the stub")
 
     def test_the_issue_names_the_rule_and_its_place_never_the_matched_text(self):
         doc = {"changed_files": [], "texts": [
