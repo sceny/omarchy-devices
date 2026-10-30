@@ -1377,53 +1377,171 @@ class ThrowawayStoreVerifyClean(unittest.TestCase):
         self.assertIn("no container (running or stopped)", r.stdout + r.stderr)
 
 
-class DevelopRunsNeedACurrentImage(unittest.TestCase):
-    def run_cmd(self, built=None, harness="develop"):
-        tmp = tempfile.mkdtemp(prefix="sceny-sandbox-harness-")
-        self.addCleanup(shutil.rmtree, tmp, True)
-        repo = os.path.join(tmp, "repo")
-        os.makedirs(repo)
-        env = {
-            "PATH": path_with_slice_loaded(tmp),
-            "HOME": tmp,
-            "SANDBOX_STATE": os.path.join(tmp, "state"),
-            "GIT_AUTHOR_NAME": "t",
-            "GIT_AUTHOR_EMAIL": "t@example.invalid",
-            "GIT_COMMITTER_NAME": "t",
-            "GIT_COMMITTER_EMAIL": "t@example.invalid",
-        }
-        subprocess.run(["git", "init", "-q", repo], check=True, env=env)
-        subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
-                        "commit", "-q", "--allow-empty", "-m", "develop"], check=True, env=env)
-        develop = subprocess.run(
-            ["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True, check=True, env=env
-        ).stdout.strip()
-        subprocess.run(["git", "-C", repo, "update-ref", "refs/remotes/origin/develop", develop], check=True, env=env)
-        script = (
-            f'source "{SANDBOX}"\n'
-            f'SB_REPO_ROOT="{repo}"\n'
-            "require_tools() { :; }\n"
-            f"pm() {{ case \"$1 $2\" in 'image inspect') printf '%s' '{built or develop}' ;; esac; }}\n"
-            "make_archive() { echo reached >&2; exit 5; }\n"
-            f"cmd_run {REPO} {GOOD_SHA} --steps tests --harness {harness}\n"
-        )
-        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+class DevelopRunsGetDevelopsHarness(unittest.TestCase):
+    """A develop run checks its image's dev/ tree against develop's and builds the image again first when they differ.
 
-    def test_a_develop_run_on_an_image_of_an_older_develop_is_refused(self):
-        r = self.run_cmd(built="b" * 40)
+    cmd_run against a fake pm: its `build` writes the tree label it is given into the image, or fails when told to.
+    """
+
+    GIT_ENV = {
+        "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.invalid",
+        "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.invalid",
+        "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null",
+    }
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="sceny-sandbox-harness-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state = os.path.join(self.tmp, "state")
+        self.env = {"PATH": path_with_slice_loaded(self.tmp), "HOME": self.tmp, "SANDBOX_STATE": self.state, **self.GIT_ENV}
+        self.repo = os.path.join(self.tmp, "repo")
+        self.pc = os.path.join(self.state, "mirrors", "sceny__omarchy-paperclipai.git")
+        self.label = os.path.join(self.tmp, "label")
+        self.builds = os.path.join(self.tmp, "builds.log")
+        self.commit(self.repo, {"dev/sandbox.d/Containerfile": "FROM x\n", "dev/rig": "rig 1\n", "README.md": "1\n"})
+        self.commit(self.pc, {"dev/rig": "pc rig 1\n", "README.md": "1\n"}, branch="develop")
+
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, check=True, env=self.env).stdout.strip()
+
+    def commit(self, repo, files, branch=None):
+        if not os.path.isdir(repo):
+            os.makedirs(repo)
+            subprocess.run(["git", "init", "-q", *(["-b", branch] if branch else []), repo], check=True, env=self.env)
+        for name, text in files.items():
+            os.makedirs(os.path.dirname(os.path.join(repo, name)) or repo, exist_ok=True)
+            with open(os.path.join(repo, name), "w") as f:
+                f.write(text)
+        self.git(repo, "add", "-A")
+        self.git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "develop")
+        if repo == self.repo:
+            self.git(repo, "update-ref", "refs/remotes/origin/develop", "HEAD")
+
+    def tree(self, profile):
+        if profile == "paperclipai":
+            return self.git(self.repo, "rev-parse", "origin/develop:dev/sandbox.d") + "+" + self.git(self.pc, "rev-parse", "develop:dev")
+        return self.git(self.repo, "rev-parse", "origin/develop:dev")
+
+    def image_has(self, tree):
+        with open(self.label, "w") as f:
+            f.write(tree)
+
+    def run_cmd(self, repo=REPO, harness="develop", build="ok"):
+        pm = (
+            "pm() {\n"
+            '  case "$1 $2" in\n'
+            '  "image inspect") if [[ $4 == *RootFS* ]]; then echo "l1 "; else cat "$LABEL"; fi ;;\n'
+            '  "build "*)\n'
+            '    echo "$*" >>"$BUILDS"\n'
+            '    [[ $BUILD == fails ]] && { echo "boom from the build" >&2; return 1; }\n'
+            '    [[ $BUILD == unlabelled ]] && return 0\n'
+            '    local a t=""; for a in "$@"; do [[ $a == org.sceny.sandbox.harness.tree=* ]] && t=${a#*=}; done\n'
+            '    [[ -z $t ]] || printf "%s" "$t" >"$LABEL" ;;\n'
+            "  esac\n"
+            "}\n"
+        )
+        script = (
+            f'source "{SANDBOX}" >/dev/null\n'
+            f"SB_REPO_ROOT={shlex.quote(self.repo)}\n"
+            f"LABEL={shlex.quote(self.label)} BUILDS={shlex.quote(self.builds)} BUILD={build}\n"
+            "require_tools() { :; }\n"
+            'fetch_mirror() { echo "fetched $1" >&2; }\n'
+            + pm +
+            "make_archive() { echo reached >&2; exit 5; }\n"
+            f"cmd_run {repo} {GOOD_SHA} --steps tests --harness {harness}\n"
+        )
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=self.env)
+
+    def built(self):
+        if not os.path.exists(self.builds):
+            return []
+        with open(self.builds) as f:
+            return [line.split("--target ")[1].split()[0] for line in f]
+
+    def goes_on(self, r):
+        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
+        self.assertIn("reached", r.stderr)
+
+    def test_an_image_with_develops_dev_tree_runs_with_no_build(self):
+        self.image_has(self.tree("devices"))
+        r = self.run_cmd()
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
+
+    def test_a_develop_commit_outside_dev_builds_nothing(self):
+        self.image_has(self.tree("devices"))
+        self.commit(self.repo, {"README.md": "2\n"})
+        r = self.run_cmd()
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
+
+    def test_a_develop_commit_in_dev_builds_the_image_again_and_runs_on_it(self):
+        self.image_has(self.tree("devices"))
+        self.commit(self.repo, {"dev/rig": "rig 2\n"})
+        r = self.run_cmd()
+        self.goes_on(r)
+        self.assertEqual(self.built(), ["base", "devices"], r.stderr)
+        self.assertIn("rebuilding the devices image", r.stderr)
+        with open(self.label) as f:
+            self.assertEqual(f.read(), self.tree("devices"))
+        self.assertLess(r.stderr.index("rebuilt with develop's harness"), r.stderr.index("reached"))
+
+    def test_an_image_without_the_tree_label_is_built_again(self):
+        self.image_has("")
+        r = self.run_cmd()
+        self.goes_on(r)
+        self.assertEqual(self.built(), ["base", "devices"], r.stderr)
+
+    def test_a_build_that_fails_stops_the_run_with_its_error(self):
+        self.image_has("0" * 40)
+        r = self.run_cmd(build="fails")
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-        self.assertIn("run 'dev/sandbox build --profile devices'", r.stderr)
+        self.assertIn("boom from the build", r.stderr)
+        self.assertIn("does not start on the old image", r.stderr)
+        self.assertNotIn("reached", r.stderr)
+        self.assertEqual(os.listdir(os.path.join(self.state, "builds")), [], "the build's context is removed")
+
+    def test_a_build_that_leaves_another_harness_stops_the_run(self):
+        self.image_has("0" * 40)
+        r = self.run_cmd(build="unlabelled")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not develop's", r.stderr)
         self.assertNotIn("reached", r.stderr)
 
-    def test_a_develop_run_on_the_image_of_develop_goes_on(self):
-        r = self.run_cmd()
-        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
-        self.assertIn("reached", r.stderr)
+    def test_a_pr_run_builds_nothing_whatever_the_image_has(self):
+        self.image_has("0" * 40)
+        r = self.run_cmd(harness="pr")
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
 
-    def test_a_pr_run_does_not_depend_on_the_image_harness(self):
-        r = self.run_cmd(built="b" * 40, harness="pr")
-        self.assertEqual(r.returncode, 5, r.stdout + r.stderr)
-        self.assertIn("reached", r.stderr)
+    def test_the_build_and_its_check_happen_under_the_runs_store_lock(self):
+        with open(SANDBOX) as f:
+            body = function_text(f.read(), "cmd_run")
+        self.assertLess(body.index("store_lock_acquire"), body.index('harness_refresh "$profile"'))
+        self.assertLess(body.index('harness_refresh "$profile"'), body.index("make_archive"))
+        self.assertIn('[[ $harness == pr ]] || harness_refresh "$profile"', body)
+
+    def test_paperclipai_follows_its_own_develop_and_the_sandbox_d_it_copies(self):
+        pc_repo = "sceny/omarchy-paperclipai"
+        self.image_has(self.tree("paperclipai"))
+        self.commit(self.repo, {"dev/rig": "rig 2\n", "README.md": "2\n"})
+        self.commit(self.pc, {"README.md": "2\n"})
+        r = self.run_cmd(repo=pc_repo)
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], "devices' dev/rig and README are not in the paperclipai image: " + r.stderr)
+        self.assertIn("fetched sceny/omarchy-paperclipai", r.stderr)
+
+        self.commit(self.pc, {"dev/rig": "pc rig 2\n"})
+        r = self.run_cmd(repo=pc_repo)
+        self.goes_on(r)
+        self.assertEqual(self.built(), ["base", "paperclipai"], r.stderr)
+
+        self.commit(self.repo, {"dev/sandbox.d/inside.sh": "x\n"})
+        r = self.run_cmd(repo=pc_repo)
+        self.goes_on(r)
+        self.assertEqual(self.built(), ["base", "paperclipai", "base", "paperclipai"], r.stderr)
+        with open(self.label) as f:
+            self.assertEqual(f.read(), self.tree("paperclipai"))
 
 
 class LiveDevSessionsAreNotLeftovers(unittest.TestCase):

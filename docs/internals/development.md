@@ -120,7 +120,7 @@ picture that fails is listed; other image formats are refused. The default
 repository is refused.
 
 ```bash
-dev/sandbox build [--profile devices|paperclipai]  # once, and after develop's dev/ changes
+dev/sandbox build [--profile devices|paperclipai]  # once; a develop run builds again when develop's dev/ changes
 dev/sandbox run sceny/omarchy-devices <40-hex sha> # tests + dev/rig ci, results in ~/.local/share/sceny-sandbox/results/<sha>-<time>
 dev/sandbox run <repo> <sha> --steps tests         # unit tests only, no device passed in
 dev/sandbox run sceny/omarchy-paperclipai <sha>    # Paperclip's plugin: test/run_all.sh, dev/rig selftest, rig-ci
@@ -146,6 +146,12 @@ dev/sandbox verify-clean                           # nothing left behind
 - **The sha is the PR's head, in full.** A branch, a short sha or another
   repository is refused. The checks come from `develop`'s `dev/`; pass
   `--harness pr` only to test a change to `dev/` itself.
+- **A develop run brings its image to develop's `dev/` first.** Each image
+  carries the git tree of the `dev/` it was built from (Paperclip's: Devices'
+  `dev/sandbox.d` and its own `dev/`). When that is not `develop`'s, the run
+  says so, builds the image again under its store lock and then runs; a
+  `develop` commit outside `dev/` builds nothing. A build that fails ends the
+  run with the build's error: a run never starts on the old image.
 - **Read the results as data.** `summary.json`, `results.tsv`, `logs/` and
   `screenshots/` in the output directory; judge the screenshots as in
   [Screenshots](screenshots.md). Do not run anything from that directory.

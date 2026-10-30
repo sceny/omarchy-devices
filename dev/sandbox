@@ -14,7 +14,9 @@
 #                                        Each image holds only its own tools.
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
 #                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
-#                                        run commit <sha> (40 hex) of <repo> (owner/name)
+#                                        run commit <sha> (40 hex) of <repo> (owner/name); with
+#                                        --harness develop (the default) the profile's image is
+#                                        built again first when its dev/ is not develop's
 #   dev/sandbox dev start [--repo OWNER/NAME] [--ttl SECONDS]
 #                                        a session for Sceny's own tree (default sceny/omarchy-devices): a container of
 #                                        that repository's profile, kept until `dev stop` or its TTL
@@ -41,7 +43,10 @@
 #     host session bus, Wayland, PipeWire, adb or KDE Connect.
 #   * The commit enters as `git archive` of the exact sha. Anything but 40 hex
 #     digits that names a commit is refused. The checks come from develop's
-#     dev/ inside the image (--harness pr keeps the commit's own).
+#     dev/ inside the image (--harness pr keeps the commit's own). The image
+#     carries the git tree of the dev/ it was built from; when that is not
+#     develop's, the run builds the image again before it starts, and a build
+#     that fails ends the run. SANDBOX_DEVELOP names develop (origin/develop).
 #   * The tests step gets no device. The rig steps get /dev/kvm (the
 #     emulator) and one GPU render node (the display; SANDBOX_RENDER_NODE
 #     picks it). Memory, CPU, processes, tmpfs sizes and
@@ -101,6 +106,9 @@ if [[ $SB_STATE != "$SB_STATE_DEFAULT" ]]; then
 fi
 SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
+SB_TREE_LABEL=org.sceny.sandbox.harness.tree
+# The develop whose dev/ a build takes by default and a develop run checks its image against.
+SB_DEVELOP=${SANDBOX_DEVELOP:-origin/develop}
 SB_ID_LOG=""
 
 # An id for a run, a session or a container. The hostile test points SB_ID_LOG at
@@ -212,7 +220,7 @@ store_lock_release() {
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
-  local ref=origin/develop profile=all
+  local ref=$SB_DEVELOP profile=all
   while (($#)); do
     case $1 in
     --ref)
@@ -229,30 +237,62 @@ cmd_build() {
   done
   [[ $profile == all || $profile == devices || $profile == paperclipai ]] || die "build: --profile is devices, paperclipai or all"
   require_tools
-  local sha pc_sha="" pc_git ctx
+  local sha pc_sha=""
   sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify "$ref^{commit}" 2>/dev/null) ||
     die "build: $ref is not a revision of this checkout"
-  git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
-    die "build: $ref has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
 
   store_lock_acquire
+  trap 'store_lock_release' EXIT
+  if [[ $profile == all || $profile == paperclipai ]]; then
+    paperclipai_develop || die "build: sceny/omarchy-paperclipai has no develop branch in its mirror"
+    pc_sha=$SB_PC_DEVELOP
+  fi
+  build_images "$sha" "$profile" "$pc_sha" || exit 2
+}
+
+# SB_PC_DEVELOP: the develop of sceny/omarchy-paperclipai, fetched. Only develop:
+# a pull request's head or any other branch can hold contributor commits.
+SB_PC_DEVELOP=""
+paperclipai_develop() {
+  fetch_mirror sceny/omarchy-paperclipai
+  SB_PC_DEVELOP=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q "refs/heads/develop^{commit}" 2>/dev/null)
+}
+
+# What a profile's image takes from dev/, as git tree hashes: the devices image
+# copies this repository's dev/; the paperclipai image copies its dev/sandbox.d
+# and omarchy-paperclipai's dev/. Two commits with the same trees build the
+# same harness, so a develop commit that leaves them alone needs no new image.
+harness_tree() { # <profile> <sha> [paperclipai sha]
+  local mine theirs
+  if [[ $1 == paperclipai ]]; then
+    mine=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$2:dev/sandbox.d" 2>/dev/null) || return 1
+    theirs=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q "${3:-}:dev" 2>/dev/null) || return 1
+    printf '%s+%s\n' "$mine" "$theirs"
+  else
+    git -C "$SB_REPO_ROOT" rev-parse --verify -q "$2:dev" 2>/dev/null
+  fi
+}
+
+# The base image, then each profile's (one, or all) on it, from <sha>'s dev/ and,
+# for paperclipai, omarchy-paperclipai's dev/ at <paperclipai sha>. The caller
+# holds the store lock. A subshell: a failure ends the build, not its caller.
+build_images() ( # <sha> <devices|paperclipai|all> [paperclipai sha]
+  local sha=$1 profile=$2 pc_sha=${3:-} ctx
+  git -C "$SB_REPO_ROOT" cat-file -e "$sha:dev/sandbox.d/Containerfile" 2>/dev/null ||
+    die "build: ${sha:0:12} has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
   # In the store, not $TMPDIR: a build takes longer than some callers' temporary
   # directory lives, and its context gone mid-way fails the later images.
   mkdir -p "$SB_STATE/builds"
   ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
-  trap "rm -rf '$ctx'; store_lock_release" EXIT
+  trap "rm -rf '$ctx'" EXIT
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
 
   if [[ $profile == all || $profile == paperclipai ]]; then
-    fetch_mirror sceny/omarchy-paperclipai
-    pc_git=$(mirror_dir sceny/omarchy-paperclipai)
-    # Only develop: a pull request's head or any other branch can hold contributor commits.
-    pc_sha=$(git -C "$pc_git" rev-parse --verify "refs/heads/develop^{commit}" 2>/dev/null) ||
-      die "build: sceny/omarchy-paperclipai has no develop branch in its mirror"
     mkdir -p "$ctx/harness-paperclipai"
-    git -C "$pc_git" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai"
+    git -C "$(mirror_dir sceny/omarchy-paperclipai)" archive "$pc_sha" dev | tar -x -C "$ctx/harness-paperclipai" ||
+      die "build: no dev/ at ${pc_sha:0:12} of sceny/omarchy-paperclipai"
   fi
 
   # The common base first, as an image of its own: both profiles start from
@@ -263,10 +303,11 @@ cmd_build() {
     die "the base image did not build"
   ok "base image built"
 
-  local one labels
+  local one labels tree
   for one in "${SB_PROFILES[@]}"; do
     [[ $profile == all || $profile == "$one" ]] || continue
-    labels=(--label "org.sceny.sandbox.harness=$sha")
+    tree=$(harness_tree "$one" "$sha" "$pc_sha") || die "build: the $one harness has no dev/ to take"
+    labels=(--label "org.sceny.sandbox.harness=$sha" --label "$SB_TREE_LABEL=$tree")
     if [[ $one == paperclipai ]]; then
       labels+=(--label "org.sceny.sandbox.harness.paperclipai=$pc_sha")
       say "building $(image_of "$one") from pinned sources, dev/sandbox.d of ${sha:0:12} and paperclipai's dev/ of ${pc_sha:0:12}"
@@ -279,7 +320,7 @@ cmd_build() {
     on_base "$one" || die "the $one image does not start with the base image's layers"
     ok "$one image built on the base (harness ${sha:0:12})"
   done
-}
+)
 
 # -------------------------------------------------------------------- run ----
 
@@ -291,25 +332,41 @@ valid_repo() {
 
 mirror_dir() { printf '%s/mirrors/%s.git\n' "$SB_STATE" "${1//\//__}"; }
 
-# A develop run uses the dev/ its image was built with: an image built from an older develop lacks what develop has since.
-harness_is_current() { # <profile>
-  local profile=$1 label want built
+image_tree() { pm image inspect --format "{{index .Labels \"$SB_TREE_LABEL\"}}" "$SB_RUN_IMAGE" 2>/dev/null; }
+
+# A develop run uses develop's dev/. When the image's harness is not develop's
+# (by tree, see harness_tree), the image is built again first, under the run's
+# store lock, and the run goes on only on an image that has develop's harness.
+harness_refresh() { # <profile>
+  local profile=$1 sha pc_sha="" want built
+  sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$SB_DEVELOP^{commit}" 2>/dev/null) ||
+    die "run: $SB_DEVELOP is not a revision of this checkout"
   if [[ $profile == paperclipai ]]; then
-    label=org.sceny.sandbox.harness.paperclipai
-    want=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q 'refs/heads/develop^{commit}' 2>/dev/null)
-  else
-    label=org.sceny.sandbox.harness
-    want=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q 'origin/develop^{commit}' 2>/dev/null)
+    paperclipai_develop || die "run: sceny/omarchy-paperclipai has no develop branch in its mirror"
+    pc_sha=$SB_PC_DEVELOP
   fi
-  built=$(pm image inspect --format "{{index .Labels \"$label\"}}" "$SB_RUN_IMAGE" 2>/dev/null)
-  [[ -n $want && $built == "$want" ]] ||
-    die "run: the $profile image was built from ${built:0:12}, develop is at ${want:0:12}: run 'dev/sandbox build --profile $profile'"
+  want=$(harness_tree "$profile" "$sha" "$pc_sha") || die "run: develop has no dev/ for the $profile harness"
+  built=$(image_tree)
+  if [[ $built == "$want" ]]; then
+    ok "the $profile image has develop's harness ($want)"
+    return 0
+  fi
+  say "rebuilding the $profile image: its harness is ${built:-unlabelled}, develop's is $want (${sha:0:12})"
+  build_images "$sha" "$profile" "$pc_sha" ||
+    die "run: the $profile image did not build (above); the run does not start on the old image"
+  built=$(image_tree)
+  [[ $built == "$want" ]] ||
+    die "run: the rebuilt $profile image has harness '${built}', not develop's $want; the run does not start"
+  ok "the $profile image rebuilt with develop's harness ($want)"
 }
 
 # This machine's mirror of a repository: heads and pull requests, fetched
-# without credentials.
+# without credentials, once per command.
+SB_FETCHED=" "
 fetch_mirror() {
   local repo=$1 gitdir
+  [[ $SB_FETCHED == *" $repo "* ]] && return 0
+  SB_FETCHED+="$repo "
   gitdir=$(mirror_dir "$repo")
   [[ -d $gitdir ]] || git init -q --bare "$gitdir" || die "could not create the mirror"
   step "fetching $repo (heads and pull requests, no credentials)"
@@ -672,7 +729,6 @@ cmd_run() {
   profile=$(profile_of "$repo")
   SB_RUN_IMAGE=$(image_of "$profile")
   pm image exists "$SB_RUN_IMAGE" || die "run: no $profile image; run 'dev/sandbox build --profile $profile' first"
-  [[ $harness == pr ]] || harness_is_current "$profile"
   # Devices only for the steps that run the rig: the tests step gets none.
   # The emulator needs /dev/kvm; Paperclip's rig has no emulator and gets none.
   local devices=()
@@ -716,6 +772,7 @@ cmd_run() {
   mkdir -p -m 700 "$out"
 
   say "sandbox run $id: $repo ${sha:0:12} (steps $steps, harness $harness)"
+  [[ $harness == pr ]] || harness_refresh "$profile"
   make_archive "$repo" "$sha" "$from" "$SB_RUN_DIR/src.tar"
   make_seccomp
   [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
