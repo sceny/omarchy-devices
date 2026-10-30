@@ -1956,6 +1956,8 @@ class Screen(unittest.TestCase):
         devices = [{"serial": "0A1B2C3D", "state": "device", "usb": True, "model": "Pixel 7"}]
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}), ("0A1B2C3D", "usb", "device"))
         self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Tablet"}), (None, "", ""))
+        self.assertEqual(bridge.match_adb(self.PHONE, devices, [], {"0A1B2C3D": "Pixel 8"}, serial="FFFF"),
+                         ("0A1B2C3D", "usb", "device"), "a remembered serial no entry has: still by its name")
 
     def test_the_devices_own_serial_from_mdns_and_pairing(self):
         self.assertEqual(bridge.serial_of_service("adb-0A1B2C3D-xYz"), "0A1B2C3D")

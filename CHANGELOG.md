@@ -400,7 +400,7 @@ GitHub release with these notes.
 - **Sound has a third place**, *Both* (`appSound` accepts `both`; Android 13). Your stored `here` and `phone` are unchanged.
 - **Notifications are stacked per app and conversation**: with several from one app the panel shows the newest with a count; the rest open on a click.
 - **Problems that need nothing from you are fixed by themselves**: a dead mount, lost notifications or link, a stopped KDE Connect on a set-up computer. The *Fix* card shows only if the problem remains.
-- **A Wi-Fi or mesh adb connection is matched only at an address KDE Connect reports for the device** (or the mesh address you picked or confirmed on *From anywhere*). Before, an adb entry could be matched by what it announced or answered; that is no longer identity. USB is matched by the device's own serial, as before. With Wi-Fi adb and KDE Connect away, the screen and apps no longer find the device by themselves: connect it by USB, or pick the device on *From anywhere*. A mesh address found only by the device's name is not used until you pick it.
+- **A Wi-Fi or mesh adb connection is matched only at an address KDE Connect reports for the device** (or the mesh address you picked or confirmed on *From anywhere*). Before, an adb entry could be matched by what it announced or answered; that is no longer identity. USB is matched as before: by the device's own serial, else by its name. With Wi-Fi adb and KDE Connect away, the screen and apps no longer find the device by themselves: connect it by USB, or pick the device on *From anywhere*. A mesh address found only by the device's name is not used until you pick it.
 - Nothing else in your settings is rewritten; new keys (`closedProblems`)
   appear on your next change.
 
