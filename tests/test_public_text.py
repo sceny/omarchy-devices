@@ -224,6 +224,16 @@ class OpenItems(unittest.TestCase):
         self.assertIn(OPEN, checks("## Follow-ups\n\n- the page"))
         self.assertNotIn(OPEN, checks("## Follow-ups\n\n- the page (#3)"))
 
+    def test_a_stated_gap_passes_and_a_bare_not_checked_does_not(self):
+        self.assertNotIn(OPEN, checks("- Not verified: iOS (needs macOS)."))
+        self.assertNotIn(OPEN, checks("Not verified: iOS, no Mac here."))
+        self.assertNotIn(OPEN, checks("1. Not verified: iOS."))
+        self.assertNotIn(OPEN, checks("2) Not verified: iOS."))
+        self.assertIn(OPEN, checks("- Not checked on iOS."))
+        self.assertIn(OPEN, checks("Not verified: iOS. Not checked on Android."))
+        self.assertIn(OPEN, checks("NOT VERIFIED: iOS, but not checked on Android."))
+        self.assertIn(OPEN, checks("Not checked in a running shell, and not tested."))
+
     def test_words_that_are_not_a_leftover_pass(self):
         for text in [
             "A later change keeps the old keys.",
