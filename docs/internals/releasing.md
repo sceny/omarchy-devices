@@ -424,8 +424,8 @@ tell apart, and the review reads for it. The same rules check the standing texts
 (`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
 dates and the owner's words as history, in the unit tests.
 
-`public-text` is a required status check on `develop` (a repository ruleset,
-no bypass): a pull request into `develop` merges only while its last run
+`public-text` is a required status check on `develop` (branch protection, admins
+included): a pull request into `develop` merges only while its last run
 passes. A direct push to `develop` is refused, so the `release` workflow posts
 a `public-text` success status on the `main` commit it brings `develop` level
 with (a push to `main` has no pull request text).

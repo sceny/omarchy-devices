@@ -750,6 +750,10 @@ one only with the owner.
   request into `develop` closes nothing (GitHub acts on it only for the
   default branch): close the issue by hand after the merge, with a comment
   naming the pull request.
+- **A review is posted as a pull-request review, never as a plain comment:**
+  `gh pr review <n> --comment --body …`, not `gh pr comment`. Until `main`
+  carries `public-text.yml`, only a review starts `public-text` on the pull
+  request's head before the merge; a plain comment is first read after it.
 - **Contributor code runs only after the owner has read about it and
   approved it, head by head.** Contributor code is any commit not written
   by the owner or a Sceny agent: a fork's pull request, an outside
