@@ -1,0 +1,35 @@
+name: review-on-head
+
+# A pull request into develop has a review posted on its current head: a review on
+# the head commit itself, not an older one, and not a dismissed one. A new push
+# needs a new review. Whether a failing check blocks the merge is the branch
+# protection's setting, not this file's.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  review-on-head:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: A review on the head commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          count=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            | jq -s --arg head "$HEAD" '[.[][] | select(.commit_id == $head and (.state == "COMMENTED" or .state == "APPROVED"))] | length')
+          echo "reviews on $HEAD: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "No review is posted on the head commit $HEAD. Review the change on this head."
+            exit 1
+          fi
