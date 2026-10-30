@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   review-on-head:
+    if: github.event.pull_request.base.ref == 'develop'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
