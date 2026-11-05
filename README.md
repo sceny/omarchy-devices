@@ -10,6 +10,11 @@ files and the clipboard.
 **[Devices on the Omarchy plugins marketplace](https://plugins.omarchy.org/plugin.html?id=sceny.devices)**
 · install: `omarchy plugin add https://github.com/sceny/omarchy-devices.git --enable`
 
+Made by [Sceny](https://sceny.github.io/?from=devices). Try the
+[Learning Sceny beta](https://sceny.github.io/?from=devices#beta): a study
+app that gives each new word a memory link, and fades it out when you no
+longer need it.
+
 ![Devices in the Omarchy bar: the pill with its notification bubble, the phone's screen in a window, the panel with its apps, notifications, Now playing and the Gallery, and the messages view with a conversation (demo data)](preview.png)
 
 - **[Screen](docs/use/screen.md)**: docked by the bar in the phone's
@@ -124,7 +129,5 @@ and `dev/sandbox dev up`; screenshots and recordings come out as data. Needs
   `sshfs`: pictures decoded in a sandbox, and the phone's storage here.
 
 The panel installs and sets up what it needs of them.
-
-Made by [Sceny](https://sceny.github.io/?from=devices): AI that makes you more able. Also from Sceny: [Learning Sceny](https://sceny.github.io/?from=devices#beta), a study app whose memory links fade as you learn.
 
 MIT, © Sceny. Not affiliated with KDE, Genymobile or Omarchy.
