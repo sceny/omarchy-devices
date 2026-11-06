@@ -28,4 +28,4 @@ your mouse and keyboard while the phone stays in your pocket.
 
 ![The same phone turned sideways, its window turned with it (a made-up phone screen)](../images/screen-turned.png)
 
-Setup: [Screen and apps](../setup/screen-and-apps.md) · Security: [what Wireless debugging allows](../security.md#the-screen-and-apps-what-wireless-debugging-allows)
+Setup: [Screen and apps](../setup/screen-and-apps.md) · Limits: [What it cannot do](../setup/limits-screen-and-apps.md) · Security: [what Wireless debugging allows](../security.md#the-screen-and-apps-what-wireless-debugging-allows)

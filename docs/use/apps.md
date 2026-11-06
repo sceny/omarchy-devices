@@ -38,4 +38,4 @@ Pick them from the Apps section of the panel, or from **All apps**:
 | Esc · `0` | Back to where you came from · Home |
 | `v` | An open app's sound: ← → where, ↑ ↓ its volume here, `m` mute |
 
-Setup: [Screen and apps](../setup/screen-and-apps.md) · Limits: [What it cannot do](../setup/limits.md)
+Setup: [Screen and apps](../setup/screen-and-apps.md) · Limits: [What it cannot do](../setup/limits-screen-and-apps.md)

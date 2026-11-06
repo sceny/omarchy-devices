@@ -36,4 +36,4 @@ own VPN, another network): KDE Connect tries it as well.
 
 Take it back: *Stop reaching it through Tailscale* on its page.
 
-Limits: [What it cannot do](limits.md#from-anywhere)
+Limits: [What it cannot do](limits-anywhere.md)

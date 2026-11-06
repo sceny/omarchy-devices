@@ -41,3 +41,5 @@ apps, nothing about it to fix.
 Wireless debugging lets a paired computer control the phone fully: what
 that means and how to take it back, in
 [Security](../security.md#the-screen-and-apps-what-wireless-debugging-allows).
+
+Limits: [What it cannot do](limits-screen-and-apps.md)
