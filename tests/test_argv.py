@@ -868,7 +868,7 @@ class OsdLines(unittest.TestCase):
 # by reading its Ui folder when it exists, so a new wrapper is caught on this
 # computer; CI has no Omarchy, so the known ones are named here.
 TEXT_INPUT_BASES = ("TextInput", "TextField", "TextArea")
-KNOWN_WRAPPERS = ("NumberField", "MultiSelect", "SearchableDropdown", "TextField")
+KNOWN_WRAPPERS = ("FilterInput", "NumberField", "MultiSelect", "SearchableDropdown", "TextField")
 
 
 def omarchy_text_types(folder=OMARCHY_UI, bases=TEXT_INPUT_BASES):
