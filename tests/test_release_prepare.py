@@ -2,6 +2,7 @@
 release workflow's notes extraction run on what it wrote."""
 
 import json
+import json
 import os
 import stat
 import subprocess
@@ -132,6 +133,17 @@ class ReleasePrepare(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(git(self.work, "log", "-1", "--format=%s").strip(), "develop")
         self.assertIn("M  manifest.json", git(self.work, "status", "--porcelain"))
+
+    def test_release_notes_refuses_a_version_that_is_not_x_y_z(self):
+        notes = os.path.join(self.tmp.name, "notes.md")
+        for version in ["0.9", "v0.9.0", "0.9.0-rc1", "0.9.0.1", ""]:
+            with self.subTest(version=version):
+                with open(os.path.join(self.work, "manifest.json"), "w") as handle:
+                    handle.write(json.dumps({"id": "sceny.test", "version": version}))
+                done = subprocess.run([RELEASE_NOTES, notes], cwd=self.work, env=ENV, capture_output=True, text=True)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn("is not X.Y.Z", done.stderr)
+                self.assertFalse(os.path.exists(notes))
 
     def test_refuses(self):
         cases = {
