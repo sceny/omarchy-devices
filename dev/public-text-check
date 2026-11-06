@@ -11,18 +11,27 @@ they are public in the text's source):
   unlinked-reference       names another repository's issue without its owner
 
   dev/public-text-check --pr 123 [--repo owner/name]   read the pull request (GITHUB_TOKEN)
-  dev/public-text-check                                inside Actions: the event's pull request, or on a push
-                                                       the commits it brings and the pull requests it touched
+  dev/public-text-check                                inside Actions: the event's pull request (a merge
+                                                       group's too), or on a push the commits it brings and
+                                                       the pull requests it touched
   dev/public-text-check --fixture file.json            read {"changed_files": [...], "texts": [...]}
   dev/public-text-check --standing                     the same rules on the standing texts
+  dev/public-text-check --twin                         this checker and its rules against the twin
+                                                       repository's (GITHUB_TOKEN)
 
 A failure names the text's URL, the check and the rule. The matched words follow
 only outside CI (GITHUB_ACTIONS unset) or with --show-matches: a run log is public,
 and a match is often the private data itself. Exit 0 when nothing fails, 1 when
 something does, 2 when it cannot read.
+
+The twin repository (the rules' "twin") holds this same file and the same rules,
+apart from each repository's own lines (LOCAL_RULES). --twin fails when they
+drift: it passes when both match the twin's develop, or the head of one of its
+open pull requests, so a change made in both lands one pull request at a time.
 """
 
 import argparse
+import base64
 import fnmatch
 import glob
 import json
@@ -43,6 +52,16 @@ INLINE_CODE = re.compile(r"`[^`\n]*`")
 HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 BULLET = re.compile(r"^(\s*)(?:[-*+]|\d+[.)])\s+")
 HEADING = re.compile(r"^\s{0,3}#{1,6}\s")
+
+# The rules' lines that are each repository's own: its name and its twin's, the
+# paperclip pattern, its plugin id in the path exceptions, and its test folder.
+LOCAL_RULES = {
+    "keys": ("repository", "twin"),
+    "patterns": {"paperclip": ("regex",), "home-path": ("unless_match",),
+                 "dot-path": ("unless_match",), "runtime-dir": ("unless_match",)},
+    "test_folder": re.compile(r"^tests?/"),
+}
+TWIN_FILES = ("dev/public-text-check", "dev/public-text-rules.json")
 
 
 def load_rules(path=RULES_FILE):
@@ -374,23 +393,106 @@ def read_event():
 
 
 def pull_request_number(event):
+    """The pull request an event is about. A merge queue names it only in the group's
+    branch, gh-readonly-queue/<base>/pr-<number>-<base sha>: that run reads the text as
+    it stands when the merge is asked for, so a review posted just before the merge is
+    read before the merge lands, not by the push after it."""
     if event.get("pull_request"):
         return event["pull_request"]["number"]
     issue = event.get("issue") or {}
-    return issue.get("number") if issue.get("pull_request") else None
+    if issue.get("pull_request"):
+        return issue.get("number")
+    group = re.search(r"/pr-(\d+)-[0-9a-f]+$", (event.get("merge_group") or {}).get("head_ref", ""))
+    return int(group.group(1)) if group else None
+
+
+def shared_rules(rules):
+    """The rules without the lines that are each repository's own (LOCAL_RULES)."""
+    def walk(value, top=False):
+        if isinstance(value, dict):
+            out = {k: walk(v) for k, v in value.items() if not (top and k in LOCAL_RULES["keys"])}
+            for key in LOCAL_RULES["patterns"].get(value.get("id"), ()):
+                out.pop(key, None)
+            return out
+        if isinstance(value, list):
+            return [walk(v) for v in value]
+        if isinstance(value, str):
+            return LOCAL_RULES["test_folder"].sub("tests/", value)
+        return value
+    return walk(rules, top=True)
+
+
+def drift(checker, rules_text, twin_checker, twin_rules_text):
+    """The twin files that differ from ours: the checker byte for byte, the rules
+    apart from each repository's own lines."""
+    out = []
+    if checker != twin_checker:
+        out.append(TWIN_FILES[0])
+    if shared_rules(json.loads(rules_text)) != shared_rules(json.loads(twin_rules_text)):
+        out.append(TWIN_FILES[1])
+    return out
+
+
+def read_file(repo, path, ref, token):
+    data = api("/repos/%s/contents/%s?ref=%s" % (repo, path, ref), token)
+    return base64.b64decode(data["content"]).decode()
+
+
+def check_twin(rules, token, checker_path=__file__, rules_path=RULES_FILE):
+    """(where they match, []) or (None, the files that differ from the twin's develop)."""
+    with open(checker_path) as handle:
+        checker = handle.read()
+    with open(rules_path) as handle:
+        rules_text = handle.read()
+    twin = rules["twin"]
+    heads = [("%s develop" % twin, "develop")]
+    heads += [(pr["html_url"], pr["head"]["sha"]) for pr in api("/repos/%s/pulls?state=open&per_page=100" % twin, token)]
+    first = None
+    for where, ref in heads:
+        try:
+            theirs = [read_file(twin, path, ref, token) for path in TWIN_FILES]
+        except urllib.error.HTTPError as error:
+            if error.code == 404 and first is not None:
+                continue
+            raise
+        differ = drift(checker, rules_text, *theirs)
+        if not differ:
+            return where, []
+        first = first if first is not None else differ
+    return None, first
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Public text of a pull request against the company's rules.")
     parser.add_argument("--pr", type=int)
-    parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "sceny/omarchy-devices"))
+    parser.add_argument("--repo")
     parser.add_argument("--fixture")
     parser.add_argument("--standing", action="store_true")
+    parser.add_argument("--twin", action="store_true")
     parser.add_argument("--rules", default=RULES_FILE)
     parser.add_argument("--show-matches", action="store_true")
     args = parser.parse_args(argv)
     show_matches = args.show_matches or not os.environ.get("GITHUB_ACTIONS")
     rules = load_rules(args.rules)
+    repo = args.repo or os.environ.get("GITHUB_REPOSITORY") or rules["repository"]
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+
+    if args.twin:
+        if not token:
+            print("public-text-check: --twin needs GITHUB_TOKEN", file=sys.stderr)
+            return 2
+        try:
+            where, differ = check_twin(rules, token, rules_path=args.rules)
+        except (urllib.error.URLError, KeyError, ValueError) as error:
+            print("public-text-check: could not read the twin: %s" % type(error).__name__, file=sys.stderr)
+            return 2
+        for path in differ:
+            print("FAIL public-text-twin %s differs from %s develop" % (path, rules["twin"]))
+        if differ:
+            print("\nBring the same change to %s, or open its pull request." % rules["twin"])
+            return 1
+        print("public-text-check: the checker and its rules match %s" % where)
+        return 0
 
     if args.standing:
         problems = check_standing(rules)
@@ -404,15 +506,14 @@ def main(argv=None):
         event = read_event()
         is_push = os.environ.get("GITHUB_EVENT_NAME") == "push" and not args.pr
         number = args.pr or pull_request_number(event)
-        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
         if not token or not (number or is_push):
             print("public-text-check: give --pr (and GITHUB_TOKEN), --fixture or --standing", file=sys.stderr)
             return 2
         try:
             if is_push:
-                problems = check_push(rules, args.repo, event, token)
+                problems = check_push(rules, repo, event, token)
             else:
-                doc = read_pull_request(args.repo, number, token)
+                doc = read_pull_request(repo, number, token)
                 problems = check_pull_request(rules, doc) + check_public_files(rules)
         except (urllib.error.URLError, KeyError, ValueError) as error:
             print("public-text-check: could not read the pull request: %s" % type(error).__name__, file=sys.stderr)

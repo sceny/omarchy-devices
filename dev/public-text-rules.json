@@ -1,4 +1,6 @@
 {
+  "repository": "sceny/omarchy-devices",
+  "twin": "sceny/omarchy-paperclipai",
   "environment": {
     "check": "public-text-environment",
     "patterns": [

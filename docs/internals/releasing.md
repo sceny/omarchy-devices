@@ -434,6 +434,15 @@ The same rules check the standing texts
 dates and the owner's words as history, and for another repository's issue
 that GitHub does not link, in the unit tests.
 
+The checker is the same file in `sceny/omarchy-paperclipai`, and the rules
+differ only in each repository's own lines (`LOCAL_RULES` in the checker: the
+repository's name, the `paperclip` pattern, the plugin id in the path
+exceptions, `tests/` against `test/`). A change to a class goes to both
+repositories. The `test` job fails when they drift
+(`dev/public-text-check --twin`): it passes when they match the other
+repository's `develop` or the head of one of its open pull requests, so the
+pair lands one pull request at a time.
+
 `public-text` is a required status check on `develop`, through two gates nobody can
 bypass: a repository ruleset (`develop requires public-text`, no bypass actors) and
 branch protection (admins included). A pull request into `develop` merges only while

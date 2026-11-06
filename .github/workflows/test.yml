@@ -28,3 +28,7 @@ jobs:
         run: /usr/bin/python3 -m unittest discover -s tests -v
       - name: Manifest is valid JSON with the expected id
         run: jq -e '.id == "sceny.devices" and .schemaVersion == 1' manifest.json
+      - name: The public-text checker and its rules match the twin repository's
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 dev/public-text-check --twin
