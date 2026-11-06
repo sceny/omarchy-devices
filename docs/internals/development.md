@@ -152,6 +152,13 @@ dev/sandbox verify-clean                           # nothing left behind
   says so, builds the image again under its store lock and then runs; a
   `develop` commit outside `dev/` builds nothing. A build that fails ends the
   run with the build's error: a run never starts on the old image.
+- **`develop` is GitHub's, not your checkout's.** A develop run (and a
+  `build` without `--ref`) fetches GitHub's `develop` into the sandbox's
+  mirror and stops when your checkout's `origin/develop` has another `dev/`
+  (Paperclip: `dev/sandbox.d`): `git fetch origin develop` and run again. A
+  checkout behind only outside `dev/` runs. `summary.json` names the image's
+  harness labels, the script's own commit (`script`) and the develop the
+  check compared (`harness_check`), so a stale run reads as one.
 - **Read the results as data.** `summary.json`, `results.tsv`, `logs/` and
   `screenshots/` in the output directory; judge the screenshots as in
   [Screenshots](screenshots.md). Do not run anything from that directory.

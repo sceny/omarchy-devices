@@ -46,7 +46,10 @@
 #     dev/ inside the image (--harness pr keeps the commit's own). The image
 #     carries the git tree of the dev/ it was built from; when that is not
 #     develop's, the run builds the image again before it starts, and a build
-#     that fails ends the run. SANDBOX_DEVELOP names develop (origin/develop).
+#     that fails ends the run. SANDBOX_DEVELOP names develop (origin/develop);
+#     its dev/ must be GitHub's develop's (fetched into the mirror), or the run
+#     and a build without --ref stop. summary.json names the image's labels,
+#     this script's commit and the develop the check compared.
 #   * The tests step gets no device. The rig steps get /dev/kvm (the
 #     emulator) and one GPU render node (the display; SANDBOX_RENDER_NODE
 #     picks it). Memory, CPU, processes, tmpfs sizes and
@@ -220,11 +223,12 @@ store_lock_release() {
 # ------------------------------------------------------------------- build ----
 
 cmd_build() {
-  local ref=$SB_DEVELOP profile=all
+  local ref=$SB_DEVELOP profile=all named=""
   while (($#)); do
     case $1 in
     --ref)
       ref=${2:?--ref needs a revision}
+      named=1
       shift
       ;;
     --profile)
@@ -243,6 +247,8 @@ cmd_build() {
 
   store_lock_acquire
   trap 'store_lock_release' EXIT
+  # A build of develop is a build of GitHub's develop; --ref builds what it names.
+  [[ -n $named ]] || develop_current "$profile" "$sha" build "or name the revision with --ref"
   if [[ $profile == all || $profile == paperclipai ]]; then
     paperclipai_develop || die "build: sceny/omarchy-paperclipai has no develop branch in its mirror"
     pc_sha=$SB_PC_DEVELOP
@@ -256,6 +262,25 @@ SB_PC_DEVELOP=""
 paperclipai_develop() {
   fetch_mirror sceny/omarchy-paperclipai
   SB_PC_DEVELOP=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q "refs/heads/develop^{commit}" 2>/dev/null)
+}
+
+# SB_GH_DEVELOP: GitHub's develop of this repository, fetched into its mirror.
+# SB_DEVELOP is a ref of the checkout this script runs from: when that checkout's
+# origin/develop is old, the harness check computes the old tree on both sides
+# and passes on an image built from it. So the dev/ an image takes (dev/sandbox.d
+# for paperclipai) must be GitHub's develop's, or the command stops.
+SB_GH_DEVELOP=""
+develop_current() { # <profile> <sha> <command> <what else to do>
+  local profile=$1 sha=$2 path=dev mirror mine theirs
+  [[ $profile == paperclipai ]] && path=dev/sandbox.d
+  fetch_mirror sceny/omarchy-devices
+  mirror=$(mirror_dir sceny/omarchy-devices)
+  SB_GH_DEVELOP=$(git -C "$mirror" rev-parse --verify -q "refs/heads/develop^{commit}" 2>/dev/null) ||
+    die "$3: sceny/omarchy-devices has no develop branch in its mirror"
+  mine=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$sha:$path" 2>/dev/null)
+  theirs=$(git -C "$mirror" rev-parse --verify -q "$SB_GH_DEVELOP:$path" 2>/dev/null)
+  [[ -n $mine && $mine == "$theirs" ]] && return 0
+  die "$3: $path at this checkout's $SB_DEVELOP (${sha:0:12}) is not GitHub's develop's (${SB_GH_DEVELOP:0:12}); run 'git -C $SB_REPO_ROOT fetch origin develop' and again, $4"
 }
 
 # What a profile's image takes from dev/, as git tree hashes: the devices image
@@ -334,6 +359,9 @@ mirror_dir() { printf '%s/mirrors/%s.git\n' "$SB_STATE" "${1//\//__}"; }
 
 image_tree() { pm image inspect --format "{{index .Labels \"$SB_TREE_LABEL\"}}" "$SB_RUN_IMAGE" 2>/dev/null; }
 
+# What the check compared, for summary.json.
+SB_CHECK_DEVELOP="" SB_CHECK_TREE=""
+
 # A develop run uses develop's dev/. When the image's harness is not develop's
 # (by tree, see harness_tree), the image is built again first, under the run's
 # store lock, and the run goes on only on an image that has develop's harness.
@@ -341,11 +369,13 @@ harness_refresh() { # <profile>
   local profile=$1 sha pc_sha="" want built
   sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$SB_DEVELOP^{commit}" 2>/dev/null) ||
     die "run: $SB_DEVELOP is not a revision of this checkout"
+  develop_current "$profile" "$sha" run "or run with --harness pr"
   if [[ $profile == paperclipai ]]; then
     paperclipai_develop || die "run: sceny/omarchy-paperclipai has no develop branch in its mirror"
     pc_sha=$SB_PC_DEVELOP
   fi
   want=$(harness_tree "$profile" "$sha" "$pc_sha") || die "run: develop has no dev/ for the $profile harness"
+  SB_CHECK_DEVELOP=$sha SB_CHECK_TREE=$want
   built=$(image_tree)
   if [[ $built == "$want" ]]; then
     ok "the $profile image has develop's harness ($want)"
@@ -628,10 +658,19 @@ units_of_step() { # <repo> <step>
 }
 
 # The verdict, written here from what the host measured.
-write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file>
+# Beside the verdict, what gave it: the image's labels (its harness), this
+# script's own commit, and the develop the harness check compared (none for
+# --harness pr), so a run from a stale checkout or image reads as one.
+write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file> <image> <labels json> <script commit> <dev/ modified> <develop> <GitHub's develop> <tree>
   python3 - "$@" <<'PY'
 import json, os, sys
-out, repo, sha, steps, harness, secs, timeout, rows_file = sys.argv[1:]
+(out, repo, sha, steps, harness, secs, timeout, rows_file,
+ image, labels, script_commit, script_modified, develop, gh_develop, tree) = sys.argv[1:]
+try:
+    labels = json.loads(labels)
+except ValueError:
+    labels = None
+labels = {k: v for k, v in labels.items() if k.startswith('org.sceny.sandbox')} if isinstance(labels, dict) else None
 rows = []
 for line in open(rows_file):
     step, code, secs, oom, timed_out, stdout, note = (line.rstrip('\n').split('\t') + [''] * 7)[:7]
@@ -646,6 +685,10 @@ summary = {
     'oom_killed': oom, 'seconds': int(secs), 'timeout': int(timeout),
     'timed_out': any(r['timed_out'] for r in rows) or int(secs) >= int(timeout),
     'results': rows,
+    'image': {'name': image, 'labels': labels},
+    'script': {'commit': script_commit or None, 'dev_modified': script_modified == 'true'},
+    'harness_check': ({'develop': develop, 'github_develop': gh_develop or None, 'tree': tree}
+                      if develop else None),
     'passed': bool(rows) and all(r['exit'] == 0 and not r['note'] for r in rows) and not oom,
 }
 with open(os.path.join(out, 'summary.json'), 'w') as f:
@@ -773,6 +816,11 @@ cmd_run() {
 
   say "sandbox run $id: $repo ${sha:0:12} (steps $steps, harness $harness)"
   [[ $harness == pr ]] || harness_refresh "$profile"
+  # What runs the checks, for summary.json (the image cannot change: the run holds the store lock).
+  local labels script_commit script_modified=false
+  labels=$(pm image inspect --format '{{json .Labels}}' "$SB_RUN_IMAGE" 2>/dev/null) || labels=null
+  script_commit=$(git -C "$SB_REPO_ROOT" rev-parse -q --verify HEAD 2>/dev/null)
+  [[ -n $(git -C "$SB_REPO_ROOT" status --porcelain -- dev 2>/dev/null) ]] && script_modified=true
   make_archive "$repo" "$sha" "$from" "$SB_RUN_DIR/src.tar"
   make_seccomp
   [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
@@ -807,7 +855,8 @@ cmd_run() {
     done
   done
 
-  write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv"
+  write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv" \
+    "$SB_RUN_IMAGE" "$labels" "$script_commit" "$script_modified" "$SB_CHECK_DEVELOP" "$SB_GH_DEVELOP" "$SB_CHECK_TREE"
   local verdict=$?
   run_cleanup
   trap - EXIT INT TERM HUP

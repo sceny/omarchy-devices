@@ -1396,6 +1396,7 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         self.env = {"PATH": path_with_slice_loaded(self.tmp), "HOME": self.tmp, "SANDBOX_STATE": self.state, **self.GIT_ENV}
         self.repo = os.path.join(self.tmp, "repo")
         self.pc = os.path.join(self.state, "mirrors", "sceny__omarchy-paperclipai.git")
+        self.mirror = os.path.join(self.state, "mirrors", "sceny__omarchy-devices.git")
         self.label = os.path.join(self.tmp, "label")
         self.builds = os.path.join(self.tmp, "builds.log")
         self.commit(self.repo, {"dev/sandbox.d/Containerfile": "FROM x\n", "dev/rig": "rig 1\n", "README.md": "1\n"})
@@ -1416,6 +1417,10 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         self.git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "develop")
         if repo == self.repo:
             self.git(repo, "update-ref", "refs/remotes/origin/develop", "HEAD")
+            # GitHub's develop, as the sandbox's own mirror fetches it.
+            if not os.path.isdir(self.mirror):
+                subprocess.run(["git", "init", "-q", "--bare", self.mirror], check=True, env=self.env)
+            self.git(repo, "push", "-q", "-f", self.mirror, "HEAD:refs/heads/develop")
 
     def tree(self, profile):
         if profile == "paperclipai":
@@ -1513,6 +1518,95 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         r = self.run_cmd(harness="pr")
         self.goes_on(r)
         self.assertEqual(self.built(), [], r.stderr)
+
+    def behind(self, files):
+        """This checkout's origin/develop stays where it is while GitHub's develop gets <files>."""
+        old = self.git(self.repo, "rev-parse", "origin/develop")
+        self.commit(self.repo, files)
+        self.git(self.repo, "update-ref", "refs/remotes/origin/develop", old)
+
+    def test_a_checkout_behind_githubs_develop_in_dev_is_refused_on_its_own_stale_image(self):
+        # SCE-1991: the image was built from this checkout's old dev/, so its label equals the old tree.
+        self.image_has(self.tree("devices"))
+        self.behind({"dev/rig": "rig 2\n"})
+        r = self.run_cmd()
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not GitHub's develop", r.stderr)
+        self.assertIn("fetch origin develop", r.stderr)
+        self.assertIn("fetched sceny/omarchy-devices", r.stderr)
+        self.assertNotIn("reached", r.stderr)
+        self.assertEqual(self.built(), [], "a stale checkout never builds the shared image: " + r.stderr)
+
+    def test_a_paperclipai_run_from_a_checkout_behind_in_sandbox_d_is_refused(self):
+        self.image_has(self.tree("paperclipai"))
+        self.behind({"dev/sandbox.d/inside.sh": "x\n"})
+        r = self.run_cmd(repo="sceny/omarchy-paperclipai")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not GitHub's develop", r.stderr)
+        self.assertNotIn("reached", r.stderr)
+        self.assertEqual(self.built(), [], r.stderr)
+
+    def test_a_checkout_behind_only_outside_its_harness_goes_on(self):
+        self.image_has(self.tree("devices"))
+        self.behind({"README.md": "2\n"})
+        r = self.run_cmd()
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
+        self.behind({"dev/rig": "rig 2\n"})
+        r = self.run_cmd(repo="sceny/omarchy-paperclipai")
+        self.goes_on(r)
+
+    def test_a_pr_run_from_a_stale_checkout_goes_on(self):
+        self.image_has(self.tree("devices"))
+        self.behind({"dev/rig": "rig 2\n"})
+        self.goes_on(self.run_cmd(harness="pr"))
+
+    def test_a_build_from_a_stale_checkout_is_refused_unless_a_ref_is_named(self):
+        self.behind({"dev/rig": "rig 2\n"})
+        script = (
+            f'args=("$@"); set --; source "{SANDBOX}" >/dev/null\n'
+            f"SB_REPO_ROOT={shlex.quote(self.repo)}\n"
+            "require_tools() { :; }\n"
+            'fetch_mirror() { echo "fetched $1" >&2; }\n'
+            'build_images() { echo "building $1 $2" >&2; }\n'
+            'cmd_build --profile devices "${args[@]}"\n'
+        )
+        r = subprocess.run(["bash", "-c", script, "x"], capture_output=True, text=True, timeout=60, env=self.env)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("not GitHub's develop", r.stderr)
+        self.assertNotIn("building", r.stderr)
+        old = self.git(self.repo, "rev-parse", "origin/develop")
+        r = subprocess.run(["bash", "-c", script, "x", "--ref", old], capture_output=True, text=True, timeout=60, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn(f"building {old} devices", r.stderr)
+
+    def verdict(self, *extra):
+        out = os.path.join(self.tmp, "out")
+        os.makedirs(out)
+        rows = os.path.join(self.tmp, "rows.tsv")
+        with open(rows, "w") as f:
+            f.write("unit-model\t0\t3\tfalse\tfalse\t10\t\n")
+        script = f'args=("$@"); set --; source "{SANDBOX}" >/dev/null\nwrite_verdict "${{args[@]}}"\n'
+        r = subprocess.run(["bash", "-c", script, "x", out, REPO, GOOD_SHA, "tests", *extra[:1], "3", "60", rows, *extra[1:]],
+                           capture_output=True, text=True, timeout=60, env=self.env)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(os.path.join(out, "summary.json")) as f:
+            return json.load(f)
+
+    def test_the_summary_says_which_image_script_and_develop_gave_the_verdict(self):
+        labels = json.dumps({"org.sceny.sandbox.harness": "b" * 40, "org.sceny.sandbox.harness.tree": "c" * 40, "maintainer": "x"})
+        s = self.verdict("develop", "img:current", labels, "d" * 40, "true", "e" * 40, "f" * 40, "c" * 40)
+        self.assertEqual(s["image"], {"name": "img:current", "labels": {
+            "org.sceny.sandbox.harness": "b" * 40, "org.sceny.sandbox.harness.tree": "c" * 40}})
+        self.assertEqual(s["script"], {"commit": "d" * 40, "dev_modified": True})
+        self.assertEqual(s["harness_check"], {"develop": "e" * 40, "github_develop": "f" * 40, "tree": "c" * 40})
+        self.assertTrue(s["passed"])
+
+    def test_a_pr_runs_summary_has_no_harness_check_and_bad_labels_read_as_none(self):
+        s = self.verdict("pr", "img:current", "not json", "d" * 40, "false", "", "", "")
+        self.assertIsNone(s["harness_check"])
+        self.assertIsNone(s["image"]["labels"])
+        self.assertFalse(s["script"]["dev_modified"])
 
     def test_the_build_and_its_check_happen_under_the_runs_store_lock(self):
         with open(SANDBOX) as f:
