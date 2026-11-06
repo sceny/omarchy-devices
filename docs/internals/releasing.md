@@ -422,7 +422,9 @@ four words either side of the match, inside its sentence; a leak that sits
 within four words of an exempting word still passes, which a word list cannot
 tell apart, and the review reads for it. An exception by span (`unless_span`)
 blanks only the words it matches, so a marker elsewhere on the line still
-fails. The same rules check the standing texts
+fails. A stated gap is written `Not verified: <what>, <why>`, plain or as a list
+item, a checkbox, a quote or bold; that label alone passes the open-item rule.
+The same rules check the standing texts
 (`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
 dates and the owner's words as history, in the unit tests.
 
