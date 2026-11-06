@@ -38,7 +38,8 @@ jobs:
 
       - name: A release into main is ready
         run: |
-          eval "$(dev/release-notes "$RUNNER_TEMP/notes.md" | sed 's/^/export /')"
+          out=$(dev/release-notes "$RUNNER_TEMP/notes.md")
+          eval "$(sed 's/^/export /' <<< "$out")"
           if [ "$tagged" = true ]; then
             echo "::error file=manifest.json::v$version is already released: set the new version in manifest.json"
             exit 1
