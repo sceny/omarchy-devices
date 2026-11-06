@@ -319,6 +319,13 @@ class RestartApp(unittest.TestCase):
         self.assertFalse(bridge.restart_kdeconnect_app("SERIAL", phone, sleep=lambda s: None))
         self.assertFalse(any(a[:2] == ["am", "force-stop"] for a in phone.ran), "left running")
 
+    def test_the_activity_reaches_the_shell_only_as_a_class_name(self):
+        for activity in ("org.kde.kdeconnect_tp/.Main;id", "org.kde.kdeconnect_tp/.Main $(id)", "org.kde.kdeconnect_tp/.Main$PATH", "org.kde.kdeconnect_tp/"):
+            phone = AppPhone()
+            phone.ACTIVITY = activity
+            self.assertFalse(bridge.restart_kdeconnect_app("SERIAL", phone, sleep=lambda s: None), activity)
+            self.assertFalse(any(a[:2] in (["am", "force-stop"], ["am", "start"]) for a in phone.ran), activity)
+
     def test_not_run_when_the_steps_before_brought_them_back(self):
         restarted = []
         saved = (bridge.screen_status, bridge.bus, bridge.notifications_arrive, bridge.restart_kdeconnect_app, bridge.say)

@@ -2833,6 +2833,10 @@ def device_notification_count(serial, run=None):
 NOTIFICATIONS_SETTLE_SEC = 3
 APP_RESTART_WAIT_SEC = 60
 APP_RESTART_SEARCH_SEC = 5
+# the launcher activity the device names, as it may reach `adb shell` (which
+# the device's shell parses again): KDE Connect's package, then a class name
+# (no `$`: the shell would expand it, and a launcher activity is no inner class)
+KDECONNECT_ACTIVITY_RE = re.compile(re.escape(KDECONNECT_ANDROID) + r"/[A-Za-z0-9_.]+", re.A)
 
 
 def notifications_arrive(device_id, conn, wait=0, sleep=time.sleep):
@@ -2854,12 +2858,12 @@ def restart_kdeconnect_app(serial, run=None, sleep=time.sleep):
     launcher icon starts it, for the user adb is on: True when it started."""
     run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
     code, user = run(["am", "get-current-user"])
-    user = user.strip() if code == 0 and user.strip().isdigit() else "0"
+    user = user.strip() if code == 0 and re.fullmatch(r"[0-9]+", user.strip()) else "0"
     launcher = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"]
     code, out = run(["cmd", "package", "resolve-activity", "--brief", "--user", user] + launcher + [KDECONNECT_ANDROID])
     lines = (out or "").strip().splitlines() if code == 0 else []
     activity = lines[-1].strip() if lines else ""
-    if not activity.startswith(KDECONNECT_ANDROID + "/"):
+    if not KDECONNECT_ACTIVITY_RE.fullmatch(activity):
         return False
     code, _ = run(["am", "force-stop", "--user", user, KDECONNECT_ANDROID])
     if code != 0:
