@@ -240,6 +240,22 @@ class OpenItems(unittest.TestCase):
         self.assertIn(OPEN, checks("NOT VERIFIED: iOS, but not checked on Android."))
         self.assertIn(OPEN, checks("Not checked in a running shell, and not tested."))
 
+    def test_a_quoted_or_nested_stated_gap_passes(self):
+        for text in [
+            "> Not verified: iOS.",
+            "> - Not verified: iOS.",
+            "> > Not verified: iOS.",
+            "- > Not verified: iOS.",
+            "- - Not verified: iOS.",
+            "1. - Not verified: iOS.",
+            "> 1. - Not verified: iOS.",
+        ]:
+            with self.subTest(text=text):
+                self.assertNotIn(OPEN, checks(text))
+        self.assertIn(OPEN, checks("> Not checked on iOS."))
+        self.assertIn(OPEN, checks("> - Not checked on iOS."))
+        self.assertIn(OPEN, checks("- > - Not checked on iOS."))
+
     def test_words_that_are_not_a_leftover_pass(self):
         for text in [
             "A later change keeps the old keys.",
