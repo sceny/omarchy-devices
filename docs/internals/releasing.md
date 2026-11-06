@@ -408,14 +408,18 @@ from our own setup. Those go on the Paperclip task.
 `dev/public-text-check` holds these rules in `dev/public-text-rules.json` and
 fails the `public-text` check on a pull request whose body, comment, review or
 review comment: names the setup (`public-text-environment`: the tools, paths,
-test counts, task numbers); says something is left with no issue reference in
-its bullet or paragraph (`open-item-no-owner`); or names another repository's
-issue without its owner (`unlinked-reference`). The failure names the text's
+test counts and tallies, task numbers, this computer as the place we ran, HTML
+comments included); says something is left with no issue reference in its
+bullet or paragraph (`open-item-no-owner`, a review note that does not block
+included); or names another repository's issue so that GitHub does not link it
+(`unlinked-reference`: no owner, or the repository apart from its `#n`). The failure names the text's
 URL, the check and the rule. In CI the run log does not print the matched words,
 since a log is public; `dev/public-text-check --pr N` run locally prints them. The
 author or reviewer edits the text and the check runs again on the edit. Every run reads all the pull request's text
 through the API, so a plain comment is read on the next run of any event. A pull
-request about a tool may name it (`allowed_when_changed`); a pattern that
+request about a tool may name it (`allowed_when_changed`); a pull request that
+changes the rules may quote their words (`quoted`) in its body and commits only,
+never in a review or a comment; a pattern that
 catches a product word gets an exception in the rules file and a case in
 `tests/test_public_text.py`. An exception by words (`unless_near`) looks at
 four words either side of the match, inside its sentence; a leak that sits
@@ -427,7 +431,8 @@ of list markers, quote marks, a checkbox or bold; that label alone passes the
 open-item rule.
 The same rules check the standing texts
 (`AGENTS.md`, `CLAUDE.md`, the skills, `docs/internals/`) for task numbers,
-dates and the owner's words as history, in the unit tests.
+dates and the owner's words as history, and for another repository's issue
+that GitHub does not link, in the unit tests.
 
 `public-text` is a required status check on `develop`, through two gates nobody can
 bypass: a repository ruleset (`develop requires public-text`, no bypass actors) and
