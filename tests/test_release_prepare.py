@@ -3,14 +3,18 @@ release workflow's notes extraction run on what it wrote."""
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
 import unittest
 
+import test_workflows
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, "..", "dev", "release-prepare")
 RELEASE_NOTES = os.path.join(HERE, "..", "dev", "release-notes")
+RELEASE_YML = os.path.join(HERE, "..", ".github", "workflows", "release.yml")
 
 MANIFEST = '{\n  "id": "sceny.test",\n  "version": "%s",\n  "schemaVersion": 1\n}\n'
 HEAD = "# What's new\n\nIntro.\n\n"
@@ -50,6 +54,14 @@ def notes_of(work):
         subprocess.run([RELEASE_NOTES, notes], cwd=work, env=ENV, capture_output=True, text=True, check=True)
         with open(notes) as handle:
             return handle.read().strip()
+
+
+def release_check_step():
+    """The run block of release.yml's check job, as the runner reads it."""
+    with open(RELEASE_YML) as handle:
+        tree = test_workflows.load(handle.read(), "release.yml")
+    step = [s for s in tree["jobs"]["check"]["steps"] if s.get("name") == "A release into main is ready"][0]
+    return step["run"][2]
 
 
 class ReleasePrepare(unittest.TestCase):
@@ -132,6 +144,42 @@ class ReleasePrepare(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(git(self.work, "log", "-1", "--format=%s").strip(), "develop")
         self.assertIn("M  manifest.json", git(self.work, "status", "--porcelain"))
+
+    def test_release_notes_refuses_a_version_that_is_not_x_y_z(self):
+        notes = os.path.join(self.tmp.name, "notes.md")
+        for version in ["0.9", "v0.9.0", "0.9.0-rc1", "0.9.0.1", ""]:
+            with self.subTest(version=version):
+                with open(os.path.join(self.work, "manifest.json"), "w") as handle:
+                    handle.write(json.dumps({"id": "sceny.test", "version": version}))
+                done = subprocess.run([RELEASE_NOTES, notes], cwd=self.work, env=ENV, capture_output=True, text=True)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn("is not X.Y.Z", done.stderr)
+                self.assertFalse(os.path.exists(notes))
+
+    def run_check_step(self, version, changelog):
+        os.makedirs(os.path.join(self.work, "dev"), exist_ok=True)
+        shutil.copy(RELEASE_NOTES, os.path.join(self.work, "dev", "release-notes"))
+        with open(os.path.join(self.work, "manifest.json"), "w") as handle:
+            handle.write(json.dumps({"id": "sceny.test", "version": version}))
+        with open(os.path.join(self.work, "CHANGELOG.md"), "w") as handle:
+            handle.write(changelog)
+        runner = os.path.join(self.tmp.name, "runner")
+        os.makedirs(runner, exist_ok=True)
+        return subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", release_check_step()],
+                              cwd=self.work, env=dict(ENV, RUNNER_TEMP=runner), capture_output=True, text=True)
+
+    def test_release_check_step_stops_on_a_version_that_is_not_x_y_z(self):
+        for version in ["0.9", "v0.9.0", "0.9.0-rc1"]:
+            with self.subTest(version=version):
+                done = self.run_check_step(version, HEAD + "## 0.9.0 — 2026-10-20\n\n- New.\n\n" + OLD)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn("is not X.Y.Z", done.stderr)
+                self.assertNotIn("CHANGELOG.md", done.stdout)
+
+    def test_release_check_step_passes_a_release_with_notes(self):
+        done = self.run_check_step("0.9.0", HEAD + "## 0.9.0 — 2026-10-20\n\n- New.\n\n" + OLD)
+        self.assertEqual(done.returncode, 0, done.stderr + done.stdout)
+        self.assertIn("Release notes for v0.9.0", done.stdout)
 
     def test_refuses(self):
         cases = {
