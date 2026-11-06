@@ -60,7 +60,7 @@ $B snapshot                    # everything the panel draws (contains personal d
 | Away from home: the phone never connects | `doctor`: `mesh`; `features <id>`: `network` (`peer`, `added`, `isolated`) | `$B fix tailscale --describe` (Omarchy's installer, in a terminal; the person signs in); `$B device-fix reach <id>` (or `reach <id> <address>`: a peer picked, or an address the person gives); a Wi-Fi that keeps devices apart: say so, the mesh still works |
 | A feature is *Turned off* | `features`: its plugin `on: false` | `$B device-fix plugin <id> <plugin>=on` |
 | *Needs SMS / contacts / notification access* | `features --adb`: `permissions` | `$B device-fix grant <id> <permission>`, or on the phone: KDE Connect › Permissions |
-| Notifications stopped arriving | `features --adb`: `notifications.here` 0 while `device` is several | `$B device-fix renotify <id>`, then `relisten`, else restart the phone |
+| Notifications stopped arriving | `features --adb`: `notifications.here` 0 while `device` is several | `$B device-fix renotify <id>`, then `relisten`, then `restart-app`, else restart the phone |
 | The gallery is empty or says its storage stopped | `features`: `files` (`mounted`, `error`) | `$B device-fix remount <id>`; `$B fix restart` (KDE Connect restarts, devices reconnect) |
 | *Wireless debugging is off* | `screen`: `off` | on the phone: Developer options › Wireless debugging; with a USB cable: `$B device-fix wireless <id>` |
 | An app opens as an empty window | `screen <id>`: `locked` | unlock the phone; opening it again wakes it and waits |

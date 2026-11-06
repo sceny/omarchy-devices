@@ -2137,14 +2137,16 @@ function setupItem(key, ctx) {
   if (key === "health:notifications") {
     // None here while the device holds several (read over adb): KDE
     // Connect's listener went quiet (#94, our #95). Read again, then its
-    // listener bound again on the device; else the device's restart.
+    // listener bound again on the device, then KDE Connect's app there
+    // started again (#559); else the device's restart.
     item.gateway = "kdeconnect"; item.label = "notifications arriving"
     if (!report || !report.reachable) return linked()
     var counts = report.notifications
     if (!(counts && counts.here === 0 && counts.device !== null && counts.device >= 3)) return is("ok")
     item.steps.push({ kind: "auto", label: "Read its notifications again", fix: { verb: "device", what: "renotify" } })
-    item.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" },
-                      orAsk: "Restart " + name + ": KDE Connect stopped sending its notifications" })
+    var restart = "Restart " + name + ": KDE Connect stopped sending its notifications"
+    item.steps.push({ kind: "auto", label: "Make KDE Connect listen again on " + name, fix: { verb: "device", what: "relisten" }, orAsk: restart })
+    item.steps.push({ kind: "auto", label: "Start KDE Connect again on " + name, fix: { verb: "device", what: "restart-app" }, orAsk: restart })
     return is("broken", name + " has " + counts.device + " notifications; none arrive here")
   }
   if (key === "health:mount") {

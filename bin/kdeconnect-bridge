@@ -78,7 +78,9 @@ not re-printed, so the shell only wakes when something moved.
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
                                               reload, wireless (over a USB cable),
-                                              renotify, relisten, reconnect (KDE
+                                              renotify, relisten, restart-app (KDE
+                                              Connect's app on it stopped and started
+                                              again), reconnect (KDE
                                               Connect pointed at the address adb
                                               knows), wake (KDE Connect on it let
                                               run in the background, and opened),
@@ -2828,6 +2830,45 @@ def device_notification_count(serial, run=None):
     return len([p for p in pkgs if p not in (KDECONNECT_ANDROID, "com.android.systemui", "android")])
 
 
+NOTIFICATIONS_SETTLE_SEC = 3
+APP_RESTART_WAIT_SEC = 60
+APP_RESTART_SEARCH_SEC = 5
+
+
+def notifications_arrive(device_id, conn, wait=0, sleep=time.sleep):
+    """Whether any of the device's notifications is here, read again every
+    half second for up to `wait` seconds (they come one packet each)."""
+    for i in range(int(wait * 2) + 1):
+        try:
+            if call(conn, device_path(device_id) + "/notifications", IFACE + ".device.notifications", "activeNotifications")[0]:
+                return True
+        except GLib.Error:
+            pass
+        if i < int(wait * 2):
+            sleep(0.5)
+    return False
+
+
+def restart_kdeconnect_app(serial, run=None, sleep=time.sleep):
+    """KDE Connect's app on the device stopped and started again, as its
+    launcher icon starts it, for the user adb is on: True when it started."""
+    run = run or (lambda args, timeout=15: adb(["-s", serial, "shell"] + args, timeout=timeout))
+    code, user = run(["am", "get-current-user"])
+    user = user.strip() if code == 0 and user.strip().isdigit() else "0"
+    launcher = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"]
+    code, out = run(["cmd", "package", "resolve-activity", "--brief", "--user", user] + launcher + [KDECONNECT_ANDROID])
+    lines = (out or "").strip().splitlines() if code == 0 else []
+    activity = lines[-1].strip() if lines else ""
+    if not activity.startswith(KDECONNECT_ANDROID + "/"):
+        return False
+    code, _ = run(["am", "force-stop", "--user", user, KDECONNECT_ANDROID])
+    if code != 0:
+        return False
+    sleep(1)
+    code, out = run(["am", "start", "--user", user] + launcher + ["-n", activity])
+    return code == 0 and "Error" not in (out or "")
+
+
 def plugin_on(device_id, plugin, conn=None):
     """Whether one of KDE Connect's plugins is on for a device."""
     conn = conn or bus()
@@ -3677,6 +3718,31 @@ def device_fix(what, device_id, arg=""):
         time.sleep(1)
         code, out = adb(["-s", serial, "shell", "cmd", "notification", "allow_listener", LISTENER, user])
         return say("KDE Connect listens to its notifications again") if code == 0 else say(out.strip() or "It did not work", EXIT_FAILED, osd="It did not work")
+    if what == "restart-app":
+        # The listener bound and live, and still nothing sent: the fault is in
+        # KDE Connect's app on the device, and starting it again ends it (#559).
+        # Not when the steps before it already brought the notifications back.
+        if not serial:
+            return say("Not reachable over adb: restart the device instead", EXIT_FAILED)
+        conn = bus()
+        if notifications_arrive(device_id, conn, wait=NOTIFICATIONS_SETTLE_SEC):
+            return say("Its notifications arrive again")
+        if not restart_kdeconnect_app(serial):
+            return say("KDE Connect did not start again on it", EXIT_FAILED)
+        # Searched for again while it starts: one search sent too early,
+        # before it listens, finds nothing.
+        for _ in range(APP_RESTART_WAIT_SEC // APP_RESTART_SEARCH_SEC):
+            try:
+                call(conn, ROOT, IFACE + ".daemon", "forceOnNetworkChange")
+            except GLib.Error:
+                pass
+            if wait_reachable(device_id, conn, wait=APP_RESTART_SEARCH_SEC):
+                break
+        else:
+            return say("KDE Connect started again on it, but it did not connect", EXIT_FAILED)
+        if notifications_arrive(device_id, conn, wait=RECONNECT_WAIT_SEC):
+            return say("KDE Connect started again on it; its notifications arrive")
+        return say("KDE Connect started again on it, but its notifications still do not arrive", EXIT_FAILED)
     if what == "reconnect":
         return reconnect(device_id)
     if what == "wake":

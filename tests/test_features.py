@@ -283,6 +283,71 @@ class Renotify(unittest.TestCase):
             bridge.plugin_on, bridge.set_plugin, bridge.say, bridge.time.sleep = saved
 
 
+class AppPhone(FakePhone):
+    """A phone on user 10 whose launcher resolves KDE Connect's main activity."""
+    ACTIVITY = bridge.KDECONNECT_ANDROID + "/org.kde.kdeconnect.MainActivity"
+
+    def __call__(self, args, timeout=10):
+        if args[:1] == ["am"] and args[1:2] == ["get-current-user"]:
+            self.ran.append(args)
+            return 0, "10\n"
+        if args[:3] == ["cmd", "package", "resolve-activity"]:
+            self.ran.append(args)
+            return 0, "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=false\n" + self.ACTIVITY + "\n"
+        if args[:2] == ["am", "start"]:
+            self.ran.append(args)
+            return 0, "Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] }\n"
+        return super().__call__(args, timeout)
+
+
+class RestartApp(unittest.TestCase):
+    LAUNCHER = ["-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER"]
+
+    def test_stopped_and_started_as_the_launcher_does_for_the_user_adb_is_on(self):
+        phone, waited = AppPhone(), []
+        self.assertTrue(bridge.restart_kdeconnect_app("SERIAL", phone, sleep=waited.append))
+        self.assertEqual(phone.ran[1:], [
+            ["cmd", "package", "resolve-activity", "--brief", "--user", "10"] + self.LAUNCHER + [bridge.KDECONNECT_ANDROID],
+            ["am", "force-stop", "--user", "10", bridge.KDECONNECT_ANDROID],
+            ["am", "start", "--user", "10"] + self.LAUNCHER + ["-n", AppPhone.ACTIVITY],
+        ])
+        self.assertEqual(waited, [1])
+
+    def test_never_stopped_when_it_could_not_be_started(self):
+        phone = AppPhone()
+        phone.ACTIVITY = "No activity found"
+        self.assertFalse(bridge.restart_kdeconnect_app("SERIAL", phone, sleep=lambda s: None))
+        self.assertFalse(any(a[:2] == ["am", "force-stop"] for a in phone.ran), "left running")
+
+    def test_not_run_when_the_steps_before_brought_them_back(self):
+        restarted = []
+        saved = (bridge.screen_status, bridge.bus, bridge.notifications_arrive, bridge.restart_kdeconnect_app, bridge.say)
+        try:
+            bridge.screen_status = lambda device: {"state": "ready", "serial": "SERIAL"}
+            bridge.bus = lambda: None
+            bridge.notifications_arrive = lambda device, conn, wait=0, sleep=None: True
+            bridge.restart_kdeconnect_app = lambda serial, run=None, sleep=None: restarted.append(serial) or True
+            bridge.say = lambda message, code=0, osd=None: code
+            self.assertEqual(bridge.device_fix("restart-app", "dev"), 0)
+            self.assertEqual(restarted, [])
+            bridge.screen_status = lambda device: {"state": "pair"}
+            self.assertNotEqual(bridge.device_fix("restart-app", "dev"), 0, "no adb: the device's restart is asked")
+        finally:
+            bridge.screen_status, bridge.bus, bridge.notifications_arrive, bridge.restart_kdeconnect_app, bridge.say = saved
+
+    def test_arriving_is_read_again_for_a_while(self):
+        reads, waited = [[], [], [{"id": "n"}]], []
+        saved = bridge.call
+        try:
+            bridge.call = lambda *a, **kw: (reads.pop(0),)
+            self.assertTrue(bridge.notifications_arrive("dev", None, wait=3, sleep=waited.append))
+            self.assertEqual(waited, [0.5, 0.5])
+            reads[:] = [[]] * 7
+            self.assertFalse(bridge.notifications_arrive("dev", None, wait=3, sleep=waited.append))
+        finally:
+            bridge.call = saved
+
+
 class Reconnect(unittest.TestCase):
     def test_the_address_from_the_serial_or_the_device(self):
         self.assertEqual(bridge.device_address("192.168.1.23:37011"), "192.168.1.23")
