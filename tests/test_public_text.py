@@ -215,6 +215,9 @@ class Environment(unittest.TestCase):
             "It fails when the key is missing.",
             "The panel stops after 3 failed pairings.",
             "After 2 failures in a row the bridge waits.",
+            "Version 2 failed to load the panel.",
+            "Android 13 failed to duplicate the audio.",
+            "Step 3 failed without the key.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -239,6 +242,14 @@ class Environment(unittest.TestCase):
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
+
+    def test_a_rig_or_sandbox_change_may_name_the_host(self):
+        text = "The rig never writes the host plugin folder."
+        self.assertIn((ENV, "own-machine"), problems(text))
+        for files in (["dev/rig"], ["dev/sandbox"], ["docs/internals/development.md"], ["tests/test_sandbox.py"]):
+            with self.subTest(files=files):
+                self.assertEqual(problems(text, files), [])
+        self.assertIn((ENV, "own-machine"), problems(text, ["Model.js"]))
 
 
 class OpenItems(unittest.TestCase):
