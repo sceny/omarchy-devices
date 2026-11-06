@@ -213,6 +213,8 @@ class Environment(unittest.TestCase):
             "A fail-safe stops it at 1 fail-over.",
             "The second pass reads the cache.",
             "It fails when the key is missing.",
+            "The panel stops after 3 failed pairings.",
+            "After 2 failures in a row the bridge waits.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -232,6 +234,8 @@ class Environment(unittest.TestCase):
             "The device's address and the host in its URL are kept.",
             "The host-side check reads the key.",
             "This computer keeps the clipboard.",
+            "Keys are read from Hyprland on this machine, never assumed.",
+            "The firewall rule opens the port on this machine only.",
         ]:
             with self.subTest(text=text):
                 self.assertEqual(problems(text), [])
@@ -262,6 +266,8 @@ class OpenItems(unittest.TestCase):
             "Non-blocking: the label moves by a pixel.",
             "One non-blocking note on the fold.",
             "(not blocking) The label moves.",
+            "Nit, non-blocking: the label moves.",
+            "- **Non-blocking:** the label moves.",
             "The label moves in a separate change.",
             "A separate pull request takes the fold.",
             "Left for the panel engineer.",
@@ -298,6 +304,11 @@ class OpenItems(unittest.TestCase):
             "The room left for the title shrinks as the chip grows.",
             "The step left for the user shows under the switch.",
             "Each device keeps a separate cache.",
+            "The write does not block, so the bar keeps drawing.",
+            "A reader that never reads does not block it.",
+            "The clipboard read is now non-blocking.",
+            "wl-paste runs non-blocking: the shell never waits.",
+            "The rename is in a separate commit, so the diff reads.",
         ]:
             with self.subTest(text=text):
                 self.assertNotIn(OPEN, checks(text))
