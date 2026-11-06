@@ -42,4 +42,4 @@ offers it.
 
 ![A missed call card with call back and text back (demo data)](../images/call-missed.png)
 
-Setup: [Calls here](../setup/calls-here.md) · Limits: [What it cannot do](../setup/limits.md#calls)
+Setup: [Calls here](../setup/calls-here.md) · Limits: [What it cannot do](../setup/limits-calls.md)

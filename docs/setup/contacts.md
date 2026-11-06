@@ -33,4 +33,4 @@ numbers, and nothing about it is a problem.
 - A name is missing in a conversation: that number has no card on the phone.
 - An iPhone sends no contacts at all.
 
-Limits: [What it cannot do](limits.md#contacts)
+Limits: [What it cannot do](limits-contacts.md)

@@ -19,4 +19,4 @@ data: notifications, messages, media and files, as at home.
 
 On the card of a device that is away: **From anywhere**.
 
-Setup: [From anywhere](../setup/anywhere.md) · Limits: [What it cannot do](../setup/limits.md#from-anywhere)
+Setup: [From anywhere](../setup/anywhere.md) · Limits: [What it cannot do](../setup/limits-anywhere.md)
