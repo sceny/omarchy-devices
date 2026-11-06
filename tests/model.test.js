@@ -1533,7 +1533,7 @@ test("setup items: one item serves several features and shows once; gateways say
   const quiet = M.deviceSetup({ report: Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 5 } }), screen: null, name: "Pixel 8" })
   const problems = M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: quiet, rows: quiet.features }])
   assert.deepEqual(problems.map(p => [p.key, p.affects.join()]), [["health:notifications", "notifications"]])
-  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["renotify", "relisten"])
+  assert.deepEqual(M.problemsPlan(problems).map(s => s.fix.what), ["renotify", "relisten", "restart-app"])
   // Before anything is read: looking, never a problem.
   const none = M.deviceSetup({ report: null, screen: null, name: "Pixel 8" })
   assert.ok(none.features.every(r => r.state === "setup" && r.detail === "Looking…"))
@@ -1638,8 +1638,10 @@ test("players: one paused as long as Android hides it is hidden (#33); a seek's 
 test("features: notifications gone quiet (#95) need attention, with the remedies in order", () => {
   const report = Object.assign(M.demoFeatures(), { notifications: { here: 0, device: 7 } })
   const row = M.featureRows(report, null, "Pixel 8").find(r => r.key === "notifications")
-  assert.deepEqual([row.state, row.steps.map(s => s.fix.what)], ["attention", ["renotify", "relisten"]])
-  assert.match(row.steps[1].orAsk, /^Restart Pixel 8/)
+  assert.deepEqual([row.state, row.steps.map(s => s.fix.what)], ["attention", ["renotify", "relisten", "restart-app"]])
+  assert.match(row.steps[1].orAsk, /^Restart Pixel 8/, "no adb to listen again: the device's restart")
+  assert.match(row.steps[2].orAsk, /^Restart Pixel 8/, "KDE Connect's app started again and still nothing: the device's restart (#559)")
+  assert.ok(row.steps.every(s => !s.fallback), "each runs after the one before")
   const quiet = M.featureRows(Object.assign(M.demoFeatures(), { notifications: { here: 0, device: null } }), null, "Pixel 8").find(r => r.key === "notifications")
   assert.equal(quiet.state, "on", "without adb it cannot tell: no alarm")
 })
@@ -2309,7 +2311,7 @@ test("a problem with a fix of its own stays out of sight until the fix ran and t
 })
 
 test("only a fix that asks for no password and changes nothing on the device may run by itself (#454)", () => {
-  const touchesDevice = ["grant", "open-permission", "wake", "relisten", "wireless", "bluetooth", "unreach"]
+  const touchesDevice = ["grant", "open-permission", "wake", "relisten", "restart-app", "wireless", "bluetooth", "unreach"]
   M.AUTO_FIXES.forEach(f => {
     const [verb, what] = f.split(":")
     assert.equal(verb, "device", f + " goes through the bridge's device fixes, never the password's `fix`")

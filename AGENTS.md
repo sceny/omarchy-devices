@@ -377,7 +377,8 @@ one only with the owner.
   service); the problem stays out of the card, the dots and the count
   until its fix has run and the device was read again, and is shown, once, only
   if it is still there. Everything else stays a click and its card: a root
-  fix, a permission or any step on the device (`grant`, `wake`, `relisten`),
+  fix, a permission or any step on the device (`grant`, `wake`, `relisten`,
+  `restart-app`),
   KDE Connect's restart (every device reconnects) and the first run's card
   (KDE Connect missing, or never set up). A new fix joins `Model.AUTO_FIXES` only when it
   asks for no password and changes nothing on the device. The

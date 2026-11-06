@@ -59,7 +59,7 @@ working and KDE Connect's link is the one problem.
 | `doctor` | This computer (diagnostics): KDE Connect, the firewall, the network, the mesh, the packages, Bluetooth and PipeWire's hands-free service. |
 | `features <id> [--adb]` | One device: KDE Connect's plugins, its link, its storage, its network (`network`: meshes, its peer, how it is reached); with adb, its permissions and notification count. |
 | `fix <what> [--describe \| --confirm H]` | This computer: ready (the first run: every package and the firewall's rule in one prompt), install, firewall, sshfs, screen, bluetooth (root, as shown), tailscale (Omarchy's installer in its terminal, as shown), start, restart, search, bluetooth-on, audio. |
-| `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, reconnect, wake, wireless, reach, unreach, bluetooth (use=<address>, connect). |
+| `device-fix <what> <id> [arg]` | One device: plugin, grant, open-permission, remount, reload, renotify, relisten, restart-app, reconnect, wake, wireless, reach, unreach, bluetooth (use=<address>, connect). |
 | `call <what> <id> [arg]` | A call through Bluetooth (PipeWire's `org.pipewire.Telephony`): answer, answer-phone, decline, hangup, dial, tones, swap, merge, audio-here, keep-on-phone, volume, mute. |
 | `call-audio <id>` | While a call's audio is here: two `pw-loopback`s, its voice to the default output and the microphone to the device. |
 | `screen <id>` | The screen link: tools, pair, off, away, unauthorized or ready, and whether it is locked. |
