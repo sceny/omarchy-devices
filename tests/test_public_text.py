@@ -4,6 +4,7 @@ match a product word fails the build.
 
 The examples are written for the test: no real pull request, person or device."""
 
+import base64
 import importlib.machinery
 import importlib.util
 import json
@@ -470,6 +471,14 @@ class WholePullRequest(unittest.TestCase):
         self.assertNotIn("tail tail", result.stdout)
         self.assertLess(len(result.stdout), 400)
 
+    def test_every_class_fails_the_command(self):
+        examples = {ENV: "Ran it in the rig.", OPEN: "Not checked in the panel.", UNLINKED: "Upstream is omarchy#8753."}
+        for check, text in examples.items():
+            with self.subTest(check=check):
+                result = self.run_cli(self.doc(text))
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(check, result.stdout)
+
     def test_output_has_no_control_characters_or_workflow_commands(self):
         evil = "::error::x\r\nSCE-1\x1b[31m"
         result = self.run_cli(self.doc(evil))
@@ -591,6 +600,11 @@ class Sources(unittest.TestCase):
         self.assertEqual(ptc.pull_request_number({"pull_request": {"number": 7}}), 7)
         self.assertIsNone(ptc.pull_request_number({"issue": {"number": 12}}))
 
+    def test_a_merge_group_names_the_pull_request_it_merges(self):
+        group = {"merge_group": {"head_ref": "refs/heads/gh-readonly-queue/develop/pr-85-3aa9ef0787f1b1177f2f54d903fc25830f147f35"}}
+        self.assertEqual(ptc.pull_request_number(group), 85)
+        self.assertIsNone(ptc.pull_request_number({"merge_group": {"head_ref": "refs/heads/develop"}}))
+
 
 def checks_of(doc):
     return {(check, rule) for _, check, rule, _ in ptc.check_pull_request(RULES, doc)}
@@ -647,6 +661,73 @@ class PublicFiles(unittest.TestCase):
 
     def test_every_pattern_it_names_exists(self):
         self.assertTrue(set(RULES["public_files"]["pattern_ids"]) <= {p["id"] for p in RULES["environment"]["patterns"]})
+
+
+class Twin(unittest.TestCase):
+    """The twin repository holds the same checker and the same rules, apart from
+    each one's own lines (LOCAL_RULES)."""
+
+    def setUp(self):
+        with open(SCRIPT) as handle:
+            self.checker = handle.read()
+        with open(ptc.RULES_FILE) as handle:
+            self.rules_text = handle.read()
+
+    def twin_rules(self, change=None):
+        rules = json.loads(self.rules_text)
+        rules["repository"], rules["twin"] = rules["twin"], rules["repository"]
+        for pat in rules["environment"]["patterns"]:
+            if pat["id"] == "paperclip":
+                pat["regex"] = "\\bother\\b"
+            if "unless_match" in pat:
+                pat["unless_match"] = "other\\.plugin"
+            if "allowed_when_changed" in pat:
+                pat["allowed_when_changed"] = [re.sub(r"^tests/", "test/", f) for f in pat["allowed_when_changed"]]
+        if change:
+            change(rules)
+        return json.dumps(rules, indent=1)
+
+    def test_each_repository_s_own_lines_are_no_drift(self):
+        self.assertEqual(ptc.drift(self.checker, self.rules_text, self.checker, self.twin_rules()), [])
+
+    def test_a_changed_rule_or_checker_is_drift(self):
+        def narrower(rules):
+            rules["open_item"]["markers"][0]["regex"] += "x"
+        self.assertEqual(ptc.drift(self.checker, self.rules_text, self.checker, self.twin_rules(narrower)),
+                         ["dev/public-text-rules.json"])
+        self.assertEqual(ptc.drift(self.checker, self.rules_text, self.checker + "\n", self.rules_text),
+                         ["dev/public-text-check"])
+
+    def fake_api(self, heads):
+        """heads: ref -> (checker, rules) of the twin; every ref but develop is an open pull request."""
+        twin = RULES["twin"]
+
+        def api(path, token):
+            if path.startswith("/repos/%s/pulls?" % twin):
+                return [{"html_url": "https://github.com/%s/pull/%d" % (twin, i), "head": {"sha": ref}}
+                        for i, ref in enumerate(r for r in heads if r != "develop")]
+            name, ref = re.match(r"/repos/[^/]+/[^/]+/contents/(.+)\?ref=(.+)$", path).groups()
+            text = heads[ref][ptc.TWIN_FILES.index(name)]
+            return {"content": base64.b64encode(text.encode()).decode()}
+        return api
+
+    def check(self, heads):
+        with mock.patch.object(ptc, "api", self.fake_api(heads)):
+            return ptc.check_twin(RULES, "token", SCRIPT)
+
+    def test_it_matches_the_twin_s_develop(self):
+        where, differ = self.check({"develop": (self.checker, self.twin_rules())})
+        self.assertEqual((where, differ), ("%s develop" % RULES["twin"], []))
+
+    def test_a_change_made_in_both_lands_one_pull_request_at_a_time(self):
+        where, differ = self.check({"develop": (self.checker + "# old\n", self.twin_rules()),
+                                    "aaa": (self.checker + "# other\n", self.twin_rules()),
+                                    "bbb": (self.checker, self.twin_rules())})
+        self.assertEqual((where, differ), ("https://github.com/%s/pull/1" % RULES["twin"], []))
+
+    def test_a_change_in_one_repository_alone_fails(self):
+        where, differ = self.check({"develop": (self.checker + "# old\n", self.twin_rules())})
+        self.assertEqual((where, differ), (None, ["dev/public-text-check"]))
 
 
 class Rules(unittest.TestCase):
