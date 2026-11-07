@@ -308,7 +308,7 @@ stops the freeze. It is undone piece by piece, as §5.1 says, never at once.
 separate change, made only when its trigger holds; a Qt fix that is announced,
 merged on `dev` or shipped in a Qt that Omarchy does not install retires
 nothing. "Omarchy's Qt" is what Omarchy installs: `pacman -Q qt6-base
-qt6-declarative` on a current Omarchy, 6.11.2 today.
+qt6-declarative` on a current Omarchy.
 
 | Piece (ships now) | Qt defect it covers | Upstream, measured 2026-10-14 | Retires when |
 |---|---|---|---|
@@ -319,7 +319,7 @@ qt6-declarative` on a current Omarchy, 6.11.2 today.
 | Paste through `Clipboard.readInto` (bounded `wl-paste`); Paste key taken before Qt; no QML call to `paste()` | The shell as reader: `QWaylandMimeData::readData`, `Q_FOREVER` with 1 s per `poll`, no total time or byte cap | **No fix on any branch**: identical in 6.11.2, 6.11, 6.12.0 and `dev` | Omarchy's Qt bounds the read in total time and bytes, or reads off the GUI thread, **and** C-clip-3(b) passes with Qt's own `paste()`. |
 | Middle click swallowed on the editable surface | Qt's middle-button paste of the primary selection (the same read) | Same as above | Same trigger as the row above. |
 | No `DropArea` (the shell is no drop target) | A drop read in-process (the same read) | Same as above | Same trigger as the paste row. |
-| No `TextField` / `TextInput` / `TextArea` | `QQuickTextInput::canPaste` / `q_canPasteChanged` read the payload on every clipboard change, no gesture needed | qtdeclarative ef692a52e3 (2026-09-13) on `dev` only; not in 6.12.0 | Omarchy's Qt carries ef692a52e3. Then `TextInput` is allowed **under every rule above**, no fewer; it is the cheapest piece to keep, and the last worth retiring. |
+| No `TextField` / `TextInput` / `TextArea` | `QQuickTextInput::canPaste` / `q_canPasteChanged` read the payload on every clipboard change, no gesture needed | qtdeclarative ef692a52e3 (2026-09-13) on `dev` only; not in 6.12.0 | Omarchy's Qt carries ef692a52e3: on 6.12, the first 6.12 patch release that carries its pick ([bcbfae6761](https://github.com/qt/qtdeclarative/commit/bcbfae6761)), once Arch ships it. Then `TextInput` is allowed **under every rule above**, no fewer; it is the cheapest piece to keep, and the last worth retiring. |
 
 **Never retires:** the `Clipboard` component (the one door; once the copy
 and paste rows retire, its insides may call Qt's clipboard, and its callers
