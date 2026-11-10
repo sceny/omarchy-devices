@@ -2444,7 +2444,9 @@ Panel {
                             app: c.appName, card: c.openId !== "", details: c.details.count,
                             pane: contactsView ? contactsView.pane : "", cursor: contactsView && contactsView.cursorActive ? contactsView.rowCursor : -1,
                             searching: contactsView ? contactsView.searchText !== "" : false,
-                            searchFocused: contactsView ? contactsView.searchFocused : false })
+                            searchFocused: contactsView ? contactsView.searchFocused : false,
+                            openId: c.openId, rowCursor: contactsView ? contactsView.rowCursor : -1,
+                            thread: contactsView ? contactsView.thread.tid : -1, recent: contactsView ? contactsView.recent.length : 0 })
   }
 
   // A shortcut that is on: the Screen, while its window is open.
@@ -3452,6 +3454,15 @@ Panel {
       root.messageContact(number, "", false)
       return "ok"
     }
+    // Between Messages and Contacts, as the buttons (c, m) and a recent text
+    // would; none of them focuses a text field (scripted).
+    function pressThreadContact(): string { return root.messagesOpen && messagesView && messagesView.openThreadContact() ? "ok" : "no contact" }
+    function pressContactThread(): string { return root.contactsOpen && contactsView && contactsView.messageOpenCard(false) ? "ok" : "no conversation" }
+    function pressRecent(i: int): string {
+      if (!root.contactsOpen || !contactsView || i < 0 || i >= contactsView.recent.length) return "no text " + i
+      contactsView.openRecent(i)
+      return "ok"
+    }
     // Esc on the panel (not in a text field), as the key would.
     // Where the panel's card is on the desktop (for screenshots that show
     // the panel and nothing else): x, y, width, height in global pixels.
@@ -3592,7 +3603,9 @@ Panel {
         open: s.openThreadId, loaded: s.messages.count, hasMore: s.hasMore, loading: s.loading,
         contacts: s.contactCount, error: s.lastError, composerFocused: messagesView ? messagesView.composerFocused : false,
         newMessage: messagesView && messagesView.newMode ? { to: messagesView.recipients.map(function(r) { return r.number }), typed: messagesView.toText, suggestions: messagesView.suggestions.length } : null,
-        search: messagesView ? messagesView.searchText : "" })
+        search: messagesView ? messagesView.searchText : "",
+        threadCursor: messagesView ? messagesView.threadCursor : -1, messageCursor: messagesView ? messagesView.messageCursor : -1,
+        contact: messagesView && messagesView.openCard ? String(messagesView.openCard.id) : "" })
     }
     function loadOlder(): string { if (root.sms) root.sms.loadMore(); return "ok" }
     // The jump buttons (JumpButton): page, threads, conversation, contacts.
@@ -3906,7 +3919,7 @@ Panel {
           else if (t === "g") contactsView.cursorTo(0)
           else if (t === "G") contactsView.cursorTo(1e9)
           // m: the open card's conversation; with no card, Messages.
-          else if (t === "m") { if (!contactsView.messageOpenCard()) root.openMessagesView(-1) }
+          else if (t === "m") { if (!contactsView.messageOpenCard(true)) root.openMessagesView(-1) }
           return
         }
         if (root.messagesOpen) {
@@ -6802,9 +6815,9 @@ Panel {
                 settled: root.settled
                 // Their conversation: a page pushed on the stack, so Back
                 // returns here; none yet, a new message to them.
-                onOpenConversation: function(tid, number, who, uid) {
+                onOpenConversation: function(tid, number, who, uid, typeHere) {
                   if (tid >= 0) root.openMessagesView(tid, false, true, uid)
-                  else root.messageContact(number, who, true)
+                  else root.messageContact(number, who, typeHere)
                 }
                 onCallContact: function(number, who) { if (root.device) root.callBack({ device: String(root.device.id), number: number, who: who }) }
                 onAppOpened: root.close()

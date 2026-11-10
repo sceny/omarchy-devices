@@ -59,8 +59,9 @@ Item {
   signal callContact(string number, string who)
   // The open card's conversation (tid, or -1 and the number a new message
   // goes to), on a message of it when `uid` is one (a recent text), else on
-  // its newest.
-  signal openConversation(var tid, string number, string who, var uid)
+  // its newest. typeHere: the user's own act, which may put the cursor in a
+  // new message's text field; never a scripted one.
+  signal openConversation(var tid, string number, string who, var uid, bool typeHere)
   // Omarchy's own contacts app was opened: it is a window the user goes on
   // in, so the panel closes behind it.
   signal appOpened()
@@ -91,10 +92,15 @@ Item {
 
   // m, or the card's button: its conversation, on its newest message. False
   // with no card (the key then opens Messages).
-  function messageOpenCard() {
+  function messageOpenCard(typeHere) {
     if (!hasCard || !canMessage) return false
-    openConversation(thread.tid, thread.number, contacts.openTitle, -1)
+    openConversation(thread.tid, thread.number, contacts.openTitle, -1, typeHere === true)
     return true
+  }
+  // A recent text: its conversation, on that message.
+  function openRecent(i) {
+    if (i < 0 || i >= recent.length || thread.tid < 0) return
+    openConversation(thread.tid, thread.number, contacts ? contacts.openTitle : "", recent[i].uid, false)
   }
 
   // ---- where an open lands ----
@@ -678,7 +684,7 @@ Item {
             tooltipText: Model.keyTip(view.thread.tid >= 0 ? "Open the conversation" : "New message", "contactThread")
             foreground: view.foreground
             fontFamily: view.fontFamily
-            onClicked: view.messageOpenCard()
+            onClicked: view.messageOpenCard(true)
           }
 
           PanelActionButton {
@@ -863,6 +869,7 @@ Item {
   component RecentRow: CursorSurface {
     id: recentRow
     required property var modelData
+    required property int index
     // A link's own hover, as an inline button keeps its own: the keys do
     // not reach these rows (m opens the conversation).
     hasCursor: textArea.containsMouse
@@ -874,7 +881,7 @@ Item {
       anchors.fill: parent
       hoverEnabled: true
       cursorShape: Qt.PointingHandCursor
-      onClicked: view.openConversation(view.thread.tid, view.thread.number, view.contacts ? view.contacts.openTitle : "", recentRow.modelData.uid)
+      onClicked: view.openRecent(recentRow.index)
     }
 
     RowLayout {
