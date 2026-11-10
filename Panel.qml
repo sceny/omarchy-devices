@@ -2013,6 +2013,8 @@ Panel {
     var last = lastContacts[device.id]
     if (last === undefined) return
     contacts.openContact(String(last))
+    // In view, not marked: it is where the user was.
+    if (contactsView) contactsView.landOn(String(last), false)
   }
   Connections {
     target: root.contacts
@@ -2405,7 +2407,10 @@ Panel {
       // Reads the cards already on disk, at most every CONTACTS_READ_MS;
       // only the user's own Refresh asks the device again.
       contacts.opened()
-      if (id !== undefined && String(id) !== "") contacts.openContact(String(id))
+      if (id !== undefined && String(id) !== "") {
+        contacts.openContact(String(id))
+        if (contactsView) contactsView.landOn(String(id))
+      }
       else restoreContact()
     }
     if (panelFlick) panelFlick.contentY = 0
@@ -2439,7 +2444,9 @@ Panel {
                             app: c.appName, card: c.openId !== "", details: c.details.count,
                             pane: contactsView ? contactsView.pane : "", cursor: contactsView && contactsView.cursorActive ? contactsView.rowCursor : -1,
                             searching: contactsView ? contactsView.searchText !== "" : false,
-                            searchFocused: contactsView ? contactsView.searchFocused : false })
+                            searchFocused: contactsView ? contactsView.searchFocused : false,
+                            openId: c.openId, rowCursor: contactsView ? contactsView.rowCursor : -1,
+                            thread: contactsView ? contactsView.thread.tid : -1, recent: contactsView ? contactsView.recent.length : 0 })
   }
 
   // A shortcut that is on: the Screen, while its window is open.
@@ -2586,7 +2593,8 @@ Panel {
   }
 
   // `fresh`: not back to the conversation left open (the caller picks one).
-  function openMessagesView(threadId, typeHere, fresh) {
+  // `uid`: the message to land on (a contact's recent text), else its newest.
+  function openMessagesView(threadId, typeHere, fresh, uid) {
     // A tablet without a SIM (or a computer) has no text messages.
     if (device && can.sms !== true) {
       if (phone) phone.report(Model.deviceLabel(device) + " has no text messages", false, "The device has no text messages")
@@ -2601,6 +2609,9 @@ Panel {
     appsOpen = false
     contactsOpen = false
     messagesOpen = true
+    // The cards name the open conversation's person (its contact button):
+    // the ones on disk, read once, never asked of the device.
+    if (contacts && hasCards(device)) contacts.start()
     if (sms) {
       sms.start()
       if (threadId !== undefined && threadId >= 0) sms.openThread(threadId)
@@ -2608,13 +2619,17 @@ Panel {
       // among them.
       else if (fresh !== true && device && !(phone && phone.demo) && lastThreads[device.id] !== undefined && sms.openThreadId < 0) {
         // Back to the conversation left open; the composer stays unfocused.
+        // In view, not marked: it is where the user was.
         var last = lastThreads[device.id]
-        Qt.callLater(function() { if (messagesView) messagesView.openThread(last, false) })
+        Qt.callLater(function() { if (messagesView) { messagesView.openThread(last, false); messagesView.landOn(last, -1, false) } })
       }
     }
     if (panelFlick) panelFlick.contentY = 0
     Qt.callLater(function() {
-      if (threadId !== undefined && threadId >= 0 && messagesView) messagesView.openThread(threadId, typeHere === true)
+      if (threadId !== undefined && threadId >= 0 && messagesView) {
+        messagesView.openThread(threadId, typeHere === true)
+        messagesView.landOn(threadId, uid)
+      }
       else keyCatcher.forceActiveFocus()
     })
   }
@@ -3439,6 +3454,15 @@ Panel {
       root.messageContact(number, "", false)
       return "ok"
     }
+    // Between Messages and Contacts, as the buttons (c, m) and a recent text
+    // would; none of them focuses a text field (scripted).
+    function pressThreadContact(): string { return root.messagesOpen && messagesView && messagesView.openThreadContact() ? "ok" : "no contact" }
+    function pressContactThread(): string { return root.contactsOpen && contactsView && contactsView.messageOpenCard(false) ? "ok" : "no conversation" }
+    function pressRecent(i: int): string {
+      if (!root.contactsOpen || !contactsView || i < 0 || i >= contactsView.recent.length) return "no text " + i
+      contactsView.openRecent(i)
+      return "ok"
+    }
     // Esc on the panel (not in a text field), as the key would.
     // Where the panel's card is on the desktop (for screenshots that show
     // the panel and nothing else): x, y, width, height in global pixels.
@@ -3579,7 +3603,9 @@ Panel {
         open: s.openThreadId, loaded: s.messages.count, hasMore: s.hasMore, loading: s.loading,
         contacts: s.contactCount, error: s.lastError, composerFocused: messagesView ? messagesView.composerFocused : false,
         newMessage: messagesView && messagesView.newMode ? { to: messagesView.recipients.map(function(r) { return r.number }), typed: messagesView.toText, suggestions: messagesView.suggestions.length } : null,
-        search: messagesView ? messagesView.searchText : "" })
+        search: messagesView ? messagesView.searchText : "",
+        threadCursor: messagesView ? messagesView.threadCursor : -1, messageCursor: messagesView ? messagesView.messageCursor : -1,
+        contact: messagesView && messagesView.openCard ? String(messagesView.openCard.id) : "" })
     }
     function loadOlder(): string { if (root.sms) root.sms.loadMore(); return "ok" }
     // The jump buttons (JumpButton): page, threads, conversation, contacts.
@@ -3892,7 +3918,8 @@ Panel {
           else if (t === "r") contactsView.refresh()
           else if (t === "g") contactsView.cursorTo(0)
           else if (t === "G") contactsView.cursorTo(1e9)
-          else if (t === "m") root.openMessagesView(-1)
+          // m: the open card's conversation; with no card, Messages.
+          else if (t === "m") { if (!contactsView.messageOpenCard(true)) root.openMessagesView(-1) }
           return
         }
         if (root.messagesOpen) {
@@ -3907,6 +3934,7 @@ Panel {
           else if (t === "G" && messagesView.inConversation) messagesView.messageTo(0)
           else if (t === "g") messagesView.cursorTo(0)
           else if (t === "G") messagesView.cursorTo(1e9)
+          else if (t === "c") messagesView.openThreadContact()
           return
         }
         if (root.appsOpen) {
@@ -6744,6 +6772,11 @@ Panel {
                 canCall: !!root.phone && !!root.device && (root.phone.callsReady(root.device.id) || (!!root.device.can && root.device.can.share === true))
                 callTip: root.phone && root.device && root.phone.callsReady(root.device.id) ? "Call from here" : "Call from " + Model.deviceLabel(root.device) + "'s dialer"
                 onCallRequested: function(number) { if (root.phone && root.device) root.phone.placeCall(String(root.device.id), number) }
+                contacts: root.contacts
+                cards: root.hasCards(root.device)
+                settled: root.settled
+                // Their card: a page pushed on the stack, so Back returns here.
+                onContactRequested: function(id) { root.openContactsView(id) }
                 // A text field here let go of the keyboard (Esc, a click
                 // away): the panel's keys take it back, so the next Esc
                 // still goes somewhere.
@@ -6777,6 +6810,15 @@ Panel {
                 motion: root.motion
                 onReported: function(text) { if (root.phone) root.phone.report(text, false) }
                 onMessageContact: function(number, who) { root.messageContact(number, who, true) }
+                sms: root.sms
+                texts: root.hasTexts(root.device)
+                settled: root.settled
+                // Their conversation: a page pushed on the stack, so Back
+                // returns here; none yet, a new message to them.
+                onOpenConversation: function(tid, number, who, uid, typeHere) {
+                  if (tid >= 0) root.openMessagesView(tid, false, true, uid)
+                  else root.messageContact(number, who, typeHere)
+                }
                 onCallContact: function(number, who) { if (root.device) root.callBack({ device: String(root.device.id), number: number, who: who }) }
                 onAppOpened: root.close()
                 // The search let go of the keyboard (Esc, a click away): the

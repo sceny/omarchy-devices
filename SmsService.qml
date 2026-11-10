@@ -253,6 +253,8 @@ Item {
 
   function clearThreads() {
     threadModel.clear()
+    recentThread = -1
+    recent = []
     Model.threadRowsReset(threadRows, [])
   }
 
@@ -513,6 +515,52 @@ Item {
     return out
   }
 
+  // The conversation rows as plain objects, for Model's pure functions.
+  function threadRowsList() {
+    var out = []
+    for (var i = 0; i < threadModel.count; i++) {
+      var t = threadModel.get(i)
+      out.push({ tid: t.tid, addressKeys: t.addressKeys, group: t.group, date: t.date })
+    }
+    return out
+  }
+
+  // ---- a contact's latest texts (the Contacts page) ----
+  // The newest page of their conversation, as the messages view reads it
+  // (one conversation, Model.RECENT_TEXTS messages), never the whole list.
+  // Memory only: it is message text.
+  property var recentThread: -1
+  property var recent: []
+  function peek(tid) {
+    // Once per conversation: live texts keep it current (handle). A demo
+    // asks again until its made-up conversations are here.
+    if (tid === recentThread && (!demo || recent.length > 0 || tid < 0)) return
+    recentThread = tid
+    recent = []
+    if (tid < 0) return
+    if (demo) {
+      var at = indexOfThread(tid)
+      if (tid === 9001) recent = Model.recentTexts(Model.demoConversation(undefined, cacheBase + "/demo/picture.jpg"))
+      else if (at >= 0) recent = Model.recentTexts([{ uid: -tid, date: threadModel.get(at).date, sent: threadModel.get(at).sentLast,
+                                                      body: String(threadModel.get(at).snippet).replace(/^You: /, "") }])
+      return
+    }
+    // The open conversation's own page is on its way or here already: its
+    // answer fills this too (handle), with nothing asked twice.
+    if (tid === openThreadId) {
+      var held = []
+      for (var i = 0; i < messageModel.count && i < Model.RECENT_TEXTS; i++) {
+        var m = messageModel.get(i)
+        if (!m.optimistic) held.push({ uid: m.uid, date: m.date, body: m.body, sent: m.sent, attachments: JSON.parse(m.attachments || "[]") })
+      }
+      recent = Model.recentTexts(held)
+      return
+    }
+    start()
+    // The reader not running yet: asked again when the card is read again.
+    if (!send({ cmd: "load", thread: tid, start: 0, count: Model.RECENT_TEXTS })) recentThread = -1
+  }
+
   function fetchAttachment(part, id, mime) {
     // The picture just sent, shown before the phone's copy arrives: nothing to fetch.
     if (part < 0) return
@@ -562,6 +610,7 @@ Item {
       if (ev.thread === openThreadId) closeThread()
       modelRevision++
     } else if (ev.ev === "messages") {
+      if (ev.thread === recentThread && ev.start === 0) recent = Model.recentTexts(ev.messages.concat(recent))
       var page = Model.messagePage(ev, openThreadId, askedStart, loadedCount, function(uid) { return indexOfMessage(uid) >= 0 })
       if (!page) return
       for (var j = 0; j < page.add.length; j++) messageModel.append(messageRow(page.add[j]))
@@ -570,6 +619,7 @@ Item {
       loading = false
       refreshDays()
     } else if (ev.ev === "message") {
+      if (ev.message.thread === recentThread) recent = Model.recentTexts([ev.message].concat(recent))
       upsertMessage(ev.message)
     } else if (ev.ev === "contacts") {
       contactCount = ev.count

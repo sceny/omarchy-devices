@@ -13,12 +13,12 @@ field, so a stray keystroke never becomes a sent text.
 | Enter or Space · Shift+Enter | Activate · an app popped out |
 | Tab · Shift+Tab | The next · previous panel in the bar |
 | Esc · `0` | Back to where you came from, one step at a time; then close · Home (the main page, from two pages deep) |
-| `c` | Fold the section under the cursor |
+| `c` | Fold the section under the cursor · in a conversation, open its contact |
 | `r` · `x` · `e` · `o` | Reply · dismiss (a notification, a stack on its title, or a received file) · show all · open its app |
 | `y` | Copy a notification's sign-in code |
 | `Shift+Delete` | Dismiss all notifications (cursor in Notifications) |
 | `[` `]` · `,` `.` · `-` `=` | Skip · seek 10 s · volume |
-| `m` · `a` · `s` · `E` | Messages · all apps · Settings · edit the page |
+| `m` · `a` · `s` · `E` | Messages (on a contact, their conversation) · all apps · Settings · edit the page |
 | `/` · `u` · `n` · `i` · `p` | Search · unread · new message · reply · pin |
 | `v` | Where an open app's sound plays |
 | `r` | Refresh (Contacts) |

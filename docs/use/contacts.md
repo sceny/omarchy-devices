@@ -23,6 +23,14 @@ The phone sends its cards when the panel opens on the page, at most every
 five minutes; `r` asks again. Away, the cards already here still read, and
 *Call* waits for the phone. The card last open comes back, per device.
 
+## Their conversation
+
+A card shows your three latest texts with that person under its details;
+each opens the conversation on that message. The conversation button (or
+`m`) opens it at its newest, or starts a new message when there is none.
+Back returns to the card. Whatever opens a card lands on it: selected, in
+view, marked by a short pulse.
+
 ## Keys
 
 | Key | Action |
@@ -31,6 +39,7 @@ five minutes; `r` asks again. Away, the cards already here still read, and
 | `l` `h` | Into the card · back |
 | Enter | Open a card; on a detail: *Message* on a number, open an email, address or website, else copy |
 | `/` · `r` | Search · read again |
+| `m` | Their conversation |
 | Esc · `0` | Back to where you came from · Home |
 
 Setup: [Contacts](../setup/contacts.md) · Limits: [What it cannot do](../setup/limits-contacts.md)

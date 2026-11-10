@@ -16,6 +16,13 @@ Item {
   id: view
 
   property var sms: null
+  // The device's contacts (ContactsService), for the open conversation's
+  // card; cards: the device shares its contacts at all.
+  property var contacts: null
+  property bool cards: false
+  // The page has settled (no page change under way): a landing waits for it,
+  // so its mark is seen and the lists are laid out.
+  property bool settled: true
   // The note for contacts when the plugin can allow them itself (Model.
   // sectionNote's ask), else null; contactsWorking: its Allow is running.
   property var contactsAsk: null
@@ -38,6 +45,70 @@ Item {
   property bool canCall: false
   property string callTip: ""
   signal callRequested(string number)
+  // The open conversation's contact, on the Contacts page.
+  signal contactRequested(string id)
+
+  // The card of the person the open conversation is with, or null.
+  readonly property var openCard: cards && contacts && contacts.ready && openRow ? Model.contactForThread(contacts.cards, openRow) : null
+  // c, or the header's button. False when the conversation has no card.
+  function openThreadContact() {
+    if (!openCard || newMode) return false
+    contactRequested(String(openCard.id))
+    return true
+  }
+
+  // ---- where an open lands ----
+  //
+  // A conversation opened from elsewhere (a notification, a contact, IPC,
+  // the one left open) shows its thread selected and in view, with the
+  // cursor on it, and the conversation at its newest message, or at the one
+  // asked for (a contact's recent text). What was opened is marked once
+  // with a short pulse (PlaceFlash) when it shows. The conversations may
+  // still be on their way: it lands when they do.
+  property var landTid: -1
+  property var landUid: -1
+  property bool landMark: false
+  property int flashSerial: 0
+  property var flashTid: -1
+  property var flashUid: -1
+  function landOn(tid, uid, mark) {
+    landTid = tid
+    landUid = uid === undefined || uid === null ? -1 : uid
+    landMark = mark !== false
+    Qt.callLater(land)
+  }
+  function land() {
+    if (!sms || !settled || !visible) return
+    if (landTid !== -1 && landTid !== undefined && shown && threadList.height > 0) {
+      var ids = []
+      for (var i = 0; i < shown.count; i++) ids.push(shown.get(i).tid)
+      var at = Model.landingIndex(ids, landTid)
+      if (at >= 0) {
+        threadGlide.stop()
+        cursorByPointer = true
+        threadCursor = at
+        threadList.positionViewAtIndex(at, ListView.Contain)
+        if (landMark && landUid < 0) { flashUid = -1; flashTid = landTid; flashSerial++ }
+        landTid = -1
+      } else if (sms.ready) landTid = -1
+    }
+    if (landUid !== -1 && sms.openThreadId >= 0 && messageList.height > 0) {
+      var m = sms.indexOfMessage(landUid)
+      if (m >= 0) {
+        messageGlide.stop()
+        messageCursor = m
+        messageList.positionViewAtIndex(m, ListView.Contain)
+        if (landMark) { flashTid = -1; flashUid = landUid; flashSerial++ }
+        landUid = -1
+      } else if (!sms.loading && !sms.hasMore) landUid = -1
+    }
+  }
+  onSettledChanged: land()
+  Connections {
+    target: view.sms
+    function onModelRevisionChanged() { view.land() }
+    function onLoadingChanged() { view.land() }
+  }
 
   // Unsent text per conversation, kept while switching threads. Memory only:
   // it is message text, so it never goes to disk.
@@ -136,7 +207,7 @@ Item {
     if (!sms) return
     sms.start()
     var tid = sms.threadForAddress(number)
-    if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); return }
+    if (tid >= 0) { waitingCaller = ""; openThread(tid, typeHere); landOn(tid); return }
     startNew(false)
     arrived = true
     recipients = [{ title: who || Model.formatNumber(number), number: number }]
@@ -645,7 +716,7 @@ Item {
           Layout.fillWidth: true
           textFormat: Text.PlainText
           wrapMode: Text.WordWrap
-          text: "j/k move · Enter open · / search · u unread · n new · h/l side · i reply · PgUp/PgDn page · Esc back"
+          text: "j/k move · Enter open · / search · u unread · n new · h/l side · i reply · c contact · PgUp/PgDn page · Esc back"
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption
@@ -904,7 +975,7 @@ Item {
             implicitHeight: headerTitle.implicitHeight
             Text {
               id: headerTitle
-              width: parent.width - (headerCall.visible ? headerCall.width + Style.space(8) : 0)
+              width: parent.width - (headerButtons.width > 0 ? headerButtons.width + Style.space(8) : 0)
               textFormat: Text.PlainText
               text: view.shownRow ? view.shownRow.title : " "
               color: view.foreground
@@ -915,18 +986,32 @@ Item {
               elide: Text.ElideRight
               Behavior on opacity { NumberAnimation { duration: (view.headerLoading ? Model.MOTION.outMs : Model.MOTION.inMs) * view.motion; easing.type: Easing.OutCubic } }
             }
-            // Call them: one person's conversation only.
-            PanelActionButton {
-              id: headerCall
-              visible: view.canCall && !view.headerLoading && !!view.shownRow && !view.shownRow.group && String(view.shownRow.addresses || "") !== ""
-                && String(view.shownRow.addresses).indexOf(",") < 0 && Model.isDialable(view.shownRow.addresses)
+            Row {
+              id: headerButtons
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
-              iconText: Model.GLYPH.callBack
-              tooltipText: view.callTip
-              foreground: view.foreground
-              fontFamily: view.fontFamily
-              onClicked: if (view.shownRow) view.callRequested(String(view.shownRow.addresses))
+              spacing: Style.space(4)
+              // Their card on the Contacts page: one person's conversation,
+              // a person the device has a card for.
+              PanelActionButton {
+                visible: !!view.openCard && !view.headerLoading
+                iconText: Model.GLYPH.contacts
+                tooltipText: Model.keyTip("Open the contact", "threadContact")
+                foreground: view.foreground
+                fontFamily: view.fontFamily
+                onClicked: view.openThreadContact()
+              }
+              // Call them: one person's conversation only.
+              PanelActionButton {
+                id: headerCall
+                visible: view.canCall && !view.headerLoading && !!view.shownRow && !view.shownRow.group && String(view.shownRow.addresses || "") !== ""
+                  && String(view.shownRow.addresses).indexOf(",") < 0 && Model.isDialable(view.shownRow.addresses)
+                iconText: Model.GLYPH.callBack
+                tooltipText: view.callTip
+                foreground: view.foreground
+                fontFamily: view.fontFamily
+                onClicked: if (view.shownRow) view.callRequested(String(view.shownRow.addresses))
+              }
             }
             Skeleton {
               visible: view.headerLoading
@@ -1003,7 +1088,7 @@ Item {
             if (contentHeight < height || visibleArea.yPosition < 0.08) view.sms.loadMore()
           }
           onContentYChanged: maybeLoadMore()
-          onCountChanged: Qt.callLater(maybeLoadMore)
+          onCountChanged: { Qt.callLater(maybeLoadMore); Qt.callLater(view.land) }
 
           // Only once there are messages: a conversation still opening shows
           // its skeleton instead.
@@ -1220,6 +1305,18 @@ Item {
     foreground: view.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(12)
 
+    // Landed on: marked once (PlaceFlash), over the row, taking no click.
+    PlaceFlash {
+      id: rowMark
+      anchors.fill: parent
+      z: 10
+      motion: view.motion
+    }
+    Connections {
+      target: view
+      function onFlashSerialChanged() { if (view.flashTid !== -1 && view.flashTid === row.tid) rowMark.pulse() }
+    }
+
     MouseArea {
       anchors.fill: parent
       hoverEnabled: true
@@ -1318,6 +1415,7 @@ Item {
     required property bool showDay
     required property string day
     required property string attachments
+    required property var uid
 
     readonly property var files: {
       try { return JSON.parse(attachments) } catch (e) { return [] }
@@ -1463,6 +1561,19 @@ Item {
                 }
               }
             }
+          }
+
+          // Landed on (a contact's recent text): marked once, taking no click.
+          PlaceFlash {
+            id: bubbleMark
+            anchors.fill: parent
+            anchors.margins: -Style.space(2)
+            z: 10
+            motion: view.motion
+          }
+          Connections {
+            target: view
+            function onFlashSerialChanged() { if (view.flashUid !== -1 && view.flashUid === bubble.uid) bubbleMark.pulse() }
           }
 
           // Lights the message a moment once it is copied.

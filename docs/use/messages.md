@@ -28,6 +28,13 @@ the message (or alone) as an MMS, scaled down to fit a text message, so
 its location and camera details do not travel. Your phone's carrier and
 plan must allow MMS.
 
+## Between Messages and Contacts
+
+A conversation with someone in your contacts has their card a click away
+(the contact button, or `c`); the card has their conversation (or `m`).
+Back returns to where you were. Whatever opens a conversation lands on
+it: its row selected and in view, marked by a short pulse.
+
 ## By keyboard
 
 `l` moves into the conversation, where a highlight goes from message to
@@ -48,6 +55,7 @@ Only your own click or Enter puts the cursor in the reply field.
 | Enter | Open and reply; on a message: its picture, or copy |
 | Shift+Enter | A new line in the reply (it grows to five lines) |
 | `/` · `u` · `n` · `i` | Search · unread · new · reply |
+| `c` | Open the contact |
 | PgUp PgDn | A page |
 | Esc · `0` | Back to where you came from · Home |
 

@@ -25,6 +25,13 @@ Item {
 
   property var contacts: null
   property var device: null
+  // The device's text messages (SmsService), for the card's conversation and
+  // its latest texts; texts: the device has text messages at all.
+  property var sms: null
+  property bool texts: false
+  // The page has settled (no page change under way): a landing waits for it,
+  // so its mark is seen and the list is laid out.
+  property bool settled: true
   property var bar: null
   // The page's note (an ask or a problem, drawn above this view) says why
   // there is nothing; granted: adb read the permission as given.
@@ -50,6 +57,11 @@ Item {
   // Call: the phone's dialer on the number, as a call back from a missed call
   // does. The call itself stays the user's tap on the phone.
   signal callContact(string number, string who)
+  // The open card's conversation (tid, or -1 and the number a new message
+  // goes to), on a message of it when `uid` is one (a recent text), else on
+  // its newest. typeHere: the user's own act, which may put the cursor in a
+  // new message's text field; never a scripted one.
+  signal openConversation(var tid, string number, string who, var uid, bool typeHere)
   // Omarchy's own contacts app was opened: it is a window the user goes on
   // in, so the panel closes behind it.
   signal appOpened()
@@ -60,6 +72,73 @@ Item {
   readonly property bool hasCard: !!contacts && contacts.openId !== ""
   // The cards are on their way: the list shows its shape meanwhile.
   readonly property bool listWaiting: !!contacts && !contacts.ready && (contacts.active || contacts.demo)
+
+  // ---- the card's conversation and its latest texts ----
+
+  readonly property var thread: {
+    var rev = (sms ? sms.modelRevision : 0) + (contacts ? contacts.revision : 0)
+    return contacts && contacts.openCard && sms && texts ? Model.threadForContact(contacts.openCard, sms.threadRowsList())
+                                                        : { tid: -1, number: "" }
+  }
+  readonly property bool canMessage: texts && (thread.tid >= 0 || thread.number !== "")
+  // Shown only for this card's own conversation: another card's answer may
+  // still be on its way.
+  readonly property var recent: sms && thread.tid >= 0 && sms.recentThread === thread.tid ? sms.recent : []
+  // Asked for while the page shows a card with a conversation, once per
+  // card: one conversation's newest page, never the whole list.
+  function askRecent() { if (visible && sms && thread.tid >= 0) sms.peek(thread.tid) }
+  onThreadChanged: askRecent()
+  onVisibleChanged: askRecent()
+
+  // m, or the card's button: its conversation, on its newest message. False
+  // with no card (the key then opens Messages).
+  function messageOpenCard(typeHere) {
+    if (!hasCard || !canMessage) return false
+    openConversation(thread.tid, thread.number, contacts.openTitle, -1, typeHere === true)
+    return true
+  }
+  // A recent text: its conversation, on that message.
+  function openRecent(i) {
+    if (i < 0 || i >= recent.length || thread.tid < 0) return
+    openConversation(thread.tid, thread.number, contacts ? contacts.openTitle : "", recent[i].uid, false)
+  }
+
+  // ---- where an open lands ----
+  //
+  // A card opened from elsewhere (a conversation, a notification's number,
+  // IPC, the card left open) is selected, its row in view with the cursor
+  // on it, and marked once with a short pulse (PlaceFlash) when it shows.
+  // The cards may still be on their way: it lands when they do.
+  property string landId: ""
+  property bool landMark: false
+  property int flashSerial: 0
+  property string flashId: ""
+  function landOn(id, mark) {
+    landId = String(id || "")
+    landMark = mark !== false
+    Qt.callLater(land)
+  }
+  function land() {
+    if (landId === "" || !contacts || !contacts.ready || !rows) return
+    var ids = []
+    for (var i = 0; i < rows.count; i++) ids.push(rows.get(i).id)
+    var at = Model.landingIndex(ids, landId)
+    // Not in the list read (gone from the device): nothing to land on.
+    if (at < 0) { landId = ""; return }
+    if (contacts.openId !== landId) openContact(landId)
+    if (!settled || !visible || rowList.height <= 0) return
+    rowGlide.stop()
+    cursorByPointer = true
+    rowCursor = at
+    rowList.positionViewAtIndex(at, ListView.Contain)
+    if (landMark) { flashId = landId; flashSerial++ }
+    landId = ""
+  }
+  onSettledChanged: land()
+  Connections {
+    target: view.contacts
+    function onRevisionChanged() { view.land() }
+  }
 
   // ---- the keyboard ----
   //
@@ -470,7 +549,7 @@ Item {
           // The pane is narrow enough for two lines: each hint holds together
           // (no-break spaces), so a line never ends on a bare key.
           text: ["j/k move", "Enter open", "/ search", "h/l side",
-                 "r read again", "PgUp/PgDn page", "Esc back"].join(" · ")
+                 "m message", "r read again", "PgUp/PgDn page", "Esc back"].join(" · ")
           color: view.faint
           font.family: view.fontFamily
           font.pixelSize: Style.font.caption
@@ -597,6 +676,17 @@ Item {
             }
           }
 
+          // Their conversation, or a new message when there is none yet.
+          PanelActionButton {
+            visible: view.canMessage
+            Layout.alignment: Qt.AlignTop
+            iconText: Model.GLYPH.messages
+            tooltipText: Model.keyTip(view.thread.tid >= 0 ? "Open the conversation" : "New message", "contactThread")
+            foreground: view.foreground
+            fontFamily: view.fontFamily
+            onClicked: view.messageOpenCard(true)
+          }
+
           PanelActionButton {
             visible: view.cardFind.label !== ""
             Layout.alignment: Qt.AlignTop
@@ -640,6 +730,28 @@ Item {
           delegate: DetailRow {
             width: detailList.width
           }
+
+          // Their latest texts, under the details, so they push nothing
+          // when they land: each opens the conversation on it. Gone when
+          // there are none.
+          footer: Column {
+            width: detailList.width
+            visible: view.recent.length > 0
+            height: visible ? implicitHeight : 0
+            topPadding: Style.space(12)
+            spacing: Style.space(2)
+            PanelSectionHeader {
+              x: Style.space(8)
+              width: parent.width - Style.space(16)
+              text: "RECENT MESSAGES"
+              foreground: view.foreground
+              fontFamily: view.fontFamily
+            }
+            Repeater {
+              model: view.recent
+              RecentRow { width: detailList.width }
+            }
+          }
         }
       }
     }
@@ -657,6 +769,18 @@ Item {
     current: isOpen
     foreground: view.foreground
     implicitHeight: rowContent.implicitHeight + Style.space(12)
+
+    // Landed on: marked once (PlaceFlash), over the row, taking no click.
+    PlaceFlash {
+      id: rowMark
+      anchors.fill: parent
+      z: 10
+      motion: view.motion
+    }
+    Connections {
+      target: view
+      function onFlashSerialChanged() { if (view.flashId === String(row.model.id)) rowMark.pulse() }
+    }
 
     MouseArea {
       anchors.fill: parent
@@ -736,6 +860,54 @@ Item {
           elide: Text.ElideRight
           maximumLineCount: 1
         }
+      }
+    }
+  }
+
+  // One of their latest texts: who said it, a line of it, and when. A click
+  // opens the conversation on it.
+  component RecentRow: CursorSurface {
+    id: recentRow
+    required property var modelData
+    required property int index
+    // A link's own hover, as an inline button keeps its own: the keys do
+    // not reach these rows (m opens the conversation).
+    hasCursor: textArea.containsMouse
+    foreground: view.foreground
+    implicitHeight: recentLine.implicitHeight + Style.space(10)
+
+    MouseArea {
+      id: textArea
+      anchors.fill: parent
+      hoverEnabled: true
+      cursorShape: Qt.PointingHandCursor
+      onClicked: view.openRecent(recentRow.index)
+    }
+
+    RowLayout {
+      id: recentLine
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.verticalCenter: parent.verticalCenter
+      anchors.leftMargin: Style.space(8)
+      anchors.rightMargin: Style.space(8)
+      spacing: Style.space(10)
+      Text {
+        Layout.fillWidth: true
+        textFormat: Text.PlainText
+        text: (recentRow.modelData.sent ? "You: " : "") + recentRow.modelData.body
+        color: view.foreground
+        font.family: view.fontFamily
+        font.pixelSize: Style.font.bodySmall
+        elide: Text.ElideRight
+        maximumLineCount: 1
+      }
+      Text {
+        textFormat: Text.PlainText
+        text: Model.threadTime(recentRow.modelData.date)
+        color: view.dim
+        font.family: view.fontFamily
+        font.pixelSize: Style.font.caption
       }
     }
   }
