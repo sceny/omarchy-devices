@@ -227,6 +227,40 @@ file only if it starts as WebM, and refuses any other video or sound
 (`read_result.py`). A pull empties the session's output. `dev exec -- CMD`
 runs a command in the session, as its unprivileged user.
 
+**A session stuck in stopping.** `dev stop` exits 1 when podman still lists
+the container after `rm`, naming it and podman's last line. When that line is
+`sending SIGKILL to container …: operation not permitted` (or runc's `setns`
+on `/proc/<pid>/ns/user`), the container's user namespace is orphaned.
+Rootless podman runs every command in the user namespace its pause process
+(`catatonit -P`, pid in `/run/user/<uid>/libpod/tmp/pause.pid`, shared by
+every rootless podman of this user) holds; when that process dies, the next
+command makes a new namespace, and runc, root only in the new one, cannot
+enter the old one the container lives in. podman has already marked the
+container `stopping`, and every later `rm` fails the same way. The
+container's processes are still the session's, in its own scope, so they
+are ended there, with no root and nothing outside the scope signalled:
+
+```bash
+name=sceny-sandbox-dev-<id>
+u=$(id -u); h=$(getent passwd "$u" | cut -d: -f6)   # not ~: an agent's shell may have another HOME
+P() { env -i PATH=/usr/bin HOME="$h" XDG_RUNTIME_DIR="/run/user/$u" \
+  podman --root "$h/.local/share/sceny-sandbox/storage" --runroot "/run/user/$u/sceny-sandbox" "$@"; }
+id=$(P inspect --format '{{.Id}}' "$name"); conmon=$(P inspect --format '{{.State.ConmonPid}}' "$name")
+# 1. The case: the container's namespace is not the pause process's.
+readlink "/proc/$conmon/ns/user" "/proc/$(cat "/run/user/$u/libpod/tmp/pause.pid")/ns/user"
+# 2. The scope is the session's own: Slice=sandbox.slice, and only its rig's processes in it.
+systemctl --user show -p Slice,ControlGroup "libpod-$id.scope"
+ps -o pid=,user=,cmd= -p "$(paste -sd, "/sys/fs/cgroup$(systemctl --user show -p ControlGroup --value "libpod-$id.scope")/cgroup.procs")"
+# 3. End them; conmon exits, and the container can be removed.
+systemctl --user kill --signal=KILL "libpod-$id.scope"
+dev/sandbox dev --session <id> stop                # now removes it
+dev/sandbox verify-clean
+```
+
+Stop at step 1 when the two namespaces are the same (another fault: report
+it), and at step 2 when the scope is not in `sandbox.slice`. The kill loses
+only the session's unsaved work, which the stop was ending anyway.
+
 Everything the rig does, the session does: `dev rig check`, the regression, the
 cold computer and the upgrade. Three points differ from a rig on a desktop:
 

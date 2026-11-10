@@ -1312,11 +1312,23 @@ dev_stop() {
   [[ $session =~ ^[0-9a-f]{8}$ ]] || die "dev: a session is 8 hex digits (dev/sandbox dev status)"
   require_tools
   name=sceny-sandbox-dev-$session
-  if ! grep -qx "$name" <<<"$(dev_names)"; then
+  # Every state counts, not only running: a session stuck in stopping is still there.
+  local out rc=0 left
+  listed() { pm ps -a --filter "name=^$name\$" --format '{{.Names}} ({{.State}})' 2>/dev/null; }
+  left=$(listed) || die "dev stop: podman could not list the containers"
+  if [[ -z $left ]]; then
     echo "  no session $session"
     return 0
   fi
-  pm rm -f -v -t 0 "$name" >/dev/null 2>&1
+  # Stopped is what podman lists afterwards, not what rm said: a container whose
+  # runc cannot reach it any more stays listed in `stopping`.
+  out=$(pm rm -f -v -t 0 "$name" 2>&1) || rc=$?
+  left=$(listed) || left="$name (podman ps failed)"
+  if ((rc != 0)) || [[ -n $left ]]; then
+    fail "session $session not removed: ${left:-$name} is left; podman rm exited $rc${out:+: $(tail -n 1 <<<"$out")}"
+    fail "a container stuck in stopping: docs/internals/development.md, *A session stuck in stopping*"
+    exit 1
+  fi
   ok "session $session stopped and removed"
 }
 

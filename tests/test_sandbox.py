@@ -1788,16 +1788,34 @@ class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
     ONE = "sceny-sandbox-dev-0123abcd"
     TWO = "sceny-sandbox-dev-98cb55db"
 
-    def stop(self, names, *args):
+    def stop(self, names, *args, rm=""):
+        """`rm`: "fails" exits 125 with runc's error, "leaves" exits 0; in both the container stays listed, in `stopping`."""
         state = tempfile.mkdtemp(prefix="sceny-sandbox-stop-")
         self.addCleanup(shutil.rmtree, state, True)
         log = os.path.join(state, "pm.log")
+        listed = os.path.join(state, "listed")
+        with open(listed, "w") as f:
+            f.write("".join(n + "\n" for n in names))
         script = (
             f'source "{SANDBOX}"\n'
             "require_tools() { :; }\n"
             "pm() {\n"
             '  case "$1" in\n'
-            "  ps) printf '%s' \"$DEV_NAMES\" ;;\n"
+            "  ps)\n"
+            '    if [[ $3 == --filter && $4 == name=* ]]; then\n'
+            '      local n=${4#name=^}; n=${n%\\$}\n'
+            '      grep -qx "$n" "$LISTED" && echo "$n (stopping)"\n'
+            "      return 0\n"
+            "    fi\n"
+            '    [[ $2 == -a ]] && cat "$LISTED" ;;\n'
+            "  rm)\n"
+            '    echo "$*" >>"$PM_LOG"\n'
+            '    if [[ $RM_MODE == fails ]]; then\n'
+            "      echo 'Error: runc: exec failed: unable to start container process: \"/proc/1/ns/user\": operation not permitted' >&2\n"
+            "      return 125\n"
+            "    fi\n"
+            '    [[ $RM_MODE == leaves ]] && return 0\n'
+            '    grep -vx "${!#}" "$LISTED" >"$LISTED.new"; mv "$LISTED.new" "$LISTED" ;;\n'
             '  *) echo "$*" >>"$PM_LOG" ;;\n'
             "  esac\n"
             "}\n"
@@ -1807,7 +1825,8 @@ class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "HOME": tempfile.gettempdir(),
             "SANDBOX_STATE": state,
-            "DEV_NAMES": "\n".join(names),
+            "LISTED": listed,
+            "RM_MODE": rm,
             "PM_LOG": log,
         }
         r = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
@@ -1832,6 +1851,29 @@ class DevStopEndsOnlyTheNamedSession(unittest.TestCase):
     def test_stop_ends_its_own_session_and_no_other(self):
         r, removed = self.stop([self.ONE, self.TWO], "--session", "0123abcd", "stop")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(removed, [f"rm -f -v -t 0 {self.ONE}"])
+
+    def test_a_removal_that_fails_says_so_and_names_what_is_left(self):
+        r, removed = self.stop([self.ONE, self.TWO], "--session", "0123abcd", "stop", rm="fails")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(removed, [f"rm -f -v -t 0 {self.ONE}"])
+        self.assertIn(f"{self.ONE} (stopping) is left", r.stderr)
+        self.assertIn("operation not permitted", r.stderr)
+        self.assertIn("A session stuck in stopping", r.stderr)
+        self.assertNotIn("stopped and removed", r.stdout + r.stderr)
+
+    def test_a_container_still_listed_after_a_clean_rm_is_a_failure(self):
+        r, removed = self.stop([self.ONE], "--session", "0123abcd", "stop", rm="leaves")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(removed, [f"rm -f -v -t 0 {self.ONE}"])
+        self.assertIn(f"{self.ONE} (stopping) is left; podman rm exited 0", r.stderr)
+        self.assertNotIn("stopped and removed", r.stdout + r.stderr)
+
+    def test_a_session_stuck_in_stopping_is_still_a_session(self):
+        # podman's plain `ps` lists running containers only; a stuck one is still there to stop.
+        r, removed = self.stop([self.ONE], "--session", "0123abcd", "stop", rm="fails")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertNotIn("no session", r.stdout + r.stderr)
         self.assertEqual(removed, [f"rm -f -v -t 0 {self.ONE}"])
 
     def test_a_session_already_gone_is_not_an_error(self):
