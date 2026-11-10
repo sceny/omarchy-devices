@@ -55,7 +55,10 @@ pinned sources (once, and after develop's `dev/` changes); `dev/sandbox pins`
 fails while an image's Omarchy, Hyprland or Quickshell is behind this
 machine's; `dev/sandbox status` shows the images and the limits;
 `dev/sandbox verify-clean` proves no container, volume or run directory is
-left.
+left. A build killed past its trap (SIGKILL) leaves its build directory and
+podman build's working containers; the next build removes them first, and
+`dev/sandbox clear-builds` removes them at once (never while a podman build
+of the store runs).
 
 **Host prerequisites.** `podman` (rootless, with subordinate uid and gid
 ranges), `git`, `python3`, read-write access to `/dev/kvm` (the emulator; Devices

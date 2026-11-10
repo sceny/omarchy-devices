@@ -1191,41 +1191,118 @@ class Reencode(unittest.TestCase):
 
 
 class BuildContext(unittest.TestCase):
-    def test_a_failed_build_removes_its_context(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            state = os.path.join(tmp, "state")
-            repo = os.path.join(tmp, "repo")
-            os.makedirs(os.path.join(repo, "dev", "sandbox.d"))
-            shutil.copy(SANDBOX, os.path.join(repo, "dev", "sandbox"))
-            shutil.copy(
-                os.path.join(ROOT, "dev", "sandbox.d", "Containerfile"),
-                os.path.join(repo, "dev", "sandbox.d", "Containerfile"),
-            )
-            git_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
-            subprocess.run(["git", "-C", repo, "init", "-q"], check=True, env=git_env)
-            subprocess.run(["git", "-C", repo, "add", "dev"], check=True, env=git_env)
-            subprocess.run(
-                ["git", "-C", repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-q", "-m", "build context"],
-                check=True,
-                env=git_env,
-            )
-            script = (
-                f'source "{os.path.join(repo, "dev", "sandbox")}"\n'
-                "require_tools() { :; }\n"
-                "pm() { return 1; }\n"
-                "cmd_build --ref HEAD --profile devices\n"
-            )
-            r = subprocess.run(
-                ["bash", "-c", script],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "SANDBOX_STATE": state},
-            )
-            self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
-            self.assertIn("the base image did not build", r.stderr)
-            left = [n for n in os.listdir(os.path.join(state, "builds")) if n.startswith("sceny-sandbox-build.")]
-            self.assertEqual(left, [], "a failed build leaves its context behind")
+    """A build that ends, finished, failed or killed, leaves no build directory and no working container.
+
+    podman build removes its stages' working containers only at its own end: a
+    build killed on the way leaves them in the store, and a SIGKILL also skips the
+    script's trap. So the trap removes them, and the next build (under the store
+    lock) removes what a killed one left. cmd_build against a fake pm and pgrep.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="sceny-sandbox-build-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        tmp = self.tmp
+        self.state = os.path.join(tmp, "state")
+        self.repo = os.path.join(tmp, "repo")
+        self.log = os.path.join(tmp, "pm.log")
+        os.makedirs(os.path.join(self.repo, "dev", "sandbox.d"))
+        shutil.copy(SANDBOX, os.path.join(self.repo, "dev", "sandbox"))
+        shutil.copy(
+            os.path.join(ROOT, "dev", "sandbox.d", "Containerfile"),
+            os.path.join(self.repo, "dev", "sandbox.d", "Containerfile"),
+        )
+        git_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tmp, "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"}
+        subprocess.run(["git", "-C", self.repo, "init", "-q"], check=True, env=git_env)
+        subprocess.run(["git", "-C", self.repo, "add", "dev"], check=True, env=git_env)
+        subprocess.run(
+            ["git", "-C", self.repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "-q", "-m", "build context"],
+            check=True,
+            env=git_env,
+        )
+        bin_dir = os.path.join(tmp, "bin")
+        os.makedirs(bin_dir)
+        with open(os.path.join(bin_dir, "pgrep"), "w") as f:
+            f.write('#!/bin/sh\nprintf \'%s\' "$FAKE_PGREP"\n')
+        os.chmod(os.path.join(bin_dir, "pgrep"), 0o755)
+        self.path = bin_dir + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")
+
+    def run_sandbox(self, command, build="return 1", pgrep=""):
+        # A dev session's container is Up; a build's working container is Storage.
+        script = (
+            f'source "{os.path.join(self.repo, "dev", "sandbox")}"\n'
+            "require_tools() { :; }\n"
+            "pm() {\n"
+            '  echo "$*" >>"$PM_LOG"\n'
+            '  case "$1" in\n'
+            "  ps) printf 'aaa111 Storage\\nbbb222 Up\\n' ;;\n"
+            f"  build) {build} ;;\n"
+            "  esac\n"
+            "}\n"
+            f"{command}\n"
+        )
+        env = {"PATH": self.path, "HOME": self.tmp, "SANDBOX_STATE": self.state, "PM_LOG": self.log, "FAKE_PGREP": pgrep}
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+
+    def pm_calls(self):
+        if not os.path.exists(self.log):
+            return []
+        with open(self.log) as f:
+            return f.read().splitlines()
+
+    def build_dirs(self):
+        builds = os.path.join(self.state, "builds")
+        return [n for n in os.listdir(builds) if n.startswith("sceny-sandbox-build.")] if os.path.isdir(builds) else []
+
+    def leave_a_killed_build(self):
+        os.makedirs(os.path.join(self.state, "builds", "sceny-sandbox-build.killed", "harness", "dev"))
+
+    def test_a_failed_build_removes_its_context_and_its_working_containers(self):
+        r = self.run_sandbox("cmd_build --ref HEAD --profile devices")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("the base image did not build", r.stderr)
+        self.assertEqual(self.build_dirs(), [], "a failed build leaves its context behind")
+        calls = self.pm_calls()
+        self.assertEqual(calls[-1], "rm -f aaa111", calls)
+        self.assertFalse([c for c in calls if c.startswith("rm") and "bbb222" in c], "a running container is not a build's")
+
+    def test_a_build_killed_by_a_signal_removes_its_context_and_its_working_containers(self):
+        r = self.run_sandbox("cmd_build --ref HEAD --profile devices", build='kill -TERM "$BASHPID"; sleep 5')
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.build_dirs(), [])
+        self.assertEqual(self.pm_calls()[-1], "rm -f aaa111", self.pm_calls())
+
+    def test_the_next_build_removes_what_a_killed_build_left_before_it_builds(self):
+        self.leave_a_killed_build()
+        r = self.run_sandbox("cmd_build --ref HEAD --profile devices")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertEqual(self.build_dirs(), [])
+        calls = self.pm_calls()
+        first_build = next(i for i, c in enumerate(calls) if c.startswith("build "))
+        self.assertIn("rm -f aaa111", calls[:first_build], calls)
+
+    def test_nothing_is_removed_while_a_podman_build_of_this_store_runs(self):
+        self.leave_a_killed_build()
+        running = f"123 podman --root {self.state}/storage --runroot {self.state}/runroot build --target devices x\n"
+        r = self.run_sandbox("clear_stale_builds", pgrep=running)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("still running", r.stderr)
+        self.assertEqual(self.build_dirs(), ["sceny-sandbox-build.killed"])
+        self.assertFalse([c for c in self.pm_calls() if c.startswith("rm")])
+        other = "123 podman --root /elsewhere/storage --runroot /elsewhere/runroot build --target devices x\n"
+        r = self.run_sandbox("clear_stale_builds", pgrep=other)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.build_dirs(), [], "another store's build does not hold this one's leftovers")
+
+    def test_verify_clean_names_the_command_that_clears_a_killed_build(self):
+        self.leave_a_killed_build()
+        r = self.run_sandbox("cmd_verify_clean")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("build directories left:", r.stderr)
+        self.assertIn("dev/sandbox clear-builds removes them", r.stderr)
+        r = self.run_sandbox("cmd_clear_builds")
+        self.assertEqual(self.build_dirs(), [])
+        self.assertIn("rm -f aaa111", self.pm_calls())
 
 
 class StaleRuns(unittest.TestCase):
