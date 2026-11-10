@@ -1385,19 +1385,27 @@ cmd_verify_clean() {
   require_tools
   store_lock_acquire
   trap 'store_lock_release' RETURN
-  local bad=0 list kept
+  local bad=0 list kept containers external
   kept=$(dev_names | paste -sd ' ')
   [[ -z $kept ]] || step "not counted, live dev sessions of their owners: $kept"
-  list=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
-  if [[ -n $list ]]; then
-    fail "containers left: $(echo "$list" | tr '\n' ' ')"
+  containers=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
+  if [[ -n $containers ]]; then
+    fail "containers left: $(echo "$containers" | tr '\n' ' ')"
     bad=1
   else ok "no container (running or stopped)"; fi
-  list=$(pm ps -a --external --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
+  # --external lists podman's own containers too: only a "Storage" one is a
+  # build's working container, the one clear-builds removes.
+  external=$(pm ps -a --external --format '{{.Names}} {{.Status}}' 2>/dev/null)
+  list=$(awk '$2 == "Storage" { print $1 }' <<<"$external" | grep -vxFf <(dev_names))
   if [[ -n $list ]]; then
-    fail "storage containers left: $(echo "$list" | tr '\n' ' ')(a killed build's: dev/sandbox clear-builds removes them)"
+    fail "build working containers left: $(echo "$list" | tr '\n' ' ')(a killed build's: dev/sandbox clear-builds removes them)"
     bad=1
-  else ok "no build or storage container"; fi
+  else ok "no build working container"; fi
+  list=$(awk '$2 != "Storage" { print $1 }' <<<"$external" | grep -vxFf <(dev_names) | grep -vxFf <(printf '%s\n' "$containers"))
+  if [[ -n $list ]]; then
+    fail "storage containers left: $(echo "$list" | tr '\n' ' ')"
+    bad=1
+  else ok "no other storage container"; fi
   list=$(pm volume ls -q 2>/dev/null)
   if [[ -n $list ]]; then
     fail "volumes left: $(echo "$list" | tr '\n' ' ')"

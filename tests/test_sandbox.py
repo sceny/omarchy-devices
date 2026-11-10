@@ -1227,21 +1227,22 @@ class BuildContext(unittest.TestCase):
         os.chmod(os.path.join(bin_dir, "pgrep"), 0o755)
         self.path = bin_dir + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin")
 
-    def run_sandbox(self, command, build="return 1", pgrep=""):
+    def run_sandbox(self, command, build="return 1", pgrep="", external="aaa111 Storage\\nbbb222 Up\\n", containers=""):
         # A dev session's container is Up; a build's working container is Storage.
+        # ps --external lists both; plain ps lists podman's own containers only.
         script = (
             f'source "{os.path.join(self.repo, "dev", "sandbox")}"\n'
             "require_tools() { :; }\n"
             "pm() {\n"
             '  echo "$*" >>"$PM_LOG"\n'
             '  case "$1" in\n'
-            "  ps) printf 'aaa111 Storage\\nbbb222 Up\\n' ;;\n"
+            '  ps) case "$*" in *--external*) printf "$FAKE_EXTERNAL" ;; *label=*) ;; *) printf "$FAKE_CONTAINERS" ;; esac ;;\n'
             f"  build) {build} ;;\n"
             "  esac\n"
             "}\n"
             f"{command}\n"
         )
-        env = {"PATH": self.path, "HOME": self.tmp, "SANDBOX_STATE": self.state, "PM_LOG": self.log, "FAKE_PGREP": pgrep}
+        env = {"PATH": self.path, "HOME": self.tmp, "SANDBOX_STATE": self.state, "PM_LOG": self.log, "FAKE_PGREP": pgrep, "FAKE_EXTERNAL": external, "FAKE_CONTAINERS": containers}
         return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
 
     def pm_calls(self):
@@ -1303,6 +1304,22 @@ class BuildContext(unittest.TestCase):
         r = self.run_sandbox("cmd_clear_builds")
         self.assertEqual(self.build_dirs(), [])
         self.assertIn("rm -f aaa111", self.pm_calls())
+
+    def test_verify_clean_gives_the_clear_builds_hint_only_for_a_builds_working_container(self):
+        # A dev session stopping (conmon alive, no longer labelled live) is podman's own
+        # container: clear-builds does not remove it, so its line carries no hint.
+        stopping = "sceny-sandbox-dev-5555 Stopping\n"
+        r = self.run_sandbox("cmd_verify_clean", external=stopping)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("storage containers left: sceny-sandbox-dev-5555", r.stderr)
+        self.assertNotIn("clear-builds", r.stderr)
+        r = self.run_sandbox("cmd_verify_clean", external=stopping, containers="sceny-sandbox-dev-5555\n")
+        self.assertIn("containers left: sceny-sandbox-dev-5555", r.stderr)
+        self.assertNotIn("storage containers left", r.stderr, "one container is named once")
+        r = self.run_sandbox("cmd_verify_clean", external="aaa111 Storage\n" + stopping)
+        self.assertIn("build working containers left: aaa111 (a killed build's: dev/sandbox clear-builds removes them)", r.stderr)
+        self.assertIn("storage containers left: sceny-sandbox-dev-5555", r.stderr)
+        self.assertNotIn("sceny-sandbox-dev-5555 (a killed build's", r.stderr)
 
 
 class StaleRuns(unittest.TestCase):
