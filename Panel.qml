@@ -2351,6 +2351,11 @@ Panel {
     readAppsFor(String(device.id))
   }
   // For checks (IPC navInfo): the stack, the way back, Home.
+  function jumpButtons() {
+    var mj = messagesView ? messagesView.jumps : {}, cj = contactsView ? contactsView.jumps : {}
+    return { page: pageJump, threads: mj.threads || null, conversation: mj.conversation || null, contacts: cj.contacts || null }
+  }
+
   function navInfo() {
     return JSON.stringify({ base: navBase, stack: nav.map(function(e) { return e.key }), depth: nav.length, home: homeVisible,
                             back: backVisible, tip: backTip, target: targetPage, shown: shownPage })
@@ -3577,6 +3582,33 @@ Panel {
         search: messagesView ? messagesView.searchText : "" })
     }
     function loadOlder(): string { if (root.sms) root.sms.loadMore(); return "ok" }
+    // The jump buttons (JumpButton): page, threads, conversation, contacts.
+    // jumpInfo says which show and how far each list is from its end;
+    // jumpAway scrolls one `screens` screens from it, as the wheel would;
+    // pressJump clicks one.
+    function jumpInfo(): string {
+      var all = root.jumpButtons(), out = {}
+      for (var k in all) {
+        var j = all[k]
+        out[k] = j ? { showing: j.showing, distance: Math.round(j.distance), height: j.flickable ? Math.round(j.flickable.height) : 0, label: j.label } : null
+      }
+      return JSON.stringify(out)
+    }
+    function jumpAway(which: string, screens: real): string {
+      var j = root.jumpButtons()[which]
+      if (!j || !j.flickable) return "none"
+      var f = j.flickable
+      var top = f.originY, bottom = f.originY + Math.max(0, f.contentHeight - f.height)
+      var y = j.edge === "bottom" ? bottom - screens * f.height : top + screens * f.height
+      f.contentY = Math.max(top, Math.min(bottom, y))
+      return jumpInfo()
+    }
+    function pressJump(which: string): string {
+      var j = root.jumpButtons()[which]
+      if (!j || !j.showing) return "hidden"
+      j.go()
+      return "ok"
+    }
     function searchThreads(q: string): string {
       if (!root.sms) return "0"
       if (messagesView) messagesView.setSearch(q); else root.sms.setQuery(q)
@@ -3869,6 +3901,10 @@ Panel {
           else if (t === "n") messagesView.startNew(true)
           else if (t === "/") messagesView.focusSearch()
           else if (t === "u") root.toggleUnreadOnly()
+          // In a conversation: its oldest message loaded, its newest (as
+          // its jump button).
+          else if (t === "g" && messagesView.inConversation) messagesView.messageTo(1e9)
+          else if (t === "G" && messagesView.inConversation) messagesView.messageTo(0)
           else if (t === "g") messagesView.cursorTo(0)
           else if (t === "G") messagesView.cursorTo(1e9)
           return
@@ -4486,6 +4522,20 @@ Panel {
         flickableDirection: Flickable.VerticalFlick
         interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { id: pageScrollBar; policy: ScrollBar.AsNeeded }
+        // A long page (All apps, Settings, a full main page): back to its
+        // top. Messages and Contacts fit the card and carry their own.
+        JumpButton {
+          id: pageJump
+          flickable: panelFlick
+          edge: "top"
+          label: root.showAppsPage ? "All apps" : (root.showSettings ? "Settings" : "Top")
+          tooltipText: "Back to the top"
+          allowed: root.settled && !root.editing
+          foreground: root.foreground
+          background: root.bar ? root.bar.background : Color.background
+          fontFamily: root.fontFamily
+          motion: root.motion
+        }
         // Right-click anywhere on the main page opens its menu; other buttons
         // pass through to the page.
         MouseArea {

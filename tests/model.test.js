@@ -2345,6 +2345,25 @@ test("a stale 'KDE Connect running' check never shows the Stopped card around th
   assert.equal(stale.length, 0, "no problem, no card, no dot, no count")
 })
 
+test("a list's jump button: how far the list is from its end, and when the button shows", () => {
+  // A list 1000 high in a 200 view: its top at 0, its bottom at 800.
+  assert.equal(M.jumpDistance("top", 0, 0, 1000, 200), 0)
+  assert.equal(M.jumpDistance("top", 300, 0, 1000, 200), 300)
+  assert.equal(M.jumpDistance("bottom", 800, 0, 1000, 200), 0)
+  assert.equal(M.jumpDistance("bottom", 300, 0, 1000, 200), 500)
+  // A list laid out bottom to top starts above 0 (originY): the same sums.
+  assert.equal(M.jumpDistance("bottom", -200, -1000, 1000, 200), 0)
+  assert.equal(M.jumpDistance("bottom", -900, -1000, 1000, 200), 700)
+  // A list that fits is at both ends; an overshoot is not "away".
+  assert.equal(M.jumpDistance("top", 0, 0, 100, 200), 0)
+  assert.equal(M.jumpDistance("bottom", -200, -100, 100, 200), 0)
+  assert.equal(M.jumpDistance("top", -20, 0, 1000, 200), 0)
+  // Shown from half a screen away, never for a list with no height.
+  assert.equal(M.jumpShown(100, 200), false)
+  assert.equal(M.jumpShown(101, 200), true)
+  assert.equal(M.jumpShown(500, 0), false)
+})
+
 test("oneTimeCode: the code a message says it carries, as digits to paste", () => {
   assert.equal(M.oneTimeCode("Your verification code is 482913. It expires in 10 minutes."), "482913")
   assert.equal(M.oneTimeCode("Your verification code is 482 913."), "482913", "groups are joined")
