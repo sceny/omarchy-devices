@@ -17,6 +17,8 @@ buttons, from your keyboard.
 - **Reply** right there (`r`), with the app's own *Mark as read* or *Mute*
   beside it. **Dismiss** here dismisses on the phone too (`x`), and the
   button by the section's title dismisses them all.
+- **A sign-in code** gets a *Copy* button (`y`), even when the phone
+  hides the notification's text: the code is read from the message.
 - **A text** opens its conversation in [Messages](messages.md). **Any
   other app** opens in a window here (`o`): [Apps](apps.md).
 - **Not here:** what the phone itself hides, and a player's playback
@@ -30,5 +32,6 @@ buttons, from your keyboard.
 | `l` · `h` | Open · fold a stack |
 | `Shift+Delete` | Dismiss all |
 | `o` | Open its app in a window |
+| `y` | Copy its sign-in code |
 
 Setup: [Your devices](../setup/devices.md) · Limits: [What it cannot do](../setup/limits.md)

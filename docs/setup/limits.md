@@ -12,6 +12,10 @@ The panel shows what KDE Connect sends. Today it does not:
   the phone when it connected, or one that arrived silent: only on those
   that arrive while the panel runs
   ([#436](https://github.com/sceny/omarchy-devices/issues/436));
+- show a notification Android 15 hides because it carries a **code**: it
+  reads *Sensitive notification content hidden*. A text message's code is
+  still copied from the message
+  ([#577](https://github.com/sceny/omarchy-devices/issues/577));
 - carry **RCS** chats, only SMS and MMS;
 - **paste** or **drop** a picture into a reply: use the attach button. The
   panel never takes part in a clipboard transfer or a drag, which would

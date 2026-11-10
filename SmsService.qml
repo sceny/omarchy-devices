@@ -163,8 +163,11 @@ Item {
   // view shows meanwhile can be looked at too.
   readonly property int demoDelay: 900
 
-  function showDemo() {
+  // The demo's kind ("code": a code just arrived, Model.demoThreads).
+  property string demoKind: ""
+  function showDemo(kind) {
     demo = true
+    demoKind = kind || ""
     demoSeen = ({})
     clearThreads()
     ready = false
@@ -179,7 +182,7 @@ Item {
     interval: sms.demoDelay
     onTriggered: {
       if (!sms.demo) return
-      var threads = Model.demoThreads()
+      var threads = Model.demoThreads(undefined, sms.demoKind)
       setThreads(threads.map(threadRow))
       sms.ready = true
       sms.modelRevision++
