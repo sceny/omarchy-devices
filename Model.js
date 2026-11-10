@@ -1439,6 +1439,11 @@ function demoSnapshot(live, kind) {
     { id: "demo-7", key: "0|com.example.calendar|7|null|10006", app: "Calendar", title: "Dentist", text: "Tomorrow at 15:30", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
     { id: "demo-8", key: "0|com.example.calendar|8|null|10006", app: "Calendar", title: "Pay the rent", text: "Due on the first", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
   ]
+  // "code": sign-in codes, one in a notification's text and one in a text
+  // message whose notification Android hid (demoThreads "code" holds it).
+  if (kind === "code") dev.notifications.unshift(
+    { id: "demo-c1", key: "0|com.example.messages|1|null|10001", app: "Messages", title: "Messages", text: "Sensitive notification content hidden", ticker: "", dismissable: true, replyId: "rc1", actions: ["1", "2", "Reply"], icon: "", silent: false },
+    { id: "demo-c2", key: "0|com.example.bank|2|null|10002", app: "Bank", title: "Sign in", text: "Your sign-in code is 731 604. Do not share it.", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false })
   // Bluetooth calls set up: paired and connected for calls (demoCall rings).
   dev.handsfree = Object.assign(demoHandsfree(dev.name), { connected: kind !== "away" })
   return { daemon: true, demo: true, devices: [dev], bluetooth: demoBluetooth(dev.name) }
@@ -1672,6 +1677,61 @@ function threadForNotification(n, threads) {
     return best.t.tid
   }
   return byMessage.length === 1 ? byMessage[0].tid : -1
+}
+
+// ---- One-time codes: a Copy code button on a notification (#577) ----
+// A sign-in or verification code in a message, as the digits to paste: four
+// to eight of them, or two groups of three or four ("482 913", "G-482913"),
+// in a message that says it is a code. A number next to a currency, a
+// percent or a time is not one, and neither is a run as long as a phone
+// number. Several: the first of six digits, else the first.
+var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|koodi)\b/i
+function oneTimeCode(text) {
+  var s = String(text || "")
+  if (!CODE_WORDS.test(s)) return ""
+  var found = []
+  var re = /(^|[^\w$€£¥.,:\/+-]|[A-Z]-)(\d{3,4}[ -]\d{3,4}|\d{4,8})(?![\w%$€£:\/]|[.,]\d)/g
+  var m
+  while ((m = re.exec(s)) !== null) {
+    var digits = m[2].replace(/\D/g, "")
+    if (digits.length >= 4 && digits.length <= 8) found.push(digits)
+  }
+  for (var i = 0; i < found.length; i++) if (found[i].length === 6) return found[i]
+  return found.length ? found[0] : ""
+}
+
+// Android 15 hides a notification it finds a code in from apps like KDE
+// Connect: the text is replaced and the buttons become numbers. English is
+// the text's one spelling here; the numbered buttons say it in any language.
+function isHiddenContent(n) {
+  if (!n) return false
+  if (/^sensitive notification content hidden\.?$/i.test(String(n.text || "").trim())) return true
+  var actions = Array.isArray(n.actions) ? n.actions : []
+  return actions.length > 0 && actions.some(function(a) { return /^\d$/.test(String(a).trim()) })
+    && actions.every(function(a) { return /^\d$/.test(String(a).trim()) || /^reply$/i.test(String(a).trim()) })
+}
+
+// The code a notification carries: in its own text, else, when Android hid
+// a text message's notification, in the newest conversation, if that ends on
+// a message received and still unread on the phone (the message the
+// notification is about). Never a guess: any other newest message, none.
+function notificationCode(n, threads) {
+  if (!n) return ""
+  var texts = [String(n.text || "")]
+  var convo = Array.isArray(n.conversation) ? n.conversation : []
+  for (var i = 0; i < convo.length; i++) texts.push(String(convo[i] && convo[i].text || ""))
+  for (var j = 0; j < texts.length; j++) {
+    var code = oneTimeCode(texts[j])
+    if (code) return code
+  }
+  if (!isMessagingApp(n.app) || !isHiddenContent(n)) return ""
+  var newest = null
+  for (var k = 0; k < (threads || []).length; k++) {
+    var t = threads[k]
+    if (t && (!newest || Number(t.date || 0) > Number(newest.date || 0))) newest = t
+  }
+  if (!newest || newest.sentLast === true || newest.readOnPhone === true) return ""
+  return oneTimeCode(newest.snippet)
 }
 
 
@@ -2960,17 +3020,20 @@ function demoNow() {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 18, 40).getTime()
 }
 
-function demoThreads(nowMs) {
+// "code": the verification code arrived a minute ago, unread (its
+// notification is the hidden one demoSnapshot "code" shows).
+function demoThreads(nowMs, kind) {
   var now = nowMs === undefined ? demoNow() : nowMs
   var min = 60000, hour = 60 * min, day = 24 * hour
   function t(id, names, addresses, ago, snippet, sent, read, group) {
     return { id: id, names: names, addresses: addresses, date: now - ago, snippet: snippet,
              sent: !!sent, read: read !== false, attachments: 0, group: !!group }
   }
+  var code = kind === "code"
   return [
     t(9001, ["Alex Rivera"], ["+15145550123"], 4 * min, "Perfect, see you at six! Bring the board game 🎲", false, false),
     t(9002, ["Book club", "Priya", "Sam"], ["+15145550140", "+15145550141", "+15145550142"], 50 * min, "Priya: Chapter 7 was wild, no spoilers please", false, false, true),
-    t(9003, [""], ["55555"], 2 * hour, "Your verification code is 482 913. It expires in 10 minutes.", false, true),
+    t(9003, [""], ["55555"], code ? 1 * min : 2 * hour, "Your verification code is 482 913. It expires in 10 minutes.", false, !code),
     t(9004, ["Sam Chen"], ["+15145550142"], 1 * day, "Sounds good, thanks!", true),
     t(9005, ["Dr. Moreau's office"], ["+15145550177"], 3 * day, "Reminder: your appointment is on Tuesday at 9:30.", false, true),
     t(9006, ["Jordan"], ["+15145550188"], 9 * day, "Picture", false, true)
@@ -3383,7 +3446,8 @@ var KEYS = [
     ["Shift+Delete", "Dismiss all"],
     ["l · h", "Open · fold a group"],
     ["e", "Show all of it"],
-    ["o", "Open its app"]] },
+    ["o", "Open its app"],
+    ["y", "Copy its code"]] },
   { group: "Now playing", place: { page: "main", section: "media" }, summary: "Track, seek, volume", keys: [
     ["[ ]", "Previous · next"],
     [", .", "Seek 10 s"],
@@ -4237,7 +4301,7 @@ var HOME_KEY = "0"
 // page, and when a tooltip in a .qml file spells a key itself.
 var TIP_KEYS = {
   home: HOME_KEY, back: "Esc", edit: "E", settings: "s", messages: "m",
-  reply: "r", dismiss: "x", open: "o", forget: "x",
+  reply: "r", dismiss: "x", open: "o", forget: "x", copyCode: "y",
   prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
   pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete",
   keysOpen: "Shift+O", first: "g", last: "G"

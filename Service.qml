@@ -42,7 +42,7 @@ Item {
   function showDemo(kind) {
     demo = true
     snapshot = Model.demoSnapshot(liveSnapshot || snapshot, kind || "")
-    smsService.showDemo()
+    smsService.showDemo(kind || "")
     contactsService.showDemo()
   }
 

@@ -6,6 +6,12 @@ Each version, newest first, grouped by what it touches. `omarchy plugin
 update sceny.devices` brings the latest; each is a tag (`vX.Y.Z`) and a
 GitHub release with these notes.
 
+## Unreleased
+
+### Notifications
+
+- **Copy a sign-in code**: a notification carrying a one-time code has a *Copy* button (`y`) that puts the code in the clipboard. When Android 15 hides such a text message's notification (*Sensitive notification content hidden*), the code is read from the message itself ([#577](https://github.com/sceny/omarchy-devices/issues/577)).
+
 ## 1.0.0 — 2026-10-23
 
 ### Highlights

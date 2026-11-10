@@ -2716,6 +2716,27 @@ Panel {
     if (tid >= 0) sms.markSeen(tid)
   }
 
+  // A sign-in code on a notification (Model.notificationCode): its own text,
+  // else the newest text message when Android hid the notification. The
+  // copy goes through Clipboard, never on a command line.
+  function noteCode(n) {
+    if (!n) return ""
+    var rev = sms ? sms.modelRevision : 0
+    var rows = []
+    if (sms) for (var i = 0; i < sms.threads.count; i++) rows.push(sms.threads.get(i))
+    return Model.notificationCode(n, rows)
+  }
+  function copyCode(n) {
+    var code = noteCode(n)
+    if (code === "") return
+    Clipboard.copyText(code, function() { if (phone) phone.report("Code copied", false) })
+  }
+  // A hidden text notification's code is in the conversations: they are read
+  // once one shows, as opening Messages would.
+  readonly property bool hiddenTextShown: !!sms && notifications.some(function(n) { return Model.isMessagingApp(n.app) && Model.isHiddenContent(n) })
+  onHiddenTextShownChanged: if (hiddenTextShown) sms.start()
+  Component.onCompleted: if (hiddenTextShown) sms.start()
+
   function threadForNotification(n) {
     if (!sms || !n) return -1
     var rev = sms.modelRevision
@@ -3278,6 +3299,20 @@ Panel {
       root.markNotificationSeen(n)
       return JSON.stringify({ unread: root.sms ? root.sms.unreadCount : -1 })
     }
+    // Demo only: the code each notification shows ("" for none), and its
+    // Copy button pressed. Refused on live data: a code is private.
+    function noteCodes(): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      return JSON.stringify(root.notifications.map(function(n) { return root.noteCode(n) }))
+    }
+    function pressCopyCode(index: int): string {
+      if (!root.phone || !root.phone.demo) return "demo only"
+      var n = root.notifications[index]
+      if (!n) return "no notification " + index
+      if (root.noteCode(n) === "") return "no code"
+      root.copyCode(n)
+      return "ok"
+    }
     // Demo only: dismiss a notification as a click on its X would, to look
     // at the waiting ring. Refused on live data.
     function pressDismiss(index: int): string {
@@ -3425,7 +3460,7 @@ Panel {
         : root.appsOpen ? t === "/"
         : !root.settingsOpen && t === "r" && root.cursorActive && root.focusSection === "notifications"
       if (focusesField) return "refused: the key would focus a text field here"
-      keyCatcher.textKey(t)
+      keyCatcher.textKey(t, 0)
       return root.appsInfo()
     }
     // Never where Enter would focus a text field (a reply, the composer, a
@@ -3939,6 +3974,10 @@ Panel {
           if (!tn) return
           if (root.isTextNotification(tn)) root.openNotificationConversation(tn)
           else if (root.notificationApp(tn)) root.openApp(root.notificationApp(tn))
+          return
+        }
+        if (t === "y" && root.cursorActive && root.focusSection === "notifications") {
+          root.copyCode(root.cursorNote)
           return
         }
         if (t === "r" && root.cursorActive && root.focusSection === "notifications")
@@ -8037,6 +8076,7 @@ Panel {
     property bool chatTruncated: false
     readonly property var latest: Model.latestMessage(note)
     readonly property var titleParts: Model.chatTitle(note)
+    readonly property string code: root.noteCode(note)
     readonly property bool canExpand: isChat ? (groups.length > 1 || chatTruncated || expanded
       || (!!latest && latest.text !== groups[groups.length - 1].text))
       : (bodyText.truncated || (expanded && bodyText.lineCount > 3))
@@ -8239,9 +8279,22 @@ Panel {
         Flow {
           Layout.fillWidth: true
           Layout.topMargin: Style.space(4)
-          visible: (row.note.actions || []).length > 0 && !row.replying
+          visible: (row.code !== "" || (row.note.actions || []).length > 0) && !row.replying
           spacing: Style.space(6)
 
+          // Copy code leads, as the phone draws it; the code as the label.
+          Button {
+            visible: row.code !== ""
+            text: "Copy " + row.code
+            tooltipText: Model.keyTip("Copy the code", "copyCode")
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+            fontSize: Style.font.caption
+            bordered: true
+            verticalPadding: Style.space(2)
+            horizontalPadding: Style.space(8)
+            onClicked: root.copyCode(row.note)
+          }
           Repeater {
             model: row.note.actions || []
             Item {

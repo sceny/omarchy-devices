@@ -2363,3 +2363,37 @@ test("a list's jump button: how far the list is from its end, and when the butto
   assert.equal(M.jumpShown(101, 200), true)
   assert.equal(M.jumpShown(500, 0), false)
 })
+
+test("oneTimeCode: the code a message says it carries, as digits to paste", () => {
+  assert.equal(M.oneTimeCode("Your verification code is 482913. It expires in 10 minutes."), "482913")
+  assert.equal(M.oneTimeCode("Your verification code is 482 913."), "482913", "groups are joined")
+  assert.equal(M.oneTimeCode("G-482913 is your Google verification code."), "482913", "a letter prefix is not pasted")
+  assert.equal(M.oneTimeCode("Use 7316 to sign in. Order 12 ships today"), "7316")
+  assert.equal(M.oneTimeCode("Your code: 1234. Ref 556677"), "556677", "six digits are preferred")
+  assert.equal(M.oneTimeCode("See you at 18:40, bring 3 chairs"), "", "no code word, no code")
+  assert.equal(M.oneTimeCode("Your PIN payment of $4500 was made"), "", "an amount is not a code")
+  assert.equal(M.oneTimeCode("Login at 12:30 from a new browser"), "", "a time is not a code")
+  assert.equal(M.oneTimeCode("Call 5555550123 for your code"), "", "a run as long as a phone number is not a code")
+  assert.equal(M.oneTimeCode("Call +15145550123 about your code"), "", "a phone number is not a code")
+  assert.equal(M.oneTimeCode("Code 1.5% off"), "", "nor a percent")
+  assert.equal(M.oneTimeCode(""), "")
+  assert.equal(M.oneTimeCode(undefined), "")
+})
+
+test("notificationCode: from the notification's own text, else the newest unread text when Android hid it", () => {
+  const plain = { app: "Bank", title: "55555", text: "Your sign-in code is 731 604. Do not share it." }
+  assert.equal(M.notificationCode(plain, []), "731604")
+  assert.equal(M.notificationCode({ app: "Bank", title: "Code 123456", text: "Nothing here" }, []), "", "the title is not read: it can be a short code's number")
+  assert.equal(M.notificationCode({ app: "Signal", conversation: [{ sender: "", text: "Hi" }, { sender: "", text: "login code 2468" }] }, []), "2468")
+  const hidden = { app: "Messages", title: "Messages", text: "Sensitive notification content hidden", actions: ["1", "2", "Reply"] }
+  const otp = { tid: 1, date: 2000, snippet: "Your verification code is 482 913.", sentLast: false, readOnPhone: false }
+  const older = { tid: 2, date: 1000, snippet: "See you at six", sentLast: false, readOnPhone: false }
+  assert.equal(M.notificationCode(hidden, [older, otp]), "482913")
+  assert.equal(M.notificationCode({ ...hidden, text: "Contenu masqué" }, [otp]), "482913", "the numbered buttons say it in any language")
+  assert.equal(M.notificationCode(hidden, [{ ...otp, readOnPhone: true }]), "", "a message read already is not the one")
+  assert.equal(M.notificationCode(hidden, [{ ...otp, sentLast: true, snippet: "You: code 482913" }]), "", "nor one sent")
+  assert.equal(M.notificationCode(hidden, [otp, { ...older, date: 3000 }]), "", "a newer message: no guess")
+  assert.equal(M.notificationCode({ ...hidden, app: "Bank" }, [otp]), "", "only a text message app's is in the store")
+  assert.equal(M.notificationCode({ ...hidden, text: "Hi", actions: ["Mark as read", "Reply"] }, [otp]), "", "a notification not hidden")
+  assert.equal(M.notificationCode(hidden, []), "")
+})
