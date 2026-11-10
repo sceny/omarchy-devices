@@ -2397,3 +2397,58 @@ test("notificationCode: from the notification's own text, else the newest unread
   assert.equal(M.notificationCode({ ...hidden, text: "Hi", actions: ["Mark as read", "Reply"] }, [otp]), "", "a notification not hidden")
   assert.equal(M.notificationCode(hidden, []), "")
 })
+
+// ---- Messages and Contacts: landing, the links between, recent texts ----
+
+test("landingIndex: the row an open lands on, by id as text or number", () => {
+  assert.equal(M.landingIndex([9001, 9002, 9003], 9002), 1)
+  assert.equal(M.landingIndex(["demo-1", "demo-2"], "demo-2"), 1)
+  assert.equal(M.landingIndex([9001], "9001"), 0)
+  assert.equal(M.landingIndex([9001], 42), -1)
+  assert.equal(M.landingIndex(null, 1), -1)
+})
+
+test("contactForThread: one person's conversation finds their card on any number", () => {
+  const cards = M.demoContacts("")
+  assert.equal(M.contactForThread(cards, { addresses: "+15145550123", group: false }).id, "demo-1")
+  // Written another way, the same number.
+  assert.equal(M.contactForThread(cards, { addresses: "(514) 555-0144", group: false }).id, "demo-1")
+  assert.equal(M.contactForThread(cards, { addresses: "+15145550199", group: false }), null)
+  // A group is many people: no one card.
+  assert.equal(M.contactForThread(cards, { addresses: "+15145550141, +15145550142", group: true }), null)
+  assert.equal(M.contactForThread(cards, { addresses: "+15145550141, +15145550142", group: false }), null)
+  // A short code is nobody's card.
+  assert.equal(M.contactForThread([{ id: "x", phones: [{ value: "55" }] }], { addresses: "55", group: false }), null)
+  assert.equal(M.contactForThread(cards, null), null)
+})
+
+test("threadForContact: the newest one-to-one conversation on any of their numbers, else a number to text", () => {
+  const rows = M.demoThreads(0).map(t => ({ tid: t.id, addressKeys: t.addresses.map(M.numberKey).join(" "), group: t.group, date: t.date }))
+  const cards = M.demoContacts("")
+  const alex = cards.find(c => c.id === "demo-1")
+  assert.deepEqual(M.threadForContact(alex, rows), { tid: 9001, number: "+15145550123" })
+  // Sam has a conversation of their own and is in the book club: their own.
+  const sam = cards.find(c => c.id === "demo-5")
+  assert.deepEqual(M.threadForContact(sam, rows), { tid: 9004, number: "+15145550142" })
+  // Two conversations on two of their numbers: the newer one.
+  const two = [{ tid: 1, addressKeys: "5145550123", group: false, date: 10 }, { tid: 2, addressKeys: "5145550144", group: false, date: 20 }]
+  assert.deepEqual(M.threadForContact(alex, two), { tid: 2, number: "+15145550144" })
+  // None yet: the mobile number, for a new message.
+  const taylor = { phones: [{ label: "Work", value: "+15145550166" }, { label: "Mobile", value: "+15145550167" }] }
+  assert.deepEqual(M.threadForContact(taylor, rows), { tid: -1, number: "+15145550167" })
+  assert.deepEqual(M.threadForContact({ phones: [] }, rows), { tid: -1, number: "" })
+  assert.deepEqual(M.threadForContact(null, rows), { tid: -1, number: "" })
+})
+
+test("recentTexts: the newest three, newest first, a resent message once, a picture named", () => {
+  const convo = M.demoConversation(0, "")
+  const recent = M.recentTexts(convo)
+  assert.deepEqual(recent.map(m => m.uid), [7, 6, 5])
+  assert.equal(recent[1].sent, true)
+  assert.equal(M.recentTexts(convo.concat([{ uid: 7, date: -1e12, body: "edited" }]), 1)[0].uid, 6)
+  const pic = M.recentTexts([{ uid: 1, date: 1, body: "", attachments: [{ mime: "image/jpeg" }] }])
+  assert.equal(pic[0].body, "Picture")
+  assert.equal(M.recentTexts([{ uid: 1, date: 1, body: "", attachments: [{ mime: "audio/ogg" }] }])[0].body, "Attachment")
+  assert.deepEqual(M.recentTexts([]), [])
+  assert.equal(M.RECENT_TEXTS, 3)
+})

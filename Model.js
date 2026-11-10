@@ -1808,6 +1808,76 @@ function contactById(contacts, id) {
   return null
 }
 
+// ---- Messages and Contacts: where an open lands, and the links between ----
+
+// A number as conversations match it: its last ten digits, so a country code
+// or the way it is written does not keep two from matching.
+function numberKey(address) {
+  var d = String(address || "").replace(/\D/g, "")
+  return d.length >= 10 ? d.slice(-10) : d
+}
+
+// Where `id` stands in a list's ids, or -1: the row an open lands on.
+function landingIndex(ids, id) {
+  var list = ids || []
+  for (var i = 0; i < list.length; i++) if (String(list[i]) === String(id)) return i
+  return -1
+}
+
+// The card of the person a conversation is with: one person only (a group
+// is many), matched on any of the card's numbers. null when none has it.
+function contactForThread(contacts, thread) {
+  if (!thread || thread.group === true) return null
+  var addresses = String(thread.addresses || "").split(",")
+  if (addresses.length !== 1) return null
+  var key = numberKey(addresses[0])
+  if (key.length < 5) return null
+  var list = contacts || []
+  for (var i = 0; i < list.length; i++) {
+    var phones = list[i].phones || []
+    for (var j = 0; j < phones.length; j++) if (numberKey(phones[j].value) === key) return list[i]
+  }
+  return null
+}
+
+// The conversation with a contact: the newest one-to-one thread on any of
+// their numbers ({ tid, number }), else no thread and the number a new
+// message goes to (a mobile first). `threads` are the conversation rows
+// ({ tid, addressKeys, group, date }). No number: { tid: -1, number: "" }.
+function threadForContact(contact, threads) {
+  var phones = contact && contact.phones ? contact.phones : []
+  var keys = phones.map(function(p) { return numberKey(p.value) }).filter(function(k) { return k.length >= 5 })
+  var best = null
+  ;(threads || []).forEach(function(t) {
+    if (t.group === true || keys.indexOf(String(t.addressKeys || "")) < 0) return
+    if (!best || Number(t.date || 0) > Number(best.date || 0)) best = t
+  })
+  if (best) {
+    for (var i = 0; i < phones.length; i++)
+      if (numberKey(phones[i].value) === String(best.addressKeys)) return { tid: best.tid, number: String(phones[i].value) }
+  }
+  if (phones.length === 0) return { tid: -1, number: "" }
+  var mobile = phones.filter(function(p) { return /mobile|cell/i.test(String(p.label || "")) })[0]
+  return { tid: -1, number: String((mobile || phones[0]).value || "") }
+}
+
+// A contact's latest texts, newest first, at most RECENT_TEXTS: from the
+// messages of their conversation as the bridge sends them (any order, a
+// message sent again replacing the copy before it).
+var RECENT_TEXTS = 3
+function recentTexts(messages, limit) {
+  var byUid = {}
+  ;(messages || []).forEach(function(m) { if (m && m.uid !== undefined) byUid[m.uid] = m })
+  var list = Object.keys(byUid).map(function(k) { return byUid[k] })
+  list.sort(function(a, b) { return Number(b.date || 0) - Number(a.date || 0) })
+  return list.slice(0, limit === undefined ? RECENT_TEXTS : limit).map(function(m) {
+    var files = m.attachments || []
+    var body = String(m.body || "").trim()
+    if (body === "" && files.length > 0) body = String(files[0].mime || "").indexOf("image/") === 0 ? "Picture" : "Attachment"
+    return { uid: m.uid, body: body, sent: m.sent === true, date: Number(m.date || 0) }
+  })
+}
+
 // "1990-05-02", "19900502" and "--05-02" (no year) as a date to read.
 function birthdayText(value) {
   var v = String(value || "").trim()
@@ -3459,14 +3529,15 @@ var KEYS = [
     ["x", "Forget from Recent"],
     ["v", "Where its sound plays"],
     ["o", "Screen and apps options"]] },
-  { group: "Messages", place: { page: "messages", section: "" }, summary: "Search, new, reply", keys: [
+  { group: "Messages", place: { page: "messages", section: "" }, summary: "Search, new, reply, contact", keys: [
     ["/ · u", "Search · unread"],
     ["n · i", "New · reply"],
+    ["c", "Open the contact"],
     ["g G", "First · last"]] },
-  { group: "Contacts", place: { page: "contacts", section: "" }, summary: "Search, refresh", keys: [
+  { group: "Contacts", place: { page: "contacts", section: "" }, summary: "Search, refresh, message", keys: [
     ["/ · r", "Search · refresh"],
     ["g G", "First · last"],
-    ["m", "Messages"]] },
+    ["m", "Their conversation, else Messages"]] },
   { group: "Editing and Settings", place: { page: "settings", section: "" }, summary: "Move, put back", keys: [
     ["Shift+K Shift+J", "Move an item"],
     ["Esc", "Put back (editing)"]] }
@@ -4304,7 +4375,8 @@ var TIP_KEYS = {
   reply: "r", dismiss: "x", open: "o", forget: "x", copyCode: "y",
   prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
   pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete",
-  keysOpen: "Shift+O", first: "g", last: "G"
+  keysOpen: "Shift+O", first: "g", last: "G",
+  threadContact: "c", contactThread: "m"
 }
 function keyTip(label, id) {
   var k = TIP_KEYS[id]
