@@ -27,6 +27,8 @@
 #                                        the session that --session ID names
 #   dev/sandbox pins                     fail when an image's Omarchy, Hyprland or Quickshell is behind this machine's
 #   dev/sandbox verify-clean             prove no container, volume or run directory is left
+#   dev/sandbox clear-builds             remove what a killed build left: its build directory and podman
+#                                        build's working containers (every build does this first)
 #   dev/sandbox hostile-test [--quick] [--only KINDS] [--keep]           run a hostile commit written here and prove what it
 #                                        could not reach (the sandbox's own acceptance test)
 #   dev/sandbox status                   the images (base and profiles), the limits
@@ -298,6 +300,38 @@ harness_tree() { # <profile> <sha> [paperclipai sha]
   fi
 }
 
+# What a build leaves when it is killed past its trap (SIGKILL): its context
+# directory, and the working container of each stage podman build made (a
+# buildah container, "Storage" in `ps --external`; podman build removes them
+# only at its own end). Only a build makes either, and a build holds the store
+# lock, so with the lock held they belong to no build, unless a podman build of
+# this store is still running (a build whose script was killed while podman
+# went on). The caller holds the store lock.
+build_dirs() { ls -d "$SB_STATE"/builds/sceny-sandbox-build.* "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null; }
+build_running() {
+  local line
+  while IFS= read -r line; do
+    [[ $line == *"podman --root $SB_STATE/storage "*" build "* ]] && return 0
+  done < <(pgrep -u "$SB_UID" -af podman 2>/dev/null)
+  return 1
+}
+clear_build_containers() {
+  local ids
+  build_running && return 1
+  ids=$(pm ps -a --external --format '{{.ID}} {{.Status}}' 2>/dev/null | awk '$2 == "Storage" { print $1 }')
+  [[ -z $ids ]] || pm rm -f $ids >/dev/null 2>&1
+}
+clear_stale_builds() {
+  local dirs
+  if build_running; then
+    warn "a podman build of this store is still running: its build directory and working containers are kept"
+    return 1
+  fi
+  mapfile -t dirs < <(build_dirs)
+  ((${#dirs[@]} == 0)) || rm -rf -- "${dirs[@]}"
+  clear_build_containers
+}
+
 # The base image, then each profile's (one, or all) on it, from <sha>'s dev/ and,
 # for paperclipai, omarchy-paperclipai's dev/ at <paperclipai sha>. The caller
 # holds the store lock. A subshell: a failure ends the build, not its caller.
@@ -307,9 +341,12 @@ build_images() ( # <sha> <devices|paperclipai|all> [paperclipai sha]
     die "build: ${sha:0:12} has no dev/sandbox.d/Containerfile (the sandbox is not in it yet)"
   # In the store, not $TMPDIR: a build takes longer than some callers' temporary
   # directory lives, and its context gone mid-way fails the later images.
+  clear_stale_builds
   mkdir -p "$SB_STATE/builds"
   ctx=$(mktemp -d "$SB_STATE/builds/sceny-sandbox-build.XXXXXX")
-  trap "rm -rf '$ctx'" EXIT
+  # Bash runs it on INT and TERM too; a podman build ended by one leaves its
+  # stages' working containers, so they go with the context.
+  trap 'rm -rf -- "$ctx"; clear_build_containers' EXIT
   mkdir -p "$ctx/harness"
   git -C "$SB_REPO_ROOT" archive "$sha" dev | tar -x -C "$ctx/harness"
   cp "$ctx/harness/dev/sandbox.d/Containerfile" "$ctx/Containerfile"
@@ -1358,7 +1395,7 @@ cmd_verify_clean() {
   else ok "no container (running or stopped)"; fi
   list=$(pm ps -a --external --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
   if [[ -n $list ]]; then
-    fail "storage containers left: $(echo "$list" | tr '\n' ' ')"
+    fail "storage containers left: $(echo "$list" | tr '\n' ' ')(a killed build's: dev/sandbox clear-builds removes them)"
     bad=1
   else ok "no build or storage container"; fi
   list=$(pm volume ls -q 2>/dev/null)
@@ -1376,9 +1413,9 @@ cmd_verify_clean() {
     fail "run directories left: $list"
     bad=1
   else ok "no run directory (commit tars, results)"; fi
-  list=$(ls -d "$SB_STATE"/builds/sceny-sandbox-build.* "${TMPDIR:-/tmp}"/sceny-sandbox-build.* /tmp/sceny-sandbox-build.* 2>/dev/null)
+  list=$(build_dirs)
   if [[ -n $list ]]; then
-    fail "build directories left: $list"
+    fail "build directories left: $list (a killed build's: dev/sandbox clear-builds removes them)"
     bad=1
   else ok "no build directory"; fi
   list=$(ls -A "$SB_STATE/hostile" 2>/dev/null)
@@ -1405,6 +1442,18 @@ $list"
     fi
   done
   return $bad
+}
+
+cmd_clear_builds() {
+  require_tools
+  store_lock_acquire
+  trap 'store_lock_release' RETURN
+  clear_stale_builds || return 1
+  local left
+  left=$(pm ps -a --external --format '{{.Names}} {{.Status}}' 2>/dev/null | awk '$2 == "Storage" { print $1 }')
+  [[ -z $left ]] || { fail "working containers still there: $(echo "$left" | tr '\n' ' ')" && return 1; }
+  [[ -z $(build_dirs) ]] || { fail "build directories still there: $(build_dirs)" && return 1; }
+  ok "no build directory and no build working container"
 }
 
 # ------------------------------------------------------------------ status ----
@@ -1444,6 +1493,7 @@ case ${1:-} in
 build) shift && cmd_build "$@" ;;
 run) shift && cmd_run "$@" ;;
 verify-clean) cmd_verify_clean ;;
+clear-builds) cmd_clear_builds ;;
 dev) shift && cmd_dev "$@" ;;
 pins) cmd_pins ;;
 status) cmd_status ;;
