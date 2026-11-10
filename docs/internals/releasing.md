@@ -36,7 +36,7 @@ this template. `X.Y.Z` is the version.
 | R5 | the owner's machine on the candidate | Plugin DevOps | R3, R4 | the owner's folder is at the SHA, the shell is restarted and `dev/loaded-code` exits 0; the back date is on R0's status page |
 | R6 | the owner's go: the status page and nothing else | the chief of staff carries it to the owner | R5 | the owner said go or no for that SHA |
 | R7 | merge, tag, publish, back to `develop` (*Releasing* steps 2 and 3) | Plugin DevOps | R6 | tag `vX.Y.Z` on a merge commit, never a squash; the release is published; `develop` is level with `main` |
-| R8 | the owner's machine back on `develop` (*The owner's request*) | Plugin DevOps | R5 | the folder is on `develop`, `follow-develop`'s next line for it reads `updated` or `current`, and `dev/loaded-code` exits 0, by the back date at the latest |
+| R8 | the owner's machine back on `develop` (*The owner's request*) | Plugin DevOps | R5 | the folder is on `develop`, `follow-develop`'s next line for it reads `updated` or `up-to-date`, and `dev/loaded-code` exits 0, by the back date at the latest |
 
 On R0, Omar then files or edits the marketplace issue and opens the
 `marketplace-review` tracking issue (*Releasing* step 4) and runs the freeze
