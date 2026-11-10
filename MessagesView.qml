@@ -53,6 +53,9 @@ Item {
   // Where the chooser was opened from, so its answer lands in the same place.
   property var attachingFor: null
 
+  // The lists' jump buttons, for the panel's IPC (jumpInfo, pressJump).
+  readonly property var jumps: ({ threads: threadJump, conversation: messageJump })
+
   function stashDraft() {
     if (draftThread === undefined || draftThread < 0) return
     var next = Object.assign({}, drafts)
@@ -624,6 +627,18 @@ Item {
           delegate: ThreadRow {
             width: threadList.width - Style.space(8)
           }
+
+          JumpButton {
+            id: threadJump
+            flickable: threadList
+            edge: "top"
+            label: "Conversations"
+            tooltipText: Model.keyTip("Back to the top", "first")
+            foreground: view.foreground
+            background: view.bar ? view.bar.background : Color.background
+            fontFamily: view.fontFamily
+            motion: view.motion
+          }
         }
 
         Text {
@@ -1051,6 +1066,18 @@ Item {
 
           delegate: Bubble {
             width: messageList.width - Style.space(10)
+          }
+
+          JumpButton {
+            id: messageJump
+            flickable: messageList
+            edge: "bottom"
+            label: "Newest"
+            tooltipText: Model.keyTip("Newest messages", "last")
+            foreground: view.foreground
+            background: view.bar ? view.bar.background : Color.background
+            fontFamily: view.fontFamily
+            motion: view.motion
           }
         }
 

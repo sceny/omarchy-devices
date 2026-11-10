@@ -8,6 +8,7 @@ CursorGlide 1.0 CursorGlide.qml
 CursorStop 1.0 CursorStop.qml
 FoldBody 1.0 FoldBody.qml
 FoldToggle 1.0 FoldToggle.qml
+JumpButton 1.0 JumpButton.qml
 KeyCap 1.0 KeyCap.qml
 KeyedApps 1.0 KeyedApps.qml
 KeysOverlay 1.0 KeysOverlay.qml

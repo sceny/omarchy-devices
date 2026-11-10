@@ -27,6 +27,8 @@ var GLYPH = {
   clearAll: "\u{F039F}",     // notification-clear-all: dismiss every notification
   keyboard: "\u{F030C}",     // keyboard: the Keys page
   back: "\u{F004D}",         // arrow-left
+  toTop: "\u{F005D}",        // arrow-up
+  toBottom: "\u{F0045}",     // arrow-down
   home: "\u{F02DC}",         // home: back to the main page
   wave: "\u{F1821}",         // hand-wave
   playPause: "\u{F040E}",
@@ -103,6 +105,23 @@ var GLYPH = {
 // QML). Page changes, the media carousel, its dots and height, and the
 // conversation reveal all use these, so nothing moves on its own clock.
 var MOTION = { outMs: 90, inMs: 220 }
+
+// A long list's way back to its end (JumpButton): how far the list is from
+// that end ("top" or "bottom" on screen), from a Flickable's own numbers.
+function jumpDistance(edge, contentY, originY, contentHeight, height) {
+  // A list that fits is at both ends (one laid out bottom to top rests a
+  // screen below its origin then).
+  if (contentHeight <= height) return 0
+  var top = originY
+  var bottom = originY + Math.max(0, contentHeight - height)
+  return Math.max(0, edge === "bottom" ? bottom - contentY : contentY - top)
+}
+// The button shows once the list is more than this many screens from its
+// end: a nudge of the wheel keeps it away, a real scroll brings it.
+var JUMP_AWAY = 0.5
+function jumpShown(distance, height) {
+  return height > 0 && distance > height * JUMP_AWAY
+}
 
 // A device's glyph and the word for it, from KDE Connect's device type.
 var DEVICE_KINDS = {
@@ -4221,7 +4240,7 @@ var TIP_KEYS = {
   reply: "r", dismiss: "x", open: "o", forget: "x",
   prevPlayer: "h", nextPlayer: "l", mute: "m", sound: "v",
   pin: "p", unread: "u", newMessage: "n", refresh: "r", dismissAll: "Shift+Delete",
-  keysOpen: "Shift+O"
+  keysOpen: "Shift+O", first: "g", last: "G"
 }
 function keyTip(label, id) {
   var k = TIP_KEYS[id]

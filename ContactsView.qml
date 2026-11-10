@@ -35,6 +35,9 @@ Item {
   property string fontFamily: Style.font.family
   property real motion: 1
 
+  // The list's jump button, for the panel's IPC (jumpInfo, pressJump).
+  readonly property var jumps: ({ contacts: rowJump })
+
   readonly property color dim: Qt.darker(foreground, 1.55)
   readonly property color faint: Qt.darker(foreground, 2.2)
 
@@ -445,6 +448,18 @@ Item {
 
           delegate: ContactRow {
             width: rowList.width - Style.space(8)
+          }
+
+          JumpButton {
+            id: rowJump
+            flickable: rowList
+            edge: "top"
+            label: "Contacts"
+            tooltipText: Model.keyTip("Back to the top", "first")
+            foreground: view.foreground
+            background: view.bar ? view.bar.background : Color.background
+            fontFamily: view.fontFamily
+            motion: view.motion
           }
         }
 

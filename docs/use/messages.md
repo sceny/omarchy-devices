@@ -33,6 +33,8 @@ plan must allow MMS.
 `l` moves into the conversation, where a highlight goes from message to
 message; Enter opens its picture or copies its text (a double click copies
 it too). `h` or Esc comes back.
+Scrolled away, a button floats over each list: *Conversations* back to
+the top, *Newest* back to the latest message (as `g` and `G`).
 Only your own click or Enter puts the cursor in the reply field.
 
 ![A message highlighted from the keyboard (demo data)](../images/message-cursor.png)
