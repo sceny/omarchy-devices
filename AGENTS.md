@@ -803,7 +803,8 @@ one only with the owner.
   pulls by hand
   (`omarchy plugin update` reads `main` and does not bring `develop`
   changes). It skips a checkout that is dirty or off `develop`, so never leave
-  the installed copy on a feature branch. The sandbox's rig installs your working tree into its own
+  the installed copy on a feature branch; it is off `develop` only on a
+  release candidate, until that release's back date (*Releasing*, 1c). The sandbox's rig installs your working tree into its own
   throwaway plugin folder (`dev/sandbox dev rig sync`), so a branch is checked
   without touching the installed copy.
 - **An urgent fix for users** is a branch from `main` made with
@@ -932,7 +933,11 @@ run in order; the detail, the checklist and the record templates are in
    and any open request: they run again on the new head before anyone
    asks. Before the request the owner's machine runs that SHA (folder at
    the SHA, shell restarted, `dev/loaded-code` exits 0), put there by
-   Plugin DevOps; afterwards it goes back to `develop` the same way. The
+   Plugin DevOps, until a back date the request names (3 days after it
+   unless the release task sets another). The request says the folder is
+   pinned and until when. Plugin DevOps puts it back on `develop` the same
+   way on the first of: the go, a no, the back date, or the owner asking for
+   `develop`'s changes; back before the go, the request is void. The
    owner is not asked to install, paste or run anything (`docs/internals/releasing.md`, *The owner's request*).
 1d. **The owner's go, for this release.** Nothing touches `main` (a merge,
    a tag, a release) and nothing is filed on or edited in the Omarchy
