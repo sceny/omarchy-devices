@@ -10,7 +10,11 @@ Both set "version" in manifest.json and commit it with CHANGELOG.md, so the
 `release` check on the pull request into develop or main passes at once.
 
 From develop, `## Unreleased` (which must hold entries) becomes
-`## X.Y.Z — YYYY-MM-DD`. From main there is no Unreleased section: a new
+`## X.Y.Z — YYYY-MM-DD`. When develop's manifest.json already names X.Y.Z, untagged,
+with its own section, that section is re-cut instead: the Unreleased entries join
+its groups (each group they share gets them at its end; a new group goes before
+Issues, Pull requests without an issue and Upgrading) and it is dated today. From
+main there is no Unreleased section: a new
 `## X.Y.Z — YYYY-MM-DD` section is added above the newest version, holding the
 `--note` lines (at least one) under `### Fixes`.
 
@@ -22,8 +26,9 @@ freeze, or that it could not be read, as a note. `--check-freeze` runs from the
 repository's top, wherever it is started inside it.
 
 It refuses: a version already tagged (here or on origin), a version not above
-the one in manifest.json on the base, a base whose CHANGELOG already has the
-version, an Unreleased section with nothing in it, a branch that exists, and a
+the one in manifest.json on the base (unless it is the re-cut above), a base
+whose CHANGELOG already has the version (the same exception), an Unreleased
+section with nothing in it, a branch that exists, and a
 working tree with tracked changes. `--no-commit` leaves the edits staged, uncommitted.
 It works in any repository with a manifest.json "version" and a CHANGELOG.md
 in this format.
@@ -76,16 +81,74 @@ def section_bounds(lines, start):
     return start, end
 
 
+def section_index(lines, version):
+    return next((i for i, line in enumerate(lines) if line.startswith(f"## {version} ")), None)
+
+
+def blank_trimmed(lines):
+    lines = list(lines)
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return lines
+
+
+def split_groups(body):
+    """A section's body as (the lines before its first ### group, [(heading, lines)])."""
+    first = next((i for i, line in enumerate(body) if line.startswith("### ")), len(body))
+    groups = []
+    for line in body[first:]:
+        if line.startswith("### "):
+            groups.append((line, []))
+        else:
+            groups[-1][1].append(line)
+    return body[:first], groups
+
+
+TRAILING_GROUPS = ("### Issues", "### Pull requests without an issue", "### Upgrading")
+
+
+def merge_groups(old, new):
+    old_pre, old_groups = split_groups(old)
+    new_pre, new_groups = split_groups(new)
+    old_headings = {heading for heading, _ in old_groups}
+    kept = []
+    for heading, body in old_groups:
+        for new_heading, extra in new_groups:
+            if new_heading == heading:
+                body = blank_trimmed(body) + [""] + blank_trimmed(extra)
+        kept.append((heading, blank_trimmed(body)))
+    fresh = [(heading, blank_trimmed(body)) for heading, body in new_groups if heading not in old_headings]
+    at = next((i for i, (heading, _) in enumerate(kept) if heading in TRAILING_GROUPS), len(kept))
+    lines = blank_trimmed(old_pre + [""] + new_pre)
+    for heading, body in kept[:at] + fresh + kept[at:]:
+        if lines:
+            lines.append("")
+        lines.append(heading)
+        if body:
+            lines += [""] + body
+    return lines
+
+
 def changelog_for_develop(text, version, date):
     lines = text.split("\n")
     starts = [i for i, line in enumerate(lines) if line.strip() == "## Unreleased"]
     if len(starts) != 1:
         fail("CHANGELOG.md needs one '## Unreleased' section on develop")
     start, end = section_bounds(lines, starts[0])
-    if not any(line.strip() and not line.startswith("#") for line in lines[start + 1:end]):
+    entries = lines[start + 1:end]
+    if not any(line.strip() and not line.startswith("#") for line in entries):
         fail("'## Unreleased' has no entries: nothing to release")
-    lines[start] = f"## {version} — {date}"
-    return "\n".join(lines)
+    if section_index(lines, version) is None:
+        lines[start] = f"## {version} — {date}"
+        return "\n".join(lines)
+    kept = lines[:start] + lines[end:]
+    existing = section_index(kept, version)
+    _, existing_end = section_bounds(kept, existing)
+    body = merge_groups(kept[existing + 1:existing_end], entries)
+    section = [f"## {version} — {date}", "", *body, ""]
+    return "\n".join(kept[:existing] + section + kept[existing_end:])
 
 
 def changelog_for_main(text, version, date, notes):
@@ -216,10 +279,12 @@ def main():
     manifest = git("show", f"{base}:manifest.json").stdout
     changelog = git("show", f"{base}:CHANGELOG.md").stdout
     current = parse_version(manifest_version(manifest))
-    if current is None or new <= current:
-        fail(f"{args.version} is not above {manifest_version(manifest)}, the version on {base}")
-    if re.search(rf"^## {re.escape(args.version)} ", changelog, re.M):
-        fail(f"CHANGELOG.md on {base} already has a section for {args.version}")
+    recut = args.base == "develop" and current == new and section_index(changelog.split("\n"), args.version) is not None
+    if not recut:
+        if current is None or new <= current:
+            fail(f"{args.version} is not above {manifest_version(manifest)}, the version on {base}")
+        if re.search(rf"^## {re.escape(args.version)} ", changelog, re.M):
+            fail(f"CHANGELOG.md on {base} already has a section for {args.version}")
 
     if args.base == "develop":
         changelog = changelog_for_develop(changelog, args.version, date)

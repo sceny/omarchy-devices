@@ -20,6 +20,9 @@ MANIFEST = '{\n  "id": "sceny.test",\n  "version": "%s",\n  "schemaVersion": 1\n
 HEAD = "# What's new\n\nIntro.\n\n"
 OLD = "## 0.8.2 — 2026-10-11\n\n### Highlights\n\n- Old.\n"
 UNRELEASED = "## Unreleased\n\n### Highlights\n\n- New thing.\n\n"
+UNRELEASED_GROUPED = "## Unreleased\n\n### Highlights\n\n- New thing.\n\n### Notifications\n\n- Sign-in code.\n\n"
+CANDIDATE = ("## 0.9.0 — 2026-10-01\n\n### Highlights\n\n- Candidate.\n\n### Issues\n\n- Issue one.\n\n"
+             "### Upgrading\n\n- Set the new default.\n\n")
 ENV = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
            GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com", GIT_CONFIG_GLOBAL="/dev/null")
 
@@ -128,6 +131,46 @@ class ReleasePrepare(unittest.TestCase):
         self.assertEqual(git(self.work, "status", "--porcelain").strip(), "")
         self.assertEqual(git(self.work, "log", "-1", "--format=%s").strip(), "Release 0.9.0: CHANGELOG and manifest version")
         self.assertEqual(git(self.work, "rev-parse", "HEAD~1"), git(self.work, "rev-parse", "origin/develop"))
+
+    def develop_with_candidate(self, tagged=False):
+        """develop names 0.9.0, untagged or tagged, with its own section and new entries under Unreleased."""
+        git(self.work, "switch", "-q", "develop")
+        self.commit("candidate", MANIFEST % "0.9.0", HEAD + UNRELEASED_GROUPED + CANDIDATE + OLD)
+        git(self.work, "push", "-q", "origin", "develop")
+        if tagged:
+            git(self.work, "tag", "-a", "v0.9.0", "-m", "0.9.0")
+            git(self.work, "push", "-q", "origin", "v0.9.0")
+
+    def test_untagged_version_on_develop_takes_the_unreleased_entries(self):
+        self.develop_with_candidate()
+        done = self.run_script("0.9.0", "--date", "2026-11-10")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "release-0.9.0")
+        changelog = self.read("CHANGELOG.md")
+        self.assertEqual(changelog.count("## 0.9.0 — "), 1)
+        self.assertIn("## 0.9.0 — 2026-11-10", changelog)
+        self.assertNotIn("2026-10-01", changelog)
+        self.assertNotIn("Unreleased", changelog)
+        self.assertEqual(notes_of(self.work),
+                         "### Highlights\n\n- Candidate.\n\n- New thing.\n\n"
+                         "### Notifications\n\n- Sign-in code.\n\n"
+                         "### Issues\n\n- Issue one.\n\n"
+                         "### Upgrading\n\n- Set the new default.")
+
+    def test_tagged_version_on_develop_is_refused(self):
+        self.develop_with_candidate(tagged=True)
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("already tagged", done.stderr)
+        self.assertEqual(git(self.work, "branch", "--show-current").strip(), "develop")
+
+    def test_version_on_develop_without_a_section_is_refused(self):
+        git(self.work, "switch", "-q", "develop")
+        self.commit("bare", MANIFEST % "0.9.0", HEAD + UNRELEASED + OLD)
+        git(self.work, "push", "-q", "origin", "develop")
+        done = self.run_script("0.9.0")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("not above", done.stderr)
 
     def test_fix_from_main(self):
         done = self.run_script("0.8.3", "--from", "main", "--note", "One.", "--note", "Two.", "--date", "2026-10-20")

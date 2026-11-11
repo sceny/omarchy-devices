@@ -904,9 +904,10 @@ run in order; the detail, the checklist and the record templates are in
    alone raise Z (`0.6.0` → `0.6.1`).
    **Prepare on a branch from `develop`** with `dev/release-prepare X.Y.Z`:
    it creates `release-X.Y.Z`, turns `## Unreleased` in `CHANGELOG.md` (the
-   guide's *What's new*, linked from the README) into `## X.Y.Z — YYYY-MM-DD`,
-   sets `"version": "X.Y.Z"` in `manifest.json` and commits both; it refuses
-   a version already tagged. Then write the section: *Highlights* (a few lines
+   guide's *What's new*, linked from the README) into `## X.Y.Z — YYYY-MM-DD`
+   (when develop already names X.Y.Z, untagged, that section takes the
+   Unreleased entries instead), sets `"version": "X.Y.Z"` in `manifest.json` and
+   commits both; it refuses a version already tagged. Then write the section: *Highlights* (a few lines
    on the big things), *Issues* and *Pull requests without an issue* (each
    linked, with its title), and *Upgrading* when a setting or a default
    changes. Pull request into `develop`, CI green, squash-merge.

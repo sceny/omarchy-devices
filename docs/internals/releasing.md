@@ -117,8 +117,12 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
 ```
 
 - From `develop`, `## Unreleased` becomes the version's section (it must have
-  entries). From `main` there is no Unreleased section: the section is added
-  above the newest version with each `--note` under *Fixes* (at least one).
+  entries). When `develop`'s manifest already names the version, untagged, with
+  its own section, that section takes the Unreleased entries instead (each group
+  they share gets them at its end; a new group goes before Issues, Pull requests
+  without an issue and Upgrading) and is dated today. From `main` there is no
+  Unreleased section: the section is added above the newest version with each
+  `--note` under *Fixes* (at least one).
 - It sets `"version"`, commits both files (`--no-commit` leaves them staged, uncommitted)
   and prints the next step. Write the section's remaining groups after it.
 - It runs the freeze check first (`--check-freeze` prints it alone and exits 1
@@ -128,8 +132,9 @@ dev/release-prepare 0.9.1 --from main --note "What the fix does"   # fix-0.9.1 f
   from `main` is not refused by it and prints the freeze, or that GitHub could
   not be read, as a note. `--check-freeze` starts from the repository's top.
 - It refuses a version already tagged (here or on origin), one not above the
-  base's version, one the base's CHANGELOG already has, an empty Unreleased
-  section, an existing branch and a tree with tracked changes.
+  base's version, one the base's CHANGELOG already has (both except the re-cut
+  above), an empty Unreleased section, an existing branch and a tree with
+  tracked changes.
 - Tested in `tests/test_release_prepare.py` (`gh` replaced by a file-backed
   fake, a frozen and a clear repository), which runs `dev/release-notes`, the
   `release` workflow's own extraction, on what the script wrote.
