@@ -10,11 +10,11 @@ Both set "version" in manifest.json and commit it with CHANGELOG.md, so the
 `release` check on the pull request into develop or main passes at once.
 
 From develop, `## Unreleased` (which must hold entries) becomes
-`## X.Y.Z — YYYY-MM-DD`. When develop's manifest.json already names X.Y.Z, untagged,
-with its own section, that section is re-cut instead: the Unreleased entries join
-its groups (each group they share gets them at its end; a new group goes before
-Issues, Pull requests without an issue and Upgrading) and it is dated today. From
-main there is no Unreleased section: a new
+`## X.Y.Z — YYYY-MM-DD`. When develop's manifest.json already names X.Y.Z,
+untagged, with its own section, that section is re-cut instead: the Unreleased
+entries join its groups (each group they share gets them at its end; a new
+group goes before Issues, Pull requests without an issue and Upgrading) and the
+section is dated today. From main there is no Unreleased section: a new
 `## X.Y.Z — YYYY-MM-DD` section is added above the newest version, holding the
 `--note` lines (at least one) under `### Fixes`.
 
@@ -26,10 +26,10 @@ freeze, or that it could not be read, as a note. `--check-freeze` runs from the
 repository's top, wherever it is started inside it.
 
 It refuses: a version already tagged (here or on origin), a version not above
-the one in manifest.json on the base (unless it is the re-cut above), a base
-whose CHANGELOG already has the version (the same exception), an Unreleased
-section with nothing in it, a branch that exists, and a
-working tree with tracked changes. `--no-commit` leaves the edits staged, uncommitted.
+the one in manifest.json on the base (except the re-cut above), a base whose
+CHANGELOG already has the version (except the re-cut), an Unreleased section
+with nothing in it, a branch that exists, and a working tree with tracked
+changes. `--no-commit` leaves the edits staged, uncommitted.
 It works in any repository with a manifest.json "version" and a CHANGELOG.md
 in this format.
 """
