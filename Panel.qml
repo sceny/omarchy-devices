@@ -1873,6 +1873,36 @@ Panel {
   property point menuAt: Qt.point(0, 0)
   function openPageMenu(x, y) { menuAt = Qt.point(x, y); pageMenuOpen = true }
   function closePageMenu() { pageMenuOpen = false }
+
+  // An entry of the page menu: every glyph sits centred in one slot, as wide
+  // as the widest (menuGlyphSlot), so the labels start in one straight
+  // column (#555). The Button keeps the label, the hover and the click.
+  readonly property real menuGlyphSlot: Math.max(menuGlyphs.advanceWidth(Model.GLYPH.edit), menuGlyphs.advanceWidth(Model.GLYPH.screen),
+                                                 menuGlyphs.advanceWidth(Model.GLYPH.settings), menuGlyphs.advanceWidth(Model.GLYPH.keyboard))
+  component MenuEntry: Button {
+    id: entry
+    property string glyph: ""
+    width: parent ? parent.width : implicitWidth
+    leftAlign: true
+    leftPadding: horizontalPadding + root.menuGlyphSlot + Style.spacing.controlGap
+    implicitWidth: Math.ceil(labelWidth.advanceWidth) + leftPadding + horizontalPadding + _reservedBorderLeft + _reservedBorderRight
+    foreground: root.foreground
+    fontFamily: root.fontFamily
+    fontSize: Style.font.bodySmall
+    Text {
+      textFormat: Text.PlainText
+      x: entry._reservedContentLeftInset - Style.spacing.controlGap - root.menuGlyphSlot
+      width: root.menuGlyphSlot
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalAlignment: Text.AlignHCenter
+      text: entry.glyph
+      color: entry.foreground
+      font.family: entry.fontFamily
+      font.pixelSize: Style.font.icon
+    }
+    TextMetrics { id: labelWidth; text: entry.text; font.family: entry.fontFamily; font.pixelSize: entry.fontSize }
+  }
+
   // A section's Layout switch, from the page.
   function sectionFlag(key) { var l = Model.layoutBySection(key); return l ? l.key : "" }
   function toggleSectionShown(key) {
@@ -4031,55 +4061,36 @@ Panel {
         radius: Style.cornerRadius
         color: root.bar ? root.bar.background : Color.background
         borderSpec: Border.controlSpec("normal", root.foreground, Color.accent)
+        FontMetrics { id: menuGlyphs; font.family: root.fontFamily; font.pixelSize: Style.font.icon }
         Column {
           id: menuColumn
           anchors.centerIn: parent
           // As wide as its widest entry (the entries fill it).
           width: Math.max(menuEdit.implicitWidth, menuScreen.implicitWidth, menuSettings.implicitWidth, menuKeys.implicitWidth)
-          Button {
+          MenuEntry {
             id: menuEdit
-            width: menuColumn.width
-            leftAlign: true
-            iconText: Model.GLYPH.edit
+            glyph: Model.GLYPH.edit
             text: "Edit page"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.startEditing() }
           }
-          Button {
+          MenuEntry {
             id: menuScreen
             visible: root.screenOptionsFor(root.device)
-            width: menuColumn.width
             height: visible ? implicitHeight : 0
-            leftAlign: true
-            iconText: Model.GLYPH.screen
+            glyph: Model.GLYPH.screen
             text: "Screen and apps"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openScreenOptions() }
           }
-          Button {
+          MenuEntry {
             id: menuSettings
-            width: menuColumn.width
-            leftAlign: true
-            iconText: Model.GLYPH.settings
+            glyph: Model.GLYPH.settings
             text: "Settings"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.openSettings() }
           }
-          Button {
+          MenuEntry {
             id: menuKeys
-            width: menuColumn.width
-            leftAlign: true
-            iconText: Model.GLYPH.keyboard
+            glyph: Model.GLYPH.keyboard
             text: "Keys"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-            fontSize: Style.font.bodySmall
             onClicked: { root.closePageMenu(); root.toggleKeys() }
           }
         }
