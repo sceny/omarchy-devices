@@ -158,7 +158,7 @@ class Isolation(unittest.TestCase):
     def setUpClass(cls):
         with open(SANDBOX) as f:
             text = f.read()
-        start = text.index('--runroot "$SB_RUNTIME" run')
+        start = text.index('--tmpdir "$SB_TMPDIR" run')
         end = text.index('"$SB_RUN_IMAGE" bash -c')
         cls.run_cmd = text[start:end]
         cls.script = text
@@ -1453,6 +1453,78 @@ class ThrowawayRunroot(unittest.TestCase):
     def test_a_throwaway_store_keeps_its_runroot_inside_itself(self):
         self.assertEqual(sandbox_runroot(), f"/run/user/{os.getuid()}/sceny-sandbox", "the owner's runroot is unchanged")
         self.assertEqual(sandbox_runroot("/tmp/throwaway-store-a"), "/tmp/throwaway-store-a/runroot")
+
+
+# A podman call that names a store (`podman --root "…"`), as a logical line:
+# continuation lines joined, so a flag on the next line counts.
+STORE_CALL = re.compile(r'\bpodman\s+--root\s+"')
+STORE_CALL_FILES = ("dev/sandbox", "docs/internals/development.md")
+
+
+def store_calls_without_tmpdir(text):
+    """The store calls in text that name no --tmpdir, as (line number, line)."""
+    lines = text.split("\n")
+    found, i = [], 0
+    while i < len(lines):
+        starts, logical = [(0, i)], lines[i]
+        while logical.endswith("\\") and i + 1 < len(lines):
+            i += 1
+            logical = logical[:-1] + " "
+            starts.append((len(logical), i))
+            logical += lines[i]
+        for m in STORE_CALL.finditer(logical):
+            if "--tmpdir" not in logical[m.end():]:
+                n = max(n for start, n in starts if start <= m.start())
+                found.append((n + 1, lines[n].strip()))
+        i += 1
+    return found
+
+
+class StoreCallsNameTheirTmpdir(unittest.TestCase):
+    """Every podman call that names a store names its own tmpdir too.
+
+    `podman system reset` deletes its store's libpod tmpdir (`alive`, `exits/`,
+    `persist/`). A store made with --root and --runroot only records the user's
+    shared /run/user/<uid>/libpod/tmp, so a reset of any such store takes every
+    other store's record of its live containers with it."""
+
+    def test_every_store_call_names_a_tmpdir(self):
+        for rel in STORE_CALL_FILES:
+            with open(os.path.join(ROOT, rel)) as f:
+                text = f.read()
+            with self.subTest(rel):
+                missing = store_calls_without_tmpdir(text)
+                self.assertEqual(missing, [], f"{rel}: podman --root without --tmpdir at " + "; ".join(f"{rel}:{n}: {line}" for n, line in missing))
+
+    def test_the_sandbox_has_store_calls_to_check(self):
+        with open(SANDBOX) as f:
+            text = f.read()
+        self.assertGreaterEqual(len(STORE_CALL.findall(text)), 7, "the check found the sandbox's store calls")
+
+    def test_a_call_without_tmpdir_is_found(self):
+        bad = 'x() {\n  env -i PATH=/usr/bin \\\n    podman --root "$S/storage" --runroot "$R" \\\n    system reset -f\n}\n'
+        self.assertEqual(store_calls_without_tmpdir(bad), [(3, 'podman --root "$S/storage" --runroot "$R" \\')])
+        good = 'podman --root "$S/storage" --runroot "$R" \\\n  --tmpdir "$R/libpod-tmp" run x\n'
+        self.assertEqual(store_calls_without_tmpdir(good), [])
+
+    def test_the_tmpdir_is_the_stores_own(self):
+        self.assertEqual(sandbox_tmpdir(), f"/run/user/{os.getuid()}/sceny-sandbox/libpod-tmp")
+        self.assertEqual(sandbox_tmpdir("/tmp/throwaway-store-a"), "/tmp/throwaway-store-a/runroot/libpod-tmp")
+
+
+def sandbox_tmpdir(state=None):
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir()}
+    if state is not None:
+        env["SANDBOX_STATE"] = state
+    r = subprocess.run(
+        ["bash", "-c", f'source "{SANDBOX}"\necho "TMPDIR=$SB_TMPDIR"\n'],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=env,
+    )
+    assert r.returncode == 0, r.stderr
+    return re.search(r"^TMPDIR=(\S+)$", r.stdout, re.MULTILINE).group(1)
 
 
 @unittest.skipUnless(shutil.which("podman"), "verify-clean on a real podman needs podman")
