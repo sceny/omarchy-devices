@@ -1440,8 +1440,10 @@ function demoSnapshot(live, kind) {
     { id: "demo-8", key: "0|com.example.calendar|8|null|10006", app: "Calendar", title: "Pay the rent", text: "Due on the first", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
   ]
   // "code": sign-in codes, one in a notification's text and one in a text
-  // message whose notification Android hid (demoThreads "code" holds it).
+  // message whose notification Android hid (demoThreads "code" holds it),
+  // and a sign-in notice with a date and no code (no Copy button).
   if (kind === "code") dev.notifications.unshift(
+    { id: "demo-c3", key: "0|com.example.account|3|null|10003", app: "Account", title: "New sign-in", text: "New sign-in on 10 Nov 2025 from a new browser.", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false },
     { id: "demo-c1", key: "0|com.example.messages|1|null|10001", app: "Messages", title: "Messages", text: "Sensitive notification content hidden", ticker: "", dismissable: true, replyId: "rc1", actions: ["1", "2", "Reply"], icon: "", silent: false },
     { id: "demo-c2", key: "0|com.example.bank|2|null|10002", app: "Bank", title: "Sign in", text: "Your sign-in code is 731 604. Do not share it.", ticker: "", dismissable: true, replyId: "", actions: [], icon: "", silent: false })
   // Bluetooth calls set up: paired and connected for calls (demoCall rings).
@@ -1683,9 +1685,22 @@ function threadForNotification(n, threads) {
 // A sign-in or verification code in a message, as the digits to paste: four
 // to eight of them, or two groups of three or four ("482 913", "G-482913"),
 // in a message that says it is a code. A number next to a currency, a
-// percent or a time is not one, and neither is a run as long as a phone
-// number. Several: the first of six digits, else the first.
+// percent or a time is not one, neither is a run as long as a phone
+// number, and neither is a date's year (#580). Several: the first of six
+// digits, else the first.
 var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|koodi)\b/i
+// A year written in a date: after a day and a month's name ("10 Nov 2025",
+// "10. November 2025", "10 de noviembre de 2025") or a month's name and a
+// day ("Nov 10, 2025"), or before a month and day ("2025-11-10"). A month's
+// name is any word, so the guard holds in every language; it asks for the
+// day beside it, so "Use 2025 to sign in" is still a code.
+var DATE_BEFORE_YEAR = /(?:\b\d{1,2}(?:st|nd|rd|th|\.)?\s+(?:de\s+)?[A-Za-zÀ-ÿ]{3,}\.?,?\s+(?:de\s+)?|\b[A-Za-zÀ-ÿ]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+)$/
+var DATE_AFTER_YEAR = /^[-\/.]\d{1,2}[-\/.]\d{1,2}\b/
+function isDateYear(s, start, digits) {
+  if (!/^(19|20)\d\d$/.test(digits)) return false
+  return DATE_BEFORE_YEAR.test(s.slice(Math.max(0, start - 30), start))
+    || DATE_AFTER_YEAR.test(s.slice(start + 4, start + 10))
+}
 function oneTimeCode(text) {
   var s = String(text || "")
   if (!CODE_WORDS.test(s)) return ""
@@ -1694,6 +1709,7 @@ function oneTimeCode(text) {
   var m
   while ((m = re.exec(s)) !== null) {
     var digits = m[2].replace(/\D/g, "")
+    if (isDateYear(s, m.index + m[1].length, m[2])) continue
     if (digits.length >= 4 && digits.length <= 8) found.push(digits)
   }
   for (var i = 0; i < found.length; i++) if (found[i].length === 6) return found[i]

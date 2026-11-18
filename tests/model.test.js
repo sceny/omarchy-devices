@@ -2380,6 +2380,23 @@ test("oneTimeCode: the code a message says it carries, as digits to paste", () =
   assert.equal(M.oneTimeCode(undefined), "")
 })
 
+test("oneTimeCode: a date's year is not a code (#580)", () => {
+  assert.equal(M.oneTimeCode("New sign-in on 10 Nov 2025 from a new browser."), "", "day, month, year")
+  assert.equal(M.oneTimeCode("New sign-in on Nov 10, 2025"), "", "month, day, year")
+  assert.equal(M.oneTimeCode("Login on 3rd March 2026"), "", "an ordinal day")
+  assert.equal(M.oneTimeCode("Neue Anmeldung am 10. November 2025"), "", "a day with a dot")
+  assert.equal(M.oneTimeCode("Inicio de sesión el 10 de noviembre de 2025"), "", "with de")
+  assert.equal(M.oneTimeCode("Sign-in on 2025-11-10 at 09:12"), "", "an ISO date")
+  assert.equal(M.oneTimeCode("Your code is 482913, sent 10 Nov 2025"), "482913", "the code beside a date")
+  assert.equal(M.oneTimeCode("Use 2025 to sign in"), "2025", "a year-like number alone is still a code")
+  // The demo's own: a notice with a date and no code, and the two codes.
+  const notes = M.demoSnapshot(null, "code").devices[0].notifications
+  const codes = Object.fromEntries(notes.map(n => [n.id, M.notificationCode(n, [])]))
+  assert.equal(codes["demo-c3"], "", "the sign-in notice has no Copy button")
+  assert.equal(codes["demo-c2"], "731604")
+  assert.equal(M.oneTimeCode(M.demoThreads(0, "code").find(t => t.id === 9003).snippet), "482913")
+})
+
 test("notificationCode: from the notification's own text, else the newest unread text when Android hid it", () => {
   const plain = { app: "Bank", title: "55555", text: "Your sign-in code is 731 604. Do not share it." }
   assert.equal(M.notificationCode(plain, []), "731604")
