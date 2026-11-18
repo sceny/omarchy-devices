@@ -233,6 +233,39 @@ class SelftestReadsAllOfPs(Bash, unittest.TestCase):
             self.assertNotIn("cmd_ps | grep -q", f.read())
 
 
+class SelftestLeavesRealRigsAlone(Bash, unittest.TestCase):
+    """The selftest's reap sees only its own scope: a real rig beside it keeps its keeper and compositor."""
+
+    def test_a_scoped_scan_skips_a_tagged_process_out_of_its_scope(self):
+        tag = "bystander.20000101-000000.%s" % os.urandom(3).hex()
+        env = dict(self.env, OPR_RIG_ID=tag)
+        proc = subprocess.Popen(["sleep", "60"], env=env)
+        self.addCleanup(proc.wait)
+        self.addCleanup(proc.kill)
+        out = self.bash(textwrap.dedent(f"""\
+            [[ -n $(rig_tagged_pids {tag}) ]] && echo seen
+            [[ -z $(OPR_RIG_SCOPE=/a/selftest rig_tagged_pids {tag}) ]] && echo skipped
+            """))
+        self.assertEqual(out.stdout.split(), ["seen", "skipped"], out.stderr)
+
+    def test_the_selftest_scopes_its_processes(self):
+        with open(os.path.join(DEV, "rig.d", "selftest.sh")) as f:
+            text = f.read()
+        self.assertIn("export RIG_TMP_ROOT RIG_RUNTIME_ROOT RIG_KEEPER_INTERVAL OPR_RIG_SCOPE", text)
+        self.assertIn("a real rig's process outside the test's scope is left alone", text)
+
+    def test_a_lost_keeper_is_named_before_the_missing_socket(self):
+        out = self.bash(self.session() + textwrap.dedent("""\
+            sleep 0 & dead=$!; wait $dead
+            printf '%s\\n' "$dead" >"$RIG_SESSION/keeper.pid"
+            XDG_RUNTIME_DIR=$RIG_RUNTIME_DIR WAYLAND_DISPLAY=wayland-1
+            rig_guard_nested_display
+            """))
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("keeper", out.stderr)
+        self.assertNotIn("is not a socket", out.stderr)
+
+
 class ColdEnd(Bash, unittest.TestCase):
     """`dev/rig cold end` takes a cold rig back to warm (#535): the selftest's part for it."""
 
