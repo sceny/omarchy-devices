@@ -1434,6 +1434,188 @@ class StaleRunsKeptWhileMounted(unittest.TestCase):
         self.assertEqual(sorted(os.listdir(self.runs)), ["aaaa0001", "aaaa0002"], r.stdout)
 
 
+FAKE_PODMAN = r"""
+import json, os, sys
+path = os.environ["FAKE_PODMAN_STATE"]
+with open(path) as f:
+    store = json.load(f)
+args = sys.argv[1:]
+def match(c):
+    i = 0
+    while i < len(args):
+        if args[i] == "--filter":
+            key, _, want = args[i + 1].partition("=")
+            if key == "label":
+                name, _, value = want.partition("=")
+                if name not in c["labels"] or (value and c["labels"][name] != value):
+                    return False
+            elif key == "status" and c["state"] != want:
+                return False
+            i += 1
+        i += 1
+    return True
+def fmt(cid, c):
+    form = args[args.index("--format") + 1]
+    status = {"running": "Up", "exited": "Exited"}[c["state"]]
+    return form.replace("{{.ID}}", cid).replace("{{.Names}}", c["name"]).replace("{{.Status}}", status).replace("{{.State}}", c["state"])
+cmd = args[0]
+if cmd == "ps":
+    if "--external" in args or ("-a" not in args and "-aq" not in args):
+        listed = {k: v for k, v in store.items() if v["state"] == "running"} if "--external" not in args else store
+    else:
+        listed = store
+    for cid, c in listed.items():
+        if match(c):
+            print(cid if "-q" in args or "-aq" in args else fmt(cid, c))
+elif cmd == "inspect":
+    for cid in args[3:]:
+        if "ConmonPid" in args[2]:
+            print(cid, store[cid].get("conmon", 0), store[cid].get("started", 0))
+        else:
+            for m in store[cid]["mounts"]:
+                print(m)
+elif cmd == "rm":
+    for cid in [a for a in args[1:] if not a.startswith("-") and a != "0"]:
+        store.pop(cid, None)
+        with open(path + ".rm", "a") as f:
+            f.write(cid + "\n")
+    with open(path, "w") as f:
+        json.dump(store, f)
+elif cmd in ("image",):
+    sys.exit(1)
+"""
+
+
+class FakeStore(unittest.TestCase):
+    """The sandbox's functions against a fake podman whose containers are a JSON file."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="sceny-sandbox-killed-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.state = os.path.join(self.tmp, "state")
+        self.runs = os.path.join(self.state, "runs")
+        self.fake = os.path.join(self.tmp, "fake-podman.py")
+        with open(self.fake, "w") as f:
+            f.write(FAKE_PODMAN)
+        self.store = os.path.join(self.tmp, "containers.json")
+        for run in ("killed01", "live0002", "session3"):
+            os.makedirs(os.path.join(self.runs, run))
+
+    def containers(self, store):
+        with open(self.store, "w") as f:
+            json.dump(store, f)
+
+    def removed(self):
+        try:
+            with open(self.store + ".rm") as f:
+                return f.read().split()
+        except FileNotFoundError:
+            return []
+
+    def unit(self, run, state, **labels):
+        return {"name": f"sceny-sandbox-{run}", "state": state, "labels": {"org.sceny.sandbox": run, **labels},
+                "mounts": [os.path.join(self.runs, run, "src.tar")], "started": int(time.time()), "conmon": 0}
+
+    def sandbox(self, call):
+        # The store's path reaches the shell only through the environment, so no
+        # process of the test carries it on its command line (verify-clean looks).
+        script = (
+            'source "$SANDBOX" >/dev/null\n'
+            "require_tools() { :; }\n"
+            'pm() { python3 "$FAKE_PODMAN" "$@"; }\n'
+            f"{call}\n"
+        )
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.tmp, "SANDBOX_STATE": self.state,
+               "SANDBOX": SANDBOX, "FAKE_PODMAN": self.fake, "FAKE_PODMAN_STATE": self.store}
+        return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+
+
+
+class KilledRunsContainers(FakeStore):
+    """A run killed past its traps leaves its unit's container exited: the next run removes it, and verify-clean then passes."""
+
+    def test_the_next_run_removes_a_killed_runs_exited_container_and_its_directory(self):
+        self.containers({
+            "c1": self.unit("killed01", "exited"),
+            "c2": self.unit("live0002", "running"),
+            "c3": self.unit("session3", "exited", **{"org.sceny.sandbox.dev": "1"}),
+        })
+        r = self.sandbox("clear_stale_runs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.removed(), ["c1"], "only the killed run's exited container: " + r.stderr)
+        self.assertIn("removed the exited containers of runs that did not finish: c1", r.stderr)
+        self.assertEqual(sorted(os.listdir(self.runs)), ["live0002", "session3"],
+                         "the killed run's directory goes; a running unit's and a session's stay")
+
+    def test_verify_clean_passes_after_the_next_run_cleared_a_killed_run(self):
+        os.rmdir(os.path.join(self.runs, "live0002"))
+        os.rmdir(os.path.join(self.runs, "session3"))
+        self.containers({"c1": self.unit("killed01", "exited")})
+        r = self.sandbox("cmd_verify_clean")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("containers left: sceny-sandbox-killed01", r.stderr)
+        self.assertIn("the next dev/sandbox run removes them", r.stderr)
+        r = self.sandbox("clear_stale_runs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        r = self.sandbox("cmd_verify_clean")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("no container (running or stopped)", r.stderr)
+        self.assertIn("no run directory", r.stderr)
+
+    def test_nothing_is_removed_when_podman_cannot_list_exited_containers(self):
+        self.containers({"c1": self.unit("killed01", "exited")})
+        with open(self.fake, "a") as f:
+            f.write("\nif cmd == 'ps' and 'status=exited' in args: sys.exit(1)\n")
+        # The fake prints before it fails; a failed listing removes nothing whatever it printed.
+        r = self.sandbox("clear_stale_runs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.removed(), [], r.stderr)
+        self.assertIn("killed01", os.listdir(self.runs), "a directory a container still mounts stays")
+
+
+class DeadContainersAfterABoot(FakeStore):
+    """A container a reboot left listed as running (podman did not see the reboot) is removed; one of this boot, or with its conmon, is not."""
+
+    BOOT = 1_000_000
+
+    def sandbox(self, call):
+        return super().sandbox(f"boot_time() {{ echo {self.BOOT}; }}\n{call}")
+
+    def dead(self, run, started, conmon=0, **labels):
+        c = self.unit(run, "running", **labels)
+        c.update(started=started, conmon=conmon)
+        return c
+
+    def conmon_of(self, cid):
+        p = subprocess.Popen(["bash", "-c", "sleep 60; :", "conmon", "-c", cid])
+        self.addCleanup(p.wait)
+        self.addCleanup(p.kill)
+        return p.pid
+
+    def test_a_run_a_reboot_left_running_is_removed_with_its_directory(self):
+        self.containers({
+            "c1": self.dead("killed01", self.BOOT - 3600),
+            "c2": self.dead("live0002", self.BOOT + 5),
+            "c3": self.dead("session3", self.BOOT - 3600, conmon=self.conmon_of("c3")),
+        })
+        r = self.sandbox("clear_stale_runs")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.removed(), ["c1"], r.stderr)
+        self.assertIn("died with an earlier boot: c1", r.stderr)
+        self.assertEqual(sorted(os.listdir(self.runs)), ["live0002", "session3"],
+                         "a container of this boot, or one whose conmon carries its id, keeps its directory")
+
+    def test_a_session_a_reboot_left_running_holds_no_rig_slot(self):
+        self.containers({
+            "c1": self.dead("session3", self.BOOT - 3600, **{"org.sceny.sandbox.dev": "1", "org.sceny.sandbox.rig": "1"}),
+            "c2": self.dead("live0002", self.BOOT + 5, **{"org.sceny.sandbox.rig": "1"}),
+        })
+        r = self.sandbox("rig_running")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "1", r.stderr)
+        self.assertEqual(self.removed(), ["c1"], r.stderr)
+
+
 def sandbox_runroot(state=None):
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": tempfile.gettempdir()}
     if state is not None:
@@ -1597,7 +1779,7 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         with open(self.label, "w") as f:
             f.write(tree)
 
-    def run_cmd(self, repo=REPO, harness="develop", build="ok"):
+    def run_cmd(self, repo=REPO, harness="develop", build="ok", prelude=""):
         pm = (
             "pm() {\n"
             '  case "$1 $2" in\n'
@@ -1617,7 +1799,7 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
             f"LABEL={shlex.quote(self.label)} BUILDS={shlex.quote(self.builds)} BUILD={build}\n"
             "require_tools() { :; }\n"
             'fetch_mirror() { echo "fetched $1" >&2; }\n'
-            + pm +
+            + pm + prelude +
             "make_archive() { echo reached >&2; exit 5; }\n"
             f"cmd_run {repo} {GOOD_SHA} --steps tests --harness {harness}\n"
         )
@@ -1702,6 +1884,45 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         self.assertIn("fetched sceny/omarchy-devices", r.stderr)
         self.assertNotIn("reached", r.stderr)
         self.assertEqual(self.built(), [], "a stale checkout never builds the shared image: " + r.stderr)
+
+    def empty_reads(self, ref, times):
+        """A git whose reads of <ref> come back empty <times> times, as a fetch rewriting the ref leaves them."""
+        count = os.path.join(self.tmp, "empty-reads")
+        with open(count, "w") as f:
+            f.write(str(times))
+        return (
+            "git() {\n"
+            f"  if [[ \" $* \" == *{shlex.quote(' ' + ref + ' ')}* ]]; then\n"
+            f"    local n; n=$(cat {shlex.quote(count)})\n"
+            f"    if ((n > 0)); then echo $((n - 1)) >{shlex.quote(count)}; return 1; fi\n"
+            "  fi\n"
+            '  command git "$@"\n'
+            "}\n"
+        )
+
+    def test_an_empty_read_of_this_checkouts_develop_is_read_again(self):
+        self.image_has(self.tree("devices"))
+        r = self.run_cmd(prelude=self.empty_reads("origin/develop^{commit}", 2))
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
+
+    def test_an_empty_read_of_githubs_develop_in_the_mirror_is_read_again(self):
+        self.image_has(self.tree("devices"))
+        r = self.run_cmd(prelude=self.empty_reads("refs/heads/develop^{commit}", 2))
+        self.goes_on(r)
+        self.assertEqual(self.built(), [], r.stderr)
+
+    def test_a_develop_that_stays_empty_stops_the_run_naming_it(self):
+        self.image_has(self.tree("devices"))
+        r = self.run_cmd(prelude=self.empty_reads("origin/develop^{commit}", 99))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("origin/develop is not a revision of this checkout (read 5 times)", r.stderr)
+        self.assertNotIn("reached", r.stderr)
+        self.assertEqual(self.built(), [], r.stderr)
+        r = self.run_cmd(prelude=self.empty_reads("refs/heads/develop^{commit}", 99))
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("has no develop branch in its mirror (read 5 times)", r.stderr)
+        self.assertNotIn("reached", r.stderr)
 
     def test_a_paperclipai_run_from_a_checkout_behind_in_sandbox_d_is_refused(self):
         self.image_has(self.tree("paperclipai"))

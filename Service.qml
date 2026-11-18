@@ -1165,6 +1165,11 @@ Item {
     var feature = String(key).indexOf("feature:") === 0 ? key.slice(8) : ""
     if (feature) setPending(id, feature, null)
     setBusy(key, true)
+    // Wireless debugging turned on over adb's TCP port: the screen is not
+    // read meanwhile, or the fix's own connection would show it ready for a
+    // moment (#590).
+    var wireless = steps.some(function(s) { return s.fix.what === "wireless" })
+    if (wireless) holdScreen(id, true)
     var installs = steps.filter(function(s) { return s.fix.verb === "fix" && root.isRootFix(s.fix.what) })
     var rest = steps.filter(function(s) { return installs.indexOf(s) < 0 })
     // Packages in one prompt; the firewall, and Tailscale (Omarchy's
@@ -1185,6 +1190,8 @@ Item {
         else if (left) setPending(id, feature, Object.assign({ at: Date.now(), failed: false, tried: "it did what it could; one step is left" }, left))
       }
       if (findDevice(id)) readFeatures(id, true)
+      // Wireless debugging turned on: the screen link is read again.
+      if (wireless) { holdScreen(id, false); readScreen(id) }
       runDoctor()
       if (then) then(!stoppedAt && !cancelled)
     }
@@ -1355,8 +1362,16 @@ Item {
       screenSetupNeeded(String(id))
     }
   }
+  // Devices whose screen is not read now (a fix on its adb link runs).
+  property var screenHeld: ({})
+  function holdScreen(id, on) {
+    var next = Object.assign({}, screenHeld)
+    if (on) next[String(id)] = true
+    else delete next[String(id)]
+    screenHeld = next
+  }
   function readScreen(id) {
-    if (!id) return
+    if (!id || screenHeld[String(id)]) return
     if (demo) { setScreen(id, Model.demoScreen(demoScreenKind)); return }
     if (screenProc.running) return   // its exit reads a device still waiting
     screenProc.device = String(id)

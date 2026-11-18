@@ -84,7 +84,10 @@
 #   * The tests step cannot make a user namespace (seccomp, dev/sandbox.d/
 #     seccomp.py). The rig and script steps can: the rig's phone side runs in
 #     one (`unshare -Urn`). No unit gets a capability.
-#   * Each container is removed after its unit. `verify-clean` proves it.
+#   * Each container is removed after its unit. `verify-clean` proves it. A run
+#     killed past its traps leaves its directory and its unit's exited
+#     container; the next run removes both, and any container a reboot left
+#     listed as running.
 #
 # Limits are environment variables: SANDBOX_MEMORY (10g), SANDBOX_CPUS (8),
 # SANDBOX_PIDS (2048), SANDBOX_TIMEOUT (2700 s, for all units together),
@@ -200,6 +203,21 @@ require_tools() {
   chmod 700 "$SB_STATE"
 }
 
+# A ref read again when it comes back empty: a fetch in another checkout of this
+# repository rewrites the ref while it is read, and one empty read would refuse a
+# valid command. Prints the commit, or fails after the last read.
+read_ref() { # <git dir> <rev>
+  local try out
+  for try in 1 2 3 4 5; do
+    out=$(git -C "$1" rev-parse --verify -q "$2" 2>/dev/null) && [[ -n $out ]] && {
+      printf '%s\n' "$out"
+      return 0
+    }
+    ((try < 5)) && sleep "0.$((try * 2))"
+  done
+  return 1
+}
+
 # Without the unit, a container is in no slice and the shared memory cap bounds nothing.
 slice_check() {
   local state
@@ -251,8 +269,8 @@ cmd_build() {
   [[ $profile == all || $profile == devices || $profile == paperclipai ]] || die "build: --profile is devices, paperclipai or all"
   require_tools
   local sha pc_sha=""
-  sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify "$ref^{commit}" 2>/dev/null) ||
-    die "build: $ref is not a revision of this checkout"
+  sha=$(read_ref "$SB_REPO_ROOT" "$ref^{commit}") ||
+    die "build: $ref is not a revision of this checkout (read 5 times)"
 
   store_lock_acquire
   trap 'store_lock_release' EXIT
@@ -270,7 +288,7 @@ cmd_build() {
 SB_PC_DEVELOP=""
 paperclipai_develop() {
   fetch_mirror sceny/omarchy-paperclipai
-  SB_PC_DEVELOP=$(git -C "$(mirror_dir sceny/omarchy-paperclipai)" rev-parse --verify -q "refs/heads/develop^{commit}" 2>/dev/null)
+  SB_PC_DEVELOP=$(read_ref "$(mirror_dir sceny/omarchy-paperclipai)" "refs/heads/develop^{commit}")
 }
 
 # SB_GH_DEVELOP: GitHub's develop of this repository, fetched into its mirror.
@@ -284,8 +302,8 @@ develop_current() { # <profile> <sha> <command> <what else to do>
   [[ $profile == paperclipai ]] && path=dev/sandbox.d
   fetch_mirror sceny/omarchy-devices
   mirror=$(mirror_dir sceny/omarchy-devices)
-  SB_GH_DEVELOP=$(git -C "$mirror" rev-parse --verify -q "refs/heads/develop^{commit}" 2>/dev/null) ||
-    die "$3: sceny/omarchy-devices has no develop branch in its mirror"
+  SB_GH_DEVELOP=$(read_ref "$mirror" "refs/heads/develop^{commit}") ||
+    die "$3: sceny/omarchy-devices has no develop branch in its mirror (read 5 times)"
   mine=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$sha:$path" 2>/dev/null)
   theirs=$(git -C "$mirror" rev-parse --verify -q "$SB_GH_DEVELOP:$path" 2>/dev/null)
   [[ -n $mine && $mine == "$theirs" ]] && return 0
@@ -411,8 +429,8 @@ SB_CHECK_DEVELOP="" SB_CHECK_TREE=""
 # store lock, and the run goes on only on an image that has develop's harness.
 harness_refresh() { # <profile>
   local profile=$1 sha pc_sha="" want built
-  sha=$(git -C "$SB_REPO_ROOT" rev-parse --verify -q "$SB_DEVELOP^{commit}" 2>/dev/null) ||
-    die "run: $SB_DEVELOP is not a revision of this checkout"
+  sha=$(read_ref "$SB_REPO_ROOT" "$SB_DEVELOP^{commit}") ||
+    die "run: $SB_DEVELOP is not a revision of this checkout (read 5 times)"
   develop_current "$profile" "$sha" run "or run with --harness pr"
   if [[ $profile == paperclipai ]]; then
     paperclipai_develop || die "run: sceny/omarchy-paperclipai has no develop branch in its mirror"
@@ -500,12 +518,54 @@ run_cleanup() {
   store_lock_release
 }
 
-# A run killed by a signal its traps do not catch never reaches run_cleanup. A run
-# holds the store lock to its end, but a run from another checkout of this script
-# may not, so a directory is removed only when no container mounts it. If podman
-# cannot list them, nothing is removed.
+# Podman resets its record of a store's containers after a reboot only when the
+# store's tmpdir lost its `alive` file. A moved store keeps its tmpdir on disk,
+# and a store made with the user's shared tmpdir finds `alive` already made by
+# another store's podman: either way a container that ran at the shutdown is
+# still listed as running, with no process behind it, and holds its run's
+# directory and a rig slot. One that started before this boot and has no conmon
+# carrying its id is removed. Both tests are needed: the boot keeps a container
+# of this boot whose conmon is gone (it is exiting while it is read, and its
+# run reads its exit code next), and the conmon keeps one the clock moved
+# behind the boot. A pid reused since the boot can only keep a dead one listed.
+boot_time() { awk '$1 == "btime" { print $2 }' /proc/stat 2>/dev/null; }
+clear_dead_containers() {
+  local boot ids id conmon started dead=()
+  boot=$(boot_time)
+  [[ $boot =~ ^[0-9]+$ ]] || return 0
+  ids=$(pm ps -q --filter status=running 2>/dev/null) || return 0
+  [[ -n $ids ]] || return 0
+  while read -r id conmon started; do
+    [[ $started =~ ^[0-9]+$ ]] && ((started < boot)) || continue
+    [[ $conmon =~ ^[0-9]+$ ]] && ((conmon > 0)) &&
+      tr '\0' ' ' 2>/dev/null <"/proc/$conmon/cmdline" | grep -qF -- "$id" && continue
+    dead+=("$id")
+  done < <(pm inspect --format '{{.Id}} {{.State.ConmonPid}} {{.State.StartedAt.Unix}}' $ids 2>/dev/null)
+  ((${#dead[@]} > 0)) || return 0
+  warn "removed containers listed as running that died with an earlier boot: $(printf '%.12s ' "${dead[@]}")"
+  pm rm -f -v -t 0 "${dead[@]}" >/dev/null 2>&1
+}
+
+# A run killed by a signal its traps do not catch never reaches run_cleanup: its
+# directory stays, and so does its unit's container once it exits (run_unit
+# removes it only after reading its exit code and OOM flag, which --rm would
+# lose). The caller holds the store lock, so no run of this script is between
+# its unit's exit and that read: an exited container of a run (labelled
+# SB_LABEL, not a dev session) is removed. A run holds the store lock to its end, but
+# a run from another checkout of this script may not, so a directory is removed
+# only when no container left mounts it. If podman cannot list them, nothing is
+# removed.
 clear_stale_runs() {
-  local dir src ids mounts used
+  local dir src ids mounts used exited sessions
+  clear_dead_containers
+  if exited=$(pm ps -aq --filter "label=$SB_LABEL" --filter status=exited) &&
+    sessions=$(pm ps -aq --filter "label=$SB_DEV_LABEL"); then
+    exited=$(grep -vxFf <(printf '%s\n' "$sessions") <<<"$exited")
+    if [[ -n $exited ]]; then
+      warn "removed the exited containers of runs that did not finish: $(tr '\n' ' ' <<<"$exited")"
+      pm rm -f -v -t 0 $exited >/dev/null 2>&1
+    fi
+  fi
   ids=$(pm ps -aq) || return 0
   mounts=""
   if [[ -n $ids ]]; then
@@ -989,6 +1049,7 @@ rig_lock() {
 }
 rig_unlock() { exec 8>&-; }
 rig_running() {
+  clear_dead_containers 8>&-
   {
     pm ps --filter "label=$SB_DEV_LABEL=1" --format '{{.Names}}'
     pm ps --filter "label=$SB_RIG_LABEL=1" --format '{{.Names}}'
@@ -1409,7 +1470,7 @@ cmd_verify_clean() {
   [[ -z $kept ]] || step "not counted, live dev sessions of their owners: $kept"
   containers=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
   if [[ -n $containers ]]; then
-    fail "containers left: $(echo "$containers" | tr '\n' ' ')"
+    fail "containers left: $(echo "$containers" | tr '\n' ' ')(a killed run's, or one a reboot left listed as running: the next dev/sandbox run removes them)"
     bad=1
   else ok "no container (running or stopped)"; fi
   # --external lists podman's own containers too: only a "Storage" one is a

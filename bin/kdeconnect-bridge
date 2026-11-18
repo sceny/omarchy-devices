@@ -33,6 +33,9 @@ not re-printed, so the shell only wakes when something moved.
                                               else shown in Files
   kdeconnect-bridge copy-file <path> [--local]   the file on the clipboard
                                               (a picture as the sandbox's JPEG, as open-file)
+  kdeconnect-bridge storage-copy open|save <path> [folder]   the read of the device's storage,
+                                              in the child that save-file, open-file and
+                                              copy-file --local stop when it stalls
   kdeconnect-bridge outgoing-picture pick|pasted [path]   a picture to attach to a text,
                                               as JSON (a JPEG that fits, decoded in the sandbox)
   kdeconnect-bridge doctor                    setup checks, as JSON
@@ -77,7 +80,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
-                                              reload, wireless (over a USB cable),
+                                              reload, wireless (over USB or adb's TCP port),
                                               renotify, relisten, restart-app (KDE
                                               Connect's app on it stopped and started
                                               again), reconnect (KDE
@@ -135,6 +138,7 @@ import os
 import quopri
 import re
 import shlex
+import select
 import signal
 import subprocess
 import sys
@@ -1495,34 +1499,48 @@ def save_target(folder, name, size):
     return target
 
 
+def save_copy(path, folder, progress=None):
+    """Copies the device's file into `folder` (save_target names it), with its
+    own date: the copy's path, or None when the same file is already there.
+    The device decides what is on its storage link, so the source is opened
+    as `local_copy` opens it: never through a link, never outside the mount.
+    Runs in the storage child (`storage_child`); `progress` hears each chunk."""
+    with open_in_storage(path) as source:
+        info = os.fstat(source.fileno())
+        target = save_target(folder, os.path.basename(path), info.st_size)
+        if target is None:
+            return None
+        with open(target, "xb") as out:
+            while True:
+                chunk = source.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
+                if progress:
+                    progress()
+        os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns))
+    return target
+
+
 def save_file(path, device_name):
     """A copy of a file from the device in Pictures/<device name>/, with its
-    own date; never over another file, and not twice. The device decides what
-    is on its storage link, so the source is opened as `local_copy` opens it:
-    never through a link, never outside the mount."""
+    own date; never over another file, and not twice. The device's storage is
+    read only in the storage child, which stops when the mount stops
+    answering."""
+    folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
+    folder = os.path.join(pictures_dir(), folder_name)
+    shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
     try:
-        source = open_in_storage(path)
+        os.makedirs(folder, exist_ok=True)
+        target = storage_child(["save", path, folder])
     except OSError as error:
         if error.errno in (errno.ENOENT, errno.ELOOP, errno.EXDEV, errno.EINVAL):
             if error.errno == errno.ENOENT:
                 return say("The file is gone", EXIT_FAILED)
             return say("It is not a file on the device", EXIT_FAILED)
-        return say(str(error), EXIT_FAILED, osd="")
-    with source:
-        folder_name = re.sub(r"[/\\]", "_", device_name.strip()) or "Device"
-        folder = os.path.join(pictures_dir(), folder_name)
-        os.makedirs(folder, exist_ok=True)
-        shown = os.path.join(os.path.basename(pictures_dir()), folder_name)
-        info = os.fstat(source.fileno())
-        target = save_target(folder, os.path.basename(path), info.st_size)
-        if target is None:
-            return say("Already in %s" % shown, osd="Already saved")
-        try:
-            with open(target, "xb") as out:
-                shutil.copyfileobj(source, out)
-            os.utime(target, ns=(info.st_atime_ns, info.st_mtime_ns))
-        except OSError as error:
-            return say(str(error), EXIT_FAILED, osd="")
+        return say(error.strerror or str(error), EXIT_FAILED, osd="")
+    if not target:
+        return say("Already in %s" % shown, osd="Already saved")
     return say("Saved to %s" % os.path.join(shown, os.path.basename(target)),
                 osd="Saved to %s" % os.path.basename(pictures_dir()))
 
@@ -1606,7 +1624,7 @@ def open_in_storage(path, root=None):
     return os.fdopen(fd, "rb")
 
 
-def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
+def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None, progress=None):
     """A copy of the device's file in the cache, under its own name (apps
     show it): the one already there while the file is unchanged. The device
     decides what is on its storage link, so the source is never a link to a
@@ -1615,7 +1633,8 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
     folder must resolve inside the link's mount (`root`) before the open and
     the open file itself must after it (a folder swapped for a link in
     between is refused), and the copy is read from that open file, up to
-    `limit` bytes."""
+    `limit` bytes. Runs in the storage child (`storage_child`); `progress`
+    hears each chunk."""
     cache = cache or open_cache()
     with open_in_storage(path, root) as source:
         st = os.fstat(source.fileno())
@@ -1643,6 +1662,8 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
                     if copied > limit:
                         raise OSError(errno.EFBIG, "It is larger than the copies kept here")
                     out.write(chunk)
+                    if progress:
+                        progress()
         except BaseException:
             try:
                 os.remove(tmp)
@@ -1654,6 +1675,77 @@ def local_copy(path, cache=None, limit=OPEN_CACHE_MAX, root=None):
     os.utime(folder)
     trim_cache(cache, limit, keep=folder)
     return target
+
+
+# A read of the device's storage stops when the mount stops answering: a
+# copy that moves no data for this long is given up.
+STORAGE_STALL_S = 20
+
+
+def storage_child(args, stall=STORAGE_STALL_S, cmd=None):
+    """Runs a copy from the device's storage (`storage-copy open <path>` or
+    `save <path> <folder>`) in a child of its own and returns what it gives
+    (the copy's path, or None). A mount that stops answering blocks whoever
+    reads it, in the kernel, where no timeout reaches: the child does every
+    read of the mount (the lookup of its root, the open, the copy), reports
+    each chunk it copies, and is killed, never waited on, once it reports
+    nothing for `stall` seconds. Raises OSError as the copy does; ETIMEDOUT
+    when the storage stopped answering. `cmd` replaces the child in tests."""
+    cmd = cmd or [sys.executable, os.path.realpath(__file__), "storage-copy"] + list(args)
+    child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    fd = child.stdout.fileno()
+    out, heard = b"", time.monotonic()
+    try:
+        while True:
+            ready, _, _ = select.select([fd], [], [], 0.5)
+            if ready:
+                data = os.read(fd, 65536)
+                if not data:
+                    break
+                out, heard = out + data, time.monotonic()
+            elif time.monotonic() - heard > stall:
+                raise OSError(errno.ETIMEDOUT, "The device's storage does not answer")
+        child.wait(timeout=stall)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        child.kill()
+        if isinstance(error, OSError) and error.errno == errno.ETIMEDOUT:
+            raise
+        raise OSError(errno.ETIMEDOUT, "The device's storage does not answer") from error
+    finally:
+        child.stdout.close()
+    lines = [l for l in out.decode(errors="replace").splitlines() if l.startswith("{")]
+    try:
+        result = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        raise OSError(errno.EIO, "The copy from the device stopped") from None
+    if not result.get("ok"):
+        raise OSError(result.get("errno") or errno.EIO, result.get("error") or "The copy from the device failed")
+    return result.get("path")
+
+
+def storage_run(args, progress=None):
+    """What the storage child does (`storage_child`): the copy's path, or
+    None (saved already)."""
+    if len(args) == 2 and args[0] == "open":
+        return local_copy(args[1], progress=progress)
+    if len(args) == 3 and args[0] == "save":
+        return save_copy(args[1], args[2], progress=progress)
+    raise OSError(errno.EINVAL, "storage-copy needs open <path> or save <path> <folder>")
+
+
+def storage_copy(args):
+    """The storage child's side (`storage_child`): one line per chunk copied,
+    then the result as JSON."""
+    def tick():
+        sys.stdout.write("+\n")
+        sys.stdout.flush()
+    try:
+        result = {"ok": True, "path": storage_run(args, progress=tick)}
+    except OSError as error:
+        result = {"ok": False, "errno": error.errno, "error": error.strerror or str(error)}
+    print(json.dumps(result))
+    return EXIT_OK if result["ok"] else EXIT_FAILED
 
 
 def trim_cache(cache, limit, keep=None):
@@ -1708,14 +1800,17 @@ def open_file(path, launch=None, local=False, from_device=False):
     decode is not opened. `launch` runs a command (replaced in tests)."""
     launch = launch or (lambda cmd: subprocess.Popen(cmd, start_new_session=True,
                                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-    if not os.path.exists(path):
+    if local:
+        # Nothing here touches the device's storage: the child reads it.
+        try:
+            path = storage_child(["open", path])
+        except OSError as error:
+            if error.errno == errno.ENOENT:
+                return say("The file is gone", EXIT_FAILED)
+            return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
+    elif not os.path.exists(path):
         return say("The file is gone", EXIT_FAILED)
     if (local or from_device) and os.path.isfile(path):
-        if local:
-            try:
-                path = local_copy(path)
-            except OSError as error:
-                return say("Could not copy it from the device: %s" % error.strerror, EXIT_FAILED, osd="")
         try:
             picture = looks_like_picture(path)
         except OSError as error:
@@ -1742,11 +1837,12 @@ def copy_file(path, local=False, run=None):
     here, as file managers copy, never a path on the storage link.
     `run` replaces subprocess.run in tests."""
     run = run or subprocess.run
-    if not os.path.isfile(path):
+    if not local and not os.path.isfile(path):
         return say("The file is gone", EXIT_FAILED)
     try:
         if local:
-            path = local_copy(path)
+            # Nothing here touches the device's storage: the child reads it.
+            path = storage_child(["open", path])
         picture = looks_like_picture(path)
     except OSError as error:
         return say("Could not read it: %s" % (error.strerror or error), EXIT_FAILED, osd="")
@@ -3698,6 +3794,8 @@ def device_fix(what, device_id, arg=""):
         return reach(device_id, arg)
     if what == "unreach":
         return unreach(device_id, arg)
+    if what == "wireless":
+        return wireless_fix(device_id)
     status = screen_status(device_id)
     serial = status.get("serial") if status.get("state") == "ready" else ""
     if what == "grant":
@@ -3751,16 +3849,6 @@ def device_fix(what, device_id, arg=""):
         return reconnect(device_id)
     if what == "wake":
         return wake(device_id)
-    if what == "wireless":
-        # Over a USB cable adb works without Wireless debugging, and can turn
-        # it back on (Android turns it off after a restart).
-        usb = [d for d in parse_adb_devices(adb(["devices", "-l"])[1]) if d["usb"] and d["state"] == "device"]
-        known = screen_record(device_id).get("serial", "")
-        usb = [d for d in usb if not known or d["serial"] == known]
-        if not usb:
-            return say("Plug it in with a USB cable to turn Wireless debugging on from here", EXIT_FAILED)
-        code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
-        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED, osd="It did not turn on")
     return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
@@ -4704,6 +4792,128 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None, cloc
         sleep(1)
     emit({"ev": "connected"})
     return EXIT_OK
+
+
+# ---- Wireless debugging turned on again (#590) ----
+#
+# Android turns Wireless debugging off when the device restarts. Any adb
+# connection to the device that still works turns it back on: a USB cable,
+# or adb's own TCP port (5555, `adb tcpip`), which stays open across that.
+# adb's key check is the gate on the TCP port: only a device that already
+# trusts this computer answers, and nothing here pairs.
+
+ADB_TCP_PORT = 5555
+WIRELESS_WAIT_SEC = 10
+WIRELESS_SETTLE_SEC = 1.5
+WIRELESS_USB = "Plug it in with a USB cable to turn Wireless debugging on from here"
+WIRELESS_ALLOW = "Allow Wireless debugging on this network, on the device (tick Always allow)"
+
+
+def tcp_serial(address):
+    """adb's serial for the device's TCP port at an address the bridge holds
+    for it ("<ip>:5555", "[<ipv6>]:5555"), or "" for anything that is not a
+    plain IP literal: never a name, never text from the device."""
+    if not isinstance(address, str):
+        return ""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return ""
+    if ip.is_unspecified or ip.is_multicast or getattr(ip, "scope_id", None):
+        return ""
+    return ("[%s]:%d" if ip.version == 6 else "%s:%d") % (ip.compressed, ADB_TCP_PORT)
+
+
+def tcp_host(serial):
+    """The host of a TCP serial ("<ip>:<port>", "[<ipv6>]:<port>"), written
+    as tcp_serial writes it, or ""."""
+    m = re.match(r"^\[([0-9a-fA-F:.]+)\]:\d+$|^([\d.]+):\d+$", serial or "")
+    try:
+        return ipaddress.ip_address(m.group(1) or m.group(2)).compressed if m else ""
+    except ValueError:
+        return ""
+
+
+def wireless_transports(devices, known, addresses):
+    """adb's open connections to the device that work without Wireless
+    debugging, in order: USB (its own serial, or any one when none is
+    remembered, as before), then a TCP one at an address the bridge holds."""
+    usb = [d["serial"] for d in devices if d["usb"] and d["state"] == "device" and (not known or d["serial"] == known)]
+    tcp = [d["serial"] for d in devices if not d["usb"] and d["state"] == "device" and tcp_host(d["serial"]) in addresses]
+    return usb + tcp
+
+
+def is_device(serial, known, run):
+    """Whether a TCP connection is this device: its own serial, when one is
+    remembered (an address can be another device's by now)."""
+    if not known:
+        return True
+    code, out = run(["-s", serial, "shell", "getprop", "ro.serialno"])
+    return code == 0 and out.strip() == known
+
+
+def wireless_on(addresses, known, run=None, announced=None, sleep=time.sleep, clock=time.monotonic, wait=WIRELESS_WAIT_SEC):
+    """Turns Wireless debugging on over an adb connection that works: one
+    open now, else adb's TCP port at each address the bridge holds for the
+    device (connected for this, and disconnected after). (ok, message).
+    `addresses`: trusted_addresses; `known`: the device's own serial;
+    `announced()`: whether the device announces Wireless debugging (mDNS),
+    waited for so the next read of the screen finds it."""
+    run = run or (lambda args, timeout=10: adb(args, timeout=timeout))
+    addresses = [a for a in addresses or [] if tcp_serial(a)]
+    devices = parse_adb_devices(run(["devices", "-l"])[1])
+    serial, opened = "", ""
+    hosts = set(tcp_host(tcp_serial(a)) for a in addresses)
+    for s in wireless_transports(devices, known, hosts):
+        if tcp_host(s) == "" or is_device(s, known, run):
+            serial = s
+            break
+    if not serial:
+        for address in addresses:
+            target = tcp_serial(address)
+            run(["connect", target], timeout=8)
+            state = next((d["state"] for d in parse_adb_devices(run(["devices", "-l"])[1]) if d["serial"] == target), "")
+            if state == "device" and is_device(target, known, run):
+                serial = opened = target
+                break
+            # Refused, not trusted, or another device: left as it was.
+            if state:
+                run(["disconnect", target])
+    if not serial:
+        return False, WIRELESS_USB
+    try:
+        code, out = run(["-s", serial, "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
+        # On a network it was never allowed on, Android turns it off again
+        # and asks on the device: read back once it has had the time to.
+        if code == 0:
+            sleep(WIRELESS_SETTLE_SEC)
+            on = run(["-s", serial, "shell", "settings", "get", "global", "adb_wifi_enabled"])[1].strip() == "1"
+    finally:
+        if opened:
+            run(["disconnect", opened])
+    if code != 0:
+        return False, out.strip() or "It did not turn on"
+    if not on:
+        return False, WIRELESS_ALLOW
+    deadline = clock() + wait
+    while announced is not None and not announced() and clock() < deadline:
+        sleep(1)
+    return True, "Wireless debugging is on"
+
+
+def wireless_fix(device_id):
+    """`device-fix wireless`: Wireless debugging on again, on a click."""
+    if adb_env() is None:
+        return say(ADB_NO_PLACE, EXIT_FAILED, osd=ADB_NO_PLACE)
+    adb(["start-server"], timeout=15)
+    device = dict(screen_device(device_id) or {}, id=device_id)
+    addresses = trusted_addresses(device)
+    ok, message = wireless_on(addresses, screen_record(device_id).get("serial", ""),
+                              announced=lambda: any(s["kind"] == "connect" and s["host"] in addresses for s in mdns_services()))
+    if ok:
+        return say(message, osd="Wireless debugging is on")
+    # The bridge's own words show on the display; adb's answer does not.
+    return say(message, EXIT_FAILED, osd=message if message in (WIRELESS_USB, WIRELESS_ALLOW) else "It did not turn on")
 
 
 # ---- The screen's window: docked or tiled (Hyprland) ----
@@ -7064,20 +7274,23 @@ def contacts_find_url(url):
     return CONTACTS_FIND.get(host, "")
 
 
-def open_contacts_app(app=None, launch=None, find=""):
+def open_contacts_app(app=None, launch=None, find="", copy=None):
     """Omarchy's contacts app, opened or brought forward exactly as Omarchy
-    opens a web app; with `find`, a window of its own on that person's
-    search (a window brought forward stays where the user left it)."""
+    opens a web app. With `find`, the person's name goes on the clipboard
+    for the app's own search, over wl-copy's stdin: a search address would
+    put the name on the command line of the launcher and of the browser it
+    starts, which any program here can read for as long as the window is
+    open (#470). `copy` replaces the clipboard in tests."""
     app = app or omarchy_contacts_app()
     if not app:
         return say("This computer has no Omarchy contacts app", EXIT_FAILED)
     if find:
         if not app.get("find"):
             return say("%s cannot look a contact up" % app["name"], EXIT_FAILED, osd="%s cannot look a contact up" % app["name"])
-        url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
-        # The last hop: the web app's launcher takes the address as an argument.
-        (launch or launch_detached)(["omarchy-launch-webapp", url])
-        return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
+        try:
+            (copy or copy_private)(find.strip())
+        except (OSError, subprocess.SubprocessError) as error:
+            return say(str(error), EXIT_FAILED, osd="")
     # Omarchy's `omarchy-launch-or-focus-webapp` evaluates its arguments: the
     # window is found here by its name, else the web app's launcher runs.
     word = re.compile(r"\b" + re.escape(app["name"]) + r"\b", re.I)
@@ -7086,7 +7299,16 @@ def open_contacts_app(app=None, launch=None, find=""):
         focus_window(win)
     else:
         (launch or launch_detached)(["omarchy-launch-webapp", app["url"]])
+    if find:
+        line = "Opening %s: the name is copied, paste it in its search" % app["name"]
+        return say(line, osd=line)
     return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
+
+
+def copy_private(text, run=None):
+    """Text on the clipboard over wl-copy's stdin, never its command line."""
+    (run or subprocess.run)(["wl-copy", "--type", "text/plain;charset=utf-8"], input=text.encode(),
+                            timeout=15, check=True)
 
 
 def contact_link(kind, value):
@@ -7632,6 +7854,8 @@ def main(argv):
         if len(argv) < 3:
             return say("save-file needs a path and the device's name", EXIT_FAILED)
         return save_file(argv[1], argv[2])
+    if argv[0] == "storage-copy":
+        return storage_copy(argv[1:])
     if argv[0] == "received-dismiss":
         if len(argv) < 3:
             return say("received-dismiss needs a device id and a path", EXIT_FAILED)

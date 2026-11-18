@@ -31,7 +31,9 @@ apps, nothing about it to fix.
 
 - *Wireless debugging is off*: Android turns it off after a restart or on
   another Wi-Fi. Turn it on; the screen (or the app) then opens by itself.
-  A *Quick settings developer tile* makes that one tap.
+  A *Quick settings developer tile* makes that one tap. *Turn it on from
+  here* does it over a USB cable, or over the network when the phone still
+  trusts this computer there.
 - *Allow USB debugging*: answer the prompt on the phone, with *Always
   allow from this computer*.
 - Locked: the phone wakes, and an app opens once you unlock it.

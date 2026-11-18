@@ -188,9 +188,13 @@ FocusScope {
       if (contentX >= r.x) contentX = r.x
       else if (contentX + width <= r.x + r.width) contentX = r.x + r.width - width
       if (!field.multiline) return
+      // While the field grows, the cursor is kept in the height it grows
+      // to, not the one it has on the way: scrolling there would move the
+      // lines a whole line ahead of the edge that is still gliding.
+      var room = Math.max(height, field._wantHeight - field._frameHeight)
       if (contentY > r.y) contentY = r.y
-      else if (contentY + height < r.y + r.height) contentY = r.y + r.height - height
-      contentY = Math.max(0, Math.min(contentY, contentHeight - height))
+      else if (contentY + room < r.y + r.height) contentY = r.y + r.height - room
+      contentY = Math.max(0, Math.min(contentY, contentHeight - room))
     }
     onHeightChanged: ensureVisible(edit.cursorRectangle)
 

@@ -534,16 +534,28 @@ class OmarchyContactsApp(unittest.TestCase):
         self.assertEqual(launched, [])
         self.assertEqual([w["address"] for w in focused], ["0xabc"])
 
-    def test_a_person_opens_its_search_in_a_window_of_its_own(self):
-        launched = []
+    def test_a_person_is_looked_up_by_a_copied_name_never_an_address(self):
+        launched, copied = [], []
         app = {"name": "Google Contacts", "url": "https://contacts.google.com/",
                "find": "https://contacts.google.com/search/{}"}
-        with contextlib.redirect_stdout(open(os.devnull, "w")):
-            bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen & Co/")
-            code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen")
-        self.assertEqual(launched, [["omarchy-launch-webapp",
-                                     "https://contacts.google.com/search/Sam%20Chen%20%26%20Co%2F"]])
+        saved = bridge.hypr_json
+        bridge.hypr_json = lambda what: []
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen ", copy=copied.append)
+                code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen",
+                                                copy=copied.append)
+        finally:
+            bridge.hypr_json = saved
+        self.assertEqual(copied, ["Sam Chen"], "the name goes on the clipboard")
+        self.assertEqual(launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]],
+                         "the app opens on its own address: the name is on no command line")
         self.assertEqual(code, bridge.EXIT_FAILED)
+
+    def test_the_name_goes_over_wl_copy_stdin(self):
+        ran = []
+        bridge.copy_private("Sam Chen", run=lambda cmd, **kw: ran.append((cmd, kw.get("input"))))
+        self.assertEqual(ran, [(["wl-copy", "--type", "text/plain;charset=utf-8"], b"Sam Chen")])
 
 
 class ContactVerbsOverStdin(unittest.TestCase):
@@ -570,8 +582,11 @@ class ContactVerbsOverStdin(unittest.TestCase):
             sys.stdin = saved
 
     def test_a_search_comes_from_stdin(self):
-        self.run_main(["contacts-app", "--find"], "Sam Chen\n")
-        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/search/Sam%20Chen"]])
+        copied = []
+        with mock.patch.object(bridge, "copy_private", copied.append):
+            self.run_main(["contacts-app", "--find"], "Sam Chen\n")
+        self.assertEqual(copied, ["Sam Chen"])
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
 
     def test_a_search_in_argv_is_not_searched(self):
         self.run_main(["contacts-app", "--find", "Sam Chen"])
@@ -1337,6 +1352,14 @@ class OpenFromDevice(unittest.TestCase):
     """A file from the device opens from a local copy, kept while unchanged;
     the cache drops the oldest copies past its limit."""
 
+    def setUp(self):
+        # The copy runs here, where the test's replacements reach it; the
+        # child itself is checked in StorageChild.
+        patch = mock.patch.object(bridge, "storage_child", lambda args, **kw: bridge.storage_run(args))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+
     def test_copied_once_and_again_when_changed(self):
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "VID_1.mp4")
@@ -1481,9 +1504,82 @@ class OpenFromDevice(unittest.TestCase):
             self.assertTrue(ran[0][4].startswith(os.path.join(d, "state", "open")), "the copy, not the device's file")
 
 
+class StorageChild(unittest.TestCase):
+    """The device's storage is read only in a child that is given up when it
+    stops answering (#536): a mount that stops answering mid-copy blocks its
+    reader in the kernel, where no timeout reaches."""
+
+    def child(self, code):
+        return [sys.executable, "-c", code]
+
+    def test_a_child_that_stops_answering_is_given_up(self):
+        started = bridge.time.monotonic()
+        with self.assertRaises(OSError) as raised:
+            bridge.storage_child(["open", "/x/a.mp4"], stall=1, cmd=self.child(
+                "import sys, time; print('+', flush=True); time.sleep(60)"))
+        self.assertEqual(raised.exception.errno, errno.ETIMEDOUT)
+        self.assertLess(bridge.time.monotonic() - started, 10, "given up, never waited on")
+
+    def test_a_copy_that_keeps_moving_is_waited_for(self):
+        code = ("import json, time\n"
+                "for _ in range(8):\n    print('+', flush=True); time.sleep(0.3)\n"
+                "print(json.dumps({'ok': True, 'path': '/cache/a.mp4'}))")
+        self.assertEqual(bridge.storage_child(["open", "/x/a.mp4"], stall=1, cmd=self.child(code)), "/cache/a.mp4")
+
+    def test_the_child_error_comes_back_as_its_own(self):
+        code = "import json; print(json.dumps({'ok': False, 'errno': 2, 'error': 'gone'}))"
+        with self.assertRaises(OSError) as raised:
+            bridge.storage_child(["open", "/x/a.mp4"], cmd=self.child(code))
+        self.assertEqual(raised.exception.errno, errno.ENOENT)
+
+    def test_the_child_copies_and_saves(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "VID_1.mp4")
+            open(src, "w").write("abc")
+            pictures = os.path.join(d, "Pictures")
+            os.makedirs(pictures)
+            with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": os.path.join(d, "cache")}):
+                copy = bridge.storage_child(["open", src])
+                self.assertTrue(copy.startswith(os.path.join(d, "cache")), "in the cache")
+                self.assertEqual(open(copy).read(), "abc")
+                saved = bridge.storage_child(["save", src, pictures])
+                self.assertEqual(saved, os.path.join(pictures, "VID_1.mp4"))
+                self.assertIsNone(bridge.storage_child(["save", src, pictures]), "saved once")
+
+    def test_nothing_reads_the_storage_in_the_bridge_own_process(self):
+        def reads(*args, **kwargs):
+            raise AssertionError("the device's storage read in the bridge's own process")
+        asked = []
+
+        def stalled(args, **kwargs):
+            asked.append(args[0])
+            raise OSError(errno.ETIMEDOUT, "The device's storage does not answer")
+        path = "/run/user/1/kdeconnect/dev/DCIM/a.mp4"
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(bridge, "open_in_storage", reads), \
+                mock.patch.object(bridge, "local_copy", reads), \
+                mock.patch.object(bridge, "save_copy", reads), \
+                mock.patch.object(bridge, "storage_root", reads), \
+                mock.patch.object(bridge, "storage_child", stalled), \
+                mock.patch.object(bridge, "pictures_dir", lambda: os.path.join(d, "Pictures")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(bridge.open_file(path, launch=reads, local=True), bridge.EXIT_FAILED)
+            self.assertEqual(bridge.copy_file(path, local=True, run=reads), bridge.EXIT_FAILED)
+            self.assertEqual(bridge.save_file(path, "Pixel 8"), bridge.EXIT_FAILED)
+        self.assertEqual(asked, ["open", "open", "save"])
+
+
 class OpenPicturesSafely(unittest.TestCase):
     """A picture from the device (the gallery, a received one) opens as a
     copy decoded in the sandbox; anything else as itself."""
+
+    def setUp(self):
+        # The copy runs here, where the test's replacements reach it; the
+        # child itself is checked in StorageChild.
+        patch = mock.patch.object(bridge, "storage_child", lambda args, **kw: bridge.storage_run(args))
+        patch.start()
+        self.addCleanup(patch.stop)
+
 
     @unittest.skipUnless(has_gdkpixbuf(), "GdkPixbuf")
     def test_a_received_picture_opens_as_a_copy(self):
@@ -1618,6 +1714,14 @@ class CopyFileThroughTheGate(unittest.TestCase):
     """Copying a file from the device to the clipboard goes through the same
     gate as opening it: a copy here, what it holds decides, a picture leaves
     only as the sandbox's JPEG, anything else as a file here."""
+
+    def setUp(self):
+        # The copy runs here, where the test's replacements reach it; the
+        # child itself is checked in StorageChild.
+        patch = mock.patch.object(bridge, "storage_child", lambda args, **kw: bridge.storage_run(args))
+        patch.start()
+        self.addCleanup(patch.stop)
+
 
     SANDBOX_JPEG = b"\xff\xd8\xff\xe0 made in the sandbox"
 
@@ -2340,6 +2444,14 @@ class Screen(unittest.TestCase):
 
 class SaveFileStaysOnTheMount(unittest.TestCase):
     """Saving a file from the device reads it as opening one does."""
+
+    def setUp(self):
+        # The copy runs here, where the test's replacements reach it; the
+        # child itself is checked in StorageChild.
+        patch = mock.patch.object(bridge, "storage_child", lambda args, **kw: bridge.storage_run(args))
+        patch.start()
+        self.addCleanup(patch.stop)
+
 
     def save(self, make, name="IMG_1.jpg"):
         with tempfile.TemporaryDirectory() as d:
