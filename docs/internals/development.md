@@ -244,7 +244,8 @@ are ended there, with no root and nothing outside the scope signalled:
 name=sceny-sandbox-dev-<id>
 u=$(id -u); h=$(getent passwd "$u" | cut -d: -f6)   # not ~: an agent's shell may have another HOME
 P() { env -i PATH=/usr/bin HOME="$h" XDG_RUNTIME_DIR="/run/user/$u" \
-  podman --root "$h/.local/share/sceny-sandbox/storage" --runroot "/run/user/$u/sceny-sandbox" "$@"; }
+  podman --root "$h/.local/share/sceny-sandbox/storage" --runroot "/run/user/$u/sceny-sandbox" \
+  --tmpdir "/run/user/$u/sceny-sandbox/libpod-tmp" "$@"; }
 id=$(P inspect --format '{{.Id}}' "$name"); conmon=$(P inspect --format '{{.State.ConmonPid}}' "$name")
 # 1. The case: the container's namespace is not the pause process's.
 readlink "/proc/$conmon/ns/user" "/proc/$(cat "/run/user/$u/libpod/tmp/pause.pid")/ns/user"
@@ -260,6 +261,16 @@ dev/sandbox verify-clean
 Stop at step 1 when the two namespaces are the same (another fault: report
 it), and at step 2 when the scope is not in `sandbox.slice`. The kill loses
 only the session's unsaved work, which the stop was ending anyway.
+
+**`podman system reset` ends that pause process**, whichever store it names:
+every live container of the user is orphaned this way, the sandbox's and the
+GitHub runners' alike. Never reset a store; a throwaway store goes with
+`podman --root … --runroot … --tmpdir … rm -af` and then
+`podman unshare rm -rf <its directory>`. A reset also deletes its store's
+libpod tmpdir, so every store call names its own (`--tmpdir`; the sandbox's is
+`<runroot>/libpod-tmp`). Podman keeps the tmpdir a store was made with: a store
+made without `--tmpdir` uses the shared `/run/user/<uid>/libpod/tmp` until it
+is made again.
 
 Everything the rig does, the session does: `dev rig check`, the regression, the
 cold computer and the upgrade. Three points differ from a rig on a desktop:

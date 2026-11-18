@@ -109,6 +109,13 @@ SB_RUNTIME=/run/user/$SB_UID/sceny-sandbox
 if [[ $SB_STATE != "$SB_STATE_DEFAULT" ]]; then
   SB_RUNTIME=$SB_STATE/runroot
 fi
+# The store's own libpod tmpdir, never the user's shared /run/user/<uid>/libpod/tmp:
+# `podman system reset` deletes its store's tmpdir (`alive`, `exits/`,
+# `persist/`), so a reset of any store on the shared one takes every other
+# store's record of its live containers with it. Podman records the tmpdir in a
+# store's database when the store is made and uses that one afterwards, flag or
+# not: a store made before this keeps the shared one until it is made again.
+SB_TMPDIR=$SB_RUNTIME/libpod-tmp
 SB_IMAGE_PREFIX=localhost/sceny-sandbox
 SB_LABEL=org.sceny.sandbox
 SB_TREE_LABEL=org.sceny.sandbox.harness.tree
@@ -179,7 +186,7 @@ usage() { awk 'NR > 1 { if (/^#/) print; else exit }' "${BASH_SOURCE[0]}" | sed 
 pm() {
   # Podman's detached containers outlive it (conmon): they must not inherit the store lock.
   env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" "$@" 9>&-
+    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" "$@" 9>&-
 }
 
 require_tools() {
@@ -563,7 +570,7 @@ run_unit() {
   (
     timeout --signal=KILL $((timeout + 90)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" run \
       --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" "${rig[@]}" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
@@ -652,7 +659,7 @@ reencode_pngs() { # <unit> <out> [dest dir, default <out>/<unit>] [seconds, defa
   (
     timeout --signal=KILL $((secs + 30)) \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" run \
       --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
@@ -1036,7 +1043,7 @@ dev_exec() {
   shift 2
   timeout --signal=KILL $((secs + 30)) \
     env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
+    podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" exec \
     --user 1000:1000 --workdir /work/src \
     --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
     "$name" timeout --signal=KILL "$secs" "$@" 2>&1 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" ""
@@ -1146,7 +1153,7 @@ dev_sync() {
     git -C "$tree" ls-files -z |
     python3 "$SB_DIR/sandbox.d/tree_tar.py" "$tree" "$SB_MAX_ARCHIVE" |
     timeout 120 env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec -i --user 1000:1000 --workdir /work \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" exec -i --user 1000:1000 --workdir /work \
       --env HOME=/home/sandbox "$DEV_NAME" /opt/devside.sh unpack "$as" 2>&1 |
     python3 "$SB_DIR/sandbox.d/filter-stderr.py" ""
   local rc=("${PIPESTATUS[@]}")
@@ -1187,7 +1194,7 @@ dev_pull() {
 
   local tarfile="$SB_RUN_DIR/out.tar" size
   env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-    timeout --signal=KILL 120 podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" exec \
+    timeout --signal=KILL 120 podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" exec \
     --user 1000:1000 "$DEV_NAME" tar -C /out -cf - . 2>/dev/null | head -c $((SB_MAX_RESULT + 1)) >"$tarfile" &
   pull_pid=$!
   wait $pull_pid
@@ -1249,7 +1256,7 @@ dev_assemble() {
   (
     timeout --signal=KILL 330 \
       env -i PATH=/usr/bin:/usr/local/bin HOME="$SB_HOME" XDG_RUNTIME_DIR="/run/user/$SB_UID" \
-      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" run \
+      podman --root "$SB_STATE/storage" --runroot "$SB_RUNTIME" --tmpdir "$SB_TMPDIR" run \
       --name "$SB_RUN_NAME" --label "$SB_LABEL=$id" --pull never --log-driver none \
       --network none --no-hosts \
       --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
