@@ -534,16 +534,28 @@ class OmarchyContactsApp(unittest.TestCase):
         self.assertEqual(launched, [])
         self.assertEqual([w["address"] for w in focused], ["0xabc"])
 
-    def test_a_person_opens_its_search_in_a_window_of_its_own(self):
-        launched = []
+    def test_a_person_is_looked_up_by_a_copied_name_never_an_address(self):
+        launched, copied = [], []
         app = {"name": "Google Contacts", "url": "https://contacts.google.com/",
                "find": "https://contacts.google.com/search/{}"}
-        with contextlib.redirect_stdout(open(os.devnull, "w")):
-            bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen & Co/")
-            code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen")
-        self.assertEqual(launched, [["omarchy-launch-webapp",
-                                     "https://contacts.google.com/search/Sam%20Chen%20%26%20Co%2F"]])
+        saved = bridge.hypr_json
+        bridge.hypr_json = lambda what: []
+        try:
+            with contextlib.redirect_stdout(open(os.devnull, "w")):
+                bridge.open_contacts_app(app, launch=launched.append, find="Sam Chen ", copy=copied.append)
+                code = bridge.open_contacts_app(dict(app, find=""), launch=launched.append, find="Sam Chen",
+                                                copy=copied.append)
+        finally:
+            bridge.hypr_json = saved
+        self.assertEqual(copied, ["Sam Chen"], "the name goes on the clipboard")
+        self.assertEqual(launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]],
+                         "the app opens on its own address: the name is on no command line")
         self.assertEqual(code, bridge.EXIT_FAILED)
+
+    def test_the_name_goes_over_wl_copy_stdin(self):
+        ran = []
+        bridge.copy_private("Sam Chen", run=lambda cmd, **kw: ran.append((cmd, kw.get("input"))))
+        self.assertEqual(ran, [(["wl-copy", "--type", "text/plain;charset=utf-8"], b"Sam Chen")])
 
 
 class ContactVerbsOverStdin(unittest.TestCase):
@@ -570,8 +582,11 @@ class ContactVerbsOverStdin(unittest.TestCase):
             sys.stdin = saved
 
     def test_a_search_comes_from_stdin(self):
-        self.run_main(["contacts-app", "--find"], "Sam Chen\n")
-        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/search/Sam%20Chen"]])
+        copied = []
+        with mock.patch.object(bridge, "copy_private", copied.append):
+            self.run_main(["contacts-app", "--find"], "Sam Chen\n")
+        self.assertEqual(copied, ["Sam Chen"])
+        self.assertEqual(self.launched, [["omarchy-launch-webapp", "https://contacts.google.com/"]])
 
     def test_a_search_in_argv_is_not_searched(self):
         self.run_main(["contacts-app", "--find", "Sam Chen"])

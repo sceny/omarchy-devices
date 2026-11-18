@@ -228,8 +228,9 @@ Item {
   }
 
   // Omarchy's own contacts app, opened exactly as Omarchy opens a web app
-  // (the bridge's `contacts-app`); with a name, its search for that person
-  // (Model.contactFind). It says so itself when there is none.
+  // (the bridge's `contacts-app`); with a name, on its own page with the
+  // name copied for its search (Model.contactFind), so the name is on no
+  // command line. It says so itself when there is none.
   function openApp(name) {
     if (bridge === "") return false
     var find = String(name || "").trim()

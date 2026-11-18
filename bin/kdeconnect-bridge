@@ -7160,20 +7160,23 @@ def contacts_find_url(url):
     return CONTACTS_FIND.get(host, "")
 
 
-def open_contacts_app(app=None, launch=None, find=""):
+def open_contacts_app(app=None, launch=None, find="", copy=None):
     """Omarchy's contacts app, opened or brought forward exactly as Omarchy
-    opens a web app; with `find`, a window of its own on that person's
-    search (a window brought forward stays where the user left it)."""
+    opens a web app. With `find`, the person's name goes on the clipboard
+    for the app's own search, over wl-copy's stdin: a search address would
+    put the name on the command line of the launcher and of the browser it
+    starts, which any program here can read for as long as the window is
+    open (#470). `copy` replaces the clipboard in tests."""
     app = app or omarchy_contacts_app()
     if not app:
         return say("This computer has no Omarchy contacts app", EXIT_FAILED)
     if find:
         if not app.get("find"):
             return say("%s cannot look a contact up" % app["name"], EXIT_FAILED, osd="%s cannot look a contact up" % app["name"])
-        url = app["find"].replace("{}", urllib.parse.quote(find.strip(), safe=""))
-        # The last hop: the web app's launcher takes the address as an argument.
-        (launch or launch_detached)(["omarchy-launch-webapp", url])
-        return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
+        try:
+            (copy or copy_private)(find.strip())
+        except (OSError, subprocess.SubprocessError) as error:
+            return say(str(error), EXIT_FAILED, osd="")
     # Omarchy's `omarchy-launch-or-focus-webapp` evaluates its arguments: the
     # window is found here by its name, else the web app's launcher runs.
     word = re.compile(r"\b" + re.escape(app["name"]) + r"\b", re.I)
@@ -7182,7 +7185,16 @@ def open_contacts_app(app=None, launch=None, find=""):
         focus_window(win)
     else:
         (launch or launch_detached)(["omarchy-launch-webapp", app["url"]])
+    if find:
+        line = "Opening %s: the name is copied, paste it in its search" % app["name"]
+        return say(line, osd=line)
     return say("Opening %s" % app["name"], osd="Opening %s" % app["name"])
+
+
+def copy_private(text, run=None):
+    """Text on the clipboard over wl-copy's stdin, never its command line."""
+    (run or subprocess.run)(["wl-copy", "--type", "text/plain;charset=utf-8"], input=text.encode(),
+                            timeout=15, check=True)
 
 
 def contact_link(kind, value):

@@ -17,7 +17,8 @@ the panel closes behind it. *Copy* takes any detail. A button opens the
 contacts app Omarchy ships (Google Contacts), while this computer still
 has it, and the panel closes behind it. It holds only your Google
 account's contacts: a card the phone keeps for itself says *On the phone
-only*; any other card has a button to find it there.
+only*; any other card has a button to find it there, which opens the app
+with the name copied for its search.
 
 The phone sends its cards when the panel opens on the page, at most every
 five minutes; `r` asks again. Away, the cards already here still read, and

@@ -31,9 +31,9 @@
   under a digest of its key, never its text or key.
 - A contact's website, address or email that you open goes on the command
   line of the browser or app that opens it, and stays there while that
-  program runs, where another program on this computer can read it. So does a
-  contact's name when you choose *Find in contacts app*: it is in the
-  address given to the contacts app's launcher.
+  program runs, where another program on this computer can read it. A
+  contact's name never does: *Find in contacts app* opens the app on its own
+  page and puts the name on the clipboard for you to paste in its search.
 - A picture from the phone is decoded in a sandbox, and you see a copy made
   from its pixels, never the phone's file. A picture is recognised by what
   the file holds, not its name, and a message attachment opens only when you

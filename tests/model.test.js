@@ -1952,12 +1952,12 @@ test("contacts: a nameless card, and what an empty page says", () => {
   assert.equal(M.contactsAppHint(google, [synced]), "Open Google Contacts: its account's contacts")
   assert.equal(M.contactsAppHint(google, [synced, local, local]), "Open Google Contacts: its account's contacts, not the 2 on the phone only")
   assert.equal(M.contactsAppHint(google, [local]), "Open Google Contacts: these contacts are on the phone only, not there")
-  assert.deepEqual(M.contactFind(google, synced), { label: "Find in Google Contacts", note: "" })
+  assert.deepEqual(M.contactFind(google, synced), { label: "Find in Google Contacts (copies the name for its search)", note: "" })
   assert.deepEqual(M.contactFind(google, local), { label: "", note: "On the phone only" })
   assert.deepEqual(M.contactFind(Object.assign({}, google, { find: "" }), synced), { label: "", note: "" })
   assert.deepEqual(M.contactFind(google, { name: "", stored: "account" }), { label: "", note: "" })
   // An older bridge says nothing of where a card is: it is looked up.
-  assert.deepEqual(M.contactFind(google, { name: "Sam Chen" }), { label: "Find in Google Contacts", note: "" })
+  assert.deepEqual(M.contactFind(google, { name: "Sam Chen" }), { label: "Find in Google Contacts (copies the name for its search)", note: "" })
 })
 
 test("contacts: the shortcut needs the device's contacts, and the feature says what it gives", () => {

@@ -12,6 +12,13 @@ GitHub release with these notes.
 
 - **Copy a sign-in code**: a notification carrying a one-time code has a *Copy* button (`y`) that puts the code in the clipboard. When Android 15 hides such a text message's notification (*Sensitive notification content hidden*), the code is read from the message itself ([#577](https://github.com/sceny/omarchy-devices/issues/577)).
 
+### Fixes
+
+- **A gallery file never hangs on a storage that stops answering**: opening, copying or saving a file from the phone gives up with *The device's storage does not answer* once the copy has moved nothing for 20 seconds, instead of leaving its ring spinning ([#536](https://github.com/sceny/omarchy-devices/issues/536)).
+- **The reply field grows without a jump**: a new line no longer scrolls the text up ahead of the field's growing edge, which cut the first line for a moment ([#448](https://github.com/sceny/omarchy-devices/issues/448)).
+- **The page menu's labels line up**: *Screen and apps* starts where the other entries do ([#555](https://github.com/sceny/omarchy-devices/issues/555)).
+- **A contact's name stays off every command line**: *Find in contacts app* opens the app on its own page with the name copied for its search, instead of putting the name in the address the launcher and the browser carry ([#470](https://github.com/sceny/omarchy-devices/issues/470)).
+
 ## 1.0.0 — 2026-10-23
 
 ### Highlights
