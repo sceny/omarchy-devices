@@ -887,6 +887,7 @@ Panel {
     else if (key === "pair") phone.startScreenPair(screenId)
     else if (key === "stopPair") phone.stopScreenPair()
     else if (key === "check") phone.readScreen(screenId)
+    else if (key === "wireless") phone.runSteps(screenId, [Model.wirelessStep(Model.deviceLabel(screenDevice))], "screen:wireless")
     else if (key === "open" && phone.screenIsOpen(screenId)) {
       // Open: brought forward with the keyboard, as the shortcut does.
       close()
@@ -986,7 +987,7 @@ Panel {
   //      their setup items, and its features from them; one action each ----
   function screenBrief(id) {
     var st = phone ? phone.screenOf(String(id)) : null
-    if (st) return { state: st.state, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
+    if (st) return { state: st.state, seen: st.seen === true, line: Model.screenSetup(st, phone.findDevice(id), null, true, false, false, "here").line }
     // This computer's checks not in yet (just started): still looking.
     return screenInstalled || setupChecks.length === 0 ? null : { state: "tools", line: "Needs scrcpy and adb here" }
   }

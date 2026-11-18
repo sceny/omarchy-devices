@@ -62,7 +62,7 @@ $B snapshot                    # everything the panel draws (contains personal d
 | *Needs SMS / contacts / notification access* | `features --adb`: `permissions` | `$B device-fix grant <id> <permission>`, or on the phone: KDE Connect › Permissions |
 | Notifications stopped arriving | `features --adb`: `notifications.here` 0 while `device` is several | `$B device-fix renotify <id>`, then `relisten`, then `restart-app`, else restart the phone |
 | The gallery is empty or says its storage stopped | `features`: `files` (`mounted`, `error`) | `$B device-fix remount <id>`; `$B fix restart` (KDE Connect restarts, devices reconnect) |
-| *Wireless debugging is off* | `screen`: `off` | on the phone: Developer options › Wireless debugging; with a USB cable: `$B device-fix wireless <id>` |
+| *Wireless debugging is off* | `screen`: `off` | on the phone: Developer options › Wireless debugging; `$B device-fix wireless <id>` (over a USB cable, or adb's TCP port 5555 when the phone still answers there) |
 | An app opens as an empty window | `screen <id>`: `locked` | unlock the phone; opening it again wakes it and waits |
 | The screen never pairs | `screen`: `pair`; `avahi-browse -rpt _adb-tls-connect._tcp` | pair again from the panel (Screen and apps › Show the code); same Wi-Fi |
 

@@ -1134,7 +1134,7 @@ test("screen and apps: each state's line, current step and actions", () => {
   assert.deepEqual([seen.steps.map(x => x.done), step(seen)], [[true, true, true, false], "pair"], "Wireless debugging seen: ticked, the code is next")
   assert.equal(seen.line, "Wireless debugging is on: scan the code with Pixel 8")
   const off = M.screenSetup(M.demoScreen("off"), phone, null)
-  assert.deepEqual([off.only, acts(off)], ["Turn it on: Developer options › Wireless debugging", ["check"]], "off: trusted before; Wireless debugging is the one step")
+  assert.deepEqual([off.only, acts(off)], ["Turn it on: Developer options › Wireless debugging", ["wireless", "check"]], "off: trusted before; Wireless debugging is the one step, turned on from here too")
   assert.match(off.line, /Wireless debugging is off on Pixel 8/)
   const ready = M.screenSetup(M.demoScreen("ready"), phone, null)
   assert.deepEqual([ready.line, acts(ready)], ["Ready over Wi-Fi · Android 16", ["open", "place", "stretch", "appSound"]])
@@ -1245,7 +1245,7 @@ test("screen after a restart: says why, opens by itself when it can, one tap nex
   assert.equal(off.line, "Wireless debugging is off on Pixel 8: it turns off when Pixel 8 restarts")
   assert.deepEqual([off.steps, off.only, off.waitingNote], [[], "Turn it on: Developer options › Wireless debugging", "Opens as soon as it is on"],
                    "the one step missing, alone, and it waits")
-  assert.deepEqual(off.actions.map(a => a.key), ["check"], "set up already: no pairing again")
+  assert.deepEqual(off.actions.map(a => a.key), ["wireless", "check"], "set up already: no pairing again; turned on from here over adb")
   assert.equal(off.waiting, true)
   assert.match(off.quickTip, /Quick settings developer tiles/)
   const notWaiting = M.screenSetup(M.demoScreen("off"), phone, null, true, false, false)
@@ -2308,6 +2308,22 @@ test("a problem with a fix of its own stays out of sight until the fix ran and t
   assert.deepEqual(M.problemsShown([p, other], { [id]: { state: "tried" } }), [p, other], "tried and still there: shown, once")
   assert.deepEqual(M.autoDue([p], { [id]: { state: "tried" } }), [], "and never run again while it stays")
   assert.deepEqual(M.autoKeep({ [id]: { state: "tried" }, "p1:gone": { state: "tried" } }, [p]), { [id]: { state: "tried" } }, "gone: forgotten, so a return is tried once more")
+})
+
+test("Wireless debugging off: turned on from here on a click, never by itself (#590)", () => {
+  const off = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "off", line: "Wireless debugging is off" }, name: "Pixel 8" })
+  const item = off.items.find(it => it.key === "screen")
+  assert.equal(item.state, "broken")
+  assert.deepEqual(item.steps.map(s => [s.kind, s.fix ? s.fix.what : s.page]), [["auto", "wireless"], ["ask", "screen"]])
+  assert.match(item.steps[0].orAsk, /On Pixel 8: Developer options › Wireless debugging, or plug it in with a USB cable/)
+  const row = off.features.find(r => r.key === "screen")
+  assert.deepEqual(M.featurePlan(row).map(s => s.fix.what), ["wireless"], "Fix runs it")
+  assert.ok(!M.AUTO_FIXES.includes("device:wireless"), "a change on the device: a click")
+  assert.deepEqual(M.autoDue(M.settingsProblems([], [], [{ id: "p1", title: "Pixel 8", setup: off, rows: off.features }]), {}), [], "nothing runs by itself")
+  const seen = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "off", seen: true, line: "scan the code again" }, name: "Pixel 8" })
+  assert.deepEqual(seen.items.find(it => it.key === "screen").steps.map(s => s.kind), ["ask"], "on already, not trusted any more: pairing again, on its page")
+  const away = M.deviceSetup({ report: M.demoFeatures(), screen: { state: "away", line: "away" }, name: "Pixel 8" })
+  assert.deepEqual(away.items.find(it => it.key === "screen").steps.map(s => s.kind), ["ask"])
 })
 
 test("only a fix that asks for no password and changes nothing on the device may run by itself (#454)", () => {

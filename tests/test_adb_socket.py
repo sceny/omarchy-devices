@@ -153,7 +153,7 @@ class ShippedCode(unittest.TestCase):
                 asked += 1
                 self.assertTrue(isinstance(call.func, ast.Name) and call.func.id == "adb",
                                 "kdeconnect-bridge:%d: start-server goes through adb()" % call.lineno)
-        self.assertEqual(asked, 2)
+        self.assertEqual(asked, 3)   # screen_status, screen_pair, wireless_fix
 
     def test_the_qml_never_starts_adb_or_scrcpy(self):
         for path in glob.glob(os.path.join(HERE, "..", "*.qml")):
