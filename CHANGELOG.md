@@ -8,6 +8,10 @@ GitHub release with these notes.
 
 ## Unreleased
 
+### Screen and apps
+
+- **Wireless debugging back on from here after a restart**: when Android turns it off, *Turn it on from here* (and the problem's *Fix*) turns it on over a USB cable, or over the network when the phone still answers adb's port 5555 and trusts this computer; adb's own key check decides, and nothing is paired. On a network the phone never allowed it on, it says to allow it there; with nothing reaching the phone, to plug it in ([#590](https://github.com/sceny/omarchy-devices/issues/590)).
+
 ### Notifications
 
 - **Copy a sign-in code**: a notification carrying a one-time code has a *Copy* button (`y`) that puts the code in the clipboard. When Android 15 hides such a text message's notification (*Sensitive notification content hidden*), the code is read from the message itself ([#577](https://github.com/sceny/omarchy-devices/issues/577)). A date's year, as in *New sign-in on 10 Nov 2025*, is not taken for a code ([#580](https://github.com/sceny/omarchy-devices/issues/580)).

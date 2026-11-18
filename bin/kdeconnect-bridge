@@ -77,7 +77,7 @@ not re-printed, so the shell only wakes when something moved.
   kdeconnect-bridge device-fix <what> <device> [arg]   a click's fix for one device:
                                               plugin <name>=on|off, grant <permission>,
                                               open-permission <permission>, remount,
-                                              reload, wireless (over a USB cable),
+                                              reload, wireless (over USB or adb's TCP port),
                                               renotify, relisten, restart-app (KDE
                                               Connect's app on it stopped and started
                                               again), reconnect (KDE
@@ -3698,6 +3698,8 @@ def device_fix(what, device_id, arg=""):
         return reach(device_id, arg)
     if what == "unreach":
         return unreach(device_id, arg)
+    if what == "wireless":
+        return wireless_fix(device_id)
     status = screen_status(device_id)
     serial = status.get("serial") if status.get("state") == "ready" else ""
     if what == "grant":
@@ -3751,16 +3753,6 @@ def device_fix(what, device_id, arg=""):
         return reconnect(device_id)
     if what == "wake":
         return wake(device_id)
-    if what == "wireless":
-        # Over a USB cable adb works without Wireless debugging, and can turn
-        # it back on (Android turns it off after a restart).
-        usb = [d for d in parse_adb_devices(adb(["devices", "-l"])[1]) if d["usb"] and d["state"] == "device"]
-        known = screen_record(device_id).get("serial", "")
-        usb = [d for d in usb if not known or d["serial"] == known]
-        if not usb:
-            return say("Plug it in with a USB cable to turn Wireless debugging on from here", EXIT_FAILED)
-        code, out = adb(["-s", usb[0]["serial"], "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
-        return say("Wireless debugging is on") if code == 0 else say(out.strip() or "It did not turn on", EXIT_FAILED, osd="It did not turn on")
     return say("Unknown fix %s" % what, EXIT_FAILED, osd="")
 
 
@@ -4704,6 +4696,128 @@ def screen_pair(device_id, wait=PAIR_WAIT_SEC, sleep=time.sleep, emit=None, cloc
         sleep(1)
     emit({"ev": "connected"})
     return EXIT_OK
+
+
+# ---- Wireless debugging turned on again (#590) ----
+#
+# Android turns Wireless debugging off when the device restarts. Any adb
+# connection to the device that still works turns it back on: a USB cable,
+# or adb's own TCP port (5555, `adb tcpip`), which stays open across that.
+# adb's key check is the gate on the TCP port: only a device that already
+# trusts this computer answers, and nothing here pairs.
+
+ADB_TCP_PORT = 5555
+WIRELESS_WAIT_SEC = 10
+WIRELESS_SETTLE_SEC = 1.5
+WIRELESS_USB = "Plug it in with a USB cable to turn Wireless debugging on from here"
+WIRELESS_ALLOW = "Allow Wireless debugging on this network, on the device (tick Always allow)"
+
+
+def tcp_serial(address):
+    """adb's serial for the device's TCP port at an address the bridge holds
+    for it ("<ip>:5555", "[<ipv6>]:5555"), or "" for anything that is not a
+    plain IP literal: never a name, never text from the device."""
+    if not isinstance(address, str):
+        return ""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return ""
+    if ip.is_unspecified or ip.is_multicast or getattr(ip, "scope_id", None):
+        return ""
+    return ("[%s]:%d" if ip.version == 6 else "%s:%d") % (ip.compressed, ADB_TCP_PORT)
+
+
+def tcp_host(serial):
+    """The host of a TCP serial ("<ip>:<port>", "[<ipv6>]:<port>"), written
+    as tcp_serial writes it, or ""."""
+    m = re.match(r"^\[([0-9a-fA-F:.]+)\]:\d+$|^([\d.]+):\d+$", serial or "")
+    try:
+        return ipaddress.ip_address(m.group(1) or m.group(2)).compressed if m else ""
+    except ValueError:
+        return ""
+
+
+def wireless_transports(devices, known, addresses):
+    """adb's open connections to the device that work without Wireless
+    debugging, in order: USB (its own serial, or any one when none is
+    remembered, as before), then a TCP one at an address the bridge holds."""
+    usb = [d["serial"] for d in devices if d["usb"] and d["state"] == "device" and (not known or d["serial"] == known)]
+    tcp = [d["serial"] for d in devices if not d["usb"] and d["state"] == "device" and tcp_host(d["serial"]) in addresses]
+    return usb + tcp
+
+
+def is_device(serial, known, run):
+    """Whether a TCP connection is this device: its own serial, when one is
+    remembered (an address can be another device's by now)."""
+    if not known:
+        return True
+    code, out = run(["-s", serial, "shell", "getprop", "ro.serialno"])
+    return code == 0 and out.strip() == known
+
+
+def wireless_on(addresses, known, run=None, announced=None, sleep=time.sleep, clock=time.monotonic, wait=WIRELESS_WAIT_SEC):
+    """Turns Wireless debugging on over an adb connection that works: one
+    open now, else adb's TCP port at each address the bridge holds for the
+    device (connected for this, and disconnected after). (ok, message).
+    `addresses`: trusted_addresses; `known`: the device's own serial;
+    `announced()`: whether the device announces Wireless debugging (mDNS),
+    waited for so the next read of the screen finds it."""
+    run = run or (lambda args, timeout=10: adb(args, timeout=timeout))
+    addresses = [a for a in addresses or [] if tcp_serial(a)]
+    devices = parse_adb_devices(run(["devices", "-l"])[1])
+    serial, opened = "", ""
+    hosts = set(tcp_host(tcp_serial(a)) for a in addresses)
+    for s in wireless_transports(devices, known, hosts):
+        if tcp_host(s) == "" or is_device(s, known, run):
+            serial = s
+            break
+    if not serial:
+        for address in addresses:
+            target = tcp_serial(address)
+            run(["connect", target], timeout=8)
+            state = next((d["state"] for d in parse_adb_devices(run(["devices", "-l"])[1]) if d["serial"] == target), "")
+            if state == "device" and is_device(target, known, run):
+                serial = opened = target
+                break
+            # Refused, not trusted, or another device: left as it was.
+            if state:
+                run(["disconnect", target])
+    if not serial:
+        return False, WIRELESS_USB
+    try:
+        code, out = run(["-s", serial, "shell", "settings", "put", "global", "adb_wifi_enabled", "1"])
+        # On a network it was never allowed on, Android turns it off again
+        # and asks on the device: read back once it has had the time to.
+        if code == 0:
+            sleep(WIRELESS_SETTLE_SEC)
+            on = run(["-s", serial, "shell", "settings", "get", "global", "adb_wifi_enabled"])[1].strip() == "1"
+    finally:
+        if opened:
+            run(["disconnect", opened])
+    if code != 0:
+        return False, out.strip() or "It did not turn on"
+    if not on:
+        return False, WIRELESS_ALLOW
+    deadline = clock() + wait
+    while announced is not None and not announced() and clock() < deadline:
+        sleep(1)
+    return True, "Wireless debugging is on"
+
+
+def wireless_fix(device_id):
+    """`device-fix wireless`: Wireless debugging on again, on a click."""
+    if adb_env() is None:
+        return say(ADB_NO_PLACE, EXIT_FAILED, osd=ADB_NO_PLACE)
+    adb(["start-server"], timeout=15)
+    device = dict(screen_device(device_id) or {}, id=device_id)
+    addresses = trusted_addresses(device)
+    ok, message = wireless_on(addresses, screen_record(device_id).get("serial", ""),
+                              announced=lambda: any(s["kind"] == "connect" and s["host"] in addresses for s in mdns_services()))
+    if ok:
+        return say(message, osd="Wireless debugging is on")
+    # The bridge's own words show on the display; adb's answer does not.
+    return say(message, EXIT_FAILED, osd=message if message in (WIRELESS_USB, WIRELESS_ALLOW) else "It did not turn on")
 
 
 # ---- The screen's window: docked or tiled (Hyprland) ----

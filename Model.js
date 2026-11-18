@@ -2233,6 +2233,14 @@ function permissionDenied(text) { return /allow|permission|denied/i.test(String(
 // phones it knows), handsfree: the device's (its Bluetooth match), matched:
 // the Bluetooth addresses other devices have, reachable: KDE Connect or the
 // screen link reaches it, deviceName: its own name (not its nickname) }.
+// Wireless debugging turned on from here (bridge `device-fix wireless`):
+// over a USB cable, or adb's TCP port when the device still trusts this
+// computer there (#590). Failing, the step left is the user's, on the device.
+function wirelessStep(name) {
+  return { kind: "auto", label: "Turn Wireless debugging on from here", fix: { verb: "device", what: "wireless" },
+           orAsk: "On " + name + ": Developer options › Wireless debugging, or plug it in with a USB cable" }
+}
+
 function setupItem(key, ctx) {
   var report = ctx.report, name = ctx.name || "the device"
   var parts = key.split(":"), kind = parts[0], what = parts[1] || ""
@@ -2394,6 +2402,11 @@ function setupItem(key, ctx) {
     if (st === "checking") return is("unknown", "Looking…")
     if (st === "ready") return is("ok", line)
     if (st === "tools") return is("ok")   // package:screen says it
+    // Wireless debugging off (a restart): turned on over any adb connection
+    // that still works (USB, adb's TCP port), on a click: it changes the
+    // device, so it is never one of AUTO_FIXES (#590).
+    if (st === "off" && ctx.screen.seen !== true)
+      item.steps.push(wirelessStep(name))
     item.steps.push({ kind: "ask", label: line || "Set up on its page", page: "screen" })
     // Set up once and lost (Wireless debugging off after a restart, adb not
     // reaching it): a problem. Never set up: to set up.
@@ -2735,6 +2748,9 @@ function screenSetup(status, device, pairing, docked, fitTile, waiting, appSound
     if (phase === "" || phase === "error") actions.push({ key: "pair", label: state === "pair" ? "Show the code" : "Pair again", hint: "A QR code for " + name + " to scan" })
     else actions.push({ key: "stopPair", label: "Stop", hint: "" })
   }
+  // Turned on from here when adb still reaches it (a USB cable, its TCP
+  // port): one click, never by itself (#590).
+  if (onlyStep) actions.push({ key: "wireless", label: "Turn it on from here", hint: "Over a USB cable, or the network when it still answers" })
   if (state !== "ready" && state !== "tools" && state !== "checking") actions.push({ key: "check", label: "Check again", hint: "" })
   if (ready) {
     // Three kinds of control, each drawn as what it is: the screen itself
