@@ -83,6 +83,28 @@ class ScreenChecksWithoutSound(Bash, unittest.TestCase):
         self.assertEqual(out.stdout.strip(), "SDL_AUDIODRIVER=dummy")
 
 
+class PluginBindingLoops(Bash, unittest.TestCase):
+    """A binding loop counts when it is the plugin's: at its own file or at none."""
+
+    def has_loop(self, line):
+        script = self.session() + textwrap.dedent("""\
+            printf '%s\\n' "$LINE" | sed "s|@PLUGIN@|$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID|" | rig_log_has_plugin_binding_loop
+            """)
+        return self.bash(script, env={"LINE": line}).returncode == 0
+
+    def test_a_loop_in_the_plugin_counts(self):
+        self.assertTrue(self.has_loop('WARN scene: QML Item at qs://@PLUGIN@/MessagesView.qml[12:5]: Binding loop detected for property "height":'))
+
+    def test_a_loop_at_no_file_counts(self):
+        self.assertTrue(self.has_loop('WARN scene: QML Item: Binding loop detected for property "height":'))
+
+    def test_a_loop_in_omarchys_own_notifications_does_not(self):
+        self.assertFalse(self.has_loop('WARN scene: QML Service at file:///usr/share/omarchy/shell/plugins/notifications/Service.qml[23:1]: Binding loop detected for property "layout":'))
+
+    def test_a_log_without_a_loop_has_none(self):
+        self.assertFalse(self.has_loop("INFO qml: nothing here"))
+
+
 class ApkSigner(Bash, unittest.TestCase):
     """The pinned APK's signer check: BASH_ENV cannot change the java it runs, and no JDK says so."""
 

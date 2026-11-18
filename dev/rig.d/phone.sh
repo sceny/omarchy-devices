@@ -613,14 +613,23 @@ rig_demo_conversation_opens() {
   return 1
 }
 
+# Whether a log on stdin has a binding loop of the plugin's: one at a file of
+# the installed plugin, or at no file. One at another QML file is the shell's
+# own (Omarchy's notifications, showing the emulator's notice), not ours.
+rig_log_has_plugin_binding_loop() {
+  awk -v dir="$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID/" '
+    /Binding loop detected/ && (index($0, dir) || !/\.qml\[[0-9]/) { found = 1 }
+    END { exit !found }'
+}
+
 rig_shell_log_has_no_binding_loop_since() {
-  ! tail -n +"$(($1 + 1))" "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
+  ! tail -n +"$(($1 + 1))" "$RIG_LOGS/shell.log" | rig_log_has_plugin_binding_loop
 }
 
 # From the shell's latest start: a panel is made on its first opening, and a
 # binding loop in it is logged once, then.
 rig_shell_log_has_no_binding_loop_since_start() {
-  ! awk '/^--- shell start/ { buf = "" } { buf = buf "\n" $0 } END { print buf }' "$RIG_LOGS/shell.log" | grep -q "Binding loop detected"
+  ! awk '/^--- shell start/ { buf = "" } { buf = buf "\n" $0 } END { print buf }' "$RIG_LOGS/shell.log" | rig_log_has_plugin_binding_loop
 }
 
 # A shell started again, its panel opened while the first data is still
