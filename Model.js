@@ -1963,7 +1963,7 @@ function contactFind(app, contact) {
   if (!contact) return { label: "", note: "" }
   if (contact.stored === "phone") return { label: "", note: "On the phone only" }
   if (name === "" || !app || !app.find) return { label: "", note: "" }
-  return { label: "Find in " + String(app.name), note: "" }
+  return { label: "Find in " + String(app.name) + " (copies the name for its search)", note: "" }
 }
 
 // What the page says when it has nothing to show: the device decides whether

@@ -326,7 +326,14 @@ one only with the owner.
   call and Bluetooth marks on its chip and the Calls here controls stay,
   nothing KDE Connect carries shows, and its status says *Calls only*
   (*Screen, apps and calls only* with the screen link). The away card shows
-  only when no gateway reaches it.
+  only when no gateway reaches it. The one exception is adb's match
+  (`match_adb`): a Wi-Fi or mesh entry counts only at an address KDE
+  Connect reports for the device (`reachableAddresses`) or the mesh address
+  the user picked or confirmed (`network.json`), and a USB entry by the
+  device's own serial, so a device with KDE Connect away, no recorded mesh
+  address and only Wi-Fi adb is not matched and its screen link is not
+  offered. The user connects it over USB once, or picks its mesh address
+  on its From anywhere page.
 - **Using a feature gets it working.** What a feature needs is asked where
   it is used, once, never ahead: notification access in Notifications,
   SMS on the Messages page, contacts on the Contacts page (an ask belongs to

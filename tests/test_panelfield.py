@@ -332,6 +332,8 @@ class PanelFieldBehaviour(unittest.TestCase):
             "the mouse area is off": (
                 "acceptedButtons: Qt.LeftButton | Qt.MiddleButton",
                 "enabled: false\n    acceptedButtons: Qt.LeftButton | Qt.MiddleButton"),
+            "a growing field scrolls in the height it has on the way": (
+                "var room = Math.max(height, field._wantHeight - field._frameHeight)", "var room = height"),
         }
         for name, mutation in mutations.items():
             with self.subTest(name):

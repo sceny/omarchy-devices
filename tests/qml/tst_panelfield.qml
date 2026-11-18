@@ -184,6 +184,28 @@ TestCase {
     compare(g.text, "one two")
   }
 
+  Component { id: glideC; PanelField { width: 200; multiline: true; maxLines: 4; motion: 1 } }
+
+  // The lines move with the growing edge: a new line scrolls nothing while
+  // the box is still on its way to the height that holds it.
+  function test_a_new_line_does_not_scroll_ahead_of_the_growing_field() {
+    if (field) field.destroy()
+    field = createTemporaryObject(glideC, tc)
+    field.forceActiveFocus()
+    field.text = "one\ntwo"
+    field.cursorPosition = field.text.length
+    wait(400)
+    var flick = edit(field).parent.parent
+    var two = field.implicitHeight
+    keyClick(Qt.Key_Return, Qt.ShiftModifier)
+    keyClick(Qt.Key_X)
+    verify(field.implicitHeight < two + 4, "still growing")
+    compare(flick.contentY, 0)
+    wait(400)
+    verify(field.implicitHeight > two)
+    compare(flick.contentY, 0)
+  }
+
   function test_the_cursor_stays_in_view_in_a_full_multiline_field() {
     var f = makeMulti("one\ntwo\nthree\nfour\nfive")
     f.cursorPosition = f.text.length
