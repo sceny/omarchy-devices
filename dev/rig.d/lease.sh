@@ -77,10 +77,13 @@ rig_ppid() {
 rig_tag_scan() {
   # rig_tag_scan [rig-id] — "<rig id> <pid>" for every process of this user
   # that carries a rig tag. The caller and its ancestors are left out, so a
-  # teardown never kills the process that is running it.
-  python3 - "${1:-}" <<'PY'
+  # teardown never kills the process that is running it. Under OPR_RIG_SCOPE
+  # (the selftest's private registry) only processes carrying the same scope
+  # count: a real rig's processes are not in that registry, and would read as
+  # leaks to sweep.
+  python3 - "${1:-}" "${OPR_RIG_SCOPE:-}" <<'PY'
 import os, sys
-want = sys.argv[1]
+want, scope = sys.argv[1], sys.argv[2].encode()
 skip, pid = set(), os.getpid()
 while pid > 1:
     skip.add(pid)
@@ -96,10 +99,12 @@ for entry in os.listdir("/proc"):
         continue
     try:
         with open("/proc/%s/environ" % entry, "rb") as f:
-            env = f.read()
+            env = f.read().split(b"\0")
     except Exception:
         continue
-    for item in env.split(b"\0"):
+    if scope and b"OPR_RIG_SCOPE=" + scope not in env:
+        continue
+    for item in env:
         if item.startswith(key):
             tag = item[len(key):].decode("utf-8", "replace")
             if not want or tag == want:

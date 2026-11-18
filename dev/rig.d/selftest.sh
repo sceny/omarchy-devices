@@ -8,7 +8,9 @@
 # few tagged `sleep` processes, one of them detached into its own session the
 # way a daemon is. Then it ends owners the hard ways and checks the rig is gone.
 # Everything happens under a private registry and a private runtime dir; the
-# real registry and the owner's runtime dir are never read or written.
+# real registry and the owner's runtime dir are never read or written. Its
+# processes carry a scope (OPR_RIG_SCOPE) and its scans see only that scope, so
+# a real rig running beside it is not a leak to its reap (a bystander proves it).
 #
 # shellcheck shell=bash
 
@@ -147,7 +149,8 @@ cmd_selftest() {
   mkdir -p -m 700 "$RIG_RUNTIME_ROOT"
   rig_ensure_root
   RIG_KEEPER_INTERVAL=1
-  export RIG_TMP_ROOT RIG_RUNTIME_ROOT RIG_KEEPER_INTERVAL
+  OPR_RIG_SCOPE=$scratch
+  export RIG_TMP_ROOT RIG_RUNTIME_ROOT RIG_KEEPER_INTERVAL OPR_RIG_SCOPE
 
   if [[ ${1:-} == cold ]]; then
     st_selftest_cold "$scratch/cold-rigs"
@@ -156,8 +159,12 @@ cmd_selftest() {
     return
   fi
 
-  local owner_a owner_b owner_c a b c d
+  local owner_a owner_b owner_c a b c d bystander
   rig_say "Selftest: lease, keeper, ps and reap (private registry $RIG_TMP_ROOT)"
+
+  # A real rig's process: tagged, out of the scope, its rig not in this registry.
+  env -u OPR_RIG_SCOPE OPR_RIG_ID=bystander.20000101-000000.fedcba sleep 600 >/dev/null 2>&1 &
+  bystander=$!
 
   sleep 600 &
   owner_a=$!
@@ -229,6 +236,8 @@ cmd_selftest() {
   # The stand-in owners and anything else this test started.
   kill "$owner_a" "$owner_b" 2>/dev/null || true
   cmd_reap --all >/dev/null 2>&1
+  st_check "a real rig's process outside the test's scope is left alone" kill -0 "$bystander"
+  kill "$bystander" 2>/dev/null || true
   rm -rf "$scratch"
   st_check "the test registry is removed" st_expr '[[ ! -e $scratch ]]'
   st_summary

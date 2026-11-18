@@ -320,6 +320,12 @@ rig_guard_nested_display() {
   # in its own runtime dir, so the names can match while the sockets differ.
   [[ $XDG_RUNTIME_DIR != "$RIG_HOST_RUNTIME_DIR" ]] ||
     rig_die "guard: the rig runtime dir is the owner's ($RIG_HOST_RUNTIME_DIR)"
+  # A lost keeper means the rig's processes were ended from outside it, the
+  # compositor with them: say that, not the missing socket it leaves.
+  local keeper
+  keeper=$(<"$RIG_SESSION/keeper.pid") 2>/dev/null || keeper=""
+  [[ -z $keeper || -d /proc/$keeper ]] ||
+    rig_die "guard: the rig's keeper (pid $keeper) is gone, so something outside the rig ended its processes; 'dev/rig down', then 'up'"
   [[ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]] ||
     rig_die "guard: $WAYLAND_DISPLAY is not a socket in the rig runtime dir"
 }
