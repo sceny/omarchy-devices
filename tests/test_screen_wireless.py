@@ -137,9 +137,9 @@ class Transport(unittest.TestCase):
         self.assertIn("USB cable", bridge.WIRELESS_USB)
 
     def test_each_address_is_tried_in_order(self):
-        fake = FakeAdb(answers={"100.64.0.9:5555": "device"}, serials={"100.64.0.9:5555": "S1"})
-        self.assertEqual(turn_on(fake, ["192.0.2.7", "100.64.0.9"])[0], True)
-        self.assertEqual(fake.connected(), ["192.0.2.7:5555", "100.64.0.9:5555"])
+        fake = FakeAdb(answers={"100.101.102.103:5555": "device"}, serials={"100.101.102.103:5555": "S1"})
+        self.assertEqual(turn_on(fake, ["192.0.2.7", "100.101.102.103"])[0], True)
+        self.assertEqual(fake.connected(), ["192.0.2.7:5555", "100.101.102.103:5555"])
 
     def test_no_serial_remembered_takes_the_connection_found(self):
         fake = FakeAdb(answers={"192.0.2.7:5555": "device"})
