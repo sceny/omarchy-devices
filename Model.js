@@ -1683,9 +1683,17 @@ function threadForNotification(n, threads) {
 // A sign-in or verification code in a message, as the digits to paste: four
 // to eight of them, or two groups of three or four ("482 913", "G-482913"),
 // in a message that says it is a code. A number next to a currency, a
-// percent or a time is not one, and neither is a run as long as a phone
+// percent or a time is not one, nor a year in a date (next to a month name,
+// or the first part of YYYY-MM-DD), and neither is a run as long as a phone
 // number. Several: the first of six digits, else the first.
 var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|koodi)\b/i
+var MONTH = "(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\\.?"
+var YEAR_AFTER_MONTH = new RegExp("\\b" + MONTH + "(?:\\s+\\d{1,2}(?:st|nd|rd|th)?)?,?\\s+$", "i")
+var YEAR_BEFORE_MONTH = new RegExp("^,?\\s+" + MONTH + "(?![a-z])", "i")
+function isYearInDate(before, run, after) {
+  if (!/^\d{4}$/.test(run)) return false
+  return /^-\d{1,2}-\d{1,2}(?!\d)/.test(after) || YEAR_AFTER_MONTH.test(before) || YEAR_BEFORE_MONTH.test(after)
+}
 function oneTimeCode(text) {
   var s = String(text || "")
   if (!CODE_WORDS.test(s)) return ""
@@ -1693,6 +1701,8 @@ function oneTimeCode(text) {
   var re = /(^|[^\w$€£¥.,:\/+-]|[A-Z]-)(\d{3,4}[ -]\d{3,4}|\d{4,8})(?![\w%$€£:\/]|[.,]\d)/g
   var m
   while ((m = re.exec(s)) !== null) {
+    var at = m.index + m[1].length
+    if (isYearInDate(s.slice(0, at), m[2], s.slice(at + m[2].length))) continue
     var digits = m[2].replace(/\D/g, "")
     if (digits.length >= 4 && digits.length <= 8) found.push(digits)
   }

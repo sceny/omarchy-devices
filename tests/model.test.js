@@ -2376,6 +2376,13 @@ test("oneTimeCode: the code a message says it carries, as digits to paste", () =
   assert.equal(M.oneTimeCode("Call 5555550123 for your code"), "", "a run as long as a phone number is not a code")
   assert.equal(M.oneTimeCode("Call +15145550123 about your code"), "", "a phone number is not a code")
   assert.equal(M.oneTimeCode("Code 1.5% off"), "", "nor a percent")
+  // A year in a date is not a code (#580).
+  assert.equal(M.oneTimeCode("Security alert: new sign-in on 10 Nov 2025"), "", "a year after a month name")
+  assert.equal(M.oneTimeCode("Your password was changed on 2025-11-10"), "", "the year of YYYY-MM-DD")
+  assert.equal(M.oneTimeCode("New sign-in on November 10, 2025"), "", "a year after a month and day")
+  assert.equal(M.oneTimeCode("Sign-in from 2025 Nov 10"), "", "a year before a month name")
+  assert.equal(M.oneTimeCode("Your code is 4829, sent 10 Nov 2025"), "4829", "the code beside a date is still found")
+  assert.equal(M.oneTimeCode("Your code is 2025. Do not share it"), "2025", "a lone four-digit run is still a code")
   assert.equal(M.oneTimeCode(""), "")
   assert.equal(M.oneTimeCode(undefined), "")
 })
