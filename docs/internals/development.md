@@ -283,8 +283,9 @@ cold computer and the upgrade. Three points differ from a rig on a desktop:
   shell starts again.
 - A cold computer needs `dev/rig cold daemon` after the plugin starts KDE
   Connect, so the phone's redirects exist, and `phone accept` (the app opened)
-  before the device shows in Add a device. `phone pair` answers the app's
-  first-launch notification question itself. A click is `dev/rig exec --
+  before the device shows in Add a device. `phone pair` needs a daemon on the
+  rig's bus (the plugin's, or `cold daemon`); it answers the app's
+  first-launch notification question and opens the app itself. A click is `dev/rig exec --
   dev/pointer click X Y`.
 - Test files that build a 3 GB picture do not fit beside a running rig: run
   `tests.test_sandbox` on the host.
@@ -359,7 +360,7 @@ the plan; a firewall rule open to everyone is refused; a second install of the
 same package is logged `ASKED-AGAIN`), ufw's rules are a private copy
 bind-mounted inside the rig's namespace, no daemon runs, and the phone's KDE
 Connect is new (data cleared, nothing granted). `dev/rig cold status` prints
-the password prompts and installs, `cold exec -- <cmd>` runs a command as the
+the password prompts and installs (on a warm rig, that it is warm), `cold exec -- <cmd>` runs a command as the
 shell sees the computer, `cold daemon` starts the daemon for a step the plugin
 cannot take itself, and `cold end` turns the rig warm again: ufw's own rules,
 the shell on the rig's `PATH`, a daemon on its bus. The phone stays new (`phone

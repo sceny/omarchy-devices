@@ -28,7 +28,7 @@ rig_cold_phone_reset() {
   rig_ok "the phone's KDE Connect is new: nothing paired, nothing granted"
 }
 
-rig_cold_daemon_up() { busctl --user list --no-pager 2>/dev/null | grep -q 'org.kde.kdeconnect '; }
+rig_cold_daemon_up() { rig_kdcd_up; }
 
 # The pid of the daemon that owns KDE Connect's name on the rig bus, whoever
 # started it (the plugin, under the cold PATH, records none). The rig enters no
@@ -111,7 +111,10 @@ cmd_cold() {
     rig_kdcd_start
     ;;
   status)
-    [[ -n $(rig_cold_path) ]] || rig_die "cold: this rig is warm"
+    if [[ -z $(rig_cold_path) ]]; then
+      rig_ok "warm: the rig's own PATH, ufw rules and daemon ('dev/rig cold begin' makes it cold)"
+      return 0
+    fi
     python3 "$RIG_DIR/rig.d/cold.py" status --dir "$dir"
     cat "$dir/cold.log" 2>/dev/null || true
     ;;

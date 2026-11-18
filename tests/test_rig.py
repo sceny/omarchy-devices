@@ -156,34 +156,81 @@ class ApkSigner(Bash, unittest.TestCase):
 
 
 class PhonePairAfterColdBegin(Bash, unittest.TestCase):
-    """`phone pair` answers the first launch's notification dialog before it pairs."""
+    """`phone pair` on a cleared app: the daemon must be there, the dialog answered, the app opened."""
 
-    def test_pair_allows_notifications_first(self):
+    def pair(self, daemon=True):
         calls = os.path.join(self.tmp, "calls")
         out = self.bash(self.session() + textwrap.dedent(f"""\
             rig_select() {{ :; }}
             rig_export_env() {{ :; }}
             rig_guard_sandbox() {{ :; }}
             RIG_NETNS_PID=1
+            rig_kdcd_up() {{ {"true" if daemon else "false"}; }}
             rig_adb_shell() {{ printf 'adb shell %s\\n' "$*" >>{calls}; }}
             rig_kdc_pair() {{ printf 'pair\\n' >>{calls}; }}
+            : >{calls}
             cmd_phone pair
             """))
-        self.assertEqual(out.returncode, 0, out.stderr)
         with open(calls) as f:
-            lines = f.read().splitlines()
-        self.assertEqual(lines, [
+            return out, f.read().splitlines()
+
+    def test_pair_allows_notifications_and_opens_the_app_first(self):
+        out, calls = self.pair()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(calls, [
             "adb shell pm grant org.kde.kdeconnect_tp android.permission.POST_NOTIFICATIONS",
+            "adb shell am start -n org.kde.kdeconnect_tp/org.kde.kdeconnect.ui.MainActivity",
             "pair",
         ])
+
+    def test_pair_with_no_daemon_says_how_to_start_one(self):
+        out, calls = self.pair(daemon=False)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("no kdeconnectd on the rig bus", out.stderr)
+        self.assertIn("dev/rig cold daemon", out.stderr)
+        self.assertEqual(calls, [])
 
     def test_pair_grants_nothing_the_plugin_grants_itself(self):
         with open(os.path.join(DEV, "rig.d", "phone.sh")) as f:
             text = f.read()
-        body = text[text.index("rig_kdc_allow_notifications() {"):]
+        body = text[text.index("rig_kdc_app_ready() {"):]
         body = body[:body.index("\n}\n")]
         for grant in ("allow_listener", "READ_SMS", "READ_CONTACTS", "MANAGE_EXTERNAL_STORAGE"):
             self.assertNotIn(grant, body)
+
+
+class ColdStatus(Bash, unittest.TestCase):
+    """`cold status` reports a warm rig; it is not a failure."""
+
+    def test_a_warm_rig_is_reported_and_succeeds(self):
+        out = self.bash(self.session() + textwrap.dedent("""\
+            rig_select() { :; }
+            rig_export_env() { :; }
+            rig_guard_sandbox() { :; }
+            rig_guard_nested_display() { :; }
+            RIG_NETNS_PID=1
+            cmd_cold status
+            """))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("warm", out.stderr)
+        self.assertNotIn("✗", out.stderr)
+
+
+class SelftestReadsAllOfPs(Bash, unittest.TestCase):
+    """The selftest's ps checks read ps's whole output: grep -q quitting early is no failure."""
+
+    def test_a_rig_listed_before_a_long_tail_is_found(self):
+        # More than a pipe holds after the match, so `cmd_ps | grep -q` meets SIGPIPE.
+        out = self.bash(textwrap.dedent("""\
+            cmd_ps() { echo "rig-a live"; head -c 300000 /dev/zero | tr '\\0' x; echo; }
+            st_listed rig-a && echo listed
+            ! st_ps_says rig-z && echo absent
+            """))
+        self.assertEqual(out.stdout.split(), ["listed", "absent"], out.stderr)
+
+    def test_the_selftest_never_pipes_ps_into_grep_q(self):
+        with open(os.path.join(DEV, "rig.d", "selftest.sh")) as f:
+            self.assertNotIn("cmd_ps | grep -q", f.read())
 
 
 class ColdEnd(Bash, unittest.TestCase):
