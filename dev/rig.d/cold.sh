@@ -42,10 +42,17 @@ rig_cold_end() {
   # Back to warm: ufw's real rules, the shell on the rig's own PATH and a daemon
   # on the rig's bus. What the cold run installed goes with the cold PATH. The
   # phone's reset cannot be undone, so the phone stays new.
-  local dir path
+  local dir path pid=""
   dir=$(rig_cold_dir)
   path=$(rig_cold_path)
   [[ -n $path ]] || rig_die "cold end: this rig is warm already"
+  # The daemon's pid is read before anything changes: with none, the rig stays
+  # cold as it was.
+  if rig_cold_daemon_up; then
+    pid=$(rig_cold_daemon_pid)
+    [[ -n $pid ]] ||
+      rig_die "cold end: kdeconnectd is on the rig bus but the bus names no pid for it; the rig stays cold"
+  fi
   # `begin` bound the private rules once, and refuses on a cold rig.
   "${RIG_IN_NS[@]}" umount /etc/ufw/user.rules ||
     rig_die "cold end: could not unbind the private firewall rules; the rig stays cold"
@@ -53,11 +60,8 @@ rig_cold_end() {
   rig_state_set cold_path ""
   # Kept for the run's record; a new `begin` starts from an empty directory.
   [[ -d $dir ]] && mv "$dir" "$dir-ended-$(date -u +%Y%m%d-%H%M%S)"
-  if rig_cold_daemon_up; then
+  if [[ -n $pid ]]; then
     # Recorded, so `down` and the next `begin` stop it like one `up` started.
-    local pid
-    pid=$(rig_cold_daemon_pid)
-    [[ -n $pid ]] || rig_die "cold end: kdeconnectd is on the rig bus but the bus names no pid for it"
     rig_state_set kdeconnectd_pid "$pid"
     rig_ok "kdeconnectd is on the rig bus (pid $pid), kept as the rig's"
   else

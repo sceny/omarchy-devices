@@ -112,6 +112,9 @@ st_selftest_cold() {
     st_expr "[[ \$(rig_state_read '$s/rig.state' kdeconnectd_pid) == 4242 ]]"
   s=$(st_cold_end "$registry" cold up-nopid ok)
   st_check "a daemon the bus names no pid for fails" st_expr "[[ \$(<'$s/status') != 0 ]]"
+  st_check "and the rig stays cold" st_expr "[[ -n \$(rig_state_read '$s/rig.state' cold_path) && -d '$s/cold' ]]"
+  st_check "with its private firewall rules still bound" st_expr "! grep -q '^ns umount' '$s/calls'"
+  st_check "and the shell is not restarted" st_expr "! grep -q '^shell' '$s/calls'"
 
   rig_say "Cold end: refusals"
   s=$(st_cold_end "$registry" warm down ok)
