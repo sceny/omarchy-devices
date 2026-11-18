@@ -1874,11 +1874,13 @@ Panel {
   function openPageMenu(x, y) { menuAt = Qt.point(x, y); pageMenuOpen = true }
   function closePageMenu() { pageMenuOpen = false }
 
-  // An entry of the page menu: every glyph sits centred in one slot, as wide
-  // as the widest (menuGlyphSlot), so the labels start in one straight
-  // column (#555). The Button keeps the label, the hover and the click.
-  readonly property real menuGlyphSlot: Math.max(menuGlyphs.advanceWidth(Model.GLYPH.edit), menuGlyphs.advanceWidth(Model.GLYPH.screen),
-                                                 menuGlyphs.advanceWidth(Model.GLYPH.settings), menuGlyphs.advanceWidth(Model.GLYPH.keyboard))
+  // An entry of the page menu: every glyph's ink sits centred in one slot,
+  // as wide as the widest ink (menuGlyphSlot; an icon's ink can be wider than
+  // its advance), so the labels start in one straight column (#555). The
+  // Button keeps the label, the hover and the click.
+  function menuGlyphInk(glyph) { return Math.ceil(menuGlyphs.tightBoundingRect(glyph).width) }
+  readonly property real menuGlyphSlot: Math.max(menuGlyphInk(Model.GLYPH.edit), menuGlyphInk(Model.GLYPH.screen),
+                                                 menuGlyphInk(Model.GLYPH.settings), menuGlyphInk(Model.GLYPH.keyboard))
   component MenuEntry: Button {
     id: entry
     property string glyph: ""
@@ -1889,16 +1891,14 @@ Panel {
     foreground: root.foreground
     fontFamily: root.fontFamily
     fontSize: Style.font.bodySmall
-    Text {
-      textFormat: Text.PlainText
+    OpticalGlyph {
       x: entry._reservedContentLeftInset - Style.spacing.controlGap - root.menuGlyphSlot
       width: root.menuGlyphSlot
-      anchors.verticalCenter: parent.verticalCenter
-      horizontalAlignment: Text.AlignHCenter
+      height: parent.height
       text: entry.glyph
       color: entry.foreground
-      font.family: entry.fontFamily
-      font.pixelSize: Style.font.icon
+      fontFamily: entry.fontFamily
+      fontSize: Style.font.icon
     }
     TextMetrics { id: labelWidth; text: entry.text; font.family: entry.fontFamily; font.pixelSize: entry.fontSize }
   }
