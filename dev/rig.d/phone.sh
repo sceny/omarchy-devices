@@ -287,18 +287,38 @@ rig_kdc_apk() {
     rm -f "$apk"
     return 1
   }
-  local apksigner
+  local apksigner out
   apksigner=$(ls "$RIG_ANDROID_SDK"/build-tools/*/apksigner 2>/dev/null | tail -n1)
-  if [[ -n $apksigner ]]; then
-    signer=$("$apksigner" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-    [[ $signer == "$RIG_KDC_APK_SIGNER_SHA256" ]] || {
-      rig_fail "KDE Connect APK signer ${signer:-unknown} is not the pinned one"
+  if [[ -z $apksigner ]]; then
+    rig_warn "no apksigner in the SDK build-tools; the APK is checked by hash only"
+  elif ! rig_has_jdk; then
+    # apksigner is a Java program; without a JDK it prints no signer at all.
+    rig_warn "no JDK (no java on PATH or in JAVA_HOME), so apksigner cannot run; the APK is checked by hash only"
+  else
+    out=$("$apksigner" verify --print-certs "$apk" 2>&1)
+    signer=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$out")
+    [[ -n $signer ]] || {
+      rig_fail "apksigner read no signer from the KDE Connect APK: $(head -n1 <<<"$out")"
       return 1
     }
-  else
-    rig_warn "no apksigner in the SDK build-tools; the APK is checked by hash only"
+    [[ $signer == "$RIG_KDC_APK_SIGNER_SHA256" ]] || {
+      rig_fail "KDE Connect APK signer $signer is not the pinned one"
+      return 1
+    }
   fi
   printf '%s\n' "$apk"
+}
+
+rig_has_jdk() {
+  [[ -n ${JAVA_HOME:-} && -x $JAVA_HOME/bin/java ]] || command -v java >/dev/null 2>&1
+}
+
+rig_kdc_allow_notifications() {
+  # Android asks on the app's first launch whether it may post notifications,
+  # and that dialog covers the pairing prompt. A cleared app (`dev/rig cold
+  # begin`) asks again. This is the answer a person taps; the grants the plugin
+  # makes itself (notification access, SMS, contacts, files) stay its own.
+  rig_adb_shell pm grant org.kde.kdeconnect_tp android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
 }
 
 rig_kdc_app_setup() {
@@ -692,6 +712,7 @@ cmd_phone() {
     ;;
   pair)
     RIG_EMU_PID=$(rig_state_get emulator_pid || echo "")
+    rig_kdc_allow_notifications
     rig_kdc_pair
     ;;
   accept)

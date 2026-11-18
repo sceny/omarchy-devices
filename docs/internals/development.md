@@ -277,12 +277,14 @@ cold computer and the upgrade. Three points differ from a rig on a desktop:
 
 - `dev sync --tree DIR --as live` puts the tag an upgrade starts from beside
   the tree (a tag has no `dev/`: copy the candidate's in). `dev/rig sync` removes and adds the
-  plugin, which empties its `shell.json` entry; an upgrade is `omarchy plugin
-  update` after the package repo (`<session>/package.git`) has the candidate's
-  files as a new commit.
+  plugin, which empties its `shell.json` entry; `dev/rig upgrade [--tree DIR]`
+  is the upgrade: the candidate's files become the package repo's next commit,
+  `omarchy plugin update` fast-forwards the installed plugin to it, and the
+  shell starts again.
 - A cold computer needs `dev/rig cold daemon` after the plugin starts KDE
   Connect, so the phone's redirects exist, and `phone accept` (the app opened)
-  before the device shows in Add a device. A click is `dev/rig exec --
+  before the device shows in Add a device. `phone pair` answers the app's
+  first-launch notification question itself. A click is `dev/rig exec --
   dev/pointer click X Y`.
 - Test files that build a 3 GB picture do not fit beside a running rig: run
   `tests.test_sandbox` on the host.
@@ -301,6 +303,7 @@ screenshots and recordings (`dev shot`, `dev record`, `dev pull`).
 
 ```bash
 dev/rig sync                # install the working tree as the plugin
+dev/rig upgrade             # upgrade it to the working tree as `omarchy plugin update` does (shell.json kept)
 dev/rig ipc status          # the panel's IPC, as in the next section
 dev/rig screenshot x.png    # the nested shell, hidden or not
 dev/rig phone status        # battery N, notify T X, sms 555... X, call 555..., hangup N, shot, pair
@@ -358,7 +361,10 @@ bind-mounted inside the rig's namespace, no daemon runs, and the phone's KDE
 Connect is new (data cleared, nothing granted). `dev/rig cold status` prints
 the password prompts and installs, `cold exec -- <cmd>` runs a command as the
 shell sees the computer, `cold daemon` starts the daemon for a step the plugin
-cannot take itself. The log is `cold/cold.log` in the rig's session folder.
+cannot take itself, and `cold end` turns the rig warm again: ufw's own rules,
+the shell on the rig's `PATH`, a daemon on its bus. The phone stays new (`phone
+pair` pairs it again). The log is `cold/cold.log` in the rig's session folder,
+moved aside by `cold end`.
 It cannot prove pacman's resolution, polkit's prompt, ufw's engine, user
 systemd, BlueZ or a Bluetooth radio, or real discovery. Mesh tools are hidden
 so no host peer shows in a check.

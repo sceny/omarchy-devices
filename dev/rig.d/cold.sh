@@ -28,6 +28,33 @@ rig_cold_phone_reset() {
   rig_ok "the phone's KDE Connect is new: nothing paired, nothing granted"
 }
 
+rig_cold_daemon_up() { busctl --user list --no-pager 2>/dev/null | grep -q 'org.kde.kdeconnect '; }
+
+rig_cold_end() {
+  # Back to warm: ufw's real rules, the shell on the rig's own PATH and a daemon
+  # on the rig's bus. What the cold run installed goes with the cold PATH. The
+  # phone's reset cannot be undone, so the phone stays new.
+  local dir path
+  dir=$(rig_cold_dir)
+  path=$(rig_cold_path)
+  [[ -n $path ]] || rig_die "cold end: this rig is warm already"
+  # `begin` bound the private rules once, and refuses on a cold rig.
+  "${RIG_IN_NS[@]}" umount /etc/ufw/user.rules ||
+    rig_die "cold end: could not unbind the private firewall rules; the rig stays cold"
+  rig_ok "ufw's rules are the rig's own again"
+  rig_state_set cold_path ""
+  # Kept for the run's record; a new `begin` starts from an empty directory.
+  [[ -d $dir ]] && mv "$dir" "$dir-ended-$(date -u +%Y%m%d-%H%M%S)"
+  if rig_cold_daemon_up; then
+    rig_ok "kdeconnectd is on the rig bus"
+  else
+    rig_kdcd_start
+  fi
+  cmd_restart_shell
+  rig_ok "warm: restarted the shell on the rig's PATH"
+  rig_warn "the phone is still new: its KDE Connect was cleared and nothing grants it back. 'dev/rig phone pair' pairs it again; the plugin asks for its permissions where they are used. 'dev/rig down' then 'dev/rig up' gives a phone set up as 'up' leaves it."
+}
+
 cmd_cold() {
   rig_select || rig_die "no rig for this owner; run 'dev/rig up' first"
   rig_export_env
@@ -59,6 +86,7 @@ cmd_cold() {
     cmd_restart_shell
     rig_ok "cold: restarted the shell on the cold PATH"
     ;;
+  end) rig_cold_end ;;
   path) rig_cold_path ;;
   daemon)
     # Starts the rig's daemon for a step the plugin cannot take itself (the
@@ -78,6 +106,6 @@ cmd_cold() {
     cd "$RIG_PLUGIN_SRC_ABS" || exit 1
     exec "${RIG_IN_NS[@]}" env "PATH=$(rig_cold_path)" "$@"
     ;;
-  *) rig_die "cold: begin | status | path | daemon | exec -- <command>" ;;
+  *) rig_die "cold: begin | end | status | path | daemon | exec -- <command>" ;;
   esac
 }

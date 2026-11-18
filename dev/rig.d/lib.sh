@@ -215,6 +215,11 @@ rig_export_env() {
   unset XDG_SESSION_ID XDG_SESSION_TYPE XDG_SESSION_DESKTOP XDG_VTNR
   unset NOTIFY_SOCKET
 
+  # No sound device. The rig's runtime dir has no PipeWire or Pulse socket, so
+  # the scrcpy a screen check opens finds no audio output and exits before its
+  # window maps. SDL's dummy driver plays into nothing, on any host.
+  export SDL_AUDIODRIVER=dummy
+
   # The display, and only the rig's. Every tool that reaches a compositor —
   # `omarchy plugin enable` through `qs ipc`, `hyprctl`, `grim` — picks its
   # target out of these two variables, so inheriting the owner's values would
@@ -539,6 +544,35 @@ rig_build_package_repo() {
   # clone/validate/move path runs without needing anything published.
   rm -rf "$RIG_PKG_REPO"
   mkdir -p "$RIG_PKG_REPO"
+  rig_package_tree
+  (
+    cd "$RIG_PKG_REPO" || exit 1
+    git init -q -b main
+    git -c user.email=rig@localhost -c user.name=rig add -A
+    git -c user.email=rig@localhost -c user.name=rig \
+      commit -q -m "rig package of $RIG_PLUGIN_ID"
+  ) >>"$RIG_LOGS/package.log" 2>&1 || rig_die "could not build the package repo"
+
+  rig_ok "package repo built: $RIG_PKG_REPO"
+}
+
+rig_package_commit() {
+  # The checkout as the package repo's next commit, the way a release reaches a
+  # user: `omarchy plugin update` fast-forwards the installed clone to it.
+  [[ -d $RIG_PKG_REPO/.git ]] || rig_die "no package repo at $RIG_PKG_REPO; 'dev/rig sync' builds it"
+  find "$RIG_PKG_REPO" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+  rig_package_tree
+  (
+    cd "$RIG_PKG_REPO" || exit 1
+    git -c user.email=rig@localhost -c user.name=rig add -A
+    git -c user.email=rig@localhost -c user.name=rig \
+      commit -q --allow-empty -m "rig upgrade of $RIG_PLUGIN_ID"
+  ) >>"$RIG_LOGS/package.log" 2>&1 || rig_die "could not commit the upgrade to the package repo"
+  rig_ok "package repo has the checkout as a new commit"
+}
+
+rig_package_tree() {
+  # The checkout's files into the package repo's work tree.
   local path
   if git -C "$RIG_PLUGIN_SRC_ABS" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     # In a git checkout the package is what the repo ships: every tracked or
@@ -559,16 +593,6 @@ rig_build_package_repo() {
   fi
   [[ -f $RIG_PKG_REPO/manifest.json ]] ||
     rig_die "no manifest.json in the package built from $RIG_PLUGIN_SRC_ABS"
-
-  (
-    cd "$RIG_PKG_REPO" || exit 1
-    git init -q -b main
-    git -c user.email=rig@localhost -c user.name=rig add -A
-    git -c user.email=rig@localhost -c user.name=rig \
-      commit -q -m "rig package of $RIG_PLUGIN_ID"
-  ) >>"$RIG_LOGS/package.log" 2>&1 || rig_die "could not build the package repo"
-
-  rig_ok "package repo built: $RIG_PKG_REPO"
 }
 
 rig_plugin_installed() {

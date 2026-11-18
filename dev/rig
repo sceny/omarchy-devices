@@ -14,6 +14,10 @@
 #   dev/rig record [--seconds N] [--fps F] [--tail S] [--out DIR] [-- command...]
 #                                        frames of the nested shell as PNGs (and DIR/fps), while the command runs
 #   dev/rig sync                         install the working tree as the plugin and enable it
+#   dev/rig upgrade [--tree DIR]         upgrade the installed plugin to the working tree, as
+#                                        `omarchy plugin update` does (its shell.json entry stays)
+#   dev/rig cold [begin|end|status|path|daemon|exec -- cmd]
+#                                        a computer with none of the plugin's packages, and back
 #   dev/rig ipc <function> [args]        call the panel: dev/rig ipc status, dev/rig ipc open
 #   dev/rig restart-shell                restart only the nested shell (after a .js change)
 #   dev/rig ps [--json]                  every live rig: owner, age, time left
@@ -24,7 +28,8 @@
 #   dev/rig exec -- <command...>         run a command inside the rig (sandbox, bus, namespace)
 #   dev/rig verify-clean                 prove no rig has left anything behind
 #   dev/rig probe -- <command...>        one-off probe in a private runtime dir, cores off
-#   dev/rig selftest                     test the lease, keeper, ps and reap (no compositor needed)
+#   dev/rig selftest [cold]              test the lease, keeper, ps, reap and cold end (no compositor
+#                                        needed); `cold` runs the cold end's part alone
 #   dev/rig --rig <id> <command>         act on one named rig (a part of the id is enough)
 #
 # What it guarantees, and why it exists:
@@ -266,6 +271,40 @@ cmd_sync() {
   rig_guard_sandbox
   rig_guard_nested_shell
   rig_sync_plugin
+}
+
+cmd_upgrade() {
+  # An upgrade as a user gets one: the checkout becomes the package repo's next
+  # commit and `omarchy plugin update` fast-forwards the installed clone, so
+  # the plugin's shell.json entry stays (sync removes and adds, which empties
+  # it). The shell reads a plugin's QML once, so it starts again after.
+  # `--tree DIR` upgrades to another checkout than the one this dev/rig is in.
+  while (($#)); do
+    case $1 in
+    --tree)
+      RIG_PLUGIN_SRC_ABS=$(cd -- "${2:?--tree needs a directory}" && pwd) ||
+        rig_die "upgrade: $2 is not a directory"
+      shift
+      ;;
+    *) rig_die "upgrade: unknown option $1" ;;
+    esac
+    shift
+  done
+  rig_select || rig_die "no rig for this owner; run 'dev/rig up' first"
+  rig_export_env
+  rig_guard_sandbox
+  rig_guard_nested_shell
+  rig_say "Upgrade"
+  rig_plugin_installed || rig_die "upgrade: the plugin is not installed; 'dev/rig sync' installs it"
+  rig_package_commit
+  omarchy plugin update "$RIG_PLUGIN_ID" --yes >>"$RIG_LOGS/plugin.log" 2>&1 ||
+    rig_die "omarchy plugin update failed (see $RIG_LOGS/plugin.log)"
+  [[ $(git -C "$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID" rev-parse HEAD 2>/dev/null) == "$(git -C "$RIG_PKG_REPO" rev-parse HEAD)" ]] ||
+    rig_die "upgrade: the installed plugin is not at the package repo's new commit"
+  rig_ok "omarchy plugin update moved the installed plugin to the new commit"
+  cmd_restart_shell
+  rig_ipc_wait 60 || rig_die "the panel does not answer over IPC after the upgrade; read dev/rig logs shell"
+  rig_ok "upgraded in place; dev/loaded-code compares the running code with the files"
 }
 
 cmd_ipc() {
@@ -732,6 +771,7 @@ phone) cmd_phone "$@" ;;
 cold) cmd_cold "$@" ;;
 ipc) cmd_ipc "$@" ;;
 sync) cmd_sync "$@" ;;
+upgrade) cmd_upgrade "$@" ;;
 ps) cmd_ps "$@" ;;
 reap) cmd_reap "$@" ;;
 adopt) cmd_adopt "$@" ;;
