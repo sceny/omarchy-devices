@@ -287,18 +287,41 @@ rig_kdc_apk() {
     rm -f "$apk"
     return 1
   }
-  local apksigner
+  local apksigner out
   apksigner=$(ls "$RIG_ANDROID_SDK"/build-tools/*/apksigner 2>/dev/null | tail -n1)
-  if [[ -n $apksigner ]]; then
-    signer=$("$apksigner" verify --print-certs "$apk" 2>/dev/null | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
-    [[ $signer == "$RIG_KDC_APK_SIGNER_SHA256" ]] || {
-      rig_fail "KDE Connect APK signer ${signer:-unknown} is not the pinned one"
+  if [[ -z $apksigner ]]; then
+    rig_warn "no apksigner in the SDK build-tools; the APK is checked by hash only"
+  elif ! rig_has_jdk; then
+    # apksigner is a Java program; without a JDK it prints no signer at all.
+    rig_warn "no JDK (no java on PATH or in JAVA_HOME), so apksigner cannot run; the APK is checked by hash only"
+  else
+    out=$("$apksigner" verify --print-certs "$apk" 2>&1)
+    signer=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' <<<"$out")
+    [[ -n $signer ]] || {
+      rig_fail "apksigner read no signer from the KDE Connect APK: $(head -n1 <<<"$out")"
       return 1
     }
-  else
-    rig_warn "no apksigner in the SDK build-tools; the APK is checked by hash only"
+    [[ $signer == "$RIG_KDC_APK_SIGNER_SHA256" ]] || {
+      rig_fail "KDE Connect APK signer $signer is not the pinned one"
+      return 1
+    }
   fi
   printf '%s\n' "$apk"
+}
+
+rig_has_jdk() {
+  [[ -n ${JAVA_HOME:-} && -x $JAVA_HOME/bin/java ]] || command -v java >/dev/null 2>&1
+}
+
+rig_kdc_app_ready() {
+  # Android asks on the app's first launch whether it may post notifications,
+  # and that dialog covers the pairing prompt. A cleared app (`dev/rig cold
+  # begin`) asks again. This is the answer a person taps; the grants the plugin
+  # makes itself (notification access, SMS, contacts, files) stay its own.
+  local pkg=org.kde.kdeconnect_tp
+  rig_adb_shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1
+  # A cleared app is stopped and listens for no daemon until it is opened.
+  rig_adb_shell am start -n "$pkg/org.kde.kdeconnect.ui.MainActivity" >/dev/null 2>&1
 }
 
 rig_kdc_app_setup() {
@@ -360,12 +383,14 @@ rig_kdcd_start() {
   RIG_KDCD_PID=$!
   rig_state_set kdeconnectd_pid "$RIG_KDCD_PID"
   for i in $(seq 1 100); do
-    busctl --user list --no-pager 2>/dev/null | grep -q 'org.kde.kdeconnect ' && break
+    rig_kdcd_up && break
     kill -0 "$RIG_KDCD_PID" 2>/dev/null || rig_die "kdeconnectd died (see $RIG_LOGS/kdeconnectd.log)"
     sleep 0.2
   done
   rig_ok "kdeconnectd on the rig bus (pid $RIG_KDCD_PID), announcing as \"$RIG_KDC_NAME\""
 }
+
+rig_kdcd_up() { busctl --user list --no-pager 2>/dev/null | grep 'org.kde.kdeconnect ' >/dev/null; }
 
 rig_kdc_devices() {
   # rig_kdc_devices <flag> — device ids from kdeconnect-cli (-a reachable,
@@ -692,6 +717,9 @@ cmd_phone() {
     ;;
   pair)
     RIG_EMU_PID=$(rig_state_get emulator_pid || echo "")
+    # The rig bus starts nothing on demand: with no daemon, kdeconnect-cli finds no phone.
+    rig_kdcd_up || rig_die "pair: no kdeconnectd on the rig bus. On a cold rig the plugin's first run starts it; 'dev/rig cold daemon' starts the rig's for a step the plugin cannot take"
+    rig_kdc_app_ready
     rig_kdc_pair
     ;;
   accept)
