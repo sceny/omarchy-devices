@@ -59,7 +59,7 @@ st_fake_rig() {
 }
 
 st_cold_end() {
-  # st_cold_end <registry> <warm|cold> <daemon: up|down> <umount: ok|fails> —
+  # st_cold_end <registry> <warm|cold> <daemon: up|up-nopid|down> <umount: ok|fails> —
   # runs `cold end` on a stand-in rig whose namespace, daemon start and shell
   # restart are recorders. Prints the session dir: `calls` holds what they
   # recorded, `out` the verb's output, `status` its exit.
@@ -81,7 +81,8 @@ st_cold_end() {
     }
     umount=$4 daemon=$3
     RIG_IN_NS=(st_ns)
-    rig_cold_daemon_up() { [[ $daemon == up ]]; }
+    rig_cold_daemon_up() { [[ $daemon == up* ]]; }
+    rig_cold_daemon_pid() { [[ $daemon == up ]] && printf '4242\n'; }
     rig_kdcd_start() { printf 'daemon start\n' >>"$calls"; }
     cmd_restart_shell() { printf 'shell on [%s]\n' "$(rig_cold_path)" >>"$calls"; }
     (rig_cold_end) >"$RIG_SESSION/out" 2>&1
@@ -107,6 +108,10 @@ st_selftest_cold() {
 
   s=$(st_cold_end "$registry" cold up ok)
   st_check "a daemon already on the bus is kept" st_expr "! grep -q 'daemon start' '$s/calls'"
+  st_check "and recorded as the rig's, so the next begin stops it" \
+    st_expr "[[ \$(rig_state_read '$s/rig.state' kdeconnectd_pid) == 4242 ]]"
+  s=$(st_cold_end "$registry" cold up-nopid ok)
+  st_check "a daemon the bus names no pid for fails" st_expr "[[ \$(<'$s/status') != 0 ]]"
 
   rig_say "Cold end: refusals"
   s=$(st_cold_end "$registry" warm down ok)

@@ -30,6 +30,14 @@ rig_cold_phone_reset() {
 
 rig_cold_daemon_up() { busctl --user list --no-pager 2>/dev/null | grep -q 'org.kde.kdeconnect '; }
 
+# The pid of the daemon that owns KDE Connect's name on the rig bus, whoever
+# started it (the plugin, under the cold PATH, records none). The rig enters no
+# pid namespace, so the bus's pid is one `rig_stop_pid` can stop.
+rig_cold_daemon_pid() {
+  busctl --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+    GetConnectionUnixProcessID s org.kde.kdeconnect 2>/dev/null | awk '$1 == "u" {print $2}'
+}
+
 rig_cold_end() {
   # Back to warm: ufw's real rules, the shell on the rig's own PATH and a daemon
   # on the rig's bus. What the cold run installed goes with the cold PATH. The
@@ -46,7 +54,12 @@ rig_cold_end() {
   # Kept for the run's record; a new `begin` starts from an empty directory.
   [[ -d $dir ]] && mv "$dir" "$dir-ended-$(date -u +%Y%m%d-%H%M%S)"
   if rig_cold_daemon_up; then
-    rig_ok "kdeconnectd is on the rig bus"
+    # Recorded, so `down` and the next `begin` stop it like one `up` started.
+    local pid
+    pid=$(rig_cold_daemon_pid)
+    [[ -n $pid ]] || rig_die "cold end: kdeconnectd is on the rig bus but the bus names no pid for it"
+    rig_state_set kdeconnectd_pid "$pid"
+    rig_ok "kdeconnectd is on the rig bus (pid $pid), kept as the rig's"
   else
     rig_kdcd_start
   fi
@@ -78,6 +91,10 @@ cmd_cold() {
     rig_ok "ufw's rules are a private copy with none of KDE Connect's"
     RIG_KDCD_PID=$(rig_state_get kdeconnectd_pid 2>/dev/null || echo "")
     rig_stop_pid "kdeconnectd" "$RIG_KDCD_PID" 10
+    # Also one the rig never recorded (the plugin's, from a cold run before):
+    # a cold run starts with no daemon on the bus.
+    rig_stop_pid "kdeconnectd" "$(rig_cold_daemon_pid)" 10
+    rig_cold_daemon_up && rig_die "cold: kdeconnectd is still on the rig bus"
     rig_state_set kdeconnectd_pid ""
     rm -rf "$XDG_CONFIG_HOME/kdeconnect" "$XDG_DATA_HOME"/kdeconnect* "$XDG_CACHE_HOME/sceny.devices"
     rig_kdcd_config
