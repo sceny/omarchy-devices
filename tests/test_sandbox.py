@@ -15,6 +15,7 @@ The hostile test (`dev/sandbox hostile-test`) proves the same from inside a
 real container; this one runs in CI, where there is no podman.
 """
 
+import calendar
 import importlib.util
 import io
 import json
@@ -1432,6 +1433,46 @@ class StaleRunsKeptWhileMounted(unittest.TestCase):
         r = self.clear(ps="echo sceny-sandbox-1", inspect="exit 1")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(sorted(os.listdir(self.runs)), ["aaaa0001", "aaaa0002"], r.stdout)
+
+
+class DevStatusIsUtc(unittest.TestCase):
+    """dev status prints a session's start and end in UTC with the zone, so a live session never reads as old."""
+
+    def status(self, started, timeout=7200):
+        with tempfile.TemporaryDirectory() as state:
+            script = (
+                f"source {shlex.quote(SANDBOX)} >/dev/null\n"
+                "require_tools() { :; }\n"
+                "pm() {\n"
+                '  case "$*" in\n'
+                "    ps*) echo sceny-sandbox-dev-91765b6c ;;\n"
+                f"    *StartedAt.Unix*) echo {started} ;;\n"
+                f'    *StartedAt*) date -d "@{started}" "+%Y-%m-%d %H:%M:%S.000000000 %z %Z" ;;\n'
+                f"    *Config.Timeout*) echo {timeout} ;;\n"
+                "    *Labels*) echo devices ;;\n"
+                "  esac\n"
+                "}\n"
+                "dev_status\n"
+            )
+            env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": state, "SANDBOX_STATE": state,
+                   "TZ": "America/Vancouver"}
+            return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60, env=env)
+
+    def test_the_start_and_the_end_are_utc_with_the_zone(self):
+        r = self.status(calendar.timegm((2026, 11, 18, 7, 53, 4)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertRegex(
+            r.stdout,
+            r"  91765b6c  devices, started 07:53:04Z, ends 09:53:04Z \((?:ended|<1m left|\d+m left|\d+h\d{2}m left)\)\n",
+        )
+
+    def test_the_time_left_counts_from_the_start(self):
+        r = self.status(int(time.time()) - 1800)
+        self.assertRegex(r.stdout, r"\((?:1h29m|1h30m) left\)\n")
+
+    def test_a_session_past_its_end_says_ended(self):
+        r = self.status(int(time.time()) - 8000)
+        self.assertRegex(r.stdout, r"\(ended\)\n")
 
 
 FAKE_PODMAN = r"""

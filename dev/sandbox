@@ -1357,17 +1357,31 @@ dev_assemble() {
 }
 
 dev_status() {
-  local names n
+  local names n start_unix timeout_s end_unix left left_text
   names=$(dev_names)
   if [[ -z $names ]]; then
     echo "  no session"
     return 0
   fi
   while read -r n; do
-    printf '  %s  %s, started %s, ends %s\n' "${n##*-}" \
+    start_unix=$(pm inspect --format '{{.State.StartedAt.Unix}}' "$n" 2>/dev/null)
+    timeout_s=$(pm inspect --format '{{.Config.Timeout}}' "$n" 2>/dev/null)
+    end_unix=$((start_unix + timeout_s))
+    left=$((end_unix - $(date +%s)))
+    if ((left <= 0)); then
+      left_text=ended
+    elif ((left < 60)); then
+      left_text='<1m left'
+    elif ((left < 3600)); then
+      left_text="$((left / 60))m left"
+    else
+      left_text=$(printf '%dh%02dm left' $((left / 3600)) $((left % 3600 / 60)))
+    fi
+    printf '  %s  %s, started %s, ends %s (%s)\n' "${n##*-}" \
       "$(pm inspect --format "{{index .Config.Labels \"$SB_PROFILE_LABEL\"}}" "$n" 2>/dev/null)" \
-      "$(pm inspect --format '{{.State.StartedAt}}' "$n" 2>/dev/null | cut -c1-19)" \
-      "$(pm inspect --format '{{.Config.Timeout}}s after it started' "$n" 2>/dev/null)"
+      "$(date -u -d "@$start_unix" +%H:%M:%SZ)" \
+      "$(date -u -d "@$end_unix" +%H:%M:%SZ)" \
+      "$left_text"
   done <<<"$names"
 }
 
