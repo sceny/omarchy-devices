@@ -158,10 +158,22 @@ dev/sandbox verify-clean                           # nothing left behind
 - **`develop` is GitHub's, not your checkout's.** A develop run (and a
   `build` without `--ref`) fetches GitHub's `develop` into the sandbox's
   mirror and stops when your checkout's `origin/develop` has another `dev/`
-  (Paperclip: `dev/sandbox.d`): `git fetch origin develop` and run again. A
-  checkout behind only outside `dev/` runs. `summary.json` names the image's
+  (Paperclip: `dev/sandbox.d`): `git fetch origin develop` and run again. It
+  stops rather than building from GitHub's `develop`: the host half of the
+  harness (`dev/sandbox`, the result reader, the filters) is your checkout's,
+  and a build from GitHub's would check with a harness no commit holds. A
+  checkout behind only outside `dev/` runs. A read of either `develop` that
+  comes back empty (a fetch in another checkout rewriting the ref) is read
+  again, up to five times. `summary.json` names the image's
   harness labels, the script's own commit (`script`) and the develop the
   check compared (`harness_check`), so a stale run reads as one.
+- **A killed run's leftovers go with the next run.** A run killed past its
+  traps (SIGKILL) leaves its run directory and its unit's exited container,
+  and `verify-clean` fails on them; the next `run` or `dev pull` removes
+  both. A container a reboot left listed as running (podman misses the reboot
+  when the store's tmpdir outlived it) goes the same way, and holds no rig
+  slot meanwhile: one that started before this boot with no conmon carrying
+  its id.
 - **Read the results as data.** `summary.json`, `results.tsv`, `logs/` and
   `screenshots/` in the output directory; judge the screenshots as in
   [Screenshots](screenshots.md). Do not run anything from that directory.
