@@ -811,8 +811,11 @@ one only with the owner.
   (`omarchy plugin update` reads `main` and does not bring `develop`
   changes). It skips a checkout that is dirty or off `develop`, so never leave
   the installed copy on a feature branch; it is off `develop` only on a
-  release candidate, until that release's back date (*Releasing*, 1c). The sandbox's rig installs your working tree into its own
-  throwaway plugin folder (`dev/sandbox dev rig sync`), so a branch is checked
+  release candidate, until that release's back date (*Releasing*, 1c). A
+  folder it skips for more than 24 hours without a break is reported to the
+  plugin line as a Paperclip task, once per skip. The sandbox's rig installs
+  your working tree into its own throwaway plugin folder
+  (`dev/sandbox dev rig sync`), so a branch is checked
   without touching the installed copy.
 - **An urgent fix for users** is a branch from `main` made with
   `dev/release-prepare X.Y.Z --from main --note "…"` (`fix-X.Y.Z`, its
