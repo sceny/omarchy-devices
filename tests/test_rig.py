@@ -84,11 +84,12 @@ class ScreenChecksWithoutSound(Bash, unittest.TestCase):
 
 
 class PluginBindingLoops(Bash, unittest.TestCase):
-    """A binding loop counts when it is the plugin's: at its own file or at none."""
+    """A binding loop counts when the plugin can cause it: at its own file, at
+    none, or inside Omarchy's shared components; never Omarchy's own plugins."""
 
     def has_loop(self, line):
         script = self.session() + textwrap.dedent("""\
-            printf '%s\\n' "$LINE" | sed "s|@PLUGIN@|$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID|" | rig_log_has_plugin_binding_loop
+            printf '%s\\n' "$LINE" | sed -e "s|@PLUGIN@|$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID|" -e "s|@SHELL@|$RIG_OMARCHY_PATH/shell|" | rig_log_has_plugin_binding_loop
             """)
         return self.bash(script, env={"LINE": line}).returncode == 0
 
@@ -100,6 +101,24 @@ class PluginBindingLoops(Bash, unittest.TestCase):
 
     def test_a_loop_in_omarchys_own_notifications_does_not(self):
         self.assertFalse(self.has_loop('WARN scene: QML Service at file:///usr/share/omarchy/shell/plugins/notifications/Service.qml[23:1]: Binding loop detected for property "layout":'))
+        self.assertFalse(self.has_loop('WARN scene: QML Service at @plugins/notifications/Service.qml[23:1]: Binding loop detected for property "layout":\n'
+                                       'qs:///usr/share/omarchy/shell/plugins/notifications/Service.qml:521:3'))
+
+    def test_a_loop_our_binding_causes_inside_an_omarchy_component_counts(self):
+        # Qt names the item that loops, inside the component, not our binding that drove it.
+        self.assertTrue(self.has_loop('WARN scene: QML QQuickItem at @Ui/Button.qml[6:23]: Binding loop detected for property "width"'))
+        self.assertTrue(self.has_loop('WARN scene: QML QQuickItem at file://@SHELL@/Ui/Button.qml[6:23]: Binding loop detected for property "width"'))
+        self.assertTrue(self.has_loop('WARN scene: QML QtObject at @Commons/Style.qml[3:1]: Binding loop detected for property "radius":\n'
+                                      'qs:@/qs/Commons/Style.qml:9:5'))
+
+    def test_a_loop_at_omarchys_file_through_our_binding_counts(self):
+        self.assertTrue(self.has_loop('WARN scene: QML Service at @plugins/notifications/Service.qml[23:1]: Binding loop detected for property "layout":\n'
+                                      'qs://@PLUGIN@/Panel.qml:120:9'))
+
+    def test_a_plugin_line_after_the_loops_own_binding_line_does_not_count(self):
+        self.assertFalse(self.has_loop('WARN scene: QML Service at @plugins/notifications/Service.qml[23:1]: Binding loop detected for property "layout":\n'
+                                       'qs:///usr/share/omarchy/shell/plugins/notifications/Service.qml:521:3\n'
+                                       'qs://@PLUGIN@/Panel.qml:120:9'))
 
     def test_a_log_without_a_loop_has_none(self):
         self.assertFalse(self.has_loop("INFO qml: nothing here"))
