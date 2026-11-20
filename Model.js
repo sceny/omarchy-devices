@@ -1692,14 +1692,16 @@ var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|t
 // A year written in a date: after a day and a month's name ("10 Nov 2025",
 // "10. November 2025", "10 de noviembre de 2025") or a month's name and a
 // day ("Nov 10, 2025"), or before a month and day ("2025-11-10", "2025 Nov
-// 10", "2025. november 10."). Before the year, a month's name is any word, so
-// the guard holds in every language; it asks for the day beside it, so "Use
-// 2025 to sign in" is still a code. After the year, it is a month's name in
-// English or Hungarian (the Latin-script ways to write the year first), since
-// a code is often followed by a word and a number ("Enter 2025 within 10
-// minutes").
+// 10", "2025. november 10.", "2025. gada 10. novembris", "2025 m. lapkričio
+// 10 d."). Before the year, a month's name is any word, so the guard holds in
+// every language; it asks for the day beside it, so "Use 2025 to sign in" is
+// still a code. After the year, it is a month's name in English or Hungarian,
+// or the year's own word with a day: Latvian "gada" before a day, Lithuanian
+// "m." before a month and a day (the Latin-script ways to write the year
+// first), since a code is often followed by a word and a number ("Enter 2025
+// within 10 minutes").
 var DATE_BEFORE_YEAR = /(?:\b\d{1,2}(?:st|nd|rd|th|\.)?\s+(?:de\s+)?[A-Za-zÀ-ÿ]{3,}\.?,?\s+(?:de\s+)?|\b[A-Za-zÀ-ÿ]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+)$/
-var DATE_AFTER_YEAR = /^(?:[-\/.]\d{1,2}[-\/.]\d{1,2}\b|\.?,?\s+(?:jan|feb|m[aá]r|[aá]pr|m[aá][yj]|j[uú][nl]|aug|sz?ep|o[ck]t|nov|dec)[a-zà-ÿ]*\.?\s+\d{1,2}(?!\d))/i
+var DATE_AFTER_YEAR = /^(?:[-\/.]\d{1,2}[-\/.]\d{1,2}\b|\.?,?\s+(?:jan|feb|m[aá]r|[aá]pr|m[aá][yj]|j[uú][nl]|aug|sz?ep|o[ck]t|nov|dec)[a-zà-ÿ]*\.?\s+\d{1,2}(?!\d)|\.?\s+gada\s+\d{1,2}\.(?!\d)|\s+m\.\s+\S{3,}\s+\d{1,2}(?!\d))/i
 function isDateYear(s, start, digits) {
   if (!/^(19|20)\d\d$/.test(digits)) return false
   return DATE_BEFORE_YEAR.test(s.slice(Math.max(0, start - 30), start))
