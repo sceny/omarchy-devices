@@ -2406,6 +2406,8 @@ test("oneTimeCode: a date's year is not a code (#580)", () => {
   assert.equal(M.oneTimeCode("New sign-in on 2025 Nov 10 from a new browser."), "", "year, month, day (#616)")
   assert.equal(M.oneTimeCode("Sign-in on 2025. november 10."), "", "year with a dot, month, day")
   assert.equal(M.oneTimeCode("Your code is 4829, sent 2025 Nov 10"), "4829", "a four-digit code beside a year-first date")
+  assert.equal(M.oneTimeCode("Enter code 2025 within 10 minutes"), "2025", "a word after a year-like code is not a month (#620)")
+  assert.equal(M.oneTimeCode("Code: 1987. Valid 10 min"), "1987", "nor after one with a dot")
   assert.equal(M.oneTimeCode("Use 2025 to sign in on 10 Nov"), "2025", "a year-like code before words and a day is still a code")
   assert.equal(M.oneTimeCode("Your code is 482913, sent 10 Nov 2025"), "482913", "the code beside a date")
   assert.equal(M.oneTimeCode("Use 2025 to sign in"), "2025", "a year-like number alone is still a code")
