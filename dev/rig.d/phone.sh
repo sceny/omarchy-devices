@@ -613,12 +613,24 @@ rig_demo_conversation_opens() {
   return 1
 }
 
-# Whether a log on stdin has a binding loop of the plugin's: one at a file of
-# the installed plugin, or at no file. One at another QML file is the shell's
-# own (Omarchy's notifications, showing the emulator's notice), not ours.
+# Whether a log on stdin has a binding loop the plugin can cause: at a file of
+# the installed plugin, at no file, or at Omarchy's shared components (Ui/,
+# Commons/), which the panel builds on. Qt names only the item that loops, not
+# the binding that drove it, so a loop inside one of those components counts
+# whoever caused it. A loop at another QML file of the shell (Omarchy's
+# notifications, showing the emulator's notice) is the shell's own, unless
+# the binding's place, the line Qt writes under it, is the plugin's.
 rig_log_has_plugin_binding_loop() {
-  awk -v dir="$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID/" '
-    /Binding loop detected/ && (index($0, dir) || !/\.qml\[[0-9]/) { found = 1 }
+  awk -v dir="$RIG_PLUGINS_DIR/$RIG_PLUGIN_ID/" -v shell="$RIG_OMARCHY_PATH/shell/" '
+    function shared(s) {
+      return s ~ /(@|qs:@\/qs\/)(Ui|Commons)\// || index(s, shell "Ui/") || index(s, shell "Commons/")
+    }
+    loop && /\.qml:[0-9]+:[0-9]+$/ && index($0, dir) { found = 1 }
+    { loop = 0 }
+    /Binding loop detected/ {
+      if (index($0, dir) || !/\.qml\[[0-9]/ || shared($0)) found = 1
+      else loop = 1
+    }
     END { exit !found }'
 }
 
