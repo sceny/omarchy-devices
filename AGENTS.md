@@ -330,9 +330,12 @@ one only with the owner.
   (`match_adb`): a Wi-Fi or mesh entry counts only at an address KDE
   Connect reports for the device (`reachableAddresses`) or the mesh address
   the user picked or confirmed (`network.json`), and a USB entry by the
-  device's own serial, so a device with KDE Connect away, no recorded mesh
-  address and only Wi-Fi adb is not matched and its screen link is not
-  offered. The user connects it over USB once, or picks its mesh address
+  device's own serial, else, when no entry matched by serial or address, by
+  the device's name (Android's device name read over adb, or its model): a
+  cable is the user's own act. A USB entry not yet allowed counts only to
+  ask for that allow on the device. A device with KDE Connect away, no
+  recorded mesh address and only Wi-Fi adb is not matched and its screen
+  link is not offered. The user connects it over USB once, or picks its mesh address
   on its From anywhere page.
 - **Using a feature gets it working.** What a feature needs is asked where
   it is used, once, never ahead: notification access in Notifications,
