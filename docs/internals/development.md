@@ -276,7 +276,7 @@ only the session's unsaved work, which the stop was ending anyway.
 
 **`podman system reset` ends that pause process**, whichever store it names:
 every live container of the user is orphaned this way, the sandbox's and the
-GitHub runners' alike. Never reset a store; a throwaway store goes with
+GitHub runners' alike. Never reset a store (the agents' Bash tool is denied it by `.claude/settings.json`); a throwaway store goes with
 `podman --root … --runroot … --tmpdir … rm -af` and then
 `podman unshare rm -rf <its directory>`. A reset also deletes its store's
 libpod tmpdir, so every store call names its own (`--tmpdir`; the sandbox's is
