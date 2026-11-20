@@ -2403,6 +2403,10 @@ test("oneTimeCode: a date's year is not a code (#580)", () => {
   assert.equal(M.oneTimeCode("Neue Anmeldung am 10. November 2025"), "", "a day with a dot")
   assert.equal(M.oneTimeCode("Inicio de sesión el 10 de noviembre de 2025"), "", "with de")
   assert.equal(M.oneTimeCode("Sign-in on 2025-11-10 at 09:12"), "", "an ISO date")
+  assert.equal(M.oneTimeCode("New sign-in on 2025 Nov 10 from a new browser."), "", "year, month, day (#616)")
+  assert.equal(M.oneTimeCode("Sign-in on 2025. november 10."), "", "year with a dot, month, day")
+  assert.equal(M.oneTimeCode("Your code is 4829, sent 2025 Nov 10"), "4829", "a four-digit code beside a year-first date")
+  assert.equal(M.oneTimeCode("Use 2025 to sign in on 10 Nov"), "2025", "a year-like code before words and a day is still a code")
   assert.equal(M.oneTimeCode("Your code is 482913, sent 10 Nov 2025"), "482913", "the code beside a date")
   assert.equal(M.oneTimeCode("Use 2025 to sign in"), "2025", "a year-like number alone is still a code")
   // The demo's own: a notice with a date and no code, and the two codes.
