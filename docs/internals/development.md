@@ -212,6 +212,13 @@ the synced one. `dev start` fails while the image's Omarchy, Hyprland or
 Quickshell is older than this machine's (`dev/sandbox pins` runs the same
 check; bump the pins in `dev/sandbox.d/Containerfile` and build again).
 
+The TTL counts wall-clock time. Podman's `--timeout` (conmon's timer) stops
+counting while the machine sleeps, so a session also carries its end as a label
+(`org.sceny.sandbox.dev.ends`), and every command that lists or counts sessions
+(`dev status`, `dev start`, a verb that picks a session, a run's wait for a rig,
+`verify-clean`) first stops each session past it, as `dev stop` does, with the
+reason in `dev-stops.log` in the store's directory.
+
 Contributor code goes through `dev/sandbox run` only; never `dev` from, or with
 `--tree` on, a checkout holding it.
 
