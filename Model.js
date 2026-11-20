@@ -1691,15 +1691,16 @@ function threadForNotification(n, threads) {
 var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|koodi)\b/i
 // A year written in a date: after a day and a month's name ("10 Nov 2025",
 // "10. November 2025", "10 de noviembre de 2025") or a month's name and a
-// day ("Nov 10, 2025"), or before a month and day ("2025-11-10"). A month's
-// name is any word, so the guard holds in every language; it asks for the
-// day beside it, so "Use 2025 to sign in" is still a code.
+// day ("Nov 10, 2025"), or before a month and day ("2025-11-10", "2025 Nov
+// 10", "2025. november 10."). A month's name is any word, so the guard holds
+// in every language; it asks for the day beside it, so "Use 2025 to sign in"
+// is still a code.
 var DATE_BEFORE_YEAR = /(?:\b\d{1,2}(?:st|nd|rd|th|\.)?\s+(?:de\s+)?[A-Za-zÀ-ÿ]{3,}\.?,?\s+(?:de\s+)?|\b[A-Za-zÀ-ÿ]{3,}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+)$/
-var DATE_AFTER_YEAR = /^[-\/.]\d{1,2}[-\/.]\d{1,2}\b/
+var DATE_AFTER_YEAR = /^(?:[-\/.]\d{1,2}[-\/.]\d{1,2}\b|\.?,?\s+[A-Za-zÀ-ÿ]{3,}\.?\s+\d{1,2}(?!\d))/
 function isDateYear(s, start, digits) {
   if (!/^(19|20)\d\d$/.test(digits)) return false
   return DATE_BEFORE_YEAR.test(s.slice(Math.max(0, start - 30), start))
-    || DATE_AFTER_YEAR.test(s.slice(start + 4, start + 10))
+    || DATE_AFTER_YEAR.test(s.slice(start + 4, start + 30))
 }
 function oneTimeCode(text) {
   var s = String(text || "")
