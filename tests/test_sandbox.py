@@ -1452,6 +1452,7 @@ class DevStatusIsUtc(unittest.TestCase):
                 "    *Labels*) echo devices ;;\n"
                 "  esac\n"
                 "}\n"
+                "dev_expire() { :; }\n"
                 "dev_status\n"
             )
             env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": state, "SANDBOX_STATE": state,
@@ -1476,7 +1477,7 @@ class DevStatusIsUtc(unittest.TestCase):
 
 
 FAKE_PODMAN = r"""
-import json, os, sys
+import json, os, re, sys
 path = os.environ["FAKE_PODMAN_STATE"]
 with open(path) as f:
     store = json.load(f)
@@ -1492,13 +1493,18 @@ def match(c):
                     return False
             elif key == "status" and c["state"] != want:
                 return False
+            elif key == "name" and not re.search(want, c["name"]):
+                return False
             i += 1
         i += 1
     return True
 def fmt(cid, c):
     form = args[args.index("--format") + 1]
     status = {"running": "Up", "exited": "Exited"}[c["state"]]
+    form = re.sub(r'\{\{index \.Labels "([^"]+)"\}\}', lambda m: c["labels"].get(m.group(1), ""), form)
     return form.replace("{{.ID}}", cid).replace("{{.Names}}", c["name"]).replace("{{.Status}}", status).replace("{{.State}}", c["state"])
+def cid_of(ref):
+    return next((k for k, v in store.items() if ref in (k, v["name"])), ref)
 cmd = args[0]
 if cmd == "ps":
     if "--external" in args or ("-a" not in args and "-aq" not in args):
@@ -1509,14 +1515,21 @@ if cmd == "ps":
         if match(c):
             print(cid if "-q" in args or "-aq" in args else fmt(cid, c))
 elif cmd == "inspect":
-    for cid in args[3:]:
-        if "ConmonPid" in args[2]:
+    for cid in map(cid_of, args[3:]):
+        label = re.search(r'index \.Config\.Labels "([^"]+)"', args[2])
+        if label:
+            print(store[cid]["labels"].get(label.group(1), ""))
+        elif "StartedAt.Unix" in args[2] and "ConmonPid" not in args[2]:
+            print(store[cid].get("started", 0))
+        elif "Config.Timeout" in args[2]:
+            print(store[cid].get("timeout", 0))
+        elif "ConmonPid" in args[2]:
             print(cid, store[cid].get("conmon", 0), store[cid].get("started", 0))
         else:
             for m in store[cid]["mounts"]:
                 print(m)
 elif cmd == "rm":
-    for cid in [a for a in args[1:] if not a.startswith("-") and a != "0"]:
+    for cid in [cid_of(a) for a in args[1:] if not a.startswith("-") and a != "0"]:
         store.pop(cid, None)
         with open(path + ".rm", "a") as f:
             f.write(cid + "\n")
@@ -1655,6 +1668,66 @@ class DeadContainersAfterABoot(FakeStore):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertEqual(r.stdout.strip(), "1", r.stderr)
         self.assertEqual(self.removed(), ["c1"], r.stderr)
+
+
+class DevSessionsEndByTheWallClock(FakeStore):
+    """A session past its wall-clock end is stopped by the next command that lists or counts sessions: conmon's timer stops in suspend."""
+
+    DEV = {"org.sceny.sandbox.dev": "1", "org.sceny.sandbox.rig": "1"}
+
+    def session(self, sid, ends):
+        c = self.unit(sid, "running", **self.DEV, **{"org.sceny.sandbox.dev.ends": str(ends),
+                                                    "org.sceny.sandbox.profile": "devices"})
+        c["name"] = f"sceny-sandbox-dev-{sid}"
+        return c
+
+    def setUp(self):
+        super().setUp()
+        now = int(time.time())
+        self.containers({
+            "c1": self.session("0123abcd", now - 60),
+            "c2": self.session("98cb55db", now + 3600),
+        })
+
+    def test_dev_status_stops_a_session_past_its_end_and_frees_its_slot(self):
+        r = self.sandbox("dev_status")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.removed(), ["c1"], r.stderr)
+        self.assertIn("session 0123abcd: ttl passed (wall clock)", r.stderr)
+        self.assertNotIn("0123abcd", r.stdout, "a stopped session is not listed")
+        self.assertRegex(r.stdout, r"  98cb55db  .*\((?:59m|1h00m) left\)")
+        r = self.sandbox("rig_running")
+        self.assertEqual(r.stdout.strip(), "1", r.stderr)
+        with open(os.path.join(self.state, "dev-stops.log")) as f:
+            self.assertRegex(f.read(), r"^\S+Z 0123abcd ttl passed \(wall clock\)\n$")
+
+    def test_the_rig_count_does_not_count_a_session_past_its_end(self):
+        r = self.sandbox("rig_running")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.stdout.strip(), "1", r.stderr)
+        self.assertEqual(self.removed(), ["c1"], r.stderr)
+
+    def test_a_session_within_its_end_is_kept(self):
+        self.containers({"c2": self.session("98cb55db", int(time.time()) + 3600)})
+        for call in ("dev_status", "rig_running", "dev_resolve ''"):
+            r = self.sandbox(call)
+            self.assertEqual(r.returncode, 0, call + r.stdout + r.stderr)
+        self.assertEqual(self.removed(), [])
+
+    def test_a_session_without_the_label_ends_at_its_start_plus_its_ttl(self):
+        c = self.unit("0123abcd", "running", **self.DEV)
+        c["name"] = "sceny-sandbox-dev-0123abcd"
+        self.containers({"c1": c})
+        c.update(started=int(time.time()) - 7300, timeout=7200)
+        r = self.sandbox("dev_resolve ''")
+        self.assertEqual(self.removed(), ["c1"], r.stderr)
+        self.assertIn("no session", r.stderr)
+
+    def test_dev_start_labels_the_wall_clock_end(self):
+        with open(SANDBOX) as f:
+            body = function_text(f.read(), "dev_start")
+        self.assertIn('--label "$SB_DEV_ENDS_LABEL=$(($(date +%s) + ttl))"', body)
+        self.assertIn('--timeout "$ttl"', body, "conmon's timeout stays as the backstop")
 
 
 def sandbox_runroot(state=None):
@@ -2267,7 +2340,8 @@ class SliceAndRigs(unittest.TestCase):
             text = f.read()
         cls.functions = "\n".join(
             function_text(text, name)
-            for name in ("slice_check", "rig_lock", "rig_unlock", "rig_running", "rig_wait", "rig_release_when_started")
+            for name in ("slice_check", "rig_lock", "rig_unlock", "rig_running", "rig_wait", "rig_release_when_started",
+                         "dev_deadline", "dev_remove", "dev_expire")
         )
 
     def setUp(self):

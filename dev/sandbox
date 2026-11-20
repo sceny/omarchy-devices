@@ -1032,6 +1032,7 @@ cmd_pins() {
 SB_DEV_LABEL=org.sceny.sandbox.dev
 SB_RIG_LABEL=org.sceny.sandbox.rig
 SB_PROFILE_LABEL=org.sceny.sandbox.profile
+SB_DEV_ENDS_LABEL=org.sceny.sandbox.dev.ends
 SB_DEV_MAX=${SANDBOX_DEV_MAX:-2}
 SB_DEV_TTL_MAX=14400
 SB_DEV_FRAMES_MAX=600
@@ -1039,6 +1040,55 @@ DEV_NAME=""
 DEV_PROFILE=""
 
 dev_names() { pm ps --filter "label=$SB_DEV_LABEL" --format '{{.Names}}' 2>/dev/null; }
+
+# A session's end in wall-clock seconds: its label, else (a session started
+# before the label) its start plus podman's timeout.
+dev_deadline() { # <name> [label value]
+  local ends=${2-} start ttl
+  [[ $# -ge 2 ]] || ends=$(pm inspect --format "{{index .Config.Labels \"$SB_DEV_ENDS_LABEL\"}}" "$1" 2>/dev/null)
+  if [[ $ends =~ ^[0-9]+$ ]]; then
+    printf '%s\n' "$ends"
+    return 0
+  fi
+  start=$(pm inspect --format '{{.State.StartedAt.Unix}}' "$1" 2>/dev/null)
+  ttl=$(pm inspect --format '{{.Config.Timeout}}' "$1" 2>/dev/null)
+  [[ $start =~ ^[0-9]+$ && $ttl =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' $((start + ttl))
+}
+
+# Removes one session; it is stopped when podman no longer lists it, whatever rm said.
+dev_remove() { # <name>
+  local name=$1 out rc=0 left
+  # Every state counts, not only running: a session stuck in stopping is still there.
+  dev_listed() { pm ps -a --filter "name=^$1\$" --format '{{.Names}} ({{.State}})' 2>/dev/null; }
+  # Stopped is what podman lists afterwards, not what rm said: a container whose
+  # runc cannot reach it any more stays listed in `stopping`.
+  out=$(pm rm -f -v -t 0 "$name" 2>&1) || rc=$?
+  left=$(dev_listed "$name") || left="$name (podman ps failed)"
+  if [[ -n $left ]]; then
+    fail "session ${name##*-} not removed: $left is left; podman rm exited $rc${out:+: $(tail -n 1 <<<"$out")}"
+    fail "a container stuck in stopping: docs/internals/development.md, *A session stuck in stopping*"
+    return 1
+  fi
+}
+
+# conmon ends a session at podman's --timeout on CLOCK_MONOTONIC, which stops
+# while the machine sleeps: a laptop's session outlives its TTL by every
+# suspend. Every command that lists or counts sessions first stops those past
+# their wall-clock end, the way `dev stop` does, and logs why.
+dev_expire() {
+  local now name ends
+  now=$(date +%s)
+  while read -r name ends; do
+    [[ $name == sceny-sandbox-dev-* ]] || continue
+    ends=$(dev_deadline "$name" "$ends") || continue
+    ((ends <= now)) || continue
+    warn "session ${name##*-}: ttl passed (wall clock), ended $(date -u -d "@$ends" +%Y-%m-%dT%H:%M:%SZ); stopping it"
+    dev_remove "$name" || continue
+    printf '%s %s ttl passed (wall clock)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${name##*-}" >>"$SB_STATE/dev-stops.log" 2>/dev/null
+    ok "session ${name##*-} stopped and removed: ttl passed (wall clock)"
+  done < <(pm ps --filter "label=$SB_DEV_LABEL" --format "{{.Names}} {{index .Labels \"$SB_DEV_ENDS_LABEL\"}}" 2>/dev/null)
+}
 
 # A rig's count and its start share the rig lock, so two starts cannot both pass
 # the count. A run's rig holds the lock only until its container exists; after
@@ -1050,6 +1100,7 @@ rig_lock() {
 rig_unlock() { exec 8>&-; }
 rig_running() {
   clear_dead_containers 8>&-
+  dev_expire 8>&-
   {
     pm ps --filter "label=$SB_DEV_LABEL=1" --format '{{.Names}}'
     pm ps --filter "label=$SB_RIG_LABEL=1" --format '{{.Names}}'
@@ -1075,6 +1126,7 @@ rig_release_when_started() { # <pid of the unit's pipeline>: once its container 
 # DEV_NAME from --session ID, else the one session there is.
 dev_resolve() {
   local want=${1:-} names n
+  dev_expire
   names=$(dev_names)
   if [[ -n $want ]]; then
     [[ $want =~ ^[0-9a-f]{8}$ ]] || die "dev: a session is 8 hex digits (dev/sandbox dev status)"
@@ -1152,7 +1204,9 @@ dev_start() {
   id=$(new_id)
   devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
+  # The wall-clock end: conmon's --timeout below stops counting while the machine sleeps (dev_expire).
   pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_RIG_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
+    --label "$SB_DEV_ENDS_LABEL=$(($(date +%s) + ttl))" \
     --pull never --log-driver none \
     --network none --no-hosts \
     --uidmap 0:1:65536 --gidmap 0:1:65536 --user 1000:1000 \
@@ -1357,7 +1411,8 @@ dev_assemble() {
 }
 
 dev_status() {
-  local names n start_unix timeout_s end_unix left left_text
+  local names n start_unix end_unix left left_text
+  dev_expire
   names=$(dev_names)
   if [[ -z $names ]]; then
     echo "  no session"
@@ -1365,8 +1420,7 @@ dev_status() {
   fi
   while read -r n; do
     start_unix=$(pm inspect --format '{{.State.StartedAt.Unix}}' "$n" 2>/dev/null)
-    timeout_s=$(pm inspect --format '{{.Config.Timeout}}' "$n" 2>/dev/null)
-    end_unix=$((start_unix + timeout_s))
+    end_unix=$(dev_deadline "$n") || end_unix=$start_unix
     left=$((end_unix - $(date +%s)))
     if ((left <= 0)); then
       left_text=ended
@@ -1394,23 +1448,13 @@ dev_stop() {
   [[ $session =~ ^[0-9a-f]{8}$ ]] || die "dev: a session is 8 hex digits (dev/sandbox dev status)"
   require_tools
   name=sceny-sandbox-dev-$session
-  # Every state counts, not only running: a session stuck in stopping is still there.
-  local out rc=0 left
-  listed() { pm ps -a --filter "name=^$name\$" --format '{{.Names}} ({{.State}})' 2>/dev/null; }
-  left=$(listed) || die "dev stop: podman could not list the containers"
+  local left
+  left=$(pm ps -a --filter "name=^$name\$" --format '{{.Names}}' 2>/dev/null) || die "dev stop: podman could not list the containers"
   if [[ -z $left ]]; then
     echo "  no session $session"
     return 0
   fi
-  # Stopped is what podman lists afterwards, not what rm said: a container whose
-  # runc cannot reach it any more stays listed in `stopping`.
-  out=$(pm rm -f -v -t 0 "$name" 2>&1) || rc=$?
-  left=$(listed) || left="$name (podman ps failed)"
-  if ((rc != 0)) || [[ -n $left ]]; then
-    fail "session $session not removed: ${left:-$name} is left; podman rm exited $rc${out:+: $(tail -n 1 <<<"$out")}"
-    fail "a container stuck in stopping: docs/internals/development.md, *A session stuck in stopping*"
-    exit 1
-  fi
+  dev_remove "$name" || exit 1
   ok "session $session stopped and removed"
 }
 
@@ -1480,6 +1524,7 @@ cmd_verify_clean() {
   store_lock_acquire
   trap 'store_lock_release' RETURN
   local bad=0 list kept containers external
+  dev_expire
   kept=$(dev_names | paste -sd ' ')
   [[ -z $kept ]] || step "not counted, live dev sessions of their owners: $kept"
   containers=$(pm ps -a --format '{{.Names}}' 2>/dev/null | grep -vxFf <(dev_names))
