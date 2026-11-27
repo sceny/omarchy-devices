@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Run R3, the release regression, for one commit of a plugin, and write its record.
 
-  dev/regression <sha> [--repo OWNER/NAME] [--out DIR] [--timeout SECONDS] [--harness develop|pr]
+  dev/regression <sha> [--repo OWNER/NAME] [--out DIR] [--timeout SECONDS] [--harness develop|pr] [--base SHA]
   dev/regression <sha> [--repo OWNER/NAME] --from-output DIR [--out DIR] [--owner-issues FILE]
 
 The plugin is configured by dev/regression.json at the candidate commit: the
 checks script (run by the sandbox after `dev/rig up`), the sandbox steps,
-whether the marketplace check runs, and the rows only its owner can judge.
+whether the marketplace check runs, the rows only its owner can judge and,
+with "upgrade_from": "live-tag", that the script also gets the commit of the
+latest release (`dev/sandbox run --base`) to install and upgrade from. --base
+names that commit instead of asking GitHub.
 The configuration and the script are read from the candidate itself. This
 harness is shared: each plugin runs the same code with its own configuration.
 
@@ -100,7 +103,33 @@ def load_config(repo, sha):
     for key, kind in (("script", str), ("steps", str), ("marketplace", bool), ("owner_only", list)):
         if not isinstance(config.get(key), kind):
             fail(f"{CONFIG} needs {key}, a {kind.__name__}")
+    if config.get("upgrade_from", "live-tag") != "live-tag":
+        fail(f"{CONFIG}: upgrade_from is \"live-tag\" or absent")
     return config
+
+
+def live_tag(repo):
+    """The latest release's tag and the 40-hex commit it names."""
+    done = gh("api", f"repos/{repo}/releases/latest", "--jq", ".tag_name")
+    tag = done.stdout.strip()
+    if done.returncode != 0 or not re.fullmatch(r"v\d+\.\d+\.\d+", tag):
+        fail(f"could not read the latest release of {repo}: {done.stderr.strip() or tag}")
+    done = gh("api", f"repos/{repo}/commits/{tag}", "--jq", ".sha")
+    sha = done.stdout.strip()
+    if done.returncode != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        fail(f"could not read the commit of {tag} in {repo}: {done.stderr.strip() or sha}")
+    return tag, sha
+
+
+def base_rows(config, summary):
+    """Whether the run had the commit to upgrade from, when the plugin asks for one."""
+    if config.get("upgrade_from") != "live-tag":
+        return []
+    base = (summary or {}).get("base") or ""
+    ok = re.fullmatch(r"[0-9a-f]{40}", base) is not None
+    return [("Upgrade base", "The script had the live tag's commit to install and upgrade from",
+             "dev/sandbox run --base", PASS if ok else FAIL,
+             f"summary.json base {base[:12]}" if ok else "summary.json names no base")]
 
 
 def read_summary(output):
@@ -241,7 +270,7 @@ def cell(text):
     return str(text).replace("|", "\\|").replace("\n", " ")
 
 
-def render(repo, sha, tree, when, summary, rows, owner, code):
+def render(repo, sha, tree, when, summary, rows, owner, code, base_label=""):
     verdict_text = {0: "PASS", 1: "FAIL", 2: "NOT PASS (rows not yet checked)"}[code]
     counts = {status: sum(1 for row in rows if row[3] == status) for status in (PASS, FAIL, NOT_YET, LOOK)}
     lines = [
@@ -249,6 +278,12 @@ def render(repo, sha, tree, when, summary, rows, owner, code):
         "",
         f"- Candidate: [{sha[:7]}](https://github.com/{repo}/commit/{sha}), tree `{tree}`",
         f"- Run: {when}" + (f", {summary['seconds']} s in the sandbox" if summary else ", no sandbox summary"),
+    ]
+    base = (summary or {}).get("base")
+    if base:
+        lines.append(f"- Upgrade from: {base_label + ' ' if base_label else ''}"
+                     f"[{base[:7]}](https://github.com/{repo}/commit/{base})")
+    lines += [
         f"- Verdict: **{verdict_text}**: {counts[PASS]} pass, {counts[FAIL]} fail, {counts[NOT_YET]} not yet, {counts[LOOK]} to look at",
         "",
         "| Feature | Rule | How checked | Result | Evidence |",
@@ -275,6 +310,8 @@ def main(argv):
     parser.add_argument("--timeout", type=int, default=3000, help="sandbox run timeout in seconds")
     parser.add_argument("--harness", choices=["develop", "pr"], default="develop",
                         help="dev/ the sandbox runs: develop's (a release candidate) or the commit's own")
+    parser.add_argument("--base", metavar="SHA",
+                        help="the commit to upgrade from, instead of the latest release's")
     parser.add_argument("--from-output", type=Path, metavar="DIR",
                         help="write the record from a finished run's output, without a sandbox")
     parser.add_argument("--owner-issues", type=Path, metavar="FILE",
@@ -285,6 +322,8 @@ def main(argv):
         fail(f"SHA must be 40 lowercase hex characters, got: {args.sha}")
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", args.repo):
         fail(f"--repo must be OWNER/NAME, got: {args.repo}")
+    if args.base is not None and not re.fullmatch(r"[0-9a-f]{40}", args.base):
+        fail(f"--base must be 40 lowercase hex characters, got: {args.base}")
     tree = candidate_tree(args.repo, args.sha)
     config = load_config(args.repo, args.sha)
 
@@ -292,6 +331,7 @@ def main(argv):
     out = args.out or Path(Path.home(), ".local", "state", name, "regression", args.sha[:12])
     out.mkdir(parents=True, exist_ok=True)
 
+    base_label = ""
     if args.from_output:
         output = args.from_output
     else:
@@ -304,13 +344,18 @@ def main(argv):
         command = [str(SANDBOX), "run", args.repo, args.sha, "--out", str(output),
                    "--steps", config["steps"], "--script", str(script),
                    "--timeout", str(args.timeout), "--harness", args.harness]
+        if config.get("upgrade_from") == "live-tag":
+            base = args.base
+            if base is None:
+                base_label, base = live_tag(args.repo)
+            command += ["--base", base]
         print(f"regression: {' '.join(command)}", file=sys.stderr)
         subprocess.run(command)
 
     summary = read_summary(output)
     rows = sandbox_rows(summary) if summary else [
         ("Sandbox: run", "The run leaves its summary", "dev/sandbox run", FAIL, "no summary.json")]
-    rows += rig_rows(output) + script_rows(output) + [planted_row()]
+    rows += base_rows(config, summary) + rig_rows(output) + script_rows(output) + [planted_row()]
     if config["marketplace"]:
         rows += marketplace_rows(args.repo, args.sha, out)
 
@@ -324,7 +369,7 @@ def main(argv):
     code = verdict(rows)
     when = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     record = out / "regression-record.md"
-    record.write_text(render(args.repo, args.sha, tree, when, summary, rows, owner, code))
+    record.write_text(render(args.repo, args.sha, tree, when, summary, rows, owner, code, base_label))
     print(f"regression: record written to {record}", file=sys.stderr)
     return code
 

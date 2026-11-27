@@ -9,11 +9,14 @@
 # copy); the commit under test never replaces it.
 #
 # Inputs (read-only): /in/src.tar = `git archive` of the exact commit;
-#                     /in/script.sh = an optional QA script (--script).
+#                     /in/script.sh = an optional QA script (--script);
+#                     /in/base.tar = `git archive` of an optional second commit
+#                     (--base), which the script unit unpacks as a git tree in
+#                     /work/base and names to the script in SANDBOX_BASE.
 # Environment: SANDBOX_UNIT (unit-model, unit-bridge, pc-tests, pc-selftest,
 #              qml-parse, manifest, rig-ci, script), SANDBOX_REPO (the
 #              repository's owner/name), SANDBOX_HARNESS (develop | pr),
-#              SANDBOX_SHA.
+#              SANDBOX_SHA, SANDBOX_BASE_SHA (empty without --base).
 #
 # shellcheck shell=bash
 
@@ -21,6 +24,7 @@ set -uo pipefail
 
 OUT=/out
 SRC=/work/src
+BASE=/work/base
 UNIT=${SANDBOX_UNIT:-}
 HARNESS=${SANDBOX_HARNESS:-develop}
 REPO=${SANDBOX_REPO:-sceny/omarchy-devices}
@@ -79,15 +83,26 @@ fi
 # dev/rig packages the tracked tree of a git checkout, so the rig units make
 # one (the archive is files only), as does pc-tests; -f because the commit's own .gitignore would
 # otherwise drop files the commit tracks.
-git_tree() {
+git_tree() { # [dir] [sha]
+  local dir=${1:-$SRC} sha=${2:-${SANDBOX_SHA:-unknown}}
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
   export GIT_AUTHOR_NAME=sandbox GIT_AUTHOR_EMAIL=sandbox@invalid GIT_COMMITTER_NAME=sandbox GIT_COMMITTER_EMAIL=sandbox@invalid
   (
-    cd "$SRC" || exit 1
+    cd "$dir" || exit 1
     git init -q -b sandbox . &&
       git add -f -A . &&
-      git commit -q -m "sandbox: ${SANDBOX_SHA:-unknown}"
-  ) >"$OUT/logs/$UNIT.git.log" 2>&1
+      git commit -q -m "sandbox: $sha"
+  ) >>"$OUT/logs/$UNIT.git.log" 2>&1
+}
+
+# The base (--base) is only files the script installs and upgrades from; its
+# dev/ is never run, so the checks stay develop's.
+unpack_base() {
+  [[ -r /in/base.tar ]] || return 0
+  mkdir -p "$BASE" &&
+    tar -x --no-same-owner --no-same-permissions -f /in/base.tar -C "$BASE" 2>"$OUT/logs/$UNIT.base-unpack.log" &&
+    git_tree "$BASE" "${SANDBOX_BASE_SHA:-unknown}" &&
+    export SANDBOX_BASE=$BASE
 }
 
 # The rig's phone cache holds the pinned KDE Connect APK; the run has no
@@ -139,6 +154,7 @@ script)
   # Exits 0 only when the rig came up and the QA script exited 0.
   [[ -r /in/script.sh ]] || exit "$E_PREPARE"
   git_tree || exit "$E_PREPARE"
+  unpack_base || exit "$E_PREPARE"
   seed_rig
   if RIG_COMPOSITOR_OUTSIDE_NS=1 RIG_COMPOSITOR_ATTEMPTS=60 unit script-up env dev/rig up --owner none --ttl 3000; then
     unit script env SANDBOX_OUT="$OUT" bash /in/script.sh || status=$?
