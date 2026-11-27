@@ -1688,7 +1688,7 @@ function threadForNotification(n, threads) {
 // percent or a time is not one, neither is a run as long as a phone
 // number, and neither is a date's year (#580). Several: the first of six
 // digits, else the first.
-var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|koodi)\b/i
+var CODE_WORDS = /\b(codes?|otp|passcode|pin|verif\w*|security|one[- ]time|2fa|two[- ]factor|log[- ]?in|sign[- ]?in|authenti\w*|password|c[oó]digo|codice|kod|kods|kodas|koodi)\b/i
 // A year written in a date: after a day and a month's name ("10 Nov 2025",
 // "10. November 2025", "10 de noviembre de 2025") or a month's name and a
 // day ("Nov 10, 2025"), or before a month and day ("2025-11-10", "2025 Nov

@@ -2392,6 +2392,8 @@ test("oneTimeCode: the code a message says it carries, as digits to paste", () =
   assert.equal(M.oneTimeCode("Call 5555550123 for your code"), "", "a run as long as a phone number is not a code")
   assert.equal(M.oneTimeCode("Call +15145550123 about your code"), "", "a phone number is not a code")
   assert.equal(M.oneTimeCode("Code 1.5% off"), "", "nor a percent")
+  assert.equal(M.oneTimeCode("Jūsu kods: 482913"), "482913", "Latvian kods is a code word (#628)")
+  assert.equal(M.oneTimeCode("Jūsų kodas: 482913"), "482913", "Lithuanian kodas is a code word (#628)")
   assert.equal(M.oneTimeCode(""), "")
   assert.equal(M.oneTimeCode(undefined), "")
 })
