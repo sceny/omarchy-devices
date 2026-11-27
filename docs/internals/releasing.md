@@ -147,6 +147,10 @@ squash-merged anyway, merge `main` into `develop` with a merge commit so
 `develop` carries the release's commit, and merge the next release with a merge
 commit.
 
+The back-merge is a pull request from `merge-main-X.Y.Z-into-develop`, merged with
+a merge commit. GitHub's merge subject names the head branch, and `develop`'s
+public-text check reads it, so the branch name carries no task id.
+
 ## Every pull request into `main`: the marketplace's checks
 
 The `marketplace-check` job runs the marketplace's own validation and

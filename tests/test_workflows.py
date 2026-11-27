@@ -38,7 +38,7 @@ WRITE_ALLOWED = {
         "statuses": "marks the release commit's status after it publishes",
     },
     ("develop-notice.yml", "notice"): {
-        "issues": "opens an issue, assigned to the pusher, when the public-text check fails on a push to develop",
+        "issues": "opens an issue, assigned to the pusher (the pull request's author for a merge queue's bot), when the public-text check fails on a push to develop",
     },
 }
 
@@ -291,8 +291,10 @@ class DevelopNotice(unittest.TestCase):
     PLANTED = "/home/alice/.paperclip/instances/default/workspaces/aaaaaaaa-0000-0000-0000-000000000001"
     SECRETS = ("/home/alice", "alice", "aaaaaaaa-0000", "SCE-999")
 
-    def body(self, check_output):
-        """The step's notice, after asserting the stub gh, and nothing else, ran it.
+    def body(self, check_output, actor="someone", answer="", api_fails=False):
+        """The step's notice and the gh calls it made, after asserting the stub gh,
+        and nothing else, ran them. `answer` is what the stub prints for `gh api`,
+        as `--jq` leaves it; `api_fails` makes that call exit 1, as gh does on an error.
 
         The step's environment is built from nothing: bash takes functions from
         the environment (`BASH_FUNC_gh%%`) and runs `BASH_ENV` first, and either
@@ -307,9 +309,14 @@ class DevelopNotice(unittest.TestCase):
             os.mkdir(bin_dir)
             calls = os.path.join(tmp, "gh-calls")
             seen_env = os.path.join(tmp, "gh-env")
+            answer_file = os.path.join(tmp, "answer")
+            with open(answer_file, "w") as handle:
+                handle.write(answer)
             gh = os.path.join(bin_dir, "gh")
             with open(gh, "w") as handle:
-                handle.write("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\nenv > '%s'\nexit 0\n" % (calls, seen_env))
+                handle.write("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\nenv > '%s'\n"
+                             "[ \"$1\" = api ] && { cat '%s'; exit %d; }\nexit 0\n"
+                             % (calls, seen_env, answer_file, 1 if api_fails else 0))
             os.chmod(gh, 0o755)
             script = os.path.join(tmp, "step.sh")
             with open(script, "w") as handle:
@@ -323,7 +330,7 @@ class DevelopNotice(unittest.TestCase):
                 "LC_ALL": "C.UTF-8",
                 "RUNNER_TEMP": tmp,
                 "GH_TOKEN": "x",
-                "ACTOR": "someone",
+                "ACTOR": actor,
                 "GITHUB_REPOSITORY": "sceny/omarchy-devices",
                 "COMMIT_URL": "https://github.com/sceny/omarchy-devices/commit/0000000",
                 "RUN_URL": "https://github.com/sceny/omarchy-devices/actions/runs/1",
@@ -334,16 +341,43 @@ class DevelopNotice(unittest.TestCase):
             self.assertTrue(os.path.exists(calls), "the stub gh never ran")
             with open(calls) as handle:
                 ran = handle.read().splitlines()
-            self.assertEqual(len(ran), 1, ran)
-            self.assertTrue(ran[0].startswith("issue create "), ran)
-            self.call = ran[0]
+            self.assertTrue(ran[-1].startswith("issue create "), ran)
+            self.call = ran[-1]
             with open(seen_env) as handle:
                 names = {line.split("=", 1)[0] for line in handle.read().splitlines() if "=" in line}
             leaked = {name for name in names if name.startswith(("BASH_FUNC_", "GH_", "GITHUB_"))
                       or name in ("BASH_ENV", "ENV", "SHELLOPTS")} - {"GH_TOKEN", "GITHUB_REPOSITORY"}
             self.assertEqual(leaked, set())
             with open(os.path.join(tmp, "public-text-notice.md")) as handle:
+                self.calls = ran
                 return handle.read()
+
+    def test_a_person_who_pushed_is_the_assignee(self):
+        self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n", actor="someone")
+        self.assertEqual(len(self.calls), 1, self.calls)
+        self.assertIn("--assignee someone", self.calls[0])
+
+    def test_a_merge_queue_push_is_assigned_the_pull_requests_author(self):
+        self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n",
+                  actor="github-merge-queue[bot]", answer="example-author")
+        ran = self.calls
+        self.assertTrue(ran[0].startswith("api repos/sceny/omarchy-devices/commits/"), ran)
+        self.assertTrue(ran[0].endswith("--jq [.[] | select(.user.type == \"User\")][0].user.login // \"\""), ran)
+        self.assertEqual(ran[-1].split(" --assignee ")[-1], "example-author", ran)
+        self.assertNotIn("github-merge-queue", ran[-1])
+
+    def test_a_merge_queue_push_with_no_person_is_filed_unassigned(self):
+        self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n",
+                  actor="github-merge-queue[bot]", answer="")
+        self.assertEqual(len(self.calls), 2, self.calls)
+        self.assertNotIn("--assignee", self.calls[-1])
+
+    def test_a_failed_lookup_is_filed_unassigned_not_with_its_error(self):
+        self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n",
+                  actor="github-merge-queue[bot]", answer='{"message": "Not Found", "status": "404"}',
+                  api_fails=True)
+        self.assertEqual(len(self.calls), 2, self.calls)
+        self.assertNotIn("--assignee", self.calls[-1])
 
     def test_the_callers_gh_never_runs_in_place_of_the_stub(self):
         with tempfile.TemporaryDirectory() as tmp:
