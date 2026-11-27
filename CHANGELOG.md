@@ -14,7 +14,7 @@ GitHub release with these notes.
 
 ### Notifications
 
-- **Copy a sign-in code**: a notification carrying a one-time code has a *Copy* button (`y`) that puts the code in the clipboard. When Android 15 hides such a text message's notification (*Sensitive notification content hidden*), the code is read from the message itself ([#577](https://github.com/sceny/omarchy-devices/issues/577)). A date's year, as in *New sign-in on 10 Nov 2025*, is not taken for a code ([#580](https://github.com/sceny/omarchy-devices/issues/580)).
+- **Copy a sign-in code**: a notification carrying a one-time code has a *Copy* button (`y`) that puts the code in the clipboard. When Android 15 hides such a text message's notification (*Sensitive notification content hidden*), the code is read from the message itself ([#577](https://github.com/sceny/omarchy-devices/issues/577)). A date's year, as in *New sign-in on 10 Nov 2025*, is not taken for a code ([#580](https://github.com/sceny/omarchy-devices/issues/580)). A Latvian or Lithuanian message that names its code *kods* or *kodas* offers it too ([#628](https://github.com/sceny/omarchy-devices/issues/628)).
 
 ### Fixes
 
