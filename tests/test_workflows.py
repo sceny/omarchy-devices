@@ -403,6 +403,12 @@ class DevelopNotice(unittest.TestCase):
         self.assertIn("--title public-text failed on develop ", self.call)
         self.assertIn("Edit the text that failed, or record here why it stays.", body)
 
+    def test_the_marker_is_the_line_the_checker_prints_out_of_time(self):
+        with open(os.path.join(WORKFLOWS, "develop-notice.yml")) as handle:
+            marker = re.search(r"grep -q '\^([^']+)'", handle.read()).group(1)
+        with open(CHECKER) as handle:
+            self.assertIn(marker, handle.read())
+
 
 GOOD = """\
 name: x
