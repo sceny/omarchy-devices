@@ -979,6 +979,10 @@ run in order; the detail, the checklist and the record templates are in
    git fetch origin && git switch develop && git merge --ff-only origin/main && git push
    ```
 
+   A back-merge of `main` into `develop` (after a squashed release, *Releasing*
+   in `docs/internals/releasing.md`) is a pull request from
+   `merge-main-X.Y.Z-into-develop`, with no task id in the branch name.
+
 4. **Request the marketplace review** (`omacom/omarchy-plugin-marketplace`)
    once the release is published and the owner has said go for the request
    (1d), with the text below as it stands. It is filed from a session,
