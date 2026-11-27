@@ -482,7 +482,12 @@ dev/regression <sha>
 The command is shared by the Omarchy plugins. `--repo OWNER/NAME` names another
 plugin (`sceny/omarchy-paperclipai`), and its `dev/regression.json` at that
 commit sets its checks script, its sandbox steps, whether the marketplace check
-runs and the rows only its owner can judge.
+runs and the rows only its owner can judge. With `"upgrade_from": "live-tag"`
+the run also carries the commit of the plugin's latest release (`dev/sandbox run
+--base`, a second read-only archive the script finds in `$SANDBOX_BASE`), so the
+script installs that release and upgrades it to the candidate; the record names
+the commit, and an *Upgrade base* row fails a run that did not have it.
+`--base SHA` names another commit.
 
 It runs `dev/sandbox run` with the configured steps (here the tests, `dev/rig ci`
 and `dev/regression.sh`), and writes `regression-record.md` from what they

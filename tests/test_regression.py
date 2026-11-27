@@ -192,6 +192,49 @@ class RegressionTest(unittest.TestCase):
         self.assertIn("[#7 Check the bar](https://github.com/sceny/omarchy-devices/issues/7)", self.record())
         self.assertIn("| Bluetooth audio | No Bluetooth stack | Checks it on a phone |", self.record())
 
+    def use_upgrade_config(self):
+        config = dict(CONFIG, upgrade_from="live-tag")
+        (self.repo / "dev" / "regression.json").write_text(json.dumps(config))
+        git(self.repo, "commit", "-q", "-am", "upgrade")
+        self.sha = git(self.repo, "rev-parse", "HEAD")
+        self.write_features([("Panel answers over IPC", "answers", "dev/rig ipc status", "pass", "ipc-status.log")])
+
+    def test_an_upgrade_run_without_a_base_exits_one(self):
+        self.use_upgrade_config()
+        self.write_sandbox()
+        r = self.run_regression()
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("| Upgrade base |", self.record())
+        self.assertIn("summary.json names no base", self.record())
+
+    def test_an_upgrade_run_with_its_base_names_it(self):
+        self.use_upgrade_config()
+        self.write_sandbox()
+        summary = json.loads((self.output / "summary.json").read_text())
+        summary["base"] = "b" * 40
+        (self.output / "summary.json").write_text(json.dumps(summary))
+        r = self.run_regression()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("- Upgrade from: [bbbbbbb](https://github.com/sceny/omarchy-devices/commit/" + "b" * 40 + ")", self.record())
+
+    def test_a_config_without_upgrade_has_no_base_row(self):
+        r = self.run_regression()
+        self.assertNotIn("Upgrade base", self.record())
+        self.assertNotIn("Upgrade from:", self.record())
+
+    def test_an_unknown_upgrade_from_exits_one(self):
+        config = dict(CONFIG, upgrade_from="v0.1.0")
+        (self.repo / "dev" / "regression.json").write_text(json.dumps(config))
+        git(self.repo, "commit", "-q", "-am", "bad")
+        r = self.run_regression(sha=git(self.repo, "rev-parse", "HEAD"))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("upgrade_from", r.stderr)
+
+    def test_a_bad_base_exits_one(self):
+        r = self.run_regression("--base", "v0.3.0")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("--base must be 40", r.stderr)
+
     def test_bad_sha_exits_one(self):
         done = subprocess.run(
             ["python3", str(REGRESSION), "not-a-sha", "--from-output", str(self.output),

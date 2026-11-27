@@ -13,10 +13,12 @@
 #                                        (never another branch: a branch can hold contributor commits).
 #                                        Each image holds only its own tools.
 #   dev/sandbox run <repo> <sha> [--out DIR] [--steps tests,rig,script] [--script FILE]
-#                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO]
+#                  [--harness develop|pr] [--timeout SECONDS] [--from LOCAL_REPO] [--base SHA]
 #                                        run commit <sha> (40 hex) of <repo> (owner/name); with
 #                                        --harness develop (the default) the profile's image is
-#                                        built again first when its dev/ is not develop's
+#                                        built again first when its dev/ is not develop's; --base
+#                                        gives the script step a second commit of the same
+#                                        repository (the release an upgrade starts from)
 #   dev/sandbox dev start [--repo OWNER/NAME] [--ttl SECONDS] [--wait SECONDS]
 #                                        a session for Sceny's own tree (default sceny/omarchy-devices): a container of
 #                                        that repository's profile, kept until `dev stop` or its TTL; with every rig
@@ -45,7 +47,8 @@
 #   * No network (--network none): no internet, no LAN, no host loopback, no
 #     host session bus, Wayland, PipeWire, adb or KDE Connect.
 #   * The commit enters as `git archive` of the exact sha. Anything but 40 hex
-#     digits that names a commit is refused. The checks come from develop's
+#     digits that names a commit is refused. --base SHA enters the same way, as
+#     a second read-only tar the script step unpacks beside the commit. The checks come from develop's
 #     dev/ inside the image (--harness pr keeps the commit's own). The image
 #     carries the git tree of the dev/ it was built from; when that is not
 #     develop's, the run builds the image again before it starts, and a build
@@ -612,6 +615,8 @@ run_unit() {
   local seccomp=() rig=() held=0
   ((UNIT_NO_USERNS == 1)) && seccomp=(--security-opt "seccomp=$SB_RUN_DIR/seccomp.json")
   local mounts=(--mount "type=bind,src=$SB_RUN_DIR/src.tar,dst=/in/src.tar,ro")
+  [[ -f $SB_RUN_DIR/base.tar ]] &&
+    mounts+=(--mount "type=bind,src=$SB_RUN_DIR/base.tar,dst=/in/base.tar,ro")
   [[ -f $SB_RUN_DIR/script.sh ]] &&
     mounts+=(--mount "type=bind,src=$SB_RUN_DIR/script.sh,dst=/in/script.sh,ro")
   if ((${#devices[@]} > 0)); then
@@ -652,6 +657,7 @@ run_unit() {
       "${mounts[@]}" \
       --env HOME=/home/sandbox --env LANG=C.UTF-8 --env TERM=dumb \
       --env "SANDBOX_UNIT=$unit" --env "SANDBOX_REPO=$SB_RUN_REPO" --env "SANDBOX_HARNESS=$SB_HARNESS" --env "SANDBOX_SHA=$SB_SHA" \
+      --env "SANDBOX_BASE_SHA=$SB_BASE_SHA" \
       --workdir /work \
       "$SB_RUN_IMAGE" bash -c '/opt/harness/dev/sandbox.d/inside.sh >&2; status=$?; tar -C /out -cf - .; exit $status' \
       2>&1 1>&4 | python3 "$SB_DIR/sandbox.d/filter-stderr.py" >&2
@@ -766,11 +772,11 @@ units_of_step() { # <repo> <step>
 # Beside the verdict, what gave it: the image's labels (its harness), this
 # script's own commit, and the develop the harness check compared (none for
 # --harness pr), so a run from a stale checkout or image reads as one.
-write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file> <image> <labels json> <script commit> <dev/ modified> <develop> <GitHub's develop> <tree>
+write_verdict() { # <out> <repo> <sha> <steps> <harness> <seconds> <timeout> <rows file> <image> <labels json> <script commit> <dev/ modified> <develop> <GitHub's develop> <tree> <base>
   python3 - "$@" <<'PY'
 import json, os, sys
 (out, repo, sha, steps, harness, secs, timeout, rows_file,
- image, labels, script_commit, script_modified, develop, gh_develop, tree) = sys.argv[1:]
+ image, labels, script_commit, script_modified, develop, gh_develop, tree, base) = sys.argv[1:]
 try:
     labels = json.loads(labels)
 except ValueError:
@@ -786,7 +792,7 @@ with open(os.path.join(out, 'results.tsv'), 'w') as f:
         f.write(f"{r['step']}\t{r['exit']}\t{r['seconds']}\n")
 oom = any(r['oom_killed'] for r in rows)
 summary = {
-    'repo': repo, 'sha': sha, 'steps': steps.split(','), 'harness': harness,
+    'repo': repo, 'sha': sha, 'base': base or None, 'steps': steps.split(','), 'harness': harness,
     'oom_killed': oom, 'seconds': int(secs), 'timeout': int(timeout),
     'timed_out': any(r['timed_out'] for r in rows) or int(secs) >= int(timeout),
     'results': rows,
@@ -816,7 +822,7 @@ out_in_git() {
 }
 
 cmd_run() {
-  local repo="" sha="" out="" steps=tests,rig script="" harness=develop timeout=$SB_TIMEOUT from=""
+  local repo="" sha="" out="" steps=tests,rig script="" harness=develop timeout=$SB_TIMEOUT from="" base=""
   while (($#)); do
     case $1 in
     --out)
@@ -843,6 +849,10 @@ cmd_run() {
       from=${2:?--from needs a local repository}
       shift
       ;;
+    --base)
+      base=${2:?--base needs a sha}
+      shift
+      ;;
     -*) die "run: unknown option $1" ;;
     *)
       if [[ -z $repo ]]; then
@@ -859,6 +869,7 @@ cmd_run() {
   [[ -n $repo && -n $sha ]] || die "run: usage: dev/sandbox run <owner/name> <40-hex sha> [options]"
   valid_repo "$repo" || die "run: $repo is not a repository this sandbox runs (${SB_REPOS[*]})"
   [[ $sha =~ ^[0-9a-f]{40}$ ]] || die "run: the commit must be a full 40-hex sha, not a branch, tag or short sha"
+  [[ -z $base || $base =~ ^[0-9a-f]{40}$ ]] || die "run: --base must be a full 40-hex sha, not a branch, tag or short sha"
   [[ $harness == develop || $harness == pr ]] || die "run: --harness is develop or pr"
   [[ $timeout =~ ^[0-9]+$ ]] && ((timeout >= 30)) || die "run: --timeout is whole seconds, at least 30"
   [[ $steps =~ ^(tests|rig|script)(,(tests|rig|script))*$ ]] || die "run: --steps is a list of tests, rig, script"
@@ -911,7 +922,7 @@ cmd_run() {
   [[ ! -e $out || -z $(ls -A "$out" 2>/dev/null) ]] || die "run: $out exists and is not empty"
   out_in_git "$out" && die "run: $out is inside a git repository (or is one); results go in a directory git does not manage"
   SB_RUN_DIR="$SB_STATE/runs/$id"
-  SB_HARNESS=$harness SB_SHA=$sha SB_RUN_REPO=$repo
+  SB_HARNESS=$harness SB_SHA=$sha SB_BASE_SHA=$base SB_RUN_REPO=$repo
   trap 'run_cleanup' EXIT
   trap 'run_cleanup; exit 130' INT TERM HUP
   store_lock_acquire
@@ -927,6 +938,7 @@ cmd_run() {
   script_commit=$(git -C "$SB_REPO_ROOT" rev-parse -q --verify HEAD 2>/dev/null)
   [[ -n $(git -C "$SB_REPO_ROOT" status --porcelain -- dev 2>/dev/null) ]] && script_modified=true
   make_archive "$repo" "$sha" "$from" "$SB_RUN_DIR/src.tar"
+  [[ -z $base ]] || make_archive "$repo" "$base" "$from" "$SB_RUN_DIR/base.tar"
   make_seccomp
   [[ -n $script ]] && install -m 0444 "$script" "$SB_RUN_DIR/script.sh"
 
@@ -961,7 +973,7 @@ cmd_run() {
   done
 
   write_verdict "$out" "$repo" "$sha" "$steps" "$harness" "$((SECONDS - started))" "$timeout" "$SB_RUN_DIR/rows.tsv" \
-    "$SB_RUN_IMAGE" "$labels" "$script_commit" "$script_modified" "$SB_CHECK_DEVELOP" "$SB_GH_DEVELOP" "$SB_CHECK_TREE"
+    "$SB_RUN_IMAGE" "$labels" "$script_commit" "$script_modified" "$SB_CHECK_DEVELOP" "$SB_GH_DEVELOP" "$SB_CHECK_TREE" "$base"
   local verdict=$?
   run_cleanup
   trap - EXIT INT TERM HUP

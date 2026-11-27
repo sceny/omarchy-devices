@@ -85,6 +85,11 @@ class Refusals(unittest.TestCase):
     def test_unknown_option(self):
         self.refused(REPO, GOOD_SHA, "--privileged", message="unknown option")
 
+    def test_the_base_is_only_a_full_lowercase_sha(self):
+        for ref in ("v0.3.0", "main", "a" * 7, "A" * 40, "a" * 41, "$(id)"):
+            with self.subTest(ref=ref):
+                self.refused(REPO, GOOD_SHA, "--base", ref, message="--base must be a full 40-hex sha")
+
     def test_a_third_argument(self):
         self.refused(REPO, GOOD_SHA, "extra", message="unexpected argument")
 
@@ -232,10 +237,13 @@ class Isolation(unittest.TestCase):
 
     def test_the_container_is_given_only_its_own_variables(self):
         env = re.findall(r'--env "?([A-Z_]+)=', self.run_cmd)
-        self.assertEqual(sorted(env), ["HOME", "LANG", "SANDBOX_HARNESS", "SANDBOX_REPO", "SANDBOX_SHA", "SANDBOX_UNIT", "TERM"])
+        self.assertEqual(sorted(env), ["HOME", "LANG", "SANDBOX_BASE_SHA", "SANDBOX_HARNESS", "SANDBOX_REPO", "SANDBOX_SHA", "SANDBOX_UNIT", "TERM"])
 
     def test_the_commit_enters_as_an_archive(self):
         self.assertIn("archive --format=tar", self.script)
+        # the base is a second archive of the same repository, read-only, never a checkout
+        self.assertIn('make_archive "$repo" "$base" "$from" "$SB_RUN_DIR/base.tar"', self.script)
+        self.assertIn('src=$SB_RUN_DIR/base.tar,dst=/in/base.tar,ro', self.script)
         self.assertNotIn("git clone", self.script)
         self.assertNotIn("git checkout", self.script)
 
@@ -2188,7 +2196,8 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
 
     def test_the_summary_says_which_image_script_and_develop_gave_the_verdict(self):
         labels = json.dumps({"org.sceny.sandbox.harness": "b" * 40, "org.sceny.sandbox.harness.tree": "c" * 40, "maintainer": "x"})
-        s = self.verdict("develop", "img:current", labels, "d" * 40, "true", "e" * 40, "f" * 40, "c" * 40)
+        s = self.verdict("develop", "img:current", labels, "d" * 40, "true", "e" * 40, "f" * 40, "c" * 40, "a1" * 20)
+        self.assertEqual(s["base"], "a1" * 20)
         self.assertEqual(s["image"], {"name": "img:current", "labels": {
             "org.sceny.sandbox.harness": "b" * 40, "org.sceny.sandbox.harness.tree": "c" * 40}})
         self.assertEqual(s["script"], {"commit": "d" * 40, "dev_modified": True})
@@ -2196,7 +2205,8 @@ class DevelopRunsGetDevelopsHarness(unittest.TestCase):
         self.assertTrue(s["passed"])
 
     def test_a_pr_runs_summary_has_no_harness_check_and_bad_labels_read_as_none(self):
-        s = self.verdict("pr", "img:current", "not json", "d" * 40, "false", "", "", "")
+        s = self.verdict("pr", "img:current", "not json", "d" * 40, "false", "", "", "", "")
+        self.assertIsNone(s["base"])
         self.assertIsNone(s["harness_check"])
         self.assertIsNone(s["image"]["labels"])
         self.assertFalse(s["script"]["dev_modified"])
