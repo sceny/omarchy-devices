@@ -229,7 +229,8 @@ another plugin's), `dev exec -- bash test/run_all.sh`, `dev rig selftest`,
 `dev up`. Its rig has no `record` verb.
 
 ```bash
-dev/sandbox dev start [--ttl 3600]                 # prints the session id; at most two at once
+dev/sandbox dev start [--ttl 3600] [--wait 900]     # prints the session id; at most two rigs at once (runs' included):
+                                                   # full, it fails at once, or with --wait queues for a slot
 dev/sandbox dev sync                               # the tree in (after every edit)
 dev/sandbox dev up                                 # the rig, once per session
 dev/sandbox dev rig sync                           # dev/rig verbs inside: sync, ipc, phone, check ...

@@ -290,8 +290,11 @@ class DevSession(unittest.TestCase):
     def setUpClass(cls):
         with open(SANDBOX) as f:
             cls.script = f.read()
-        start = cls.script.index("dev_start() {")
-        cls.start = cls.script[start : cls.script.index("\n}\n", start)]
+        # The session's podman line and the devices it gets from dev_devices.
+        cls.start = "".join(
+            cls.script[at : cls.script.index("\n}\n", at)]
+            for at in (cls.script.index("dev_devices() {"), cls.script.index("dev_start() {"))
+        )
 
     def test_the_session_has_every_flag_a_run_has(self):
         for flag in ("--network none", "--no-hosts", "--uidmap 0:1:65536", "--gidmap 0:1:65536", "--user 1000:1000", "--read-only",
@@ -313,8 +316,9 @@ class DevSession(unittest.TestCase):
 
     def test_the_session_has_the_two_devices_the_rig_needs(self):
         self.assertEqual(re.findall(r'--device (?:/dev/kvm|"\$node")', self.start), ["--device /dev/kvm", '--device "$node"'])
-        self.assertIn("devices=(--device /dev/kvm)", self.start)
-        self.assertIn("if [[ $profile == devices ]]", self.start)
+        self.assertIn("devices+=(--device /dev/kvm)", self.start)
+        self.assertIn("if [[ $1 == devices ]]", self.start)
+        self.assertIn('dev_devices "$profile"', self.start)
         self.assertIn("$node == /dev/dri/renderD*", self.start)
         self.assertNotIn("/dev/dri/card", self.start)
 
@@ -374,6 +378,94 @@ class DevSession(unittest.TestCase):
 
 
 CONTAINERFILE = os.path.join(ROOT, "dev", "sandbox.d", "Containerfile")
+
+
+class DevStartWait(unittest.TestCase):
+    """`dev start` with every rig slot held: at once it fails, with --wait it queues.
+
+    The script is sourced and run with podman, the host's devices and the
+    15 s poll replaced: `sleep` either ends one held session (a slot frees)
+    or only moves the clock on (none does)."""
+
+    HARNESS = r"""
+source "$SANDBOX" help >/dev/null
+require_tools() { :; }
+slice_check() { :; }
+pins_check() { return 0; }
+dev_devices() { devices+=(--device /dev/dri/renderD128); }
+pm() {
+  local held; held=$(<"$WORK/held")
+  case "$1 $2" in
+  "image exists") return 0 ;;
+  "run -d") echo "run $*" >>"$WORK/log"; return 0 ;;
+  esac
+  if [[ $1 == ps && "$*" == *"=1"* ]]; then
+    local i; for ((i = 1; i <= held; i++)); do echo "sceny-sandbox-dev-held000$i"; done
+  fi
+  return 0
+}
+sleep() {
+  echo "sleep $*" >>"$WORK/log"
+  if [[ $FREES == 1 ]]; then echo $(($(<"$WORK/held") - 1)) >"$WORK/held"; else SECONDS=$((SECONDS + $1)); fi
+}
+dev_start "$@"
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.work = self.tmp.name
+        open(os.path.join(self.work, "log"), "w").close()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def start(self, held, frees, *args):
+        with open(os.path.join(self.work, "held"), "w") as f:
+            f.write(f"{held}\n")
+        env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": self.work, "SANDBOX": SANDBOX, "WORK": self.work,
+               "FREES": "1" if frees else "0", "SANDBOX_STATE": os.path.join(self.work, "state"), "SANDBOX_DEV_MAX": "2"}
+        os.makedirs(env["SANDBOX_STATE"], exist_ok=True)
+        r = subprocess.run(["bash", "-c", self.HARNESS, "harness", "--repo", REPO, *args],
+                           capture_output=True, text=True, timeout=60, env=env)
+        with open(os.path.join(self.work, "log")) as f:
+            log = f.read().splitlines()
+        return r, [line for line in log if line.startswith("sleep")], [line for line in log if line.startswith("run")]
+
+    def test_a_free_slot_starts_at_once(self):
+        r, sleeps, runs = self.start(1, False)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual((sleeps, len(runs)), ([], 1))
+        self.assertRegex(r.stdout, r"^[0-9a-f]{8}\n$")
+
+    def test_without_wait_a_full_rig_fails_at_once(self):
+        r, sleeps, runs = self.start(2, True)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("2 rigs are running already", r.stderr)
+        self.assertNotIn("no slot freed", r.stderr)
+        self.assertEqual((sleeps, runs), ([], []))
+
+    def test_with_wait_it_queues_and_starts_when_a_slot_frees(self):
+        r, sleeps, runs = self.start(3, True, "--wait", "600")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(sleeps, ["sleep 15", "sleep 15"], "two sessions end before a slot is free")
+        self.assertEqual(r.stderr.count("waiting for a rig slot"), 2)
+        self.assertEqual(len(runs), 1)
+        self.assertRegex(r.stdout, r"^[0-9a-f]{8}\n$")
+
+    def test_with_wait_it_fails_when_no_slot_frees_in_time(self):
+        r, sleeps, runs = self.start(2, False, "--wait", "40")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no slot freed within 40 s", r.stderr)
+        self.assertEqual(len(sleeps), 3, "15 s polls until the 40 s are spent")
+        self.assertEqual(runs, [])
+
+    def test_wait_is_whole_seconds_within_the_ttl_cap(self):
+        for value in ("-1", "1.5", "soon", "14401"):
+            with self.subTest(value=value):
+                r, sleeps, runs = self.start(0, False, "--wait", value)
+                self.assertEqual(r.returncode, 2)
+                self.assertIn("--wait is 0 to 14400 seconds", r.stderr)
+                self.assertEqual(runs, [])
 
 
 class Profiles(unittest.TestCase):

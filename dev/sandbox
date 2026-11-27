@@ -17,9 +17,10 @@
 #                                        run commit <sha> (40 hex) of <repo> (owner/name); with
 #                                        --harness develop (the default) the profile's image is
 #                                        built again first when its dev/ is not develop's
-#   dev/sandbox dev start [--repo OWNER/NAME] [--ttl SECONDS]
+#   dev/sandbox dev start [--repo OWNER/NAME] [--ttl SECONDS] [--wait SECONDS]
 #                                        a session for Sceny's own tree (default sceny/omarchy-devices): a container of
-#                                        that repository's profile, kept until `dev stop` or its TTL
+#                                        that repository's profile, kept until `dev stop` or its TTL; with every rig
+#                                        slot held it fails at once, or with --wait queues for a slot up to SECONDS
 #   dev/sandbox dev [--session ID] [--timeout S] sync | up | rig ARGS | shot NAME | record NAME SECONDS FPS [-- CMD]
 #                  | exec -- CMD | pull [--out DIR] [--keep-frames] | status | stop
 #                                        sync streams the tracked files in, up/rig drive dev/rig inside, pull brings
@@ -1163,12 +1164,33 @@ dev_exec() {
   return "${PIPESTATUS[0]}"
 }
 
+# Adds to the caller's devices array: what the profile's rig needs from the host.
+# The emulator needs /dev/kvm; Paperclip's rig has none. Both need a render node.
+dev_devices() { # <profile>
+  if [[ $1 == devices ]]; then
+    [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
+      die "dev start: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
+    devices+=(--device /dev/kvm)
+  fi
+  local node=${SANDBOX_RENDER_NODE:-}
+  if [[ -z $node ]]; then
+    for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
+  fi
+  [[ -c $node && $node == /dev/dri/renderD* ]] ||
+    die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
+  devices+=(--device "$node")
+}
+
 dev_start() {
-  local ttl=7200 id repo=sceny/omarchy-devices profile
+  local ttl=7200 wait=0 id repo=sceny/omarchy-devices profile
   while (($#)); do
     case $1 in
     --ttl)
       ttl=${2:?--ttl needs seconds}
+      shift
+      ;;
+    --wait)
+      wait=${2:?--wait needs seconds}
       shift
       ;;
     --repo)
@@ -1180,29 +1202,19 @@ dev_start() {
     shift
   done
   [[ $ttl =~ ^[0-9]+$ ]] && ((ttl >= 60 && ttl <= SB_DEV_TTL_MAX)) || die "dev start: --ttl is 60 to $SB_DEV_TTL_MAX seconds"
+  [[ $wait =~ ^[0-9]+$ ]] && ((wait <= SB_DEV_TTL_MAX)) || die "dev start: --wait is 0 to $SB_DEV_TTL_MAX seconds"
   valid_repo "$repo" || die "dev start: $repo is not a repository this sandbox runs (${SB_REPOS[*]})"
   require_tools
   slice_check
   profile=$(profile_of "$repo")
   pm image exists "$(image_of "$profile")" || die "dev start: no $profile image; run 'dev/sandbox build --profile $profile' first"
-  # The emulator needs /dev/kvm; Paperclip's rig has none.
   local devices=()
-  if [[ $profile == devices ]]; then
-    [[ -c /dev/kvm && -r /dev/kvm && -w /dev/kvm ]] ||
-      die "dev start: /dev/kvm is not usable by this user (the emulator needs it; group kvm)"
-    devices=(--device /dev/kvm)
-  fi
-  local node=${SANDBOX_RENDER_NODE:-}
-  if [[ -z $node ]]; then
-    for node in /dev/dri/renderD*; do [[ -c $node ]] && break; done
-  fi
-  [[ -c $node && $node == /dev/dri/renderD* ]] ||
-    die "dev start: the rig's display needs a GPU render node (/dev/dri/renderD*) and there is none; set SANDBOX_RENDER_NODE"
+  dev_devices "$profile"
   pins_check "$profile" || die "dev start: the $profile image is behind this machine"
-  rig_lock
-  (($(rig_running) < SB_DEV_MAX)) || die "dev start: $SB_DEV_MAX rigs are running already (SANDBOX_DEV_MAX); stop a session (dev/sandbox dev status)"
+  # The same queue as a run's rig: --wait 0 (the default) looks once.
+  rig_wait "$wait" ||
+    die "dev start: $SB_DEV_MAX rigs are running already (SANDBOX_DEV_MAX)$( ((wait > 0)) && printf ' and no slot freed within %s s' "$wait"); stop a session (dev/sandbox dev status)"
   id=$(new_id)
-  devices+=(--device "$node")
   step "session $id ($profile): no network, no home, no credentials, no host socket; $SB_MEMORY, $SB_CPUS cpus, ${ttl}s; devices ${devices[*]//--device /}"
   # The wall-clock end: conmon's --timeout below stops counting while the machine sleeps (dev_expire).
   pm run -d --rm --name "sceny-sandbox-dev-$id" --label "$SB_LABEL=$id" --label "$SB_DEV_LABEL=1" --label "$SB_RIG_LABEL=1" --label "$SB_PROFILE_LABEL=$profile" \
