@@ -336,6 +336,7 @@ class DevelopNotice(unittest.TestCase):
                 ran = handle.read().splitlines()
             self.assertEqual(len(ran), 1, ran)
             self.assertTrue(ran[0].startswith("issue create "), ran)
+            self.call = ran[0]
             with open(seen_env) as handle:
                 names = {line.split("=", 1)[0] for line in handle.read().splitlines() if "=" in line}
             leaked = {name for name in names if name.startswith(("BASH_FUNC_", "GH_", "GITHUB_"))
@@ -386,6 +387,21 @@ class DevelopNotice(unittest.TestCase):
             self.assertNotIn(secret, body)
         self.assertIn("FAIL public-text-environment [home-path] https://example.test/c/1", body)
         self.assertIn("problem(s) in the public text", body)
+
+    def test_a_run_that_ran_out_of_time_says_so_and_never_says_the_text_failed(self):
+        out = ("public-text-check: out of time: the time limit of 240 s passed with 3 of 9 pull requests read; "
+               "the text is not checked. Run the job again.\n")
+        body = self.body(out)
+        self.assertIn("--title public-text ran out of time on develop ", self.call)
+        self.assertIn("ran out of time on a push to `develop`, so the text was not checked", body)
+        self.assertIn("Run the job again from the run above.", body)
+        self.assertNotIn("Edit the text that failed", body)
+        self.assertNotIn("failed on develop", self.call)
+
+    def test_a_failing_text_still_opens_the_text_failed_notice(self):
+        body = self.body("FAIL public-text-environment [home-path] https://example.test/c/1\n")
+        self.assertIn("--title public-text failed on develop ", self.call)
+        self.assertIn("Edit the text that failed, or record here why it stays.", body)
 
 
 GOOD = """\
