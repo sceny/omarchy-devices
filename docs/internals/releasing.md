@@ -427,7 +427,11 @@ included); or names another repository's issue so that GitHub does not link it
 URL, the check and the rule. In CI the run log does not print the matched words,
 since a log is public; `dev/public-text-check --pr N` run locally prints them. The
 author or reviewer edits the text and the check runs again on the edit. Every run reads all the pull request's text
-through the API, so a plain comment is read on the next run of any event. A pull
+through the API, so a plain comment is read on the next run of any event. An
+issue is public text on the same rules: its title, body and comments are read
+when it is opened or edited and when a comment on it is written
+(`dev/public-text-check --issue N` reads one by hand); like a comment's, an
+issue's run takes effect only once `main` carries the workflow. A pull
 request about a tool may name it (`allowed_when_changed`); a pull request that
 changes the rules may quote their words (`quoted`) in its body and commits only,
 never in a review or a comment; a pattern that
